@@ -52,7 +52,7 @@ EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzd
 Application Android native de coordination de visites hospitalières.
 Nom : AvecToi | Baseline : "Parce qu'être présent, ça s'organise"
 Développeur : HCS — Hybrid Consulting Systems (Guillaume Frey)
-Repo GitHub : https://github.com/EI-HCS-Consulting/Planning-Visites-Maman
+Repo GitHub : https://github.com/EI-HCS-Consulting/AvecToi
 
 ## POINT CRITIQUE — Modèle reader app (conformité Play Store)
 L'app est "consumption-only" : elle NE VEND RIEN en son sein.
@@ -119,6 +119,6 @@ Ce modèle est explicitement autorisé par Google Play et évite toute commissio
 - App web de référence : https://planning-visites-maman.vercel.app
 - Supabase dashboard : https://supabase.com/dashboard/project/flmslcdzjuifkivmzins
 - Vercel : https://vercel.com/ei-hcs-consultings-projects/planning-visites-maman
-- GitHub : https://github.com/EI-HCS-Consulting/Planning-Visites-Maman
+- GitHub : https://github.com/EI-HCS-Consulting/AvecToi
 ```
 

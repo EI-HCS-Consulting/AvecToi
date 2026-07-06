@@ -1,7 +1,7 @@
 # Handoff Claude Code — Migration Auth Supabase + UX confirmation
 
 ## Contexte
-Repo `Planning-Visites-Maman`, branche à créer : `feat/auth-migration`
+Repo `AvecToi`, branche à créer : `feat/auth-migration`
 Supabase projet `flmslcdzjuifkivmzins`
 
 ⚠️ **La version web existante `planning-visites-maman.vercel.app` (PWA de base, MVP historique) ne doit JAMAIS être supprimée ni mise à jour avec les changements de cette migration.** Elle reste figée en l'état. Toute modification cible uniquement l'app Expo et le futur site `avectoi.care`.
