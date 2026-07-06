@@ -16,7 +16,7 @@
 | React | 19.1.0 |
 | Version app | 1.0.0 (versionCode 1) |
 | Navigation | Expo Router ~6.0 |
-| Branche active | `feature/expo-setup` |
+| Branche active | `main` |
 
 ---
 
@@ -104,9 +104,9 @@ Configurées via `eas env:create` pour les 3 environnements (`development`, `pre
 
 | Champ | Valeur |
 |---|---|
-| Repo | https://github.com/EI-HCS-Consulting/Planning-Visites-Maman |
+| Repo | https://github.com/EI-HCS-Consulting/AvecToi |
 | Branche principale | `main` |
-| Branche en cours | `feature/expo-setup` |
+| Branche en cours | `main` |
 
 **Commits V1 (tâches complétées)**
 
