@@ -1073,7 +1073,7 @@ const styles = StyleSheet.create({
   headerTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18 },
 
   catTabsBar: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", paddingHorizontal: 10, paddingVertical: 10, gap: 8, borderBottomWidth: 1 },
-  catTab: { borderWidth: 1, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5 },
+  catTab: { width: "47%", borderWidth: 1, borderRadius: 10, paddingVertical: 9, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5 },
   catTabIcon: { fontSize: 14 },
   catTabLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
 
