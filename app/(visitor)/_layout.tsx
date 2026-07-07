@@ -123,7 +123,7 @@ function VisitorTabs() {
             <Text style={consentStyles.emoji}>👥</Text>
             <Text style={[consentStyles.title, { color: "#fff" }]}>Avant de continuer</Text>
             <Text style={[consentStyles.body, { color: C.muted }]}>
-              Votre prénom et votre nom seront visibles par les autres personnes qui consultent ce planning.
+              Ton prénom et ton nom seront visibles par les autres personnes qui consultent ce planning.
             </Text>
             <TouchableOpacity
               style={[consentStyles.btn, { backgroundColor: C.accent }]}
