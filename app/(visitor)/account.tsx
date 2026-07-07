@@ -23,7 +23,7 @@ function supportPhotoUrl(spaceId: string, filename: string) {
 }
 
 const CAT_ICONS: Record<Task["category"], string> = {
-  repas: "🍽️", affaires: "🧳", courses: "🛒", autre: "📌",
+  repas: "🍽️", affaires: "🧳", courses: "🛒", transport: "🚗", administratif: "🗂️", autre: "📌",
 };
 
 type AccountSectionKey = "info" | "pin" | "resv" | "souvenirs" | "news" | "soutien" | "besoins";

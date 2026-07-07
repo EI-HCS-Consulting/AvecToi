@@ -32,6 +32,8 @@ const CATEGORY_ICONS: Record<TaskCategory, string> = {
   repas: "🍽️",
   affaires: "👕",
   courses: "🛒",
+  transport: "🚗",
+  administratif: "🗂️",
   autre: "💡",
 };
 
@@ -39,6 +41,8 @@ const CATEGORY_LABELS: Record<TaskCategory, string> = {
   repas: "Repas",
   affaires: "Affaires",
   courses: "Courses",
+  transport: "Transport",
+  administratif: "Administratif",
   autre: "Autre",
 };
 
@@ -602,17 +606,6 @@ export default function Entraide({ spaceId, C, isAdmin }: Props) {
       </View>
 
       <View style={[styles.catTabsBar, { backgroundColor: C.card, borderBottomColor: C.border }]}>
-        <TouchableOpacity
-          style={[
-            styles.catTab,
-            { backgroundColor: activeCat === null ? C.accent : "transparent", borderColor: activeCat === null ? C.accent : C.border },
-          ]}
-          onPress={() => setActiveCat(null)}
-          activeOpacity={0.75}
-        >
-          <Text style={styles.catTabIcon}>📋</Text>
-          <Text style={[styles.catTabLabel, { color: activeCat === null ? "#fff" : C.text }]}>Tous</Text>
-        </TouchableOpacity>
         {(Object.keys(CATEGORY_ICONS) as TaskCategory[]).map((cat) => (
           <TouchableOpacity
             key={cat}
@@ -627,6 +620,19 @@ export default function Entraide({ spaceId, C, isAdmin }: Props) {
             <Text style={[styles.catTabLabel, { color: activeCat === cat ? "#fff" : C.text }]}>{CATEGORY_LABELS[cat]}</Text>
           </TouchableOpacity>
         ))}
+        {/* "Tous" en dernier — seul sur sa ligne, centré (6 catégories sur 2
+            lignes de 3 juste au-dessus). */}
+        <TouchableOpacity
+          style={[
+            styles.catTab,
+            { backgroundColor: activeCat === null ? C.accent : "transparent", borderColor: activeCat === null ? C.accent : C.border },
+          ]}
+          onPress={() => setActiveCat(null)}
+          activeOpacity={0.75}
+        >
+          <Text style={styles.catTabIcon}>📋</Text>
+          <Text style={[styles.catTabLabel, { color: activeCat === null ? "#fff" : C.text }]}>Tous</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={[styles.sectionBar, { borderBottomColor: C.border }]}>
@@ -1073,9 +1079,9 @@ const styles = StyleSheet.create({
   headerTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18 },
 
   catTabsBar: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", paddingHorizontal: 10, paddingVertical: 10, gap: 8, borderBottomWidth: 1 },
-  catTab: { width: "47%", borderWidth: 1, borderRadius: 10, paddingVertical: 9, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5 },
-  catTabIcon: { fontSize: 14 },
-  catTabLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
+  catTab: { width: "31%", borderWidth: 1, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 4, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 },
+  catTabIcon: { fontSize: 13 },
+  catTabLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, textAlign: "center" },
 
   sectionBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1 },
   sectionCount: { fontFamily: "DM_Sans_400Regular", fontSize: 12 },
