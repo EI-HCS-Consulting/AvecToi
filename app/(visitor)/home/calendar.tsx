@@ -17,6 +17,7 @@ export default function VisitorCalendarScreen() {
   const { space, slotConfig, slots, reservations, selectedDay, setSelectedDay, setPendingBookingSlot } = useVisitorSpace();
   const router = useRouter();
   const [nextDispoModal, setNextDispoModal] = useState<{ date: Date; iso: string; slot: string } | null>(null);
+  const [blockedDayModal, setBlockedDayModal] = useState<Date | null>(null);
 
   const C = themes[space?.theme ?? "blue"];
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
@@ -141,8 +142,7 @@ export default function VisitorCalendarScreen() {
                 ]}
                 onPress={() => {
                   if (isBlocked) {
-                    const label = day.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-                    Alert.alert("Jour non disponible", `Aucune visite n'est possible le ${label}.`);
+                    setBlockedDayModal(day);
                     return;
                   }
                   setSelectedDay(day);
@@ -210,6 +210,28 @@ export default function VisitorCalendarScreen() {
                 <Text style={styles.modalBtnPrimaryText}>✓ Réserver</Text>
               </TouchableOpacity>
             </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── MODAL JOUR NON DISPONIBLE ───────────────────────────────────────── */}
+      <Modal transparent visible={!!blockedDayModal} animationType="fade" onRequestClose={() => setBlockedDayModal(null)}>
+        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setBlockedDayModal(null)}>
+          <TouchableOpacity activeOpacity={1} style={[styles.modal, { backgroundColor: C.card, borderColor: C.border }]}>
+            <Text style={styles.modalEmoji}>🚫</Text>
+            <Text style={[styles.modalLabel, { color: C.gold }]}>Jour non disponible</Text>
+            <Text style={[styles.modalDate, { color: "#fff" }]}>
+              {blockedDayModal && blockedDayModal.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+            </Text>
+            <Text style={[styles.modalMeta, { color: C.muted, marginTop: 4 }]}>
+              Aucune visite n'est possible ce jour-là.
+            </Text>
+            <TouchableOpacity
+              style={[styles.modalBtnSecondary, { borderColor: C.border, width: "100%", marginTop: 16 }]}
+              onPress={() => setBlockedDayModal(null)}
+            >
+              <Text style={[styles.modalBtnSecondaryText, { color: C.muted }]}>Fermer</Text>
+            </TouchableOpacity>
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
