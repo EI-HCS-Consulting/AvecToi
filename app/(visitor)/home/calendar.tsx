@@ -226,8 +226,13 @@ export default function VisitorCalendarScreen() {
             <Text style={[styles.modalMeta, { color: C.muted, marginTop: 4 }]}>
               Aucune visite n'est possible ce jour-là.
             </Text>
+            {!!blockedDayModal && !!slotConfig.blocked_date_reasons?.[toISO(blockedDayModal)] && (
+              <Text style={[styles.modalMeta, { color: C.gold, marginTop: 8, fontStyle: "italic" }]}>
+                {slotConfig.blocked_date_reasons[toISO(blockedDayModal)]}
+              </Text>
+            )}
             <TouchableOpacity
-              style={[styles.modalBtnSecondary, { borderColor: C.border, width: "100%", marginTop: 16 }]}
+              style={[styles.modalBtnSecondary, { flex: 0, borderColor: C.border, width: "100%", marginTop: 16 }]}
               onPress={() => setBlockedDayModal(null)}
             >
               <Text style={[styles.modalBtnSecondaryText, { color: C.muted }]}>Fermer</Text>

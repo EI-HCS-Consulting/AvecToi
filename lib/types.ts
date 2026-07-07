@@ -54,6 +54,7 @@ export interface SlotConfig {
   night_end_hour: number;
   allowed_weekdays: number[];
   blocked_dates: string[];
+  blocked_date_reasons: Record<string, string>;
 }
 
 export interface Reservation {

@@ -305,6 +305,8 @@ export default function SettingsScreen() {
   const [maxVisitors, setMaxVisitors] = useState(2);
   const [allowedWeekdays, setAllowedWeekdays] = useState<number[]>([0,1,2,3,4,5,6]);
   const [blockedDates, setBlockedDates] = useState<string[]>([]);
+  const [blockedDateReasons, setBlockedDateReasons] = useState<Record<string, string>>({});
+  const [blockPickerReason, setBlockPickerReason] = useState("");
   const [slotRulesSaving, setSlotRulesSaving] = useState(false);
   useEffect(() => {
     if (slotConfig && !slotRulesInit.current) {
@@ -317,6 +319,7 @@ export default function SettingsScreen() {
       setMaxVisitors(slotConfig.max_visitors_per_slot);
       setAllowedWeekdays(slotConfig.allowed_weekdays ?? [0,1,2,3,4,5,6]);
       setBlockedDates(slotConfig.blocked_dates ?? []);
+      setBlockedDateReasons(slotConfig.blocked_date_reasons ?? {});
     }
   }, [slotConfig]);
 
@@ -597,9 +600,20 @@ export default function SettingsScreen() {
   }
 
   function toggleBlockedDate(iso: string) {
+    const isBlocked = blockedDates.includes(iso);
     setBlockedDates((prev) =>
-      prev.includes(iso) ? prev.filter((d) => d !== iso) : [...prev, iso].sort()
+      isBlocked ? prev.filter((d) => d !== iso) : [...prev, iso].sort()
     );
+    setBlockedDateReasons((prev) => {
+      const next = { ...prev };
+      if (isBlocked) {
+        delete next[iso];
+      } else if (blockPickerReason.trim()) {
+        next[iso] = blockPickerReason.trim();
+      }
+      return next;
+    });
+    if (!isBlocked) setBlockPickerReason("");
   }
 
   async function handleSaveSlotRules() {
@@ -625,6 +639,7 @@ export default function SettingsScreen() {
     const { error: e2 } = await supabase.from("slot_config").update({
       allowed_weekdays: allowedWeekdays,
       blocked_dates: blockedDates,
+      blocked_date_reasons: blockedDateReasons,
       gap_includes_duration: gapIncludesDuration,
     }).eq("id", slotConfig.id);
 
@@ -1570,14 +1585,15 @@ export default function SettingsScreen() {
                           style={[styles.blockedChip, { backgroundColor: "rgba(233,69,96,0.12)", borderColor: "rgba(233,69,96,0.4)" }]}
                         >
                           <Text style={[styles.blockedChipText, { color: "#e94560" }]}>
-                            {new Date(iso + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "short" })} ✕
+                            {new Date(iso + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "short" })}
+                            {blockedDateReasons[iso] ? ` — ${blockedDateReasons[iso]}` : ""} ✕
                           </Text>
                         </TouchableOpacity>
                       ))}
                     </View>
                   )}
                   <TouchableOpacity
-                    onPress={() => { setBlockPickerDate(new Date(new Date().getFullYear(), new Date().getMonth(), 1)); setBlockPickerVisible(true); }}
+                    onPress={() => { setBlockPickerDate(new Date(new Date().getFullYear(), new Date().getMonth(), 1)); setBlockPickerReason(""); setBlockPickerVisible(true); }}
                     style={[styles.saveNotesBtn, { backgroundColor: "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: C.border, marginTop: 4 }]}
                   >
                     <Text style={[styles.saveNotesBtnText, { color: C.muted }]}>+ Ajouter une date bloquée</Text>
@@ -1882,6 +1898,15 @@ export default function SettingsScreen() {
           <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setBlockPickerVisible(false)}>
             <TouchableOpacity activeOpacity={1}>
               <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.border }]}>
+                <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 0 }]}>Motif (optionnel)</Text>
+                <TextInput
+                  style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginBottom: 12 }]}
+                  placeholder="Ex : Jour férié, indisponibilité…"
+                  placeholderTextColor={C.muted}
+                  value={blockPickerReason}
+                  onChangeText={setBlockPickerReason}
+                />
+
                 {/* Navigation mois */}
                 <View style={styles.calNavRow}>
                   <TouchableOpacity
