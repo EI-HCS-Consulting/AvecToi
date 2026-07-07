@@ -93,6 +93,13 @@ export function isReservationDatePast(date: string): boolean {
   return d < today;
 }
 
+// Un créneau est définitivement passé dès que son jour est révolu, ou que
+// c'est aujourd'hui mais que son heure de début est déjà dépassée — dans
+// les deux cas, plus réservable ni modifiable.
+export function isSlotFullyPast(iso: string, slot: string): boolean {
+  return isReservationDatePast(iso) || isSlotPast(iso, slot);
+}
+
 export function getSlotOccupancy(
   reservations: Reservation[],
   iso: string,

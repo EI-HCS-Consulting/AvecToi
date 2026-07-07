@@ -17,6 +17,7 @@ export default function VisitorCalendarScreen() {
   const { space, slotConfig, slots, reservations, selectedDay, setSelectedDay, setPendingBookingSlot } = useVisitorSpace();
   const router = useRouter();
   const [nextDispoModal, setNextDispoModal] = useState<{ date: Date; iso: string; slot: string } | null>(null);
+  const [blockedDayModal, setBlockedDayModal] = useState<Date | null>(null);
 
   const C = themes[space?.theme ?? "blue"];
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
@@ -113,7 +114,14 @@ export default function VisitorCalendarScreen() {
             const status = getDayStatus(reservations, iso, day, slotConfig, slots, startDate);
             const isToday = toISO(day) === toISO(today);
             const isSelected = toISO(day) === toISO(selectedDay);
-            const isPast = iso < toISO(today) || status === "past";
+            // Un jour déjà passé reste consultable (lecture seule — la
+            // réservation/modification est de toute façon bloquée par
+            // BookingFlow) ; seul un jour structurellement invalide (avant le
+            // début de l'espace, hors jours autorisés, date bloquée par
+            // l'admin) reste non cliquable.
+            const isPast = iso < toISO(today);
+            const isBlocked = status === "past" && !isPast;
+            const dimmed = isPast || isBlocked;
 
             const dotColor =
               status === "full" ? C.danger :
@@ -126,20 +134,21 @@ export default function VisitorCalendarScreen() {
                 style={[
                   styles.cell,
                   {
-                    backgroundColor: isSelected ? C.accent : isPast ? "transparent" : C.card,
+                    backgroundColor: isSelected ? C.accent : dimmed ? "transparent" : C.card,
                     borderColor: isSelected ? C.accent : isToday ? C.gold : C.border,
                     borderWidth: isToday ? 2 : 1,
-                    opacity: isPast ? 0.3 : 1,
+                    opacity: dimmed ? 0.3 : 1,
                   },
                 ]}
                 onPress={() => {
-                  if (!isPast) {
-                    setSelectedDay(day);
-                    setCalMonth({ year: day.getFullYear(), month: day.getMonth() });
-                    router.navigate("/(visitor)/home/slots");
+                  if (isBlocked) {
+                    setBlockedDayModal(day);
+                    return;
                   }
+                  setSelectedDay(day);
+                  setCalMonth({ year: day.getFullYear(), month: day.getMonth() });
+                  router.navigate("/(visitor)/home/slots");
                 }}
-                disabled={isPast}
                 activeOpacity={0.7}
               >
                 <View style={styles.cellInner}>
@@ -201,6 +210,33 @@ export default function VisitorCalendarScreen() {
                 <Text style={styles.modalBtnPrimaryText}>✓ Réserver</Text>
               </TouchableOpacity>
             </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* ── MODAL JOUR NON DISPONIBLE ───────────────────────────────────────── */}
+      <Modal transparent visible={!!blockedDayModal} animationType="fade" onRequestClose={() => setBlockedDayModal(null)}>
+        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setBlockedDayModal(null)}>
+          <TouchableOpacity activeOpacity={1} style={[styles.modal, { backgroundColor: C.card, borderColor: C.border }]}>
+            <Text style={styles.modalEmoji}>🚫</Text>
+            <Text style={[styles.modalLabel, { color: C.gold }]}>Jour non disponible</Text>
+            <Text style={[styles.modalDate, { color: "#fff" }]}>
+              {blockedDayModal && blockedDayModal.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+            </Text>
+            <Text style={[styles.modalMeta, { color: C.muted, marginTop: 4 }]}>
+              Aucune visite n'est possible ce jour-là.
+            </Text>
+            {!!blockedDayModal && !!slotConfig.blocked_date_reasons?.[toISO(blockedDayModal)] && (
+              <Text style={[styles.modalMeta, { color: C.gold, marginTop: 8, fontStyle: "italic" }]}>
+                {slotConfig.blocked_date_reasons[toISO(blockedDayModal)]}
+              </Text>
+            )}
+            <TouchableOpacity
+              style={[styles.modalBtnSecondary, { flex: 0, borderColor: C.border, width: "100%", marginTop: 16 }]}
+              onPress={() => setBlockedDayModal(null)}
+            >
+              <Text style={[styles.modalBtnSecondaryText, { color: C.muted }]}>Fermer</Text>
+            </TouchableOpacity>
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
