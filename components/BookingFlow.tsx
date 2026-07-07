@@ -14,7 +14,7 @@ import { supabase } from "@/lib/supabase";
 import { getVisitorSession, saveVisitorSession, sessionPinMatches } from "@/lib/visitorSession";
 import PinPad from "@/components/PinPad";
 import MiniCalendar from "@/components/MiniCalendar";
-import { getSlotOccupancy, isSlotPast, isReservationDatePast, toISO, toFrLong, toFrShort, nightStartSlot, nightRangeLabel } from "@/lib/slotUtils";
+import { getSlotOccupancy, isReservationDatePast, toISO, toFrLong, toFrShort, nightStartSlot, nightRangeLabel } from "@/lib/slotUtils";
 import { isSpaceCapped } from "@/lib/freemiumCap";
 import type { Reservation, SlotConfig, PatientSpace } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
@@ -121,10 +121,6 @@ function BookingFlow(
   }
 
   function openBooking(iso: string, slot: string, prefill?: { prenom: string; nom: string }) {
-    if (type === "Visite" && isSlotPast(iso, slot)) {
-      showToast("Ce créneau est déjà passé.");
-      return;
-    }
     if (type === "Visite" && isSpaceCapped(space, reservations)) {
       Alert.alert(
         "Limite atteinte",
@@ -648,7 +644,7 @@ function BookingFlow(
                         {slots.map((slot) => {
                           const occ = getSlotOccupancy(reservations, editDate, slot, editModal?.id);
                           const full = occ.length >= slotConfig.max_visitors_per_slot;
-                          if (full || isSlotPast(editDate, slot)) return null;
+                          if (full) return null;
                           const isPartial = occ.length > 0;
                           const selected = editSlot === slot;
                           return (

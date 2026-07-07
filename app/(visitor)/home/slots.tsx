@@ -4,7 +4,7 @@ import { useVisitorSpace } from "@/lib/VisitorContext";
 import { getVisitorSession } from "@/lib/visitorSession";
 import SpaceHeader from "@/components/SpaceHeader";
 import BookingFlow, { type BookingFlowHandle } from "@/components/BookingFlow";
-import { getSlotOccupancy, getNightReservation, isSlotPast, isReservationDatePast, toISO, toFrLong, toFrShort, addDays, nightStartSlot, nightRangeLabel } from "@/lib/slotUtils";
+import { getSlotOccupancy, getNightReservation, isReservationDatePast, toISO, toFrLong, toFrShort, addDays, nightStartSlot, nightRangeLabel } from "@/lib/slotUtils";
 import { themes } from "@/lib/themes";
 import type { Reservation } from "@/lib/types";
 
@@ -84,13 +84,12 @@ export default function SlotsScreen() {
         {slots.map((slot) => {
           const occ = getSlotOccupancy(reservations, iso, slot);
           const full = occ.length >= slotConfig.max_visitors_per_slot;
-          const past = isSlotPast(iso, slot);
           const mine = occ.find(isMine);
 
           return (
             <View
               key={slot}
-              style={[styles.slotCard, { backgroundColor: C.card, borderColor: full ? "rgba(233,69,96,0.3)" : C.border, opacity: past ? 0.5 : 1 }]}
+              style={[styles.slotCard, { backgroundColor: C.card, borderColor: full ? "rgba(233,69,96,0.3)" : C.border }]}
             >
               <View style={styles.slotLeft}>
                 <Text style={[styles.slotTime, { color: C.gold }]}>{slot}</Text>
@@ -105,7 +104,7 @@ export default function SlotsScreen() {
                 }
               </View>
               <View style={styles.slotRight}>
-                {!full && !past && (
+                {!full && (
                   <TouchableOpacity
                     style={[styles.reserveBtn, { backgroundColor: C.accent }]}
                     onPress={() => flowRef.current?.openBooking(iso, slot)}
@@ -114,17 +113,12 @@ export default function SlotsScreen() {
                     <Text style={styles.reserveBtnText}>Réserver</Text>
                   </TouchableOpacity>
                 )}
-                {full && !past && (
+                {full && (
                   <View style={[styles.fullBadge, { borderColor: C.border }]}>
                     <Text style={[styles.fullBadgeText, { color: C.muted }]}>Complet</Text>
                   </View>
                 )}
-                {past && (
-                  <View style={[styles.fullBadge, { borderColor: C.border }]}>
-                    <Text style={[styles.fullBadgeText, { color: C.muted }]}>Passé</Text>
-                  </View>
-                )}
-                {mine && !past && (
+                {mine && (
                   <TouchableOpacity onPress={() => flowRef.current?.openPinModal(mine)} style={[styles.editBtn, { borderColor: C.border }]}>
                     <Text style={[styles.editBtnText, { color: C.muted }]}>Modifier</Text>
                   </TouchableOpacity>
