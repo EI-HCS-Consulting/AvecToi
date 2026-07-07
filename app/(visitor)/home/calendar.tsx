@@ -140,13 +140,15 @@ export default function VisitorCalendarScreen() {
                   },
                 ]}
                 onPress={() => {
-                  if (!isBlocked) {
-                    setSelectedDay(day);
-                    setCalMonth({ year: day.getFullYear(), month: day.getMonth() });
-                    router.navigate("/(visitor)/home/slots");
+                  if (isBlocked) {
+                    const label = day.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+                    Alert.alert("Jour non disponible", `Aucune visite n'est possible le ${label}.`);
+                    return;
                   }
+                  setSelectedDay(day);
+                  setCalMonth({ year: day.getFullYear(), month: day.getMonth() });
+                  router.navigate("/(visitor)/home/slots");
                 }}
-                disabled={isBlocked}
                 activeOpacity={0.7}
               >
                 <View style={styles.cellInner}>
