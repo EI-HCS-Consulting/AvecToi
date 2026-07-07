@@ -4,7 +4,7 @@ import { useVisitorSpace } from "@/lib/VisitorContext";
 import { getVisitorSession } from "@/lib/visitorSession";
 import SpaceHeader from "@/components/SpaceHeader";
 import BookingFlow, { type BookingFlowHandle } from "@/components/BookingFlow";
-import { getSlotOccupancy, getNightReservation, isSlotPast, toISO, toFrLong, toFrShort, addDays, nightStartSlot, nightRangeLabel } from "@/lib/slotUtils";
+import { getSlotOccupancy, getNightReservation, isSlotPast, isReservationDatePast, toISO, toFrLong, toFrShort, addDays, nightStartSlot, nightRangeLabel } from "@/lib/slotUtils";
 import { themes } from "@/lib/themes";
 import type { Reservation } from "@/lib/types";
 
@@ -124,7 +124,7 @@ export default function SlotsScreen() {
                     <Text style={[styles.fullBadgeText, { color: C.muted }]}>Passé</Text>
                   </View>
                 )}
-                {mine && (
+                {mine && !past && (
                   <TouchableOpacity onPress={() => flowRef.current?.openPinModal(mine)} style={[styles.editBtn, { borderColor: C.border }]}>
                     <Text style={[styles.editBtnText, { color: C.muted }]}>Modifier</Text>
                   </TouchableOpacity>
@@ -171,7 +171,7 @@ export default function SlotsScreen() {
                     <Text style={[styles.fullBadgeText, { color: C.muted }]}>Complet</Text>
                   </View>
                 )}
-                {nightResa && isMine(nightResa) && (
+                {nightResa && isMine(nightResa) && !isReservationDatePast(nightResa.date) && (
                   <TouchableOpacity onPress={() => nightFlowRef.current?.openPinModal(nightResa)} style={[styles.editBtn, { borderColor: C.border }]}>
                     <Text style={[styles.editBtnText, { color: C.muted }]}>Modifier</Text>
                   </TouchableOpacity>
