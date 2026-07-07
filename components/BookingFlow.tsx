@@ -605,28 +605,33 @@ function BookingFlow(
                     onMonthChange={setEditCalMonth}
                     startDate={startDate}
                     C={C}
+                    size="lg"
+                    slotConfig={slotConfig}
+                    slots={slots}
+                    reservations={reservations}
                   />
 
                   {editModal?.type === "Visite" && (
                     <>
-                      <Text style={[styles.fieldLabel, { color: C.gold }]}>Nouveau créneau</Text>
+                      <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 0, marginBottom: 0 }]}>Nouveau créneau</Text>
                       <View style={styles.slotGrid}>
                         {slots.map((slot) => {
                           const occ = getSlotOccupancy(reservations, editDate, slot, editModal?.id);
                           const full = occ.length >= slotConfig.max_visitors_per_slot;
-                          if (full) return null;
+                          if (full || isSlotPast(editDate, slot)) return null;
+                          const statusColor = occ.length === 0 ? C.success : C.orange;
                           return (
                             <TouchableOpacity
                               key={slot}
                               style={[
                                 styles.slotOption,
-                                { backgroundColor: editSlot === slot ? C.accent : C.bg, borderColor: editSlot === slot ? C.accent : C.border },
+                                { backgroundColor: editSlot === slot ? C.accent : statusColor, borderColor: editSlot === slot ? C.accent : statusColor },
                               ]}
                               onPress={() => setEditSlot(slot)}
                               activeOpacity={0.75}
                             >
-                              <Text style={[styles.slotOptionTime, { color: editSlot === slot ? "#fff" : C.text }]}>{slot}</Text>
-                              <Text style={[styles.slotOptionCount, { color: editSlot === slot ? "rgba(255,255,255,0.7)" : C.muted }]}>
+                              <Text style={[styles.slotOptionTime, { color: "#fff" }]}>{slot}</Text>
+                              <Text style={[styles.slotOptionCount, { color: "rgba(255,255,255,0.75)" }]}>
                                 {occ.length}/{slotConfig.max_visitors_per_slot}
                               </Text>
                             </TouchableOpacity>
@@ -734,7 +739,7 @@ const styles = StyleSheet.create({
 
   fieldLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 10, marginTop: 14 },
 
-  slotGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
+  slotGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4, justifyContent: "center" },
   slotOption: { borderWidth: 1, borderRadius: 8, paddingVertical: 10, paddingHorizontal: 14, alignItems: "center", minWidth: "44%" },
   slotOptionTime: { fontFamily: "DM_Sans_700Bold", fontSize: 16 },
   slotOptionCount: { fontFamily: "DM_Sans_400Regular", fontSize: 11, marginTop: 2 },
