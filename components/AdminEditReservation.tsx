@@ -152,20 +152,24 @@ function AdminEditReservation({ onSaved, onDelete, C }: Props, ref: React.Ref<Ad
                         const occ = getSlotOccupancy(reservations, editDate, slot, target.id);
                         const full = slotConfig ? occ.length >= slotConfig.max_visitors_per_slot : false;
                         if (full || isSlotPast(editDate, slot)) return null;
-                        const statusColor = occ.length === 0 ? C.success : C.orange;
+                        const isPartial = occ.length > 0;
+                        const selected = editSlot === slot;
                         return (
                           <TouchableOpacity
                             key={slot}
                             style={[
                               styles.slotOption,
-                              { backgroundColor: editSlot === slot ? C.accent : statusColor, borderColor: editSlot === slot ? C.accent : statusColor },
+                              {
+                                backgroundColor: selected ? C.accent : isPartial ? C.orange : C.bg,
+                                borderColor: selected ? C.accent : isPartial ? C.orange : C.border,
+                              },
                             ]}
                             onPress={() => setEditSlot(slot)}
                             activeOpacity={0.75}
                           >
-                            <Text style={[styles.slotOptionTime, { color: "#fff" }]}>{slot}</Text>
+                            <Text style={[styles.slotOptionTime, { color: selected || isPartial ? "#fff" : C.text }]}>{slot}</Text>
                             {slotConfig && (
-                              <Text style={[styles.slotOptionCount, { color: "rgba(255,255,255,0.75)" }]}>
+                              <Text style={[styles.slotOptionCount, { color: selected || isPartial ? "rgba(255,255,255,0.75)" : C.muted }]}>
                                 {occ.length}/{slotConfig.max_visitors_per_slot}
                               </Text>
                             )}
