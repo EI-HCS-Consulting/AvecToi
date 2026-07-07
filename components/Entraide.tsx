@@ -602,33 +602,31 @@ export default function Entraide({ spaceId, C, isAdmin }: Props) {
       </View>
 
       <View style={[styles.catTabsBar, { backgroundColor: C.card, borderBottomColor: C.border }]}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.catTabsRow}>
+        <TouchableOpacity
+          style={[
+            styles.catTab,
+            { backgroundColor: activeCat === null ? C.accent : "transparent", borderColor: activeCat === null ? C.accent : C.border },
+          ]}
+          onPress={() => setActiveCat(null)}
+          activeOpacity={0.75}
+        >
+          <Text style={styles.catTabIcon}>📋</Text>
+          <Text style={[styles.catTabLabel, { color: activeCat === null ? "#fff" : C.text }]}>Tous</Text>
+        </TouchableOpacity>
+        {(Object.keys(CATEGORY_ICONS) as TaskCategory[]).map((cat) => (
           <TouchableOpacity
+            key={cat}
             style={[
               styles.catTab,
-              { backgroundColor: activeCat === null ? C.accent : "transparent", borderColor: activeCat === null ? C.accent : C.border },
+              { backgroundColor: activeCat === cat ? C.accent : "transparent", borderColor: activeCat === cat ? C.accent : C.border },
             ]}
-            onPress={() => setActiveCat(null)}
+            onPress={() => setActiveCat((prev) => (prev === cat ? null : cat))}
             activeOpacity={0.75}
           >
-            <Text style={styles.catTabIcon}>📋</Text>
-            <Text style={[styles.catTabLabel, { color: activeCat === null ? "#fff" : C.text }]}>Tous</Text>
+            <Text style={styles.catTabIcon}>{CATEGORY_ICONS[cat]}</Text>
+            <Text style={[styles.catTabLabel, { color: activeCat === cat ? "#fff" : C.text }]}>{CATEGORY_LABELS[cat]}</Text>
           </TouchableOpacity>
-          {(Object.keys(CATEGORY_ICONS) as TaskCategory[]).map((cat) => (
-            <TouchableOpacity
-              key={cat}
-              style={[
-                styles.catTab,
-                { backgroundColor: activeCat === cat ? C.accent : "transparent", borderColor: activeCat === cat ? C.accent : C.border },
-              ]}
-              onPress={() => setActiveCat((prev) => (prev === cat ? null : cat))}
-              activeOpacity={0.75}
-            >
-              <Text style={styles.catTabIcon}>{CATEGORY_ICONS[cat]}</Text>
-              <Text style={[styles.catTabLabel, { color: activeCat === cat ? "#fff" : C.text }]}>{CATEGORY_LABELS[cat]}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+        ))}
       </View>
 
       <View style={[styles.sectionBar, { borderBottomColor: C.border }]}>
@@ -1074,8 +1072,7 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12, borderBottomWidth: 1 },
   headerTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18 },
 
-  catTabsBar: { paddingVertical: 10, borderBottomWidth: 1 },
-  catTabsRow: { flexDirection: "row", paddingHorizontal: 10, gap: 8 },
+  catTabsBar: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", paddingHorizontal: 10, paddingVertical: 10, gap: 8, borderBottomWidth: 1 },
   catTab: { borderWidth: 1, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 12, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5 },
   catTabIcon: { fontSize: 14 },
   catTabLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
