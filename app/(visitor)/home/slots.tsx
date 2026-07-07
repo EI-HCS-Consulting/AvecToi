@@ -119,11 +119,6 @@ export default function SlotsScreen() {
                     <Text style={[styles.fullBadgeText, { color: C.muted }]}>Complet</Text>
                   </View>
                 )}
-                {past && (
-                  <View style={[styles.fullBadge, { borderColor: C.border }]}>
-                    <Text style={[styles.fullBadgeText, { color: C.muted }]}>Passé</Text>
-                  </View>
-                )}
                 {mine && !past && (
                   <TouchableOpacity onPress={() => flowRef.current?.openPinModal(mine)} style={[styles.editBtn, { borderColor: C.border }]}>
                     <Text style={[styles.editBtnText, { color: C.muted }]}>Modifier</Text>
@@ -171,11 +166,6 @@ export default function SlotsScreen() {
                 {nightResa && (
                   <View style={[styles.fullBadge, { borderColor: C.border }]}>
                     <Text style={[styles.fullBadgeText, { color: C.muted }]}>Complet</Text>
-                  </View>
-                )}
-                {!nightResa && nightPast && (
-                  <View style={[styles.fullBadge, { borderColor: C.border }]}>
-                    <Text style={[styles.fullBadgeText, { color: C.muted }]}>Passé</Text>
                   </View>
                 )}
                 {nightResa && isMine(nightResa) && !isReservationDatePast(nightResa.date) && (
