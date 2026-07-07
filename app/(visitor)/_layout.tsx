@@ -1,21 +1,32 @@
 import { useEffect, useState } from "react";
-import { View, Text, TouchableOpacity, Modal, StyleSheet, ActivityIndicator } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, Modal, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform } from "react-native";
 import { Tabs, useGlobalSearchParams, usePathname, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { VisitorSpaceProvider, useVisitorSpace } from "@/lib/VisitorContext";
 import { themes } from "@/lib/themes";
 import { setupNotifications } from "@/lib/notifications";
-import { getVisitorSession } from "@/lib/visitorSession";
+import { getVisitorSession, saveVisitorSession } from "@/lib/visitorSession";
 import { isSpaceCapped } from "@/lib/freemiumCap";
 
 function VisitorTabs() {
-  const { space, reservations, loading } = useVisitorSpace();
+  const { space, token, reservations, loading } = useVisitorSpace();
   const router = useRouter();
   const pathname = usePathname();
   const C = themes[space?.theme ?? "blue"];
   const [consentGiven, setConsentGiven] = useState<boolean | null>(null);
   const capped = isSpaceCapped(space, reservations);
+
+  // Identité stable du visiteur — demandée une seule fois, à la toute
+  // première arrivée sur cet espace (avant même le consentement RGPD),
+  // et jamais réécrite ensuite par une réservation ou une autre action :
+  // c'est elle qui préremplit les formulaires par défaut, y compris quand
+  // le visiteur réserve pour quelqu'un d'autre (ex. un proche âgé sans
+  // téléphone) — voir BookingFlow.tsx.
+  const [identityKnown, setIdentityKnown] = useState<boolean | null>(null);
+  const [identityPrenom, setIdentityPrenom] = useState("");
+  const [identityNom, setIdentityNom] = useState("");
+  const [savingIdentity, setSavingIdentity] = useState(false);
 
   useEffect(() => {
     setupNotifications();
@@ -29,10 +40,25 @@ function VisitorTabs() {
 
   useEffect(() => {
     if (!space) return;
+    getVisitorSession().then((s) => {
+      setIdentityKnown(!!(s?.prenom.trim() && s?.nom.trim()));
+    });
+  }, [space?.id]);
+
+  useEffect(() => {
+    if (!space) return;
     AsyncStorage.getItem(`consent_${space.id}`).then((val) => {
       setConsentGiven(val === "true");
     });
   }, [space?.id]);
+
+  async function handleSaveIdentity() {
+    if (!space || !identityPrenom.trim() || !identityNom.trim()) return;
+    setSavingIdentity(true);
+    await saveVisitorSession({ token, spaceId: space.id, prenom: identityPrenom.trim(), nom: identityNom.trim() });
+    setSavingIdentity(false);
+    setIdentityKnown(true);
+  }
 
   // Espace bloqué (cap freemium atteint) : seul "Mon compte" reste
   // accessible (PIN, profil) — tout le reste renvoie vers cet onglet.
@@ -58,13 +84,46 @@ function VisitorTabs() {
 
   return (
     <>
-      <Modal visible={consentGiven === false} transparent animationType="fade" statusBarTranslucent>
+      <Modal visible={identityKnown === false} transparent animationType="fade" statusBarTranslucent>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+          <View style={consentStyles.overlay}>
+            <View style={[consentStyles.card, { backgroundColor: C.card, borderColor: C.border }]}>
+              <Text style={consentStyles.emoji}>👋</Text>
+              <Text style={[consentStyles.title, { color: "#fff" }]}>Bienvenue !</Text>
+              <Text style={[consentStyles.body, { color: C.muted }]}>
+                Dis-nous qui tu es — ça préremplira tes prochaines réservations. Tu pourras toujours
+                réserver pour quelqu'un d'autre en changeant le nom au moment de réserver.
+              </Text>
+              <TextInput
+                style={[identityStyles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                placeholder="Ton prénom" placeholderTextColor={C.muted}
+                value={identityPrenom} onChangeText={setIdentityPrenom} autoCapitalize="words"
+              />
+              <TextInput
+                style={[identityStyles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                placeholder="Ton nom" placeholderTextColor={C.muted}
+                value={identityNom} onChangeText={setIdentityNom} autoCapitalize="words"
+              />
+              <TouchableOpacity
+                style={[consentStyles.btn, { backgroundColor: C.accent }, (!identityPrenom.trim() || !identityNom.trim() || savingIdentity) && { opacity: 0.5 }]}
+                onPress={handleSaveIdentity}
+                disabled={!identityPrenom.trim() || !identityNom.trim() || savingIdentity}
+                activeOpacity={0.85}
+              >
+                {savingIdentity ? <ActivityIndicator color="#fff" size="small" /> : <Text style={consentStyles.btnText}>Continuer</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      <Modal visible={identityKnown === true && consentGiven === false} transparent animationType="fade" statusBarTranslucent>
         <View style={consentStyles.overlay}>
           <View style={[consentStyles.card, { backgroundColor: C.card, borderColor: C.border }]}>
             <Text style={consentStyles.emoji}>👥</Text>
             <Text style={[consentStyles.title, { color: "#fff" }]}>Avant de continuer</Text>
             <Text style={[consentStyles.body, { color: C.muted }]}>
-              Votre prénom et votre nom seront visibles par les autres personnes qui consultent ce planning.
+              Ton prénom et ton nom seront visibles par les autres personnes qui consultent ce planning.
             </Text>
             <TouchableOpacity
               style={[consentStyles.btn, { backgroundColor: C.accent }]}
@@ -173,6 +232,18 @@ const consentStyles = StyleSheet.create({
     fontFamily: "DM_Sans_700Bold",
     fontSize: 15,
     color: "#fff",
+  },
+});
+
+const identityStyles = StyleSheet.create({
+  input: {
+    width: "100%",
+    borderWidth: 1,
+    borderRadius: 10,
+    padding: 13,
+    fontFamily: "DM_Sans_400Regular",
+    fontSize: 15,
+    marginBottom: 10,
   },
 });
 

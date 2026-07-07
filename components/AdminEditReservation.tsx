@@ -82,7 +82,12 @@ function AdminEditReservation({ onSaved, onDelete, C }: Props, ref: React.Ref<Ad
       // count === 0 sans erreur = écriture silencieusement bloquée (ex. policy
       // RLS manquante en UPDATE) : le calendrier natif, lui, se met à jour
       // quand même car il ne dépend pas de la base — d'où le faux "succès".
-      Alert.alert("Erreur", error ? "Erreur lors de la modification : " + error.message : "La modification n'a pas été enregistrée en base.");
+      Alert.alert(
+        "Erreur",
+        error?.message.includes("SLOT_FULL")
+          ? "Ce créneau est déjà complet. Choisis-en un autre."
+          : error ? "Erreur lors de la modification : " + error.message : "La modification n'a pas été enregistrée en base.",
+      );
       return;
     }
 
@@ -123,7 +128,9 @@ function AdminEditReservation({ onSaved, onDelete, C }: Props, ref: React.Ref<Ad
           <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
             <TouchableOpacity activeOpacity={1}>
               <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
-                <Text style={[styles.sheetTitle, { color: "#fff" }]}>✏️ Modifier la réservation</Text>
+                <Text style={[styles.sheetTitle, { color: "#fff" }]}>
+                  ✏️ {target?.type === "Nuit" ? "Modifier la nuitée" : "Modifier la réservation"}
+                </Text>
                 <Text style={[styles.sheetSub, { color: C.muted }]}>
                   {target?.prenom} {target?.nom} · résa originale : {target && toFrShort(new Date(target.date + "T12:00:00"))} {target?.creneau}
                 </Text>
@@ -150,20 +157,24 @@ function AdminEditReservation({ onSaved, onDelete, C }: Props, ref: React.Ref<Ad
                         const occ = getSlotOccupancy(reservations, editDate, slot, target.id);
                         const full = slotConfig ? occ.length >= slotConfig.max_visitors_per_slot : false;
                         if (full || isSlotPast(editDate, slot)) return null;
-                        const statusColor = occ.length === 0 ? C.success : C.orange;
+                        const isPartial = occ.length > 0;
+                        const selected = editSlot === slot;
                         return (
                           <TouchableOpacity
                             key={slot}
                             style={[
                               styles.slotOption,
-                              { backgroundColor: editSlot === slot ? C.accent : statusColor, borderColor: editSlot === slot ? C.accent : statusColor },
+                              {
+                                backgroundColor: selected ? C.accent : isPartial ? C.orange : C.bg,
+                                borderColor: selected ? C.accent : isPartial ? C.orange : C.border,
+                              },
                             ]}
                             onPress={() => setEditSlot(slot)}
                             activeOpacity={0.75}
                           >
-                            <Text style={[styles.slotOptionTime, { color: "#fff" }]}>{slot}</Text>
+                            <Text style={[styles.slotOptionTime, { color: selected || isPartial ? "#fff" : C.text }]}>{slot}</Text>
                             {slotConfig && (
-                              <Text style={[styles.slotOptionCount, { color: "rgba(255,255,255,0.75)" }]}>
+                              <Text style={[styles.slotOptionCount, { color: selected || isPartial ? "rgba(255,255,255,0.75)" : C.muted }]}>
                                 {occ.length}/{slotConfig.max_visitors_per_slot}
                               </Text>
                             )}

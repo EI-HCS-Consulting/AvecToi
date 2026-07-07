@@ -8,6 +8,7 @@ import { deleteLinkedCalendarEvent } from "@/lib/calendarSync";
 import { themes } from "@/lib/themes";
 import SpaceHeader from "@/components/SpaceHeader";
 import AdminAddReservation, { type AdminAddReservationHandle } from "@/components/AdminAddReservation";
+import AdminEditReservation, { type AdminEditReservationHandle } from "@/components/AdminEditReservation";
 import DeleteReservationConfirm, { type DeleteReservationConfirmHandle } from "@/components/DeleteReservationConfirm";
 import CapBlockScreen from "@/components/CapBlockScreen";
 import { isSpaceCapped } from "@/lib/freemiumCap";
@@ -18,6 +19,7 @@ export default function AdminNightsScreen() {
   const { focusDate } = useLocalSearchParams<{ focusDate?: string }>();
   const C = themes[space?.theme ?? "blue"];
   const addRef = useRef<AdminAddReservationHandle>(null);
+  const editRef = useRef<AdminEditReservationHandle>(null);
   const deleteRef = useRef<DeleteReservationConfirmHandle>(null);
 
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
@@ -32,10 +34,14 @@ export default function AdminNightsScreen() {
   if (!hasSpace || !space || !slotConfig) return null;
   if (isSpaceCapped(space, reservations)) return <CapBlockScreen C={C} />;
 
-  // Toutes les nuitées (passées et à venir), triées en ordre chronologique
-  // inversé (la plus récente en premier).
-  const allNights = reservations
-    .filter((r): r is Reservation => r.type === "Nuit")
+  const allNightReservations = reservations.filter((r): r is Reservation => r.type === "Nuit");
+  // Programmées : à venir, la plus proche en premier.
+  const upcomingNights = allNightReservations
+    .filter((r) => !isReservationDatePast(r.date))
+    .sort((a, b) => a.date.localeCompare(b.date));
+  // Effectuées : passées, la plus récente en premier.
+  const pastNights = allNightReservations
+    .filter((r) => isReservationDatePast(r.date))
     .sort((a, b) => b.date.localeCompare(a.date));
 
   function handleReserveNext() {
@@ -45,6 +51,10 @@ export default function AdminNightsScreen() {
       return;
     }
     addRef.current?.open(next.iso, nightStartSlot(slotConfig!), "Nuit", 1);
+  }
+
+  function handleEdit(r: Reservation) {
+    editRef.current?.open(r);
   }
 
   function handleDelete(r: Reservation) {
@@ -82,27 +92,47 @@ export default function AdminNightsScreen() {
 
             <Text style={[styles.sectionTitle, { color: C.gold }]}>Nuitées programmées</Text>
 
-            {allNights.length === 0 ? (
+            {upcomingNights.length === 0 ? (
               <View style={styles.empty}>
                 <Text style={{ fontSize: 32, marginBottom: 10 }}>🌙</Text>
                 <Text style={[styles.emptyText, { color: C.muted }]}>Aucune nuitée programmée pour l'instant.</Text>
               </View>
             ) : (
-              allNights.map((r) => (
+              upcomingNights.map((r) => (
                 <View key={r.id} style={[styles.nightCard, { backgroundColor: C.card, borderColor: r.date === focusDate ? C.accent : C.border }]}>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.nightDate, { color: "#fff" }]}>{toFrLong(new Date(r.date + "T12:00:00"))}</Text>
                     <Text style={[styles.nightVisitor, { color: C.success }]}>● {r.prenom} {r.nom}</Text>
+                    {(r.booked_by_prenom || r.booked_by_nom) ? (
+                      <Text style={[styles.bookedBy, { color: C.muted }]}>Programmé par : {r.booked_by_prenom} {r.booked_by_nom}</Text>
+                    ) : null}
                     {r.telephone ? <Text style={[styles.nightTel, { color: C.muted }]}>{r.telephone}</Text> : null}
                   </View>
-                  {!isReservationDatePast(r.date) && (
-                    <TouchableOpacity
-                      style={[styles.deleteBtn, { borderColor: "rgba(233,69,96,0.4)" }]}
-                      onPress={() => handleDelete(r)}
-                    >
-                      <Text style={{ color: "#e94560", fontSize: 13 }}>✕</Text>
-                    </TouchableOpacity>
-                  )}
+                  <TouchableOpacity style={[styles.editBtn, { borderColor: C.border }]} onPress={() => handleEdit(r)}>
+                    <Text style={[styles.editBtnText, { color: C.muted }]}>Modifier</Text>
+                  </TouchableOpacity>
+                </View>
+              ))
+            )}
+
+            <Text style={[styles.sectionTitle, { color: C.gold, marginTop: 24 }]}>Nuitées effectuées</Text>
+
+            {pastNights.length === 0 ? (
+              <View style={styles.empty}>
+                <Text style={{ fontSize: 32, marginBottom: 10 }}>🌙</Text>
+                <Text style={[styles.emptyText, { color: C.muted }]}>Aucune nuitée effectuée pour l'instant.</Text>
+              </View>
+            ) : (
+              pastNights.map((r) => (
+                <View key={r.id} style={[styles.nightCard, { backgroundColor: C.card, borderColor: r.date === focusDate ? C.accent : C.border, opacity: 0.7 }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.nightDate, { color: "#fff" }]}>{toFrLong(new Date(r.date + "T12:00:00"))}</Text>
+                    <Text style={[styles.nightVisitor, { color: C.success }]}>● {r.prenom} {r.nom}</Text>
+                    {(r.booked_by_prenom || r.booked_by_nom) ? (
+                      <Text style={[styles.bookedBy, { color: C.muted }]}>Programmé par : {r.booked_by_prenom} {r.booked_by_nom}</Text>
+                    ) : null}
+                    {r.telephone ? <Text style={[styles.nightTel, { color: C.muted }]}>{r.telephone}</Text> : null}
+                  </View>
                 </View>
               ))
             )}
@@ -116,6 +146,13 @@ export default function AdminNightsScreen() {
         space={space}
         slotConfig={slotConfig}
         onAdded={async () => { await refreshReservations(); showToast("Nuitée ajoutée ✓"); }}
+        C={C}
+      />
+
+      <AdminEditReservation
+        ref={editRef}
+        onSaved={async () => { await refreshReservations(); showToast("Nuitée modifiée ✓"); }}
+        onDelete={handleDelete}
         C={C}
       />
 
@@ -147,8 +184,10 @@ const styles = StyleSheet.create({
   nightCard: { borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 10, flexDirection: "row", alignItems: "center", gap: 10 },
   nightDate: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 15, textTransform: "capitalize", marginBottom: 4 },
   nightVisitor: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
+  bookedBy: { fontFamily: "DM_Sans_400Regular", fontSize: 11, fontStyle: "italic", marginTop: 2 },
   nightTel: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 2 },
-  deleteBtn: { width: 28, height: 28, borderWidth: 1, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  editBtn: { borderWidth: 1, borderRadius: 7, paddingVertical: 6, paddingHorizontal: 10 },
+  editBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
 
   empty: { alignItems: "center", paddingVertical: 32 },
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 14, textAlign: "center", lineHeight: 21 },

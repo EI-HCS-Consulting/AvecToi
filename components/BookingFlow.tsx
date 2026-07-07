@@ -50,6 +50,11 @@ interface ConfirmedBooking {
   iso: string;
   slot: string;
   companions: string[];
+  // Le PIN de session existait-il déjà avant cette réservation, ou vient-il
+  // d'être choisi à l'instant (premier passage sur cet appareil) ? Sert à
+  // n'afficher le récap "note ce code" que quand il y a vraiment un nouveau
+  // code à retenir.
+  isNewPin: boolean;
 }
 
 async function updateLastActivity(spaceId: string) {
@@ -75,9 +80,14 @@ function BookingFlow(
 
   const [savedPrenom, setSavedPrenom] = useState("");
   const [savedNom, setSavedNom] = useState("");
+  // PIN déjà enregistré sur cet appareil (visiteur "identifié") — dès qu'il
+  // existe, on ne redemande plus de choisir un code à chaque réservation, on
+  // le réutilise silencieusement. Absent seulement au tout premier passage
+  // sur cet appareil, où choisir un PIN revient à créer son identité ici.
+  const [sessionPin, setSessionPin] = useState("");
   useEffect(() => {
     getVisitorSession().then((s) => {
-      if (s) { setSavedPrenom(s.prenom); setSavedNom(s.nom); }
+      if (s) { setSavedPrenom(s.prenom); setSavedNom(s.nom); setSessionPin(s.pin || ""); }
     });
   }, []);
 
@@ -175,7 +185,7 @@ function BookingFlow(
       Alert.alert("Champs manquants", "Indique ton prénom et ton nom.");
       return;
     }
-    if (pinValue.length < 4) {
+    if (!sessionPin && pinValue.length < 4) {
       Alert.alert("Code PIN incomplet", "Choisis un code PIN à 4 chiffres sur le clavier ci-dessus.");
       return;
     }
@@ -183,6 +193,15 @@ function BookingFlow(
     setSaving(true);
     const { iso, slot } = bookingTarget;
     const companionNames = companions.map((c) => c.trim()).filter(Boolean);
+    // Réutilise silencieusement le PIN déjà enregistré sur cet appareil s'il
+    // existe — seul un visiteur pas encore identifié en choisit un nouveau.
+    const effectivePin = sessionPin || pinValue;
+
+    // Si le visiteur a remplacé son prénom/nom préremplis (les siens) par
+    // ceux d'une autre personne, on garde sa propre identité pour l'afficher
+    // côté admin ("Programmé par : ...") — sans quoi l'admin ne voit que le
+    // nom de la personne réservée et ne sait pas qui a fait la démarche.
+    const nameChanged = !!(savedPrenom || savedNom) && (prenom.trim() !== savedPrenom || nom.trim() !== savedNom);
 
     const { data: newResa, error } = await supabase.from("reservations").insert({
       space_id: space.id,
@@ -192,8 +211,10 @@ function BookingFlow(
       nom: nom.trim(),
       telephone: tel.trim(),
       type,
-      pin: pinValue,
+      pin: effectivePin,
       companion_firstnames: companionNames.length > 0 ? companionNames.join(", ") : null,
+      booked_by_prenom: nameChanged ? savedPrenom : null,
+      booked_by_nom: nameChanged ? savedNom : null,
     }).select().single();
 
     setSaving(false);
@@ -204,6 +225,11 @@ function BookingFlow(
           "Limite atteinte",
           "Vous avez atteint la limite de votre espace. Consultez l'email envoyé à votre adresse pour en savoir plus.",
         );
+      } else if (error.message.includes("SLOT_FULL")) {
+        Alert.alert(
+          "Créneau complet",
+          "Ce créneau vient d'être complété par quelqu'un d'autre. Choisis-en un autre.",
+        );
       } else {
         Alert.alert("Erreur lors de la réservation", error.message);
       }
@@ -212,9 +238,15 @@ function BookingFlow(
 
     await updateLastActivity(space.id);
     await refreshReservations();
-    await saveVisitorSession({ token, spaceId: space.id, prenom: prenom.trim(), nom: nom.trim(), pin: pinValue });
+    // Ne réécrit plus le prénom/nom de la session : l'identité du visiteur
+    // reste celle renseignée à son arrivée sur l'espace (cf. (visitor)/_layout.tsx),
+    // même s'il vient de réserver pour quelqu'un d'autre. Le PIN, lui, reste
+    // désormais stable une fois choisi — on ne fait que confirmer la même
+    // valeur en session, sauf lors du tout premier choix.
+    await saveVisitorSession({ token, spaceId: space.id, pin: effectivePin });
+    setSessionPin(effectivePin);
 
-    setConfirmed({ id: newResa?.id ?? "", prenom: prenom.trim(), pin: pinValue, iso, slot, companions: companionNames });
+    setConfirmed({ id: newResa?.id ?? "", prenom: prenom.trim(), pin: effectivePin, iso, slot, companions: companionNames, isNewPin: !sessionPin });
 
     if (newResa?.id) {
       scheduleVisitReminder(newResa.id, iso, slot, prenom.trim(), `${space.patient_firstname} ${space.patient_lastname}`);
@@ -288,7 +320,11 @@ function BookingFlow(
     setEditSaving(false);
 
     if (error || count === 0) {
-      showToast("Erreur lors de la modification.");
+      showToast(
+        error?.message.includes("SLOT_FULL")
+          ? "Ce créneau vient d'être complété par quelqu'un d'autre — choisis-en un autre."
+          : "Erreur lors de la modification.",
+      );
       return;
     }
 
@@ -398,11 +434,15 @@ function BookingFlow(
                     </>
                   )}
 
-                  <Text style={[styles.pinLabel, { color: C.gold }]}>🔐 Choisis ton code PIN (4 chiffres)</Text>
-                  <Text style={[styles.pinHint, { color: C.muted }]}>
-                    Garde-le précieusement — tu en auras besoin pour modifier ou annuler ta visite.
-                  </Text>
-                  <PinPad value={pinValue} onChange={setPinValue} theme={C} />
+                  {!sessionPin && (
+                    <>
+                      <Text style={[styles.pinLabel, { color: C.gold }]}>🔐 Choisis ton code PIN (4 chiffres)</Text>
+                      <Text style={[styles.pinHint, { color: C.muted }]}>
+                        Garde-le précieusement — tu en auras besoin pour modifier ou annuler ta visite.
+                      </Text>
+                      <PinPad value={pinValue} onChange={setPinValue} theme={C} />
+                    </>
+                  )}
 
                   <View style={styles.sheetBtns}>
                     <TouchableOpacity
@@ -418,7 +458,7 @@ function BookingFlow(
                       style={[
                         styles.btnPrimary,
                         { backgroundColor: C.accent },
-                        (!prenom.trim() || !nom.trim() || pinValue.length < 4) && { opacity: 0.5 },
+                        (!prenom.trim() || !nom.trim() || (!sessionPin && pinValue.length < 4)) && { opacity: 0.5 },
                       ]}
                     >
                       {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.btnPrimaryText}>Confirmer</Text>}
@@ -441,14 +481,16 @@ function BookingFlow(
               <Text style={[styles.sheetSub, { color: C.muted }]}>Ta visite est enregistrée.</Text>
             </View>
 
-            <View style={[styles.pinDisplay, { backgroundColor: C.bg, borderColor: "rgba(240,180,41,0.4)" }]}>
-              <Text style={[styles.pinDisplayLabel, { color: C.gold }]}>🔐 Ton code PIN</Text>
-              <Text style={[styles.pinDisplayValue, { color: C.gold }]}>{confirmed?.pin}</Text>
-              <Text style={[styles.pinDisplayHint, { color: C.muted }]}>
-                Note ce code ou enregistre-le dans ton compte utilisateur (onglet Compte) — tu en
-                auras besoin pour modifier ou annuler ta réservation.
-              </Text>
-            </View>
+            {confirmed?.isNewPin && (
+              <View style={[styles.pinDisplay, { backgroundColor: C.bg, borderColor: "rgba(240,180,41,0.4)" }]}>
+                <Text style={[styles.pinDisplayLabel, { color: C.gold }]}>🔐 Ton code PIN</Text>
+                <Text style={[styles.pinDisplayValue, { color: C.gold }]}>{confirmed?.pin}</Text>
+                <Text style={[styles.pinDisplayHint, { color: C.muted }]}>
+                  Note ce code — il t'identifie désormais sur cet appareil, tu n'auras plus à le
+                  ressaisir pour tes prochaines réservations, modifications ou annulations.
+                </Text>
+              </View>
+            )}
 
             <TouchableOpacity
               style={[
@@ -518,12 +560,7 @@ function BookingFlow(
               </>
             ) : (
               <>
-                <View style={{ alignItems: "center", marginBottom: 16 }}>
-                  <Text style={{ fontSize: 32, marginBottom: 6 }}>✅</Text>
-                  <Text style={[styles.sheetTitle, { color: C.success }]}>PIN validé</Text>
-                </View>
-
-                <View style={[styles.resaInfo, { backgroundColor: C.bg, borderColor: C.border }]}>
+                <View style={[styles.resaInfo, { backgroundColor: C.bg, borderColor: C.border, marginTop: 4 }]}>
                   <Text style={[styles.resaName, { color: C.text }]}>{pinModal?.prenom} {pinModal?.nom}</Text>
                   <Text style={[styles.resaDetail, { color: C.muted }]}>
                     {pinModal?.type === "Nuit" ? "🌙 Nuit" : `🕐 ${pinModal?.creneau}`}
@@ -568,7 +605,7 @@ function BookingFlow(
                   </>
                 )}
 
-                <TouchableOpacity onPress={() => setPinModal(null)} style={[styles.btnSecondary, { borderColor: C.border, marginTop: 8 }]}>
+                <TouchableOpacity onPress={() => setPinModal(null)} style={[styles.btnSecondary, { borderColor: C.border, marginTop: 8, flex: 0 }]}>
                   <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Fermer</Text>
                 </TouchableOpacity>
               </>
@@ -598,28 +635,37 @@ function BookingFlow(
                     onMonthChange={setEditCalMonth}
                     startDate={startDate}
                     C={C}
+                    size="lg"
+                    slotConfig={slotConfig}
+                    slots={slots}
+                    reservations={reservations}
                   />
 
                   {editModal?.type === "Visite" && (
                     <>
-                      <Text style={[styles.fieldLabel, { color: C.gold }]}>Nouveau créneau</Text>
+                      <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 0, marginBottom: 0 }]}>Nouveau créneau</Text>
                       <View style={styles.slotGrid}>
                         {slots.map((slot) => {
                           const occ = getSlotOccupancy(reservations, editDate, slot, editModal?.id);
                           const full = occ.length >= slotConfig.max_visitors_per_slot;
-                          if (full) return null;
+                          if (full || isSlotPast(editDate, slot)) return null;
+                          const isPartial = occ.length > 0;
+                          const selected = editSlot === slot;
                           return (
                             <TouchableOpacity
                               key={slot}
                               style={[
                                 styles.slotOption,
-                                { backgroundColor: editSlot === slot ? C.accent : C.bg, borderColor: editSlot === slot ? C.accent : C.border },
+                                {
+                                  backgroundColor: selected ? C.accent : isPartial ? C.orange : C.bg,
+                                  borderColor: selected ? C.accent : isPartial ? C.orange : C.border,
+                                },
                               ]}
                               onPress={() => setEditSlot(slot)}
                               activeOpacity={0.75}
                             >
-                              <Text style={[styles.slotOptionTime, { color: editSlot === slot ? "#fff" : C.text }]}>{slot}</Text>
-                              <Text style={[styles.slotOptionCount, { color: editSlot === slot ? "rgba(255,255,255,0.7)" : C.muted }]}>
+                              <Text style={[styles.slotOptionTime, { color: selected || isPartial ? "#fff" : C.text }]}>{slot}</Text>
+                              <Text style={[styles.slotOptionCount, { color: selected || isPartial ? "rgba(255,255,255,0.75)" : C.muted }]}>
                                 {occ.length}/{slotConfig.max_visitors_per_slot}
                               </Text>
                             </TouchableOpacity>
@@ -727,7 +773,7 @@ const styles = StyleSheet.create({
 
   fieldLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 10, marginTop: 14 },
 
-  slotGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
+  slotGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4, justifyContent: "center" },
   slotOption: { borderWidth: 1, borderRadius: 8, paddingVertical: 10, paddingHorizontal: 14, alignItems: "center", minWidth: "44%" },
   slotOptionTime: { fontFamily: "DM_Sans_700Bold", fontSize: 16 },
   slotOptionCount: { fontFamily: "DM_Sans_400Regular", fontSize: 11, marginTop: 2 },

@@ -1,6 +1,7 @@
-import { useRef, useMemo, useEffect } from "react";
+import { useRef, useMemo, useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert } from "react-native";
 import { useVisitorSpace } from "@/lib/VisitorContext";
+import { getVisitorSession } from "@/lib/visitorSession";
 import SpaceHeader from "@/components/SpaceHeader";
 import BookingFlow, { type BookingFlowHandle } from "@/components/BookingFlow";
 import { findNextAvailableNight, toISO, toFrLong, nightStartSlot } from "@/lib/slotUtils";
@@ -11,6 +12,16 @@ export default function VisitorNightsScreen() {
   const { space, slotConfig, reservations, token, refreshReservations, pendingEditReservationId, setPendingEditReservationId } = useVisitorSpace();
   const C = themes[space?.theme ?? "blue"];
   const flowRef = useRef<BookingFlowHandle>(null);
+
+  // PIN de session de cet appareil — sert à ne montrer "Modifier" que sur
+  // les nuitées faites depuis ce même appareil (y compris quand elles ont
+  // été faites pour quelqu'un d'autre, cf. booked_by_prenom/nom), jamais
+  // sur celles des autres visiteurs.
+  const [myPin, setMyPin] = useState<string | null>(null);
+  useEffect(() => {
+    getVisitorSession().then((s) => setMyPin(s?.pin ?? null));
+  }, []);
+  const isMine = (r: Reservation) => !!myPin && r.pin === myPin;
 
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
   const startDate = space ? new Date(space.start_date + "T00:00:00") : today;
@@ -27,9 +38,13 @@ export default function VisitorNightsScreen() {
 
   if (!space || !slotConfig) return null;
 
-  const upcomingNights = reservations
-    .filter((r): r is Reservation => r.type === "Nuit" && r.date >= toISO(today))
+  const allNightReservations = reservations.filter((r): r is Reservation => r.type === "Nuit");
+  const upcomingNights = allNightReservations
+    .filter((r) => r.date >= toISO(today))
     .sort((a, b) => a.date.localeCompare(b.date));
+  const pastNights = allNightReservations
+    .filter((r) => r.date < toISO(today))
+    .sort((a, b) => b.date.localeCompare(a.date));
 
   function handleReserveNext() {
     if (!slotConfig) return;
@@ -77,9 +92,29 @@ export default function VisitorNightsScreen() {
                     <Text style={[styles.nightDate, { color: "#fff" }]}>{toFrLong(new Date(r.date + "T12:00:00"))}</Text>
                     <Text style={[styles.nightVisitor, { color: C.success }]}>● {r.prenom} {r.nom}</Text>
                   </View>
-                  <TouchableOpacity onPress={() => flowRef.current?.openPinModal(r)} style={[styles.editBadge, { backgroundColor: C.orange }]}>
-                    <Text style={styles.editBadgeText}>✏️</Text>
-                  </TouchableOpacity>
+                  {isMine(r) && (
+                    <TouchableOpacity onPress={() => flowRef.current?.openPinModal(r)} style={[styles.editBtn, { borderColor: C.border }]}>
+                      <Text style={[styles.editBtnText, { color: C.muted }]}>Modifier</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ))
+            )}
+
+            <Text style={[styles.sectionTitle, { color: C.gold, marginTop: 24 }]}>Nuitées effectuées</Text>
+
+            {pastNights.length === 0 ? (
+              <View style={styles.empty}>
+                <Text style={{ fontSize: 32, marginBottom: 10 }}>🌙</Text>
+                <Text style={[styles.emptyText, { color: C.muted }]}>Aucune nuitée effectuée pour l'instant.</Text>
+              </View>
+            ) : (
+              pastNights.map((r) => (
+                <View key={r.id} style={[styles.nightCard, { backgroundColor: C.card, borderColor: C.border, opacity: 0.7 }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.nightDate, { color: "#fff" }]}>{toFrLong(new Date(r.date + "T12:00:00"))}</Text>
+                    <Text style={[styles.nightVisitor, { color: C.success }]}>● {r.prenom} {r.nom}</Text>
+                  </View>
                 </View>
               ))
             )}
@@ -116,8 +151,8 @@ const styles = StyleSheet.create({
   nightCard: { borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 10, flexDirection: "row", alignItems: "center", gap: 10 },
   nightDate: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 15, textTransform: "capitalize", marginBottom: 4 },
   nightVisitor: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
-  editBadge: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 6 },
-  editBadgeText: { fontSize: 13 },
+  editBtn: { borderWidth: 1, borderRadius: 7, paddingVertical: 6, paddingHorizontal: 10 },
+  editBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
 
   empty: { alignItems: "center", paddingVertical: 32 },
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 14, textAlign: "center", lineHeight: 21 },

@@ -86,11 +86,11 @@ export default function MiniCalendar({
           const isPast = d < start || d < today;
           const isSelected = iso === selDate;
           const status = showDots ? getDayStatus(reservations!, iso, day, slotConfig!, slots!, startDate) : null;
-          const statusBg =
-            status === "full" ? C.danger :
-            status === "partial" ? C.orange :
-            status === "empty" ? C.success : C.bg;
-          const useStatusBg = showDots && !isSelected && !isPast;
+          // Un jour "empty" garde l'apparence neutre de la cellule — seul un
+          // jour partiellement (orange) ou complètement (rouge) réservé se
+          // distingue, pour limiter le nombre de couleurs affichées.
+          const statusBg = status === "full" ? C.danger : status === "partial" ? C.orange : C.bg;
+          const useStatusBg = showDots && !isSelected && !isPast && (status === "full" || status === "partial");
 
           return (
             <TouchableOpacity

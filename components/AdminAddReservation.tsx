@@ -108,6 +108,8 @@ function AdminAddReservation({ spaceId, space, slotConfig, onAdded, C }: Props, 
           "Limite atteinte",
           "Vous avez atteint la limite de votre espace. Consultez l'email envoyé à votre adresse pour en savoir plus.",
         );
+      } else if (error.message.includes("SLOT_FULL")) {
+        Alert.alert("Créneau complet", "Ce créneau est déjà complet. Choisis-en un autre.");
       } else {
         Alert.alert("Erreur", "Erreur lors de l'ajout : " + error.message);
       }

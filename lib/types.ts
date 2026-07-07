@@ -75,6 +75,12 @@ export interface Reservation {
   // Id de la réservation "principale" partagé par toutes les lignes créées
   // ensemble via "+ Ajouter une autre personne" (admin) — null si solo.
   group_id: string | null;
+  // Identité du visiteur connecté qui a réservé, uniquement renseignée quand
+  // il a remplacé le prénom/nom préremplis (les siens) par ceux d'une autre
+  // personne — affiché côté admin sous le nom enregistré ("Programmé par").
+  // Null quand le visiteur a réservé pour lui-même.
+  booked_by_prenom: string | null;
+  booked_by_nom: string | null;
 }
 
 export interface SouvenirPhoto {

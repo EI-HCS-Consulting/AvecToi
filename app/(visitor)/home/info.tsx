@@ -19,7 +19,7 @@ function buildSlotRules(cfg: SlotConfig): string[] {
   lines.push(`Durée max. par visite : ${formatDuration(cfg.slot_duration_minutes)}`);
   if (cfg.min_gap_minutes > 0) {
     const step = cfg.gap_includes_duration ? cfg.slot_duration_minutes + cfg.min_gap_minutes : cfg.min_gap_minutes;
-    lines.push(`Un créneau toutes les ${formatDuration(step)}`);
+    lines.push(step === 60 ? "Un créneau toutes les heures" : `Un créneau toutes les ${formatDuration(step)}`);
   }
   lines.push(
     `${cfg.max_visitors_per_slot} visiteur${cfg.max_visitors_per_slot > 1 ? "s" : ""} max par créneau`,
