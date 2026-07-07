@@ -530,12 +530,7 @@ function BookingFlow(
               </>
             ) : (
               <>
-                <View style={{ alignItems: "center", marginBottom: 16 }}>
-                  <Text style={{ fontSize: 32, marginBottom: 6 }}>✅</Text>
-                  <Text style={[styles.sheetTitle, { color: C.success }]}>PIN validé</Text>
-                </View>
-
-                <View style={[styles.resaInfo, { backgroundColor: C.bg, borderColor: C.border }]}>
+                <View style={[styles.resaInfo, { backgroundColor: C.bg, borderColor: C.border, marginTop: 4 }]}>
                   <Text style={[styles.resaName, { color: C.text }]}>{pinModal?.prenom} {pinModal?.nom}</Text>
                   <Text style={[styles.resaDetail, { color: C.muted }]}>
                     {pinModal?.type === "Nuit" ? "🌙 Nuit" : `🕐 ${pinModal?.creneau}`}
@@ -580,7 +575,7 @@ function BookingFlow(
                   </>
                 )}
 
-                <TouchableOpacity onPress={() => setPinModal(null)} style={[styles.btnSecondary, { borderColor: C.border, marginTop: 8 }]}>
+                <TouchableOpacity onPress={() => setPinModal(null)} style={[styles.btnSecondary, { borderColor: C.border, marginTop: 8, flex: 0 }]}>
                   <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Fermer</Text>
                 </TouchableOpacity>
               </>
