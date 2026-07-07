@@ -85,6 +85,7 @@ export default function SlotsScreen() {
           const occ = getSlotOccupancy(reservations, iso, slot);
           const full = occ.length >= slotConfig.max_visitors_per_slot;
           const past = isSlotPast(iso, slot);
+          const mine = occ.find(isMine);
 
           return (
             <View
@@ -99,34 +100,36 @@ export default function SlotsScreen() {
                   : occ.map((r) => (
                     <View key={r.id} style={styles.visitorRow}>
                       <Text style={[styles.visitorName, { color: C.success }]}>● {r.prenom} {r.nom}</Text>
-                      {isMine(r) && (
-                        <TouchableOpacity onPress={() => flowRef.current?.openPinModal(r)} style={[styles.editBtn, { borderColor: C.border }]}>
-                          <Text style={[styles.editBtnText, { color: C.muted }]}>Modifier</Text>
-                        </TouchableOpacity>
-                      )}
                     </View>
                   ))
                 }
               </View>
-              {!full && !past && (
-                <TouchableOpacity
-                  style={[styles.reserveBtn, { backgroundColor: C.accent }]}
-                  onPress={() => flowRef.current?.openBooking(iso, slot)}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.reserveBtnText}>+ Réserver</Text>
-                </TouchableOpacity>
-              )}
-              {full && !past && (
-                <View style={[styles.fullBadge, { borderColor: C.border }]}>
-                  <Text style={[styles.fullBadgeText, { color: C.muted }]}>Complet</Text>
-                </View>
-              )}
-              {past && (
-                <View style={[styles.fullBadge, { borderColor: C.border }]}>
-                  <Text style={[styles.fullBadgeText, { color: C.muted }]}>Passé</Text>
-                </View>
-              )}
+              <View style={styles.slotRight}>
+                {!full && !past && (
+                  <TouchableOpacity
+                    style={[styles.reserveBtn, { backgroundColor: C.accent }]}
+                    onPress={() => flowRef.current?.openBooking(iso, slot)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.reserveBtnText}>Réserver</Text>
+                  </TouchableOpacity>
+                )}
+                {full && !past && (
+                  <View style={[styles.fullBadge, { borderColor: C.border }]}>
+                    <Text style={[styles.fullBadgeText, { color: C.muted }]}>Complet</Text>
+                  </View>
+                )}
+                {past && (
+                  <View style={[styles.fullBadge, { borderColor: C.border }]}>
+                    <Text style={[styles.fullBadgeText, { color: C.muted }]}>Passé</Text>
+                  </View>
+                )}
+                {mine && (
+                  <TouchableOpacity onPress={() => flowRef.current?.openPinModal(mine)} style={[styles.editBtn, { borderColor: C.border }]}>
+                    <Text style={[styles.editBtnText, { color: C.muted }]}>Modifier</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
           );
         })}
@@ -150,28 +153,30 @@ export default function SlotsScreen() {
                   : (
                     <View style={styles.visitorRow}>
                       <Text style={[styles.visitorName, { color: C.success }]}>● {nightResa.prenom} {nightResa.nom}</Text>
-                      {isMine(nightResa) && (
-                        <TouchableOpacity onPress={() => nightFlowRef.current?.openPinModal(nightResa)} style={[styles.editBtn, { borderColor: C.border }]}>
-                          <Text style={[styles.editBtnText, { color: C.muted }]}>Modifier</Text>
-                        </TouchableOpacity>
-                      )}
                     </View>
                   )
                 }
               </View>
-              {!nightResa ? (
-                <TouchableOpacity
-                  style={[styles.reserveBtn, { backgroundColor: C.accent }]}
-                  onPress={() => nightFlowRef.current?.openBooking(iso, nightStartSlot(slotConfig))}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.reserveBtnText}>+ Réserver</Text>
-                </TouchableOpacity>
-              ) : (
-                <View style={[styles.fullBadge, { borderColor: C.border }]}>
-                  <Text style={[styles.fullBadgeText, { color: C.muted }]}>Complet</Text>
-                </View>
-              )}
+              <View style={styles.slotRight}>
+                {!nightResa ? (
+                  <TouchableOpacity
+                    style={[styles.reserveBtn, { backgroundColor: C.accent }]}
+                    onPress={() => nightFlowRef.current?.openBooking(iso, nightStartSlot(slotConfig))}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.reserveBtnText}>Réserver</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <View style={[styles.fullBadge, { borderColor: C.border }]}>
+                    <Text style={[styles.fullBadgeText, { color: C.muted }]}>Complet</Text>
+                  </View>
+                )}
+                {nightResa && isMine(nightResa) && (
+                  <TouchableOpacity onPress={() => nightFlowRef.current?.openPinModal(nightResa)} style={[styles.editBtn, { borderColor: C.border }]}>
+                    <Text style={[styles.editBtnText, { color: C.muted }]}>Modifier</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
           );
         })()}
@@ -220,6 +225,7 @@ const styles = StyleSheet.create({
 
   slotCard: { borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 10, flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
   slotLeft: { flex: 1 },
+  slotRight: { alignItems: "center", gap: 8 },
   slotTime: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 22 },
   slotCount: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 2 },
   slotEmpty: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginTop: 4 },
