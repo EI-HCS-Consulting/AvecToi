@@ -27,9 +27,13 @@ export default function VisitorNightsScreen() {
 
   if (!space || !slotConfig) return null;
 
-  const upcomingNights = reservations
-    .filter((r): r is Reservation => r.type === "Nuit" && r.date >= toISO(today))
+  const allNightReservations = reservations.filter((r): r is Reservation => r.type === "Nuit");
+  const upcomingNights = allNightReservations
+    .filter((r) => r.date >= toISO(today))
     .sort((a, b) => a.date.localeCompare(b.date));
+  const pastNights = allNightReservations
+    .filter((r) => r.date < toISO(today))
+    .sort((a, b) => b.date.localeCompare(a.date));
 
   function handleReserveNext() {
     if (!slotConfig) return;
@@ -80,6 +84,24 @@ export default function VisitorNightsScreen() {
                   <TouchableOpacity onPress={() => flowRef.current?.openPinModal(r)} style={[styles.editBadge, { backgroundColor: C.orange }]}>
                     <Text style={styles.editBadgeText}>✏️</Text>
                   </TouchableOpacity>
+                </View>
+              ))
+            )}
+
+            <Text style={[styles.sectionTitle, { color: C.gold, marginTop: 24 }]}>Nuitées effectuées</Text>
+
+            {pastNights.length === 0 ? (
+              <View style={styles.empty}>
+                <Text style={{ fontSize: 32, marginBottom: 10 }}>🌙</Text>
+                <Text style={[styles.emptyText, { color: C.muted }]}>Aucune nuitée effectuée pour l'instant.</Text>
+              </View>
+            ) : (
+              pastNights.map((r) => (
+                <View key={r.id} style={[styles.nightCard, { backgroundColor: C.card, borderColor: C.border, opacity: 0.7 }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.nightDate, { color: "#fff" }]}>{toFrLong(new Date(r.date + "T12:00:00"))}</Text>
+                    <Text style={[styles.nightVisitor, { color: C.success }]}>● {r.prenom} {r.nom}</Text>
+                  </View>
                 </View>
               ))
             )}

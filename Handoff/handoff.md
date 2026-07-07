@@ -1,67 +1,62 @@
 # Handoff — AvecToi
-_Généré le : 2026-07-06 16:54_
+_Généré le : 2026-07-07_
 
 ## État global du projet
 
 **Stack :** React Native + Expo SDK 51+, Expo Router, Supabase (BDD/Auth/Storage/Realtime/Edge Functions), EAS Build, expo-notifications, expo-calendar, expo-image-picker. Stripe côté web uniquement (avectoi.care), app 100% "reader" conforme Play Store (aucun prix/achat dans l'app).
 
-**Livré (selon la liste des priorités V1 de CLAUDE.md), tout commité (`3dc548c`) :**
-1-10 : Setup Expo/Supabase/Git, Auth admin, accès visiteur par lien/token ou code dossier, calendrier + créneaux + réservation + PIN, galerie Souvenirs, Nouvelles du jour, Entraide + Mur de soutien (avec case "je m'en occupe déjà" à la création), 6 thèmes + photo patient, "Prochaine disponibilité", ajout créneau au calendrier natif Android.
+**Repo GitHub :** `https://github.com/EI-HCS-Consulting/AvecToi`, branche `main` protégée par ruleset (PR obligatoire). Tout le travail de cette session est **en cours sur `main` en local, non commité** (pas de demande de commit reçue) — à mettre sur une branche `feature/...` avant de committer, conformément à la règle du projet.
 
-**Fonctionnalités livrées cette session :**
-- **Fix critique** : l'édition d'une réservation admin pouvait sembler réussir (toast succès + Google Calendar mis à jour) sans être réellement écrite en base — cause racine : policies RLS UPDATE/DELETE manquantes sur `reservations` (seules SELECT/INSERT existaient, nécessaires à la réservation visiteur anonyme). Corrigé par migration `20260706_reservations_update_delete_policy.sql` (appliquée en prod, testé OK) + vérification `count` sur toutes les écritures admin (édition et suppression, créneaux et nuitées) pour détecter toute future écriture silencieusement bloquée.
-- **Réservations admin multi-personnes liées** (`group_id`, migration `20260706_reservation_group_id.sql`, appliquée en prod, testé OK) : quand l'admin ajoute plusieurs personnes en une fois ("+ Ajouter une autre personne"), les lignes créées ensemble sont désormais liées. Modifier ou supprimer l'une propose une case à cocher par accompagnant : "Modifier aussi le créneau de X" / "Supprimer aussi pour X".
-- **Nouvelle modale de suppression** (`components/DeleteReservationConfirm.tsx`) au design cohérent avec le reste de l'app, remplace l'`Alert.alert` natif basique, réutilisée dans Créneaux et Nuitées.
-- Créneaux déjà passés dans la journée désormais non sélectionnables dans la modale d'édition admin (`isSlotPast`, en plus du blocage déjà existant sur les jours passés).
-- Suppression d'une réservation → suppression de l'événement Google Calendar déjà en place et fonctionnelle (vérifié avec l'utilisateur ; seul un délai de synchro Google Calendar avait été observé, rien à corriger côté app).
-- Nettoyage de 4 lignes de doublons de test en base (créneaux du 06/07 12h/13h), supprimées à la demande explicite après avoir confirmé qu'il s'agissait de données de test réelles et non d'un bug applicatif.
-- **Commit global** (`3dc548c`) regroupant, à la demande explicite de l'utilisateur ("commit tout ça"), tout le travail ci-dessus **et** tout le chantier resté non commité depuis le 2026-07-04 (cap freemium, code dossier, refontes d'écrans — détail en Historique cumulé).
+**Livré (V1, CLAUDE.md points 1-10) :** setup Expo/Supabase/Git, Auth admin, accès visiteur (lien/token ou code dossier), calendrier + créneaux + réservation + PIN, galerie Souvenirs, Nouvelles du jour, Entraide + Mur de soutien, 6 thèmes, "Prochaine disponibilité", ajout calendrier natif Android, RLS UPDATE/DELETE + cascade `group_id`, onglet Nuits scindé "programmées/effectuées" avec édition admin réutilisant `AdminEditReservation`, traçabilité "Programmé par" quand un visiteur réserve pour un tiers, identification visiteur stable à l'entrée dans l'espace.
 
 **En cours / pas commencé :**
-- Cap freemium (8 réservations "Visite"/espace) toujours **en pause** (triggers désactivés via `20260705_pause_freemium_cap.sql`) — l'app est en phase de création/tests, pas de lancement commercial. Réactivation = `enable trigger` en SQL avant lancement.
-- Fix `pg_net` non-fatal (`20260705_cap_notify_non_fatal.sql`) : migration écrite et désormais commitée dans le code, mais **pas confirmé appliqué en prod** — à vérifier/exécuter dans le SQL Editor Supabase avant toute réactivation du cap.
+- Cap freemium (8 résa "Visite"/espace) toujours **en pause** (`20260705_pause_freemium_cap.sql`) — réactiver avant lancement commercial.
+- Fix `pg_net` non-fatal : **confirmé appliqué en prod**.
+- Migration `20260707_reservations_booked_by.sql` : **exécutée par l'utilisateur, confirmée**.
+- Tout le code de cette session (voir section 3) : à committer/brancher/PR.
 - Points 13-14 (EAS Build APK signé, fiche Play Store) : pas commencés.
 
-**⚠️ Point de vigilance sécurité découvert cette session :** `.env` est **tracké dans git** (visible via `git ls-files`) alors que `.gitignore` et CLAUDE.md l'interdisent explicitement — la clé anon/publishable Supabase (`VITE_SUPABASE_KEY`) est donc présente dans l'historique git. Pas corrigé (décision utilisateur nécessaire : repo privé ou public ? faut-il `git rm --cached .env` + purge d'historique ?).
-
 ## Historique cumulé
-- Lots 1-10 (fonctionnalités de base) livrés et commités au fil de sessions antérieures (voir `git log`).
-- 2026-07-04/05 : chantier `dossier_code` + cap freemium (8 visites) + PIN visiteur sécurisé, infra Supabase déployée en prod puis cap **mis en pause** (phase de tests, pas de lancement commercial) ; fix `pg_net` non-fatal préparé. Resté **non commité** jusqu'à cette session.
-- 2026-07-06 (session précédente) : popup "Modifier la réservation" admin + refonte `MiniCalendar` synoptique, commité `561870d`.
-- 2026-07-06 (cette session) : fix critique RLS UPDATE/DELETE sur `reservations`, cascade modifier/supprimer accompagnants (`group_id`), modale de suppression restylée, filtrage créneaux passés, nettoyage doublons de test, puis **commit global `3dc548c`** regroupant tout le travail non commité depuis le 04/07.
-- Ancienne trace `HANDOFF_migration_auth.md` (racine, committé) : chantier "migration Supabase Auth visiteur" abandonné en amont, conservé pour mémoire historique uniquement.
+- Lots 1-10 (fonctionnalités de base) livrés au fil de sessions antérieures.
+- 2026-07-04/05 : `dossier_code` + cap freemium (pause) + PIN visiteur sécurisé.
+- 2026-07-06 : popup "Modifier la réservation" admin, refonte `MiniCalendar`, fix RLS UPDATE/DELETE + cascade `group_id`, migration du repo GitHub suite à l'exposition de `.env`/clé anon (nouveau repo sans historique compromis, ruleset + secret scanning activés, Vercel reconnecté).
+- 2026-07-07 (cette session) : vérification pg_net, fix règles de visite (migration jours/dates), corrections texte/affichage, refonte de l'onglet Nuits (admin + visiteur), traçabilité "Programmé par", passage à une identification visiteur stable et non réécrite.
 
 ## 1. Objectif de la session
-Corriger un bug critique de persistance des modifications de réservation admin (silencieusement bloquées en base malgré un succès apparent), traiter un signalement de doublon de réservation et bloquer la modification des créneaux déjà passés, puis ajouter une fonctionnalité de cascade modifier/supprimer pour les réservations admin multi-personnes liées, avec une modale de suppression au design amélioré. Enfin, committer l'ensemble du travail en attente sur la branche.
-État "done" : bug de persistance corrigé et vérifié en prod par l'utilisateur, cascade modifier/supprimer fonctionnelle et testée, modale de suppression restylée, créneaux passés bloqués, synchro suppression↔Google Calendar confirmée fonctionnelle, tout committé (`3dc548c`).
+Reprendre le développement fonctionnel après la migration du repo : vérifier des fixes déjà en prod, corriger plusieurs bugs/textes mineurs, refondre l'onglet Nuits pour afficher toutes les réservations de tous les visiteurs avec édition admin, ajouter une traçabilité "Programmé par" quand un visiteur réserve pour quelqu'un d'autre, et enfin refondre le modèle d'identification visiteur pour qu'il soit stable dès l'entrée dans l'espace plutôt que déduit de la dernière réservation faite.
+État "done" : identification visiteur stable en place et testée, traçabilité "Programmé par" fonctionnelle des deux côtés (Nuits + Créneaux), migration SQL exécutée en prod.
 
 ## 2. État actuel
-**Fonctionne et vérifié par l'utilisateur en prod :**
-- Édition/suppression de réservation admin : persistée en base de façon fiable (policies RLS + vérification `count`).
-- Cascade "Modifier aussi / Supprimer aussi pour [accompagnant]" sur les réservations admin liées par `group_id`.
-- Modale de suppression restylée (`DeleteReservationConfirm.tsx`), avec cases à cocher accompagnants.
-- Filtrage des créneaux déjà passés dans la modale d'édition admin.
-- Suppression Google Calendar liée à la suppression d'une réservation (déjà en place, confirmé fonctionnel).
+**Fonctionne et vérifié :**
+- Fix `pg_net` non-fatal : confirmé appliqué en prod (vérifié via `pg_get_functiondef`).
+- Migration `allowed_weekdays`/`blocked_dates`/`gap_includes_duration` sur `slot_config` : exécutée, "Règles de visite" avec date bloquée s'enregistre sans erreur.
+- Textes "Un créneau toutes les heures" (au lieu de "toutes les 1h") et header ville/pays sur une ligne : en place.
+- Onglet Nuits (admin + visiteur) : scindé "Nuitées programmées" (à venir, tri croissant) / "Nuitées effectuées" (passées, tri décroissant, lecture seule) ; côté admin, bouton "Modifier" (remplace la croix de suppression) ouvre `AdminEditReservation` (calendrier vert/rouge, pas de créneau horaire, bouton supprimer, Annuler/Valider).
+- Traçabilité "Programmé par" : migration `20260707_reservations_booked_by.sql` exécutée et confirmée. `BookingFlow.tsx` détecte si le prénom/nom saisis diffèrent de l'identité de session et alimente `booked_by_prenom`/`booked_by_nom` ; affiché sous le nom dans `(admin)/home/nights.tsx` et `(admin)/home/slots.tsx` (nuitée + créneaux).
+- **Refonte identification visiteur** (dernière tâche de la session) : popup "Bienvenue !" ajoutée dans `app/(visitor)/_layout.tsx`, affichée avant même le consentement RGPD, demandant Prénom/Nom une seule fois à la première arrivée sur l'espace. Cette identité ne préremplit plus seulement — elle **n'est plus jamais réécrite** par une réservation (`BookingFlow.tsx` ne sauvegarde plus que le PIN dans la session après une résa), donc reste stable même si le visiteur réserve pour un proche (personne âgée sans téléphone, etc.).
 
-**Dernière action avant ce handoff :** commit `3dc548c` (« feat: cap freemium + code dossier, réservations groupées et fiabilisation RLS »), puis génération de ce handoff.
+**Dernière action avant ce handoff :** typecheck complet (`tsc --noEmit`) sans nouvelle erreur introduite ; aucune erreur pré-existante (Deno edge functions, `notifications.ts`) n'a été touchée.
+
+**Non fait intentionnellement (hors périmètre demandé) :** les identités utilisées pour Nouvelles/Entraide/Soutien (`rememberAuthorPin`) continuent à se mettre à jour à chaque saisie, sans la même stabilité que pour les réservations — la demande portait explicitly sur les réservations.
 
 ## 3. Fichiers concernés
-- `supabase/migrations/20260706_reservations_update_delete_policy.sql` → policies RLS UPDATE/DELETE sur `reservations` (appliquée en prod).
-- `supabase/migrations/20260706_reservation_group_id.sql` → colonne `group_id` (appliquée en prod).
-- `components/AdminEditReservation.tsx` → vérification `count` sur l'update, cases de cascade "Modifier aussi", filtrage des créneaux passés (`isSlotPast`).
-- `components/DeleteReservationConfirm.tsx` (nouveau) → modale de suppression restylée avec cascade accompagnants.
-- `components/AdminAddReservation.tsx` → pose du `group_id` après insertion multi-personnes.
-- `app/(admin)/home/slots.tsx`, `app/(admin)/home/nights.tsx` → suppression via la nouvelle modale (`deleteRef` + `handleConfirmDelete`), vérification `count`, blocage "Modifier" sur créneau déjà passé du jour même.
-- `lib/types.ts` → champ `group_id` ajouté à `Reservation`.
-- `lib/calendarSync.ts`, `lib/slotUtils.ts` → lus/consultés (isSlotPast déjà existant, réutilisé).
-- Tout le reste du diff commité (`Handoff/`, `CapBlockScreen.tsx`, `lib/dossierCode.ts`, `lib/freemiumCap.ts`, `lib/visitorEntry.ts`, migrations `202607*` cap/dossier, écrans admin/visiteur) → chantier de sessions antérieures (2026-07-04/05), non retouché cette session, simplement inclus dans le commit global à la demande de l'utilisateur.
+- `supabase/migrations/20260707_reservations_booked_by.sql` → nouvelles colonnes `booked_by_prenom`/`booked_by_nom` sur `reservations` (exécutée en prod).
+- `lib/types.ts` → `Reservation` : ajout de `booked_by_prenom`/`booked_by_nom`.
+- `components/BookingFlow.tsx` → détection du changement de nom à la réservation (`handleBook`) + arrêt de la réécriture du prénom/nom de session après une résa.
+- `app/(visitor)/_layout.tsx` → popup d'identification "Bienvenue !" (avant le consentement RGPD), état `identityKnown`, `handleSaveIdentity`.
+- `app/(admin)/home/nights.tsx`, `app/(admin)/home/slots.tsx` → affichage conditionnel "Programmé par : ..." sous le nom.
+- `app/(admin)/home/nights.tsx`, `app/(visitor)/home/nights.tsx` → scission "programmées"/"effectuées", bouton "Modifier" admin.
+- `components/AdminEditReservation.tsx` → titre de modale dynamique ("Modifier la nuitée" vs "Modifier la réservation").
+- `app/(admin)/home/info.tsx`, `app/(visitor)/home/info.tsx` → texte "Un créneau toutes les heures".
+- `lib/address.ts` → `cityCountryLine()`, ville + pays sur la même ligne.
+- Tout ce qui précède est **non commité**, présent en local sur `main`.
 
 ## 4. Ce qui a échoué
-- Le "doublon de réservation" signalé sur les créneaux du 06/07 12h/13h n'était **pas un bug logiciel** : requête directe en base (via l'API REST Supabase avec la clé anon de l'app) a confirmé 4 lignes réellement distinctes, créées à quelques minutes d'intervalle par des tests manuels répétés de l'utilisateur — pas une race condition (le bouton "Réserver" est déjà protégé par `disabled={validPeople.length === 0 || saving}`). Supprimées directement à la demande explicite.
-- Erreur d'outil mineure sans conséquence : un `Edit` sur `AdminEditReservation.tsx` a échoué une fois car le texte cherché datait d'avant une édition précédente dans la même session — corrigé en relisant le fichier avant de réappliquer l'édit.
+- Interprétation initiale erronée de "changement de nom" pour la traçabilité "Programmé par" : j'avais d'abord compris qu'il s'agissait de l'admin renommant une réservation existante via la modale d'édition. L'utilisateur a corrigé : il s'agit du **visiteur** qui remplace son propre prénom/nom préremplis par ceux d'un tiers au moment de réserver. Piste à ne pas reprendre si le sujet revient — le bon modèle est déjà implémenté.
+- Aucun autre échec technique cette session (tous les `tsc --noEmit` sont passés du premier coup sur les fichiers touchés).
 
 ## 5. Prochaine étape
-1. Vérifier si `20260705_cap_notify_non_fatal.sql` (fix `pg_net` non-fatal) a réellement été appliqué en prod ; sinon l'exécuter dans le SQL Editor Supabase avant toute réactivation du cap freemium.
-2. Décider du sort du `.env` commité dans l'historique git (`git rm --cached .env` + éventuelle purge d'historique si le repo est ou doit devenir public).
+1. Committer le travail de cette session sur une branche dédiée (ex. `feature/nights-refonte` ou séparé en plusieurs PR par sujet) puis ouvrir une PR — rien n'est commité à ce stade.
+2. Tester en conditions réelles le nouveau parcours d'identification visiteur (popup "Bienvenue !" avant consentement RGPD) sur un appareil neuf (session vide) pour confirmer l'ordre d'affichage des deux popups.
 3. Avant tout lancement commercial : réactiver le cap freemium (`enable trigger` dans `20260705_pause_freemium_cap.sql`).
 4. Reprendre la roadmap points 13-14 (EAS Build → APK signé, fiche Play Store) quand prêt.

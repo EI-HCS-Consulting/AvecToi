@@ -184,6 +184,12 @@ function BookingFlow(
     const { iso, slot } = bookingTarget;
     const companionNames = companions.map((c) => c.trim()).filter(Boolean);
 
+    // Si le visiteur a remplacé son prénom/nom préremplis (les siens) par
+    // ceux d'une autre personne, on garde sa propre identité pour l'afficher
+    // côté admin ("Programmé par : ...") — sans quoi l'admin ne voit que le
+    // nom de la personne réservée et ne sait pas qui a fait la démarche.
+    const nameChanged = !!(savedPrenom || savedNom) && (prenom.trim() !== savedPrenom || nom.trim() !== savedNom);
+
     const { data: newResa, error } = await supabase.from("reservations").insert({
       space_id: space.id,
       date: iso,
@@ -194,6 +200,8 @@ function BookingFlow(
       type,
       pin: pinValue,
       companion_firstnames: companionNames.length > 0 ? companionNames.join(", ") : null,
+      booked_by_prenom: nameChanged ? savedPrenom : null,
+      booked_by_nom: nameChanged ? savedNom : null,
     }).select().single();
 
     setSaving(false);
@@ -212,7 +220,11 @@ function BookingFlow(
 
     await updateLastActivity(space.id);
     await refreshReservations();
-    await saveVisitorSession({ token, spaceId: space.id, prenom: prenom.trim(), nom: nom.trim(), pin: pinValue });
+    // Ne réécrit plus le prénom/nom de la session : l'identité du visiteur
+    // reste celle renseignée à son arrivée sur l'espace (cf. (visitor)/_layout.tsx),
+    // même s'il vient de réserver pour quelqu'un d'autre — seul le PIN
+    // (toujours ressaisi/choisi à chaque réservation) est mémorisé ici.
+    await saveVisitorSession({ token, spaceId: space.id, pin: pinValue });
 
     setConfirmed({ id: newResa?.id ?? "", prenom: prenom.trim(), pin: pinValue, iso, slot, companions: companionNames });
 

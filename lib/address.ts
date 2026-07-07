@@ -21,6 +21,10 @@ function cityLine(postalCode: string | null, city: string | null) {
   return [postalCode, city].filter((p) => p && p.trim().length > 0).join(" ");
 }
 
+function cityCountryLine(postalCode: string | null, city: string | null, country: string | null) {
+  return [cityLine(postalCode, city), country].filter((p) => p && p.trim().length > 0).join(" - ");
+}
+
 /** Adresse sur une seule ligne (virgules), pour la recherche Google Maps et le calendrier natif. */
 export function joinAddress({ street, line2, postalCode, city, country }: AddressParts): string {
   return [street, line2, cityLine(postalCode, city), country]
@@ -28,9 +32,9 @@ export function joinAddress({ street, line2, postalCode, city, country }: Addres
     .join(", ");
 }
 
-/** Adresse en plusieurs lignes (rue / complément / CP+ville / pays), pour l'affichage dans le bandeau. */
+/** Adresse en plusieurs lignes (rue / complément / CP+ville - pays), pour l'affichage dans le bandeau. */
 export function addressLines({ street, line2, postalCode, city, country }: AddressParts): string[] {
-  return [street, line2, cityLine(postalCode, city), country].filter((p) => p && p.trim().length > 0) as string[];
+  return [street, line2, cityCountryLine(postalCode, city, country)].filter((p) => p && p.trim().length > 0) as string[];
 }
 
 export function hospitalAddressParts(space: PatientSpace): AddressParts {

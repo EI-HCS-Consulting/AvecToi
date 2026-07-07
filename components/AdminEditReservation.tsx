@@ -123,7 +123,9 @@ function AdminEditReservation({ onSaved, onDelete, C }: Props, ref: React.Ref<Ad
           <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
             <TouchableOpacity activeOpacity={1}>
               <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
-                <Text style={[styles.sheetTitle, { color: "#fff" }]}>✏️ Modifier la réservation</Text>
+                <Text style={[styles.sheetTitle, { color: "#fff" }]}>
+                  ✏️ {target?.type === "Nuit" ? "Modifier la nuitée" : "Modifier la réservation"}
+                </Text>
                 <Text style={[styles.sheetSub, { color: C.muted }]}>
                   {target?.prenom} {target?.nom} · résa originale : {target && toFrShort(new Date(target.date + "T12:00:00"))} {target?.creneau}
                 </Text>

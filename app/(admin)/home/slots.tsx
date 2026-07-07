@@ -135,6 +135,9 @@ export default function AdminSlotsScreen() {
                 <View style={[styles.resaRow, { borderColor: C.border }]}>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.resaName, { color: C.success }]}>● {nightResa.prenom} {nightResa.nom}</Text>
+                    {(nightResa.booked_by_prenom || nightResa.booked_by_nom) ? (
+                      <Text style={[styles.bookedBy, { color: C.muted }]}>Programmé par : {nightResa.booked_by_prenom} {nightResa.booked_by_nom}</Text>
+                    ) : null}
                     {nightResa.telephone ? <Text style={[styles.resaTel, { color: C.muted }]}>{nightResa.telephone}</Text> : null}
                   </View>
                   {!dayIsPast && (
@@ -231,6 +234,9 @@ function SlotsList({
                 <View key={r.id} style={[styles.resaRow, { borderColor: C.border }]}>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.resaName, { color: C.success }]}>● {r.prenom} {r.nom}</Text>
+                    {(r.booked_by_prenom || r.booked_by_nom) ? (
+                      <Text style={[styles.bookedBy, { color: C.muted }]}>Programmé par : {r.booked_by_prenom} {r.booked_by_nom}</Text>
+                    ) : null}
                     {r.telephone ? <Text style={[styles.resaTel, { color: C.muted }]}>{r.telephone}</Text> : null}
                   </View>
                   {!dayIsPast && !slotPast && (
@@ -267,6 +273,7 @@ const styles = StyleSheet.create({
   addResaBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 12, color: "#fff" },
   resaRow: { flexDirection: "row", alignItems: "center", gap: 8, borderTopWidth: 1, paddingTop: 8, marginTop: 6 },
   resaName: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
+  bookedBy: { fontFamily: "DM_Sans_400Regular", fontSize: 11, fontStyle: "italic", marginTop: 2 },
   resaTel: { fontFamily: "DM_Sans_400Regular", fontSize: 11, marginTop: 2 },
   deleteResaBtn: { width: 28, height: 28, borderWidth: 1, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   editResaBtn: { borderWidth: 1, borderRadius: 7, paddingVertical: 6, paddingHorizontal: 10 },
