@@ -69,6 +69,15 @@ export default function Entraide({ spaceId, C, isAdmin }: Props) {
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState(true);
+
+  // PIN de session de cet appareil — sert à ne montrer "C'est fait" /
+  // "Se désinscrire" que sur les besoins pris en charge par ce même
+  // visiteur, jamais sur ceux pris en charge par quelqu'un d'autre.
+  const [myPin, setMyPin] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isAdmin) getVisitorSession().then((s) => setMyPin(s?.pin ?? null));
+  }, [isAdmin]);
+  const isMine = (t: Task) => !!myPin && !!t.claimed_by_pin && t.claimed_by_pin === myPin;
   // null = pas de filtre, affiche tous les besoins (existant). Cliquer à
   // nouveau sur l'onglet actif désélectionne.
   const [activeCat, setActiveCat] = useState<TaskCategory | null>(null);
@@ -542,7 +551,7 @@ export default function Entraide({ spaceId, C, isAdmin }: Props) {
           </TouchableOpacity>
         )}
 
-        {t.status === "pris_en_charge" && !isAdmin && (
+        {t.status === "pris_en_charge" && !isAdmin && isMine(t) && (
           <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
             <TouchableOpacity
               style={[styles.actionSmall, { borderColor: C.success, backgroundColor: `${C.success}18` }]}
