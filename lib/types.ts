@@ -115,7 +115,7 @@ export interface Task {
   space_id: string;
   title: string;
   description: string;
-  category: "repas" | "affaires" | "courses" | "autre";
+  category: "repas" | "affaires" | "courses" | "transport" | "administratif" | "autre";
   status: "ouvert" | "pris_en_charge" | "fait";
   claimed_by_prenom: string | null;
   claimed_by_nom: string | null;

@@ -19,6 +19,8 @@ const CAT_ICONS: Record<Task["category"], string> = {
   repas: "🍽️",
   affaires: "👕",
   courses: "🛒",
+  transport: "🚗",
+  administratif: "🗂️",
   autre: "💡",
 };
 

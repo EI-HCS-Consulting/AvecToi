@@ -32,6 +32,8 @@ const CATEGORY_ICONS: Record<TaskCategory, string> = {
   repas: "🍽️",
   affaires: "👕",
   courses: "🛒",
+  transport: "🚗",
+  administratif: "🗂️",
   autre: "💡",
 };
 
@@ -39,6 +41,8 @@ const CATEGORY_LABELS: Record<TaskCategory, string> = {
   repas: "Repas",
   affaires: "Affaires",
   courses: "Courses",
+  transport: "Transport",
+  administratif: "Administratif",
   autre: "Autre",
 };
 
@@ -69,6 +73,15 @@ export default function Entraide({ spaceId, C, isAdmin }: Props) {
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState(true);
+
+  // PIN de session de cet appareil — sert à ne montrer "C'est fait" /
+  // "Se désinscrire" que sur les besoins pris en charge par ce même
+  // visiteur, jamais sur ceux pris en charge par quelqu'un d'autre.
+  const [myPin, setMyPin] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isAdmin) getVisitorSession().then((s) => setMyPin(s?.pin ?? null));
+  }, [isAdmin]);
+  const isMine = (t: Task) => !!myPin && !!t.claimed_by_pin && t.claimed_by_pin === myPin;
   // null = pas de filtre, affiche tous les besoins (existant). Cliquer à
   // nouveau sur l'onglet actif désélectionne.
   const [activeCat, setActiveCat] = useState<TaskCategory | null>(null);
@@ -542,7 +555,7 @@ export default function Entraide({ spaceId, C, isAdmin }: Props) {
           </TouchableOpacity>
         )}
 
-        {t.status === "pris_en_charge" && !isAdmin && (
+        {t.status === "pris_en_charge" && !isAdmin && isMine(t) && (
           <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
             <TouchableOpacity
               style={[styles.actionSmall, { borderColor: C.success, backgroundColor: `${C.success}18` }]}
@@ -593,17 +606,6 @@ export default function Entraide({ spaceId, C, isAdmin }: Props) {
       </View>
 
       <View style={[styles.catTabsBar, { backgroundColor: C.card, borderBottomColor: C.border }]}>
-        <TouchableOpacity
-          style={[
-            styles.catTab,
-            { backgroundColor: activeCat === null ? C.accent : "transparent", borderColor: activeCat === null ? C.accent : C.border },
-          ]}
-          onPress={() => setActiveCat(null)}
-          activeOpacity={0.75}
-        >
-          <Text style={styles.catTabIcon}>📋</Text>
-          <Text style={[styles.catTabLabel, { color: activeCat === null ? "#fff" : C.text }]}>Tous</Text>
-        </TouchableOpacity>
         {(Object.keys(CATEGORY_ICONS) as TaskCategory[]).map((cat) => (
           <TouchableOpacity
             key={cat}
@@ -618,6 +620,19 @@ export default function Entraide({ spaceId, C, isAdmin }: Props) {
             <Text style={[styles.catTabLabel, { color: activeCat === cat ? "#fff" : C.text }]}>{CATEGORY_LABELS[cat]}</Text>
           </TouchableOpacity>
         ))}
+        {/* "Tous" en dernier — seul sur sa ligne, centré (6 catégories sur 2
+            lignes de 3 juste au-dessus). */}
+        <TouchableOpacity
+          style={[
+            styles.catTab,
+            { backgroundColor: activeCat === null ? C.accent : "transparent", borderColor: activeCat === null ? C.accent : C.border },
+          ]}
+          onPress={() => setActiveCat(null)}
+          activeOpacity={0.75}
+        >
+          <Text style={styles.catTabIcon}>📋</Text>
+          <Text style={[styles.catTabLabel, { color: activeCat === null ? "#fff" : C.text }]}>Tous</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={[styles.sectionBar, { borderBottomColor: C.border }]}>
@@ -627,8 +642,9 @@ export default function Entraide({ spaceId, C, isAdmin }: Props) {
         <TouchableOpacity
           style={[styles.createBtn, { backgroundColor: C.accent }]}
           onPress={openCreateTask}
+          activeOpacity={0.85}
         >
-          <Text style={styles.createBtnText}>+ Besoin</Text>
+          <Text style={styles.createBtnText}>+ Ajouter un besoin</Text>
         </TouchableOpacity>
       </View>
 
@@ -1063,15 +1079,15 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12, borderBottomWidth: 1 },
   headerTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18 },
 
-  catTabsBar: { flexDirection: "row", paddingHorizontal: 10, paddingVertical: 10, gap: 8, borderBottomWidth: 1 },
-  catTab: { flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 8, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 },
-  catTabIcon: { fontSize: 14 },
-  catTabLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11 },
+  catTabsBar: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", paddingHorizontal: 10, paddingVertical: 10, gap: 8, borderBottomWidth: 1 },
+  catTab: { width: "31%", borderWidth: 1, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 4, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 },
+  catTabIcon: { fontSize: 13 },
+  catTabLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, textAlign: "center" },
 
-  sectionBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1 },
-  sectionCount: { fontFamily: "DM_Sans_400Regular", fontSize: 12 },
-  createBtn: { borderRadius: 8, paddingVertical: 7, paddingHorizontal: 14 },
-  createBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 13, color: "#fff" },
+  sectionBar: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1 },
+  sectionCount: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginBottom: 8 },
+  createBtn: { borderRadius: 10, paddingVertical: 12, alignItems: "center" },
+  createBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" },
 
   listPad: { padding: 14, paddingBottom: 40 },
 
