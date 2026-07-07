@@ -113,7 +113,14 @@ export default function VisitorCalendarScreen() {
             const status = getDayStatus(reservations, iso, day, slotConfig, slots, startDate);
             const isToday = toISO(day) === toISO(today);
             const isSelected = toISO(day) === toISO(selectedDay);
-            const isPast = iso < toISO(today) || status === "past";
+            // Un jour déjà passé reste consultable (lecture seule — la
+            // réservation/modification est de toute façon bloquée par
+            // BookingFlow) ; seul un jour structurellement invalide (avant le
+            // début de l'espace, hors jours autorisés, date bloquée par
+            // l'admin) reste non cliquable.
+            const isPast = iso < toISO(today);
+            const isBlocked = status === "past" && !isPast;
+            const dimmed = isPast || isBlocked;
 
             const dotColor =
               status === "full" ? C.danger :
@@ -126,20 +133,20 @@ export default function VisitorCalendarScreen() {
                 style={[
                   styles.cell,
                   {
-                    backgroundColor: isSelected ? C.accent : isPast ? "transparent" : C.card,
+                    backgroundColor: isSelected ? C.accent : dimmed ? "transparent" : C.card,
                     borderColor: isSelected ? C.accent : isToday ? C.gold : C.border,
                     borderWidth: isToday ? 2 : 1,
-                    opacity: isPast ? 0.3 : 1,
+                    opacity: dimmed ? 0.3 : 1,
                   },
                 ]}
                 onPress={() => {
-                  if (!isPast) {
+                  if (!isBlocked) {
                     setSelectedDay(day);
                     setCalMonth({ year: day.getFullYear(), month: day.getMonth() });
                     router.navigate("/(visitor)/home/slots");
                   }
                 }}
-                disabled={isPast}
+                disabled={isBlocked}
                 activeOpacity={0.7}
               >
                 <View style={styles.cellInner}>
