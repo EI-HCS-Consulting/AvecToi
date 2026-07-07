@@ -23,7 +23,7 @@ export default function AdminEntraideScreen() {
     );
   }
 
-  return <Entraide spaceId={space.id} C={C} isAdmin={true} />;
+  return <Entraide spaceId={space.id} C={C} isAdmin={true} hospitalName={space.hospital_name} />;
 }
 
 const styles = StyleSheet.create({

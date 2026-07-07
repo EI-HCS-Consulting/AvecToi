@@ -110,6 +110,25 @@ export interface NewsEntry {
   created_at: string;
 }
 
+// Un aidant qui ne peut pas honorer l'horaire demandé pour un besoin
+// Transport peut proposer un autre créneau (aller et/ou retour, voire un
+// autre jour) au lieu de prendre en charge directement — voir
+// components/Entraide.tsx. `out_time`/`return_time` reprennent toujours la
+// valeur demandée par défaut dans le formulaire de proposition, donc pas
+// besoin de champs nullables ici : l'aidant n'édite que ce qui ne lui
+// convient pas.
+export interface TransportProposal {
+  id: string;
+  prenom: string;
+  nom: string;
+  pin: string;
+  date: string;
+  out_time: string;
+  return_time: string | null;
+  note: string | null;
+  created_at: string;
+}
+
 export interface Task {
   id: string;
   space_id: string;
@@ -126,6 +145,36 @@ export interface Task {
   created_by: string;
   photo: string | null;
   created_at: string;
+  // Identité de qui a créé le besoin — manquait jusqu'ici (contrairement à
+  // NewsEntry/SupportMessage) ; nécessaire pour savoir qui a le droit de
+  // valider une proposition d'horaire Transport (même mécanisme que
+  // isMine() sur claimed_by_pin). Rempli uniquement pour category="transport".
+  author_prenom: string | null;
+  author_nom: string | null;
+  author_pin: string | null;
+  // Demande initiale (catégorie "transport" uniquement)
+  transport_date: string | null;
+  transport_out_time: string | null;
+  transport_return_time: string | null;
+  transport_round_trip: boolean;
+  transport_flexible: boolean;
+  transport_from: string | null;
+  transport_to: string | null;
+  // Composants d'adresse du domicile du demandeur (le lieu de soin est figé
+  // — hospital_name côté espace, jamais saisi ici) — servent à générer un
+  // lien Google Maps pour l'aidant qui prend en charge. transport_home_is_arrival
+  // indique de quel côté (transport_from ou transport_to) se trouve le
+  // domicile, puisque "Intervertir" change ce côté sans jamais toucher au
+  // contenu du bloc domicile.
+  transport_home_postal_code: string | null;
+  transport_home_city: string | null;
+  transport_home_country: string | null;
+  transport_home_is_arrival: boolean;
+  // Horaire retenu, une fois pris en charge directement ou une proposition validée
+  transport_confirmed_date: string | null;
+  transport_confirmed_out_time: string | null;
+  transport_confirmed_return_time: string | null;
+  transport_proposals: TransportProposal[];
 }
 
 export interface SupportMessage {
