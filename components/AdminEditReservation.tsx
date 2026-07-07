@@ -82,7 +82,12 @@ function AdminEditReservation({ onSaved, onDelete, C }: Props, ref: React.Ref<Ad
       // count === 0 sans erreur = écriture silencieusement bloquée (ex. policy
       // RLS manquante en UPDATE) : le calendrier natif, lui, se met à jour
       // quand même car il ne dépend pas de la base — d'où le faux "succès".
-      Alert.alert("Erreur", error ? "Erreur lors de la modification : " + error.message : "La modification n'a pas été enregistrée en base.");
+      Alert.alert(
+        "Erreur",
+        error?.message.includes("SLOT_FULL")
+          ? "Ce créneau est déjà complet. Choisis-en un autre."
+          : error ? "Erreur lors de la modification : " + error.message : "La modification n'a pas été enregistrée en base.",
+      );
       return;
     }
 

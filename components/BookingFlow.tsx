@@ -225,6 +225,11 @@ function BookingFlow(
           "Limite atteinte",
           "Vous avez atteint la limite de votre espace. Consultez l'email envoyé à votre adresse pour en savoir plus.",
         );
+      } else if (error.message.includes("SLOT_FULL")) {
+        Alert.alert(
+          "Créneau complet",
+          "Ce créneau vient d'être complété par quelqu'un d'autre. Choisis-en un autre.",
+        );
       } else {
         Alert.alert("Erreur lors de la réservation", error.message);
       }
@@ -315,7 +320,11 @@ function BookingFlow(
     setEditSaving(false);
 
     if (error || count === 0) {
-      showToast("Erreur lors de la modification.");
+      showToast(
+        error?.message.includes("SLOT_FULL")
+          ? "Ce créneau vient d'être complété par quelqu'un d'autre — choisis-en un autre."
+          : "Erreur lors de la modification.",
+      );
       return;
     }
 
