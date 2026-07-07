@@ -50,6 +50,11 @@ interface ConfirmedBooking {
   iso: string;
   slot: string;
   companions: string[];
+  // Le PIN de session existait-il déjà avant cette réservation, ou vient-il
+  // d'être choisi à l'instant (premier passage sur cet appareil) ? Sert à
+  // n'afficher le récap "note ce code" que quand il y a vraiment un nouveau
+  // code à retenir.
+  isNewPin: boolean;
 }
 
 async function updateLastActivity(spaceId: string) {
@@ -75,9 +80,14 @@ function BookingFlow(
 
   const [savedPrenom, setSavedPrenom] = useState("");
   const [savedNom, setSavedNom] = useState("");
+  // PIN déjà enregistré sur cet appareil (visiteur "identifié") — dès qu'il
+  // existe, on ne redemande plus de choisir un code à chaque réservation, on
+  // le réutilise silencieusement. Absent seulement au tout premier passage
+  // sur cet appareil, où choisir un PIN revient à créer son identité ici.
+  const [sessionPin, setSessionPin] = useState("");
   useEffect(() => {
     getVisitorSession().then((s) => {
-      if (s) { setSavedPrenom(s.prenom); setSavedNom(s.nom); }
+      if (s) { setSavedPrenom(s.prenom); setSavedNom(s.nom); setSessionPin(s.pin || ""); }
     });
   }, []);
 
@@ -175,7 +185,7 @@ function BookingFlow(
       Alert.alert("Champs manquants", "Indique ton prénom et ton nom.");
       return;
     }
-    if (pinValue.length < 4) {
+    if (!sessionPin && pinValue.length < 4) {
       Alert.alert("Code PIN incomplet", "Choisis un code PIN à 4 chiffres sur le clavier ci-dessus.");
       return;
     }
@@ -183,6 +193,9 @@ function BookingFlow(
     setSaving(true);
     const { iso, slot } = bookingTarget;
     const companionNames = companions.map((c) => c.trim()).filter(Boolean);
+    // Réutilise silencieusement le PIN déjà enregistré sur cet appareil s'il
+    // existe — seul un visiteur pas encore identifié en choisit un nouveau.
+    const effectivePin = sessionPin || pinValue;
 
     // Si le visiteur a remplacé son prénom/nom préremplis (les siens) par
     // ceux d'une autre personne, on garde sa propre identité pour l'afficher
@@ -198,7 +211,7 @@ function BookingFlow(
       nom: nom.trim(),
       telephone: tel.trim(),
       type,
-      pin: pinValue,
+      pin: effectivePin,
       companion_firstnames: companionNames.length > 0 ? companionNames.join(", ") : null,
       booked_by_prenom: nameChanged ? savedPrenom : null,
       booked_by_nom: nameChanged ? savedNom : null,
@@ -222,11 +235,13 @@ function BookingFlow(
     await refreshReservations();
     // Ne réécrit plus le prénom/nom de la session : l'identité du visiteur
     // reste celle renseignée à son arrivée sur l'espace (cf. (visitor)/_layout.tsx),
-    // même s'il vient de réserver pour quelqu'un d'autre — seul le PIN
-    // (toujours ressaisi/choisi à chaque réservation) est mémorisé ici.
-    await saveVisitorSession({ token, spaceId: space.id, pin: pinValue });
+    // même s'il vient de réserver pour quelqu'un d'autre. Le PIN, lui, reste
+    // désormais stable une fois choisi — on ne fait que confirmer la même
+    // valeur en session, sauf lors du tout premier choix.
+    await saveVisitorSession({ token, spaceId: space.id, pin: effectivePin });
+    setSessionPin(effectivePin);
 
-    setConfirmed({ id: newResa?.id ?? "", prenom: prenom.trim(), pin: pinValue, iso, slot, companions: companionNames });
+    setConfirmed({ id: newResa?.id ?? "", prenom: prenom.trim(), pin: effectivePin, iso, slot, companions: companionNames, isNewPin: !sessionPin });
 
     if (newResa?.id) {
       scheduleVisitReminder(newResa.id, iso, slot, prenom.trim(), `${space.patient_firstname} ${space.patient_lastname}`);
@@ -410,11 +425,15 @@ function BookingFlow(
                     </>
                   )}
 
-                  <Text style={[styles.pinLabel, { color: C.gold }]}>🔐 Choisis ton code PIN (4 chiffres)</Text>
-                  <Text style={[styles.pinHint, { color: C.muted }]}>
-                    Garde-le précieusement — tu en auras besoin pour modifier ou annuler ta visite.
-                  </Text>
-                  <PinPad value={pinValue} onChange={setPinValue} theme={C} />
+                  {!sessionPin && (
+                    <>
+                      <Text style={[styles.pinLabel, { color: C.gold }]}>🔐 Choisis ton code PIN (4 chiffres)</Text>
+                      <Text style={[styles.pinHint, { color: C.muted }]}>
+                        Garde-le précieusement — tu en auras besoin pour modifier ou annuler ta visite.
+                      </Text>
+                      <PinPad value={pinValue} onChange={setPinValue} theme={C} />
+                    </>
+                  )}
 
                   <View style={styles.sheetBtns}>
                     <TouchableOpacity
@@ -430,7 +449,7 @@ function BookingFlow(
                       style={[
                         styles.btnPrimary,
                         { backgroundColor: C.accent },
-                        (!prenom.trim() || !nom.trim() || pinValue.length < 4) && { opacity: 0.5 },
+                        (!prenom.trim() || !nom.trim() || (!sessionPin && pinValue.length < 4)) && { opacity: 0.5 },
                       ]}
                     >
                       {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.btnPrimaryText}>Confirmer</Text>}
@@ -453,14 +472,16 @@ function BookingFlow(
               <Text style={[styles.sheetSub, { color: C.muted }]}>Ta visite est enregistrée.</Text>
             </View>
 
-            <View style={[styles.pinDisplay, { backgroundColor: C.bg, borderColor: "rgba(240,180,41,0.4)" }]}>
-              <Text style={[styles.pinDisplayLabel, { color: C.gold }]}>🔐 Ton code PIN</Text>
-              <Text style={[styles.pinDisplayValue, { color: C.gold }]}>{confirmed?.pin}</Text>
-              <Text style={[styles.pinDisplayHint, { color: C.muted }]}>
-                Note ce code ou enregistre-le dans ton compte utilisateur (onglet Compte) — tu en
-                auras besoin pour modifier ou annuler ta réservation.
-              </Text>
-            </View>
+            {confirmed?.isNewPin && (
+              <View style={[styles.pinDisplay, { backgroundColor: C.bg, borderColor: "rgba(240,180,41,0.4)" }]}>
+                <Text style={[styles.pinDisplayLabel, { color: C.gold }]}>🔐 Ton code PIN</Text>
+                <Text style={[styles.pinDisplayValue, { color: C.gold }]}>{confirmed?.pin}</Text>
+                <Text style={[styles.pinDisplayHint, { color: C.muted }]}>
+                  Note ce code — il t'identifie désormais sur cet appareil, tu n'auras plus à le
+                  ressaisir pour tes prochaines réservations, modifications ou annulations.
+                </Text>
+              </View>
+            )}
 
             <TouchableOpacity
               style={[
