@@ -642,8 +642,9 @@ export default function Entraide({ spaceId, C, isAdmin }: Props) {
         <TouchableOpacity
           style={[styles.createBtn, { backgroundColor: C.accent }]}
           onPress={openCreateTask}
+          activeOpacity={0.85}
         >
-          <Text style={styles.createBtnText}>+ Besoin</Text>
+          <Text style={styles.createBtnText}>+ Ajouter un besoin</Text>
         </TouchableOpacity>
       </View>
 
@@ -1083,10 +1084,10 @@ const styles = StyleSheet.create({
   catTabIcon: { fontSize: 13 },
   catTabLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, textAlign: "center" },
 
-  sectionBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1 },
-  sectionCount: { fontFamily: "DM_Sans_400Regular", fontSize: 12 },
-  createBtn: { borderRadius: 8, paddingVertical: 7, paddingHorizontal: 14 },
-  createBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 13, color: "#fff" },
+  sectionBar: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1 },
+  sectionCount: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginBottom: 8 },
+  createBtn: { borderRadius: 10, paddingVertical: 12, alignItems: "center" },
+  createBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" },
 
   listPad: { padding: 14, paddingBottom: 40 },
 
