@@ -1,4 +1,4 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from "react-native";
 import { useVisitorSpace } from "@/lib/VisitorContext";
 import { getVisitorSession } from "@/lib/visitorSession";
@@ -6,6 +6,7 @@ import SpaceHeader from "@/components/SpaceHeader";
 import BookingFlow, { type BookingFlowHandle } from "@/components/BookingFlow";
 import { getSlotOccupancy, getNightReservation, isSlotPast, toISO, toFrLong, toFrShort, addDays, nightStartSlot, nightRangeLabel } from "@/lib/slotUtils";
 import { themes } from "@/lib/themes";
+import type { Reservation } from "@/lib/types";
 
 // Recentré sur les créneaux "Visite" uniquement depuis le Lot 3 — la nuitée
 // a son propre écran (home/nights.tsx). La logique de réservation/PIN/édition
@@ -17,6 +18,16 @@ export default function SlotsScreen() {
   const nightFlowRef = useRef<BookingFlowHandle>(null);
 
   const startDate = space ? new Date(space.start_date + "T00:00:00") : new Date();
+
+  // PIN de session de cet appareil — sert à ne montrer "Modifier" que sur
+  // les réservations faites depuis ce même appareil (y compris quand elles
+  // ont été faites pour quelqu'un d'autre, cf. booked_by_prenom/nom), jamais
+  // sur celles des autres visiteurs.
+  const [myPin, setMyPin] = useState<string | null>(null);
+  useEffect(() => {
+    getVisitorSession().then((s) => setMyPin(s?.pin ?? null));
+  }, []);
+  const isMine = (r: Reservation) => !!myPin && r.pin === myPin;
 
   // Arrivée via "Prochaine disponibilité → Réserver" (Calendrier) : ouvre
   // directement la modale de réservation sur le créneau ciblé.
@@ -88,9 +99,11 @@ export default function SlotsScreen() {
                   : occ.map((r) => (
                     <View key={r.id} style={styles.visitorRow}>
                       <Text style={[styles.visitorName, { color: C.success }]}>● {r.prenom} {r.nom}</Text>
-                      <TouchableOpacity onPress={() => flowRef.current?.openPinModal(r)} style={[styles.editBadge, { backgroundColor: C.orange }]}>
-                        <Text style={styles.editBadgeText}>✏️</Text>
-                      </TouchableOpacity>
+                      {isMine(r) && (
+                        <TouchableOpacity onPress={() => flowRef.current?.openPinModal(r)} style={[styles.editBtn, { borderColor: C.border }]}>
+                          <Text style={[styles.editBtnText, { color: C.muted }]}>Modifier</Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                   ))
                 }
@@ -137,9 +150,11 @@ export default function SlotsScreen() {
                   : (
                     <View style={styles.visitorRow}>
                       <Text style={[styles.visitorName, { color: C.success }]}>● {nightResa.prenom} {nightResa.nom}</Text>
-                      <TouchableOpacity onPress={() => nightFlowRef.current?.openPinModal(nightResa)} style={[styles.editBadge, { backgroundColor: C.orange }]}>
-                        <Text style={styles.editBadgeText}>✏️</Text>
-                      </TouchableOpacity>
+                      {isMine(nightResa) && (
+                        <TouchableOpacity onPress={() => nightFlowRef.current?.openPinModal(nightResa)} style={[styles.editBtn, { borderColor: C.border }]}>
+                          <Text style={[styles.editBtnText, { color: C.muted }]}>Modifier</Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                   )
                 }
@@ -210,8 +225,8 @@ const styles = StyleSheet.create({
   slotEmpty: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginTop: 4 },
   visitorRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
   visitorName: { fontFamily: "DM_Sans_400Regular", fontSize: 13, flex: 1 },
-  editBadge: { borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
-  editBadgeText: { fontSize: 13 },
+  editBtn: { borderWidth: 1, borderRadius: 7, paddingVertical: 6, paddingHorizontal: 10 },
+  editBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
   reserveBtn: { borderRadius: 8, paddingHorizontal: 14, paddingVertical: 9, alignSelf: "center" },
   reserveBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 13, color: "#fff" },
   fullBadge: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 9 },
