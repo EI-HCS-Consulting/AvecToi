@@ -247,6 +247,7 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin }: Props) {
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id); else next.add(id);
+      if (next.size === 0) setSelectMode(false);
       return next;
     });
   }
@@ -352,46 +353,57 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin }: Props) {
       {/* Header */}
       <View style={[styles.header, { backgroundColor: C.card, borderBottomColor: C.border }]}>
         <Text style={[styles.headerTitle, { color: "#fff" }]}>📷 Souvenirs</Text>
-        <View style={styles.headerBtns}>
-          {photos.length > 0 && (
-            <TouchableOpacity
-              style={[styles.headerBtn, { borderColor: C.border }]}
-              onPress={() => {
-                setSelectMode(!selectMode);
-                setSelected(new Set());
-              }}
-            >
-              <Text style={[styles.headerBtnText, { color: selectMode ? C.accent : C.muted }]}>
-                {selectMode ? "Annuler" : "Sélect."}
-              </Text>
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity
-            style={[styles.headerBtn, { borderColor: C.border, backgroundColor: "rgba(46,117,182,0.15)" }]}
-            onPress={() => setPickerVisible(true)}
-          >
-            <Text style={[styles.headerBtnText, { color: C.accent }]}>+ Photo</Text>
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          style={[styles.publishBtn, { backgroundColor: C.accent }]}
+          onPress={() => setPickerVisible(true)}
+        >
+          <Text style={styles.publishBtnText}>+ Photo</Text>
+        </TouchableOpacity>
       </View>
 
-      {/* Select bar */}
+      <View style={[styles.subHeader, { backgroundColor: C.card, borderBottomColor: C.border }]}>
+        <TouchableOpacity
+          style={[styles.addBtn, { backgroundColor: C.gold }]}
+          onPress={() => router.push((isAdmin ? "/(admin)/home/calendar" : "/(visitor)/home/calendar") as any)}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.addBtnText}>← Retour à l'accueil</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Select bar — activée en restant appuyé sur une photo */}
       {selectMode && (
         <View style={[styles.selectBar, { backgroundColor: C.card, borderBottomColor: C.border }]}>
-          <TouchableOpacity onPress={selectAll} style={[styles.selectBarBtn, { borderColor: C.border }]}>
-            <Text style={[styles.selectBarBtnText, { color: C.text }]}>Tout sélect. ({photos.length})</Text>
-          </TouchableOpacity>
-          <Text style={[styles.selectCount, { color: C.muted }]}>{selected.size} sélectionné{selected.size > 1 ? "s" : ""}</Text>
-          <TouchableOpacity
-            onPress={downloadSelected}
-            disabled={selected.size === 0 || downloading}
-            style={[styles.selectBarBtn, { borderColor: C.accent, backgroundColor: "rgba(46,117,182,0.15)" }, selected.size === 0 && { opacity: 0.4 }]}
-          >
-            {downloading
-              ? <ActivityIndicator color={C.accent} size="small" />
-              : <Text style={[styles.selectBarBtnText, { color: C.accent }]}>⬇️ Télécharger</Text>
-            }
-          </TouchableOpacity>
+          <View style={styles.selectBarRow}>
+            <Text style={[styles.selectCount, { color: C.muted }]}>
+              {selected.size} sélectionné{selected.size > 1 ? "s" : ""}
+            </Text>
+            <TouchableOpacity onPress={selectAll} style={[styles.selectBarBtn, { borderColor: C.border }]}>
+              <Text style={[styles.selectBarBtnText, { color: C.text }]}>Tout sélect. ({photos.length})</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={styles.selectBarRow}>
+            <TouchableOpacity
+              onPress={downloadSelected}
+              disabled={selected.size === 0 || downloading}
+              style={[
+                styles.selectBarBtn,
+                { flex: 1, borderColor: C.accent, backgroundColor: "rgba(46,117,182,0.15)" },
+                selected.size === 0 && { opacity: 0.4 },
+              ]}
+            >
+              {downloading
+                ? <ActivityIndicator color={C.accent} size="small" />
+                : <Text style={[styles.selectBarBtnText, { color: C.accent, textAlign: "center" }]}>⬇️ Télécharger</Text>
+              }
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => { setSelectMode(false); setSelected(new Set()); }}
+              style={[styles.selectBarBtn, { borderColor: C.border }]}
+            >
+              <Text style={[styles.selectBarBtnText, { color: C.muted }]}>Annuler</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       )}
 
@@ -702,14 +714,17 @@ const styles = StyleSheet.create({
 
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12, borderBottomWidth: 1 },
   headerTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18 },
-  headerBtns: { flexDirection: "row", gap: 8 },
-  headerBtn: { borderWidth: 1, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 12 },
-  headerBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
+  publishBtn: { borderRadius: 8, paddingVertical: 8, paddingHorizontal: 14, minWidth: 104, alignItems: "center" },
+  publishBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 13, color: "#fff", textAlign: "center" },
+  subHeader: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1 },
+  addBtn: { borderRadius: 10, paddingVertical: 12, alignItems: "center" },
+  addBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#0D1B2E" },
 
-  selectBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, gap: 8 },
-  selectBarBtn: { borderWidth: 1, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10 },
+  selectBar: { paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, gap: 8 },
+  selectBarRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  selectBarBtn: { borderWidth: 1, borderRadius: 8, paddingVertical: 8, paddingHorizontal: 12 },
   selectBarBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
-  selectCount: { fontFamily: "DM_Sans_400Regular", fontSize: 13, flex: 1, textAlign: "center" },
+  selectCount: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
 
   grid: { padding: 16, paddingBottom: 32 },
   cell: { borderRadius: 10, overflow: "hidden", borderWidth: 2 },

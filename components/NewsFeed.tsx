@@ -4,7 +4,7 @@ import {
   FlatList, Image, Modal, StyleSheet, Alert, ActivityIndicator,
   KeyboardAvoidingView, Platform, Dimensions,
 } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import { File } from "expo-file-system";
@@ -65,6 +65,7 @@ function sanitize(str: string) {
 
 // ─── Composant principal ──────────────────────────────────────────────────────
 export default function NewsFeed({ spaceId, C, isAdmin }: Props) {
+  const router = useRouter();
   const { focusEntryId } = useLocalSearchParams<{ focusEntryId?: string }>();
   const listRef = useRef<FlatList<NewsEntryWithUrls>>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
@@ -559,6 +560,16 @@ export default function NewsFeed({ spaceId, C, isAdmin }: Props) {
         </TouchableOpacity>
       </View>
 
+      <View style={[styles.subHeader, { backgroundColor: C.card, borderBottomColor: C.border }]}>
+        <TouchableOpacity
+          style={[styles.addBtn, { backgroundColor: C.gold }]}
+          onPress={() => router.push((isAdmin ? "/(admin)/home/calendar" : "/(visitor)/home/calendar") as any)}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.addBtnText}>← Retour à l'accueil</Text>
+        </TouchableOpacity>
+      </View>
+
       {loading ? (
         <View style={styles.centered}><ActivityIndicator color={C.accent} size="large" /></View>
       ) : entries.length === 0 ? (
@@ -821,8 +832,11 @@ const styles = StyleSheet.create({
 
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12, borderBottomWidth: 1 },
   headerTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18 },
-  publishBtn: { borderRadius: 8, paddingVertical: 8, paddingHorizontal: 14 },
-  publishBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 13, color: "#fff" },
+  publishBtn: { borderRadius: 8, paddingVertical: 8, paddingHorizontal: 14, minWidth: 104, alignItems: "center" },
+  publishBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 13, color: "#fff", textAlign: "center" },
+  subHeader: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1 },
+  addBtn: { borderRadius: 10, paddingVertical: 12, alignItems: "center" },
+  addBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#0D1B2E" },
 
   list: { padding: 14, paddingBottom: 32 },
   card: { borderWidth: 1, borderRadius: 14, padding: 14 },

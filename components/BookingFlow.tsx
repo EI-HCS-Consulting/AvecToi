@@ -70,13 +70,14 @@ function BookingFlow(
 
   const [prenom, setPrenom] = useState("");
   const [nom, setNom] = useState("");
-  const [tel, setTel] = useState("");
   const [pinValue, setPinValue] = useState("");
   const [saving, setSaving] = useState(false);
-  // Prénoms des personnes accompagnant le réservataire — purement informatif,
-  // affiché dans le titre de l'événement calendrier natif ("Avec ..."), ne
-  // compte pas dans l'occupation du créneau (cf. lib/calendarSync.ts).
-  const [companions, setCompanions] = useState<string[]>([]);
+  // Accompagnants — chacun devient sa propre réservation (prenom/nom), liée
+  // au réservataire principal via group_id : ils comptent donc dans
+  // l'occupation du créneau et apparaissent partout comme des réservations
+  // à part entière (créneau, Mes réservations), au même titre que les
+  // ajouts multi-personnes côté admin (cf. AdminAddReservation.tsx).
+  const [companions, setCompanions] = useState<{ prenom: string; nom: string }[]>([]);
 
   const [savedPrenom, setSavedPrenom] = useState("");
   const [savedNom, setSavedNom] = useState("");
@@ -132,7 +133,7 @@ function BookingFlow(
       );
       return;
     }
-    setPrenom(prefill?.prenom ?? savedPrenom); setNom(prefill?.nom ?? savedNom); setTel(""); setPinValue("");
+    setPrenom(prefill?.prenom ?? savedPrenom); setNom(prefill?.nom ?? savedNom); setPinValue("");
     setCompanions([]);
     setBookingTarget({ iso, slot });
     setConfirmed(null);
@@ -140,11 +141,11 @@ function BookingFlow(
   }
 
   function addCompanion() {
-    setCompanions((prev) => [...prev, ""]);
+    setCompanions((prev) => [...prev, { prenom: "", nom: "" }]);
   }
 
-  function updateCompanion(index: number, value: string) {
-    setCompanions((prev) => prev.map((c, i) => (i === index ? value : c)));
+  function updateCompanion(index: number, field: "prenom" | "nom", value: string) {
+    setCompanions((prev) => prev.map((c, i) => (i === index ? { ...c, [field]: value } : c)));
   }
 
   function removeCompanion(index: number) {
@@ -192,7 +193,9 @@ function BookingFlow(
 
     setSaving(true);
     const { iso, slot } = bookingTarget;
-    const companionNames = companions.map((c) => c.trim()).filter(Boolean);
+    const validCompanions = companions
+      .map((c) => ({ prenom: c.prenom.trim(), nom: c.nom.trim() }))
+      .filter((c) => c.prenom && c.nom);
     // Réutilise silencieusement le PIN déjà enregistré sur cet appareil s'il
     // existe — seul un visiteur pas encore identifié en choisit un nouveau.
     const effectivePin = sessionPin || pinValue;
@@ -203,19 +206,35 @@ function BookingFlow(
     // nom de la personne réservée et ne sait pas qui a fait la démarche.
     const nameChanged = !!(savedPrenom || savedNom) && (prenom.trim() !== savedPrenom || nom.trim() !== savedNom);
 
-    const { data: newResa, error } = await supabase.from("reservations").insert({
-      space_id: space.id,
-      date: iso,
-      creneau: type === "Nuit" ? "🌙 Nuit" : slot,
-      prenom: prenom.trim(),
-      nom: nom.trim(),
-      telephone: tel.trim(),
-      type,
-      pin: effectivePin,
-      companion_firstnames: companionNames.length > 0 ? companionNames.join(", ") : null,
-      booked_by_prenom: nameChanged ? savedPrenom : null,
-      booked_by_nom: nameChanged ? savedNom : null,
-    }).select().single();
+    const creneau = type === "Nuit" ? "🌙 Nuit" : slot;
+    // Le réservataire principal + un accompagnant = plusieurs lignes de
+    // réservation insérées ensemble (même logique que "+ Ajouter une autre
+    // personne" côté admin, cf. AdminAddReservation.tsx) — elles comptent
+    // donc dans l'occupation du créneau et le cap freemium.
+    const { data: rows, error } = await supabase.from("reservations").insert([
+      {
+        space_id: space.id,
+        date: iso,
+        creneau,
+        prenom: prenom.trim(),
+        nom: nom.trim(),
+        telephone: "",
+        type,
+        pin: effectivePin,
+        booked_by_prenom: nameChanged ? savedPrenom : null,
+        booked_by_nom: nameChanged ? savedNom : null,
+      },
+      ...validCompanions.map((c) => ({
+        space_id: space.id,
+        date: iso,
+        creneau,
+        prenom: c.prenom,
+        nom: c.nom,
+        telephone: "",
+        type,
+        pin: effectivePin,
+      })),
+    ]).select();
 
     setSaving(false);
 
@@ -236,6 +255,15 @@ function BookingFlow(
       return;
     }
 
+    const newResa = rows?.[0];
+
+    // Relie le réservataire principal et ses accompagnants par group_id —
+    // permet de les gérer ensemble (annulation groupée, affichage "Avec ...").
+    if (rows && rows.length > 1) {
+      const ids = rows.map((r) => r.id);
+      await supabase.from("reservations").update({ group_id: ids[0] }).in("id", ids);
+    }
+
     await updateLastActivity(space.id);
     await refreshReservations();
     // Ne réécrit plus le prénom/nom de la session : l'identité du visiteur
@@ -246,7 +274,15 @@ function BookingFlow(
     await saveVisitorSession({ token, spaceId: space.id, pin: effectivePin });
     setSessionPin(effectivePin);
 
-    setConfirmed({ id: newResa?.id ?? "", prenom: prenom.trim(), pin: effectivePin, iso, slot, companions: companionNames, isNewPin: !sessionPin });
+    setConfirmed({
+      id: newResa?.id ?? "",
+      prenom: prenom.trim(),
+      pin: effectivePin,
+      iso,
+      slot,
+      companions: validCompanions.map((c) => c.prenom),
+      isNewPin: !sessionPin,
+    });
 
     if (newResa?.id) {
       scheduleVisitReminder(newResa.id, iso, slot, prenom.trim(), `${space.patient_firstname} ${space.patient_lastname}`);
@@ -257,7 +293,13 @@ function BookingFlow(
     if (!pinModal || isReservationDatePast(pinModal.date)) return;
     setPinDeleting(true);
 
-    const { error, count } = await supabase.from("reservations").delete({ count: "exact" }).eq("id", pinModal.id);
+    // Annule aussi les accompagnants liés (même group_id) : le visiteur les
+    // a ajoutés ensemble, ils doivent repartir ensemble.
+    const idsToDelete = pinModal.group_id
+      ? reservations.filter((r) => r.group_id === pinModal.group_id).map((r) => r.id)
+      : [pinModal.id];
+
+    const { error, count } = await supabase.from("reservations").delete({ count: "exact" }).in("id", idsToDelete);
 
     setPinDeleting(false);
 
@@ -362,7 +404,12 @@ function BookingFlow(
     if (!pinModal) return;
     const session = await getVisitorSession();
     const slotForEvent = pinModal.type === "Nuit" ? nightStartSlot(slotConfig) : pinModal.creneau;
-    const pinCompanions = (pinModal.companion_firstnames ?? "").split(",").map((c) => c.trim()).filter(Boolean);
+    // Accompagnants : réservations liées par group_id (nouveau modèle) —
+    // repli sur companion_firstnames pour les réservations créées avant ce
+    // changement (texte libre, pas de lignes séparées).
+    const pinCompanions = pinModal.group_id
+      ? reservations.filter((r) => r.group_id === pinModal.group_id && r.id !== pinModal.id).map((r) => r.prenom)
+      : (pinModal.companion_firstnames ?? "").split(",").map((c) => c.trim()).filter(Boolean);
     const result = await addToNativeCalendar(space, slotConfig, pinModal.date, slotForEvent, pinModal.type, session?.email || null, pinCompanions);
     if (result.ok) {
       await linkCalendarEvent(pinModal.id, result.eventId);
@@ -406,21 +453,27 @@ function BookingFlow(
                     placeholder="Nom *" placeholderTextColor={C.muted}
                     value={nom} onChangeText={setNom} autoCapitalize="words"
                   />
-                  <TextInput
-                    style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                    placeholder="Téléphone (optionnel)" placeholderTextColor={C.muted}
-                    value={tel} onChangeText={setTel} keyboardType="phone-pad"
-                  />
-
                   {type === "Visite" && (
                     <>
+                      {companions.length > 0 && (
+                        <View style={[styles.companionSeparator, { borderTopColor: C.border }]}>
+                          <Text style={[styles.companionSeparatorText, { color: C.muted }]}>Ajouter un accompagnant</Text>
+                        </View>
+                      )}
                       {companions.map((c, i) => (
                         <View key={i} style={styles.companionRow}>
-                          <TextInput
-                            style={[styles.input, styles.companionInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                            placeholder="Prénom de l'accompagnant" placeholderTextColor={C.muted}
-                            value={c} onChangeText={(v) => updateCompanion(i, v)} autoCapitalize="words"
-                          />
+                          <View style={styles.companionNames}>
+                            <TextInput
+                              style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                              placeholder="Prénom accompagnant *" placeholderTextColor={C.muted}
+                              value={c.prenom} onChangeText={(v) => updateCompanion(i, "prenom", v)} autoCapitalize="words"
+                            />
+                            <TextInput
+                              style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                              placeholder="Nom accompagnant *" placeholderTextColor={C.muted}
+                              value={c.nom} onChangeText={(v) => updateCompanion(i, "nom", v)} autoCapitalize="words"
+                            />
+                          </View>
                           <TouchableOpacity onPress={() => removeCompanion(i)} style={styles.removeCompanionBtn}>
                             <Text style={[styles.removeCompanionBtnText, { color: C.muted }]}>✕</Text>
                           </TouchableOpacity>
@@ -737,9 +790,11 @@ const styles = StyleSheet.create({
 
   input: { borderWidth: 1, borderRadius: 10, padding: 13, fontFamily: "DM_Sans_400Regular", fontSize: 15, marginBottom: 10 },
 
+  companionSeparator: { borderTopWidth: 1, paddingTop: 12, marginTop: 4, marginBottom: 10 },
+  companionSeparatorText: { fontFamily: "DM_Sans_700Bold", fontSize: 13 },
   companionRow: { flexDirection: "row", alignItems: "center", gap: 8 },
-  companionInput: { flex: 1 },
-  removeCompanionBtn: { paddingHorizontal: 6, paddingBottom: 10 },
+  companionNames: { flexDirection: "column", flex: 1 },
+  removeCompanionBtn: { paddingHorizontal: 6 },
   removeCompanionBtnText: { fontSize: 16 },
   addCompanionBtn: { alignSelf: "flex-start", paddingVertical: 6, marginBottom: 10 },
   addCompanionBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },

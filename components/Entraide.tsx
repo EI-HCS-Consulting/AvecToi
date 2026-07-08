@@ -4,7 +4,7 @@ import {
   Modal, StyleSheet, Alert, ActivityIndicator, Image,
   KeyboardAvoidingView, Platform, Linking,
 } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import { File } from "expo-file-system";
@@ -80,6 +80,7 @@ function slotLabel(dateIso: string, time: string): string {
 }
 
 export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
+  const router = useRouter();
   const { focusTaskId } = useLocalSearchParams<{ focusTaskId?: string }>();
   const scrollRef = useRef<ScrollView>(null);
   const taskOffsets = useRef<Record<string, number>>({});
@@ -1190,6 +1191,16 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
         <Text style={[styles.headerTitle, { color: "#fff" }]}>🤝 Entraide</Text>
       </View>
 
+      <View style={[styles.subHeader, { backgroundColor: C.card, borderBottomColor: C.border }]}>
+        <TouchableOpacity
+          style={[styles.addBtn, { backgroundColor: C.gold }]}
+          onPress={() => router.push((isAdmin ? "/(admin)/home/calendar" : "/(visitor)/home/calendar") as any)}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.addBtnText}>← Retour à l'accueil</Text>
+        </TouchableOpacity>
+      </View>
+
       <View style={[styles.catTabsBar, { backgroundColor: C.card, borderBottomColor: C.border }]}>
         {(Object.keys(CATEGORY_ICONS) as TaskCategory[]).map((cat) => (
           <TouchableOpacity
@@ -1936,6 +1947,9 @@ const styles = StyleSheet.create({
 
   header: { paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12, borderBottomWidth: 1 },
   headerTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18 },
+  subHeader: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1 },
+  addBtn: { borderRadius: 10, paddingVertical: 12, alignItems: "center" },
+  addBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#0D1B2E" },
 
   catTabsBar: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", paddingHorizontal: 10, paddingVertical: 10, gap: 8, borderBottomWidth: 1 },
   catTab: { width: "31%", borderWidth: 1, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 4, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 4 },
