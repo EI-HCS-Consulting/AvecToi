@@ -16,6 +16,7 @@ import SegmentedSwitch from "@/components/SegmentedSwitch";
 import TimeWheelPicker from "@/components/TimeWheelPicker";
 import { toFrShort } from "@/lib/slotUtils";
 import { googleMapsSearchUrl, joinAddress } from "@/lib/address";
+import { addGenericEventToNativeCalendar } from "@/lib/calendarSync";
 import type { Task, TransportProposal } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -91,19 +92,57 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
   // PIN de session de cet appareil — sert à ne montrer "C'est fait" /
   // "Se désinscrire" que sur les besoins pris en charge par ce même
   // visiteur, jamais sur ceux pris en charge par quelqu'un d'autre.
-  const [myPin, setMyPin] = useState<string | null>(null);
   const [mySession, setMySession] = useState<{ prenom: string; nom: string; pin: string } | null>(null);
   useEffect(() => {
     if (!isAdmin) getVisitorSession().then((s) => {
-      setMyPin(s?.pin ?? null);
       if (s) setMySession({ prenom: s.prenom, nom: s.nom, pin: s.pin });
     });
   }, [isAdmin]);
-  const isMine = (t: Task) => !!myPin && !!t.claimed_by_pin && t.claimed_by_pin === myPin;
-  // Le créateur d'un besoin Transport, identifié par son PIN de session —
-  // seul lui (ou l'admin) peut valider une proposition d'horaire.
-  const isAuthor = (t: Task) => !!myPin && !!t.author_pin && t.author_pin === myPin;
+  // Un PIN seul ne suffit pas à identifier une personne de façon fiable ici :
+  // ce ne sont pas des comptes, juste un code à 4 chiffres choisi librement —
+  // deux identités différentes testées sur le même appareil peuvent tomber
+  // sur le même PIN par coïncidence (ou par habitude en test), ce qui ferait
+  // passer un besoin publié par quelqu'un d'autre pour "le mien". On exige
+  // donc aussi la correspondance du prénom/nom de la session en cours.
+  function samePerson(prenom: string | null, nom: string | null, pin: string | null): boolean {
+    if (!mySession || !pin || !prenom || !nom) return false;
+    return (
+      mySession.pin === pin &&
+      mySession.prenom.trim().toLowerCase() === prenom.trim().toLowerCase() &&
+      mySession.nom.trim().toLowerCase() === nom.trim().toLowerCase()
+    );
+  }
+  const isMine = (t: Task) => samePerson(t.claimed_by_prenom, t.claimed_by_nom, t.claimed_by_pin);
+  // Preneur du retour, uniquement renseigné quand aller et retour ont été
+  // attribués séparément à deux personnes différentes (sinon ce champ reste
+  // null même si la même personne fait les deux, voir lib/types.ts).
+  const isMineReturn = (t: Task) => samePerson(t.transport_return_claimed_by_prenom, t.transport_return_claimed_by_nom, t.transport_return_claimed_by_pin);
+  // Le créateur d'un besoin Transport — seul lui (ou l'admin) peut valider
+  // une proposition d'horaire.
+  const isAuthor = (t: Task) => samePerson(t.author_prenom, t.author_nom, t.author_pin);
   const canManageTransport = (t: Task) => isAdmin || isAuthor(t);
+  // Vrai dès qu'au moins une jambe (aller ou retour) a déjà un preneur —
+  // sert à masquer "Je m'en occupe" (qui prendrait les deux jambes d'un
+  // coup) une fois qu'une jambe a été attribuée séparément via une
+  // proposition, pour ne pas écraser cette attribution.
+  const transportAnyLegClaimed = (t: Task) => !!t.claimed_by_prenom || !!t.transport_return_claimed_by_prenom;
+  // Jambe(s) que CE visiteur a personnellement en charge sur ce besoin — sert
+  // à limiter "C'est fait"/"Se désinscrire"/"Ajouter au calendrier" à ce qui
+  // le concerne. Si l'aller et le retour ont été pris par la même personne
+  // (claim direct, transport_return_claimed_by_prenom resté null), les deux
+  // jambes lui reviennent.
+  const myTransportLegs = (t: Task): ("out" | "return")[] => {
+    const legs: ("out" | "return")[] = [];
+    if (isMine(t)) legs.push("out");
+    if (t.transport_round_trip) {
+      if (t.transport_return_claimed_by_prenom) {
+        if (isMineReturn(t)) legs.push("return");
+      } else if (isMine(t)) {
+        legs.push("return");
+      }
+    }
+    return legs;
+  };
   // null = pas de filtre, affiche tous les besoins (existant). Cliquer à
   // nouveau sur l'onglet actif désélectionne.
   const [activeCat, setActiveCat] = useState<TaskCategory | null>(null);
@@ -240,6 +279,11 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
     );
   }
 
+  // ── Modale "Propositions reçues" (demandeur/admin consulte les
+  // propositions d'un besoin Transport et valide aller et/ou retour,
+  // éventuellement depuis deux propositions différentes) ──
+  const [proposalsTarget, setProposalsTarget] = useState<Task | null>(null);
+
   // ── Modale "Proposition" (aidant propose un autre horaire sur un besoin
   // Transport ouvert, sans le prendre en charge directement) ──
   const [proposeTarget, setProposeTarget] = useState<Task | null>(null);
@@ -247,14 +291,21 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
   const [pCalMonth, setPCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
   const [pOutTime, setPOutTime] = useState("");
   const [pReturnTime, setPReturnTime] = useState("");
+  // Sur un besoin aller-retour, l'aidant choisit ce qu'il propose : l'aller,
+  // le retour, ou les deux — pour que le demandeur puisse ensuite valider
+  // chaque jambe séparément, avec des aidants différents si besoin.
+  const [pIncludeOut, setPIncludeOut] = useState(true);
+  const [pIncludeReturn, setPIncludeReturn] = useState(true);
   const [pNote, setPNote] = useState("");
   const [pPrenom, setPPrenom] = useState("");
   const [pNom, setPNom] = useState("");
   const [pPin, setPPin] = useState("");
   const [proposeSaving, setProposeSaving] = useState(false);
 
-  const proposeFormReady = pDate.trim() && pOutTime.length === 5 && pPrenom.trim() && pNom.trim()
-    && (!proposeTarget?.transport_round_trip || pReturnTime.length === 5)
+  const proposeFormReady = pDate.trim() && pPrenom.trim() && pNom.trim()
+    && (!pIncludeOut || pOutTime.length === 5)
+    && (!proposeTarget?.transport_round_trip || !pIncludeReturn || pReturnTime.length === 5)
+    && (!proposeTarget?.transport_round_trip || pIncludeOut || pIncludeReturn)
     && (isAdmin || pPin.length >= 4);
 
   // Case à cocher "je m'en occupe déjà" dans le formulaire de création (pas
@@ -273,7 +324,7 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
   const [claimText, setClaimText] = useState("");
   const [claimSaving, setClaimSaving] = useState(false);
 
-  const [pinModal, setPinModal] = useState<{ task: Task; action: "unclaim" } | null>(null);
+  const [pinModal, setPinModal] = useState<{ task: Task; action: "unclaim"; leg: "out" | "return" } | null>(null);
   const [pinEntry, setPinEntry] = useState("");
   const [pinError, setPinError] = useState(false);
 
@@ -431,25 +482,25 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
       }
       showToast("Besoin modifié ✓");
     } else {
+      // Identité de l'auteur — utile pour toutes les catégories (section
+      // "Mes besoins publiés" de Mon compte), pas seulement Transport où
+      // elle servait jusqu'ici à autoriser la validation d'une proposition.
+      let authorPrenom = "", authorNom = "", authorPin = "";
+      if (isAdmin) {
+        const { data } = await supabase.auth.getUser();
+        authorPrenom = (data.user?.user_metadata?.firstname ?? "").trim();
+        authorNom = (data.user?.user_metadata?.lastname ?? "").trim();
+        authorPin = "ADMIN";
+      } else if (mySession) {
+        authorPrenom = mySession.prenom;
+        authorNom = mySession.nom;
+        authorPin = mySession.pin;
+      }
       let transportFields: Record<string, unknown> = {};
       if (fCat === "transport") {
-        let authorPrenom = "", authorNom = "", authorPin = "";
-        if (isAdmin) {
-          const { data } = await supabase.auth.getUser();
-          authorPrenom = (data.user?.user_metadata?.firstname ?? "").trim();
-          authorNom = (data.user?.user_metadata?.lastname ?? "").trim();
-          authorPin = "ADMIN";
-        } else if (mySession) {
-          authorPrenom = mySession.prenom;
-          authorNom = mySession.nom;
-          authorPin = mySession.pin;
-        }
         const homeAddr = fTHomeAddress.trim();
         const careAddr = hospitalName ?? "";
         transportFields = {
-          author_prenom: authorPrenom || null,
-          author_nom: authorNom || null,
-          author_pin: authorPin || null,
           transport_date: fTDate,
           transport_out_time: fTOutTime,
           transport_return_time: fTRoundTrip ? fTReturnTime : null,
@@ -463,7 +514,7 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
           transport_home_is_arrival: fTSwapped,
         };
       }
-      await supabase.from("tasks").insert({
+      const { error: insertError } = await supabase.from("tasks").insert({
         space_id: spaceId,
         title: fTitle.trim(),
         description: fDesc.trim(),
@@ -471,6 +522,9 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
         status: claimOnCreate ? "pris_en_charge" : "ouvert",
         created_by: isAdmin ? "admin" : "visiteur",
         photo: photoFilename,
+        author_prenom: authorPrenom || null,
+        author_nom: authorNom || null,
+        author_pin: authorPin || null,
         ...transportFields,
         ...(claimOnCreate ? {
           claimed_by_prenom: claimPrenom.trim(),
@@ -483,6 +537,11 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
           } : {}),
         } : {}),
       });
+      if (insertError) {
+        Alert.alert("DEBUG insert error", JSON.stringify(insertError));
+        setTaskSaving(false);
+        return;
+      }
       if (claimOnCreate && !isAdmin) await rememberAuthorPin(claimPrenom.trim(), claimNom.trim(), claimPin);
       showToast(claimOnCreate ? "Besoin créé — tu t'en occupes déjà ✓" : "Besoin créé ✓");
     }
@@ -525,7 +584,9 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
     setDonePhotoUri(null);
     setDonePin("");
     setDonePinError(false);
-    setDonePinVerified(!isAdmin && await sessionPinMatches(task.claimed_by_pin));
+    setDonePinVerified(
+      !isAdmin && ((await sessionPinMatches(task.claimed_by_pin)) || (await sessionPinMatches(task.transport_return_claimed_by_pin))),
+    );
   }
 
   async function pickDonePhoto() {
@@ -548,7 +609,7 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
 
   async function confirmDone() {
     if (!doneTarget) return;
-    if (!isAdmin && !donePinVerified && donePin !== doneTarget.claimed_by_pin) {
+    if (!isAdmin && !donePinVerified && donePin !== doneTarget.claimed_by_pin && donePin !== doneTarget.transport_return_claimed_by_pin) {
       setDonePinError(true);
       setDonePin("");
       return;
@@ -586,11 +647,17 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
   async function openClaim(t: Task) {
     setClaimTarget(t);
     setClaimPrenom(""); setClaimNom(""); setClaimPin(""); setClaimPhotoUri(null); setClaimText("");
-    // Pré-remplit prénom/nom depuis la session visiteur (Mon compte) — reste
-    // modifiable. Le PIN n'est jamais pré-rempli.
-    if (!isAdmin) {
+    // Prénom/nom/PIN ne sont plus jamais ressaisis ici : repris de la session
+    // visiteur (PIN choisi dès la connexion) ou du profil admin — le champ
+    // PIN n'est donc plus affiché dans ce formulaire.
+    if (isAdmin) {
+      const { data } = await supabase.auth.getUser();
+      setClaimPrenom((data.user?.user_metadata?.firstname ?? "").trim());
+      setClaimNom((data.user?.user_metadata?.lastname ?? "").trim());
+      setClaimPin("ADMIN");
+    } else {
       const s = await getVisitorSession();
-      if (s) { setClaimPrenom(s.prenom); setClaimNom(s.nom); }
+      if (s) { setClaimPrenom(s.prenom); setClaimNom(s.nom); setClaimPin(s.pin ?? ""); }
     }
   }
 
@@ -651,49 +718,91 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
     }).eq("id", claimTarget.id);
     setClaimSaving(false);
     setClaimTarget(null);
-    if (!isAdmin) await rememberAuthorPin(claimPrenom.trim(), claimNom.trim(), claimPin);
+    if (!isAdmin) {
+      await rememberAuthorPin(claimPrenom.trim(), claimNom.trim(), claimPin);
+      // mySession n'est lu qu'au montage — sans ça, isMine() resterait faux
+      // juste après cette prise en charge (PIN inédit sur ce téléphone) et
+      // masquerait "C'est fait"/"Ajouter au calendrier".
+      setMySession({ prenom: claimPrenom.trim(), nom: claimNom.trim(), pin: claimPin });
+    }
     showToast("Merci ! Tu t'en occupes 💛");
     loadTasks();
   }
 
-  async function performUnclaim(task: Task) {
-    if (task.claimed_photo) {
-      await supabase.storage.from(PHOTO_BUCKET).remove([`${spaceId}/${task.claimed_photo}`]);
+  // Se désinscrire d'un besoin Transport aller-retour ne libère que la
+  // jambe de la personne qui se désinscrit quand aller et retour ont été
+  // attribués séparément — l'autre jambe (et son preneur) reste intacte.
+  // Sinon (besoin simple, ou même personne sur les deux jambes), tout est
+  // libéré d'un coup comme avant.
+  async function performUnclaim(task: Task, leg: "out" | "return" = "out") {
+    const splitLegs = task.transport_round_trip && !!task.transport_return_claimed_by_prenom;
+    if (splitLegs && leg === "return") {
+      await supabase.from("tasks").update({
+        status: "ouvert",
+        transport_return_claimed_by_prenom: null,
+        transport_return_claimed_by_nom: null,
+        transport_return_claimed_by_pin: null,
+        transport_confirmed_return_time: null,
+      }).eq("id", task.id);
+    } else if (splitLegs && leg === "out") {
+      if (task.claimed_photo) {
+        await supabase.storage.from(PHOTO_BUCKET).remove([`${spaceId}/${task.claimed_photo}`]);
+      }
+      await supabase.from("tasks").update({
+        status: "ouvert",
+        claimed_by_prenom: null,
+        claimed_by_nom: null,
+        claimed_by_pin: null,
+        claimed_photo: null,
+        claimed_text: null,
+        transport_confirmed_out_time: null,
+      }).eq("id", task.id);
+    } else {
+      if (task.claimed_photo) {
+        await supabase.storage.from(PHOTO_BUCKET).remove([`${spaceId}/${task.claimed_photo}`]);
+      }
+      await supabase.from("tasks").update({
+        status: "ouvert",
+        claimed_by_prenom: null,
+        claimed_by_nom: null,
+        claimed_by_pin: null,
+        claimed_photo: null,
+        claimed_text: null,
+        ...(task.category === "transport" ? {
+          transport_confirmed_date: null,
+          transport_confirmed_out_time: null,
+          transport_confirmed_return_time: null,
+        } : {}),
+      }).eq("id", task.id);
     }
-    await supabase.from("tasks").update({
-      status: "ouvert",
-      claimed_by_prenom: null,
-      claimed_by_nom: null,
-      claimed_by_pin: null,
-      claimed_photo: null,
-      claimed_text: null,
-    }).eq("id", task.id);
     showToast("Tu t'es désinscrit ✓");
     loadTasks();
   }
 
-  async function openPinModal(task: Task, action: "unclaim") {
-    if (!isAdmin && (await sessionPinMatches(task.claimed_by_pin))) {
+  async function openPinModal(task: Task, action: "unclaim", leg: "out" | "return" = "out") {
+    const legPin = leg === "return" ? task.transport_return_claimed_by_pin : task.claimed_by_pin;
+    if (!isAdmin && (await sessionPinMatches(legPin))) {
       Alert.alert(
         "Te désinscrire de cette tâche ?",
         task.title,
         [
           { text: "Annuler", style: "cancel" },
-          { text: "Me désinscrire", style: "destructive", onPress: () => performUnclaim(task) },
+          { text: "Me désinscrire", style: "destructive", onPress: () => performUnclaim(task, leg) },
         ],
       );
       return;
     }
-    setPinModal({ task, action });
+    setPinModal({ task, action, leg });
     setPinEntry(""); setPinError(false);
   }
 
   async function checkPin() {
     if (!pinModal) return;
-    if (pinEntry === pinModal.task.claimed_by_pin) {
-      const { task } = pinModal;
+    const legPin = pinModal.leg === "return" ? pinModal.task.transport_return_claimed_by_pin : pinModal.task.claimed_by_pin;
+    if (pinEntry === legPin) {
+      const { task, leg } = pinModal;
       setPinModal(null);
-      await performUnclaim(task);
+      await performUnclaim(task, leg);
     } else {
       setPinError(true);
       setPinEntry("");
@@ -720,6 +829,8 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
     }
     setPOutTime(t.transport_out_time ?? "");
     setPReturnTime(t.transport_return_time ?? "");
+    setPIncludeOut(true);
+    setPIncludeReturn(true);
     setPNote("");
     if (isAdmin) {
       const { data } = await supabase.auth.getUser();
@@ -729,20 +840,24 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
       setPPrenom(mySession?.prenom ?? "");
       setPNom(mySession?.nom ?? "");
     }
-    setPPin("");
+    // Pré-rempli depuis la session — le PIN choisi à la connexion, modifiable.
+    setPPin(!isAdmin ? (mySession?.pin ?? "") : "");
   }
 
   async function submitTransportProposal() {
     if (!proposeTarget || !proposeFormReady) return;
     setProposeSaving(true);
+    const includeReturn = !!proposeTarget.transport_round_trip && pIncludeReturn;
     const proposal: TransportProposal = {
       id: `${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
       prenom: pPrenom.trim(),
       nom: pNom.trim(),
       pin: isAdmin ? "ADMIN" : pPin,
       date: pDate,
-      out_time: pOutTime,
-      return_time: proposeTarget.transport_round_trip ? pReturnTime : null,
+      out_time: pIncludeOut ? pOutTime : null,
+      return_time: includeReturn ? pReturnTime : null,
+      offers_out: pIncludeOut,
+      offers_return: includeReturn,
       note: pNote.trim() || null,
       created_at: new Date().toISOString(),
     };
@@ -750,35 +865,95 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
     // d'écraser une proposition envoyée entre-temps par quelqu'un d'autre
     // (pas de RPC dédiée pour un append atomique, l'app n'en a jamais eu besoin
     // jusqu'ici et le volume ici reste très faible).
-    const { data } = await supabase.from("tasks").select("transport_proposals").eq("id", proposeTarget.id).single();
+    const { data, error: selectError } = await supabase
+      .from("tasks").select("transport_proposals").eq("id", proposeTarget.id).single();
+    if (selectError) {
+      setProposeSaving(false);
+      Alert.alert("Erreur", "Impossible de charger le besoin : " + selectError.message);
+      return;
+    }
     const current: TransportProposal[] = data?.transport_proposals ?? proposeTarget.transport_proposals ?? [];
-    await supabase.from("tasks").update({ transport_proposals: [...current, proposal] }).eq("id", proposeTarget.id);
-    if (!isAdmin) await rememberAuthorPin(pPrenom.trim(), pNom.trim(), pPin);
+    const { error: updateError } = await supabase
+      .from("tasks").update({ transport_proposals: [...current, proposal] }).eq("id", proposeTarget.id);
+    if (updateError) {
+      setProposeSaving(false);
+      Alert.alert("Erreur", "La proposition n'a pas pu être envoyée : " + updateError.message);
+      return;
+    }
+    if (!isAdmin) {
+      await rememberAuthorPin(pPrenom.trim(), pNom.trim(), pPin);
+      setMySession({ prenom: pPrenom.trim(), nom: pNom.trim(), pin: pPin });
+    }
     setProposeSaving(false);
     setProposeTarget(null);
     showToast("Proposition envoyée ✓");
     loadTasks();
   }
 
-  async function validateTransportProposal(t: Task, p: TransportProposal) {
-    await supabase.from("tasks").update({
-      status: "pris_en_charge",
-      claimed_by_prenom: p.prenom,
-      claimed_by_nom: p.nom,
-      claimed_by_pin: p.pin,
-      transport_confirmed_date: p.date,
-      transport_confirmed_out_time: p.out_time,
-      transport_confirmed_return_time: p.return_time,
-      transport_proposals: [],
-    }).eq("id", t.id);
-    showToast("Horaire validé ✓");
+  // Valide une seule jambe (aller ou retour) d'une proposition — l'autre
+  // jambe, si elle n'est pas déjà attribuée, reste ouverte aux autres
+  // propositions. Le statut ne passe à "pris_en_charge" (et la liste de
+  // propositions n'est vidée) qu'une fois les deux jambes attribuées (ou la
+  // seule jambe, pour un besoin simple aller uniquement).
+  async function validateTransportLeg(t: Task, p: TransportProposal, leg: "out" | "return") {
+    const otherLegDone = leg === "out"
+      ? (!t.transport_round_trip || !!t.transport_return_claimed_by_prenom)
+      : !!t.claimed_by_prenom;
+    const patch: Record<string, unknown> = { transport_confirmed_date: p.date };
+    if (leg === "out") {
+      patch.claimed_by_prenom = p.prenom;
+      patch.claimed_by_nom = p.nom;
+      patch.claimed_by_pin = p.pin;
+      patch.transport_confirmed_out_time = p.out_time;
+    } else {
+      patch.transport_return_claimed_by_prenom = p.prenom;
+      patch.transport_return_claimed_by_nom = p.nom;
+      patch.transport_return_claimed_by_pin = p.pin;
+      patch.transport_confirmed_return_time = p.return_time;
+    }
+    if (otherLegDone) {
+      patch.status = "pris_en_charge";
+      patch.transport_proposals = [];
+    }
+    await supabase.from("tasks").update(patch).eq("id", t.id);
+    showToast(otherLegDone ? "Horaire validé ✓" : leg === "out" ? "Aller validé — en attente du retour" : "Retour validé — en attente de l'aller");
+    if (otherLegDone) setProposalsTarget(null);
     loadTasks();
   }
 
   async function rejectTransportProposals(t: Task) {
     await supabase.from("tasks").update({ transport_proposals: [] }).eq("id", t.id);
+    setProposalsTarget(null);
     showToast("Propositions écartées");
     loadTasks();
+  }
+
+  // Ajoute au calendrier natif la (ou les) jambe(s) que ce visiteur a lui-même
+  // en charge — l'aller, le retour, ou les deux s'il a pris le besoin
+  // directement via "Je m'en occupe". Pas de suivi de l'event créé (pas de
+  // update/annulation prévue côté transport, contrairement aux réservations).
+  async function handleAddTransportToCalendar(t: Task) {
+    const legs = myTransportLegs(t);
+    if (legs.length === 0) return;
+    const session = !isAdmin ? await getVisitorSession() : null;
+    let addedAny = false;
+    for (const leg of legs) {
+      const time = leg === "out" ? t.transport_confirmed_out_time : t.transport_confirmed_return_time;
+      if (!t.transport_confirmed_date || !time) continue;
+      const start = new Date(`${t.transport_confirmed_date}T${time}:00`);
+      const end = new Date(start.getTime() + 60 * 60 * 1000);
+      const from = leg === "out" ? t.transport_from : t.transport_to;
+      const to = leg === "out" ? t.transport_to : t.transport_from;
+      const title = `Transport ${leg === "out" ? "aller" : "retour"} — ${t.title}`;
+      const location = [from, to].filter(Boolean).join(" → ");
+      const result = await addGenericEventToNativeCalendar(title, start, end, location, t.description || undefined, session?.email || null);
+      if (result.ok) addedAny = true;
+      else {
+        Alert.alert("Calendrier", "Impossible d'ajouter l'événement : " + result.reason);
+        return;
+      }
+    }
+    if (addedAny) showToast("Ajouté à ton calendrier ✓");
   }
 
   function renderTask(t: Task) {
@@ -828,8 +1003,15 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
 
         {t.category === "transport" && (
           <View style={[styles.transportInfo, { borderColor: C.border, backgroundColor: `${C.gold}11` }]}>
+            {(t.author_prenom || t.author_nom) && (
+              <Text style={[styles.transportInfoText, { color: C.muted }]}>
+                👤 Demandé par {t.author_prenom} {t.author_nom}
+              </Text>
+            )}
             <Text style={[styles.transportInfoText, { color: C.text }]}>
-              📍 {t.transport_from} → {t.transport_to}
+              📍 {t.transport_home_is_arrival ? t.transport_from : `${t.transport_from}${t.transport_home_city ? `, ${t.transport_home_city}` : ""}`}
+              {" → "}
+              {t.transport_home_is_arrival ? `${t.transport_to}${t.transport_home_city ? `, ${t.transport_home_city}` : ""}` : t.transport_to}
             </Text>
             {(t.transport_home_is_arrival ? t.transport_to : t.transport_from) ? (
               <TouchableOpacity
@@ -846,15 +1028,30 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
                 </Text>
               </TouchableOpacity>
             ) : null}
-            {t.status === "ouvert" ? (
+            {t.transport_round_trip ? (
+              <>
+                <Text style={[styles.transportInfoText, { color: C.text }]}>
+                  🕐 Aller : {t.transport_confirmed_out_time
+                    ? `${slotLabel(t.transport_confirmed_date ?? t.transport_date ?? "", t.transport_confirmed_out_time)}${t.claimed_by_prenom ? ` — ${t.claimed_by_prenom} ${t.claimed_by_nom}` : ""}`
+                    : `demandé ${t.transport_date && t.transport_out_time ? slotLabel(t.transport_date, t.transport_out_time) : "—"}`}
+                </Text>
+                <Text style={[styles.transportInfoText, { color: C.text }]}>
+                  🕐 Retour : {t.transport_confirmed_return_time
+                    ? `${t.transport_confirmed_return_time.replace(":", "h")}${
+                        t.transport_return_claimed_by_prenom
+                          ? ` — ${t.transport_return_claimed_by_prenom} ${t.transport_return_claimed_by_nom}`
+                          : (t.status === "pris_en_charge" && t.claimed_by_prenom ? ` — ${t.claimed_by_prenom} ${t.claimed_by_nom}` : "")
+                      }`
+                    : `demandé ${t.transport_return_time ? t.transport_return_time.replace(":", "h") : "—"}`}
+                </Text>
+              </>
+            ) : t.status === "ouvert" ? (
               <Text style={[styles.transportInfoText, { color: C.text }]}>
                 🕐 Demandé : {t.transport_date && t.transport_out_time ? slotLabel(t.transport_date, t.transport_out_time) : "—"}
-                {t.transport_round_trip && t.transport_return_time ? ` · retour ${t.transport_return_time.replace(":", "h")}` : ""}
               </Text>
             ) : (
               <Text style={[styles.transportInfoText, { color: C.text }]}>
                 🕐 Confirmé : {t.transport_confirmed_date && t.transport_confirmed_out_time ? slotLabel(t.transport_confirmed_date, t.transport_confirmed_out_time) : "—"}
-                {t.transport_confirmed_return_time ? ` · retour ${t.transport_confirmed_return_time.replace(":", "h")}` : ""}
               </Text>
             )}
             {t.transport_flexible && t.status === "ouvert" && (
@@ -863,40 +1060,7 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
           </View>
         )}
 
-        {t.category === "transport" && t.status === "ouvert" && t.transport_proposals.length > 0 && (
-          <View style={[styles.proposalsBox, { borderColor: C.border }]}>
-            <Text style={[styles.proposalsTitle, { color: C.gold }]}>
-              {t.transport_proposals.length} proposition{t.transport_proposals.length > 1 ? "s" : ""} reçue{t.transport_proposals.length > 1 ? "s" : ""}
-            </Text>
-            {t.transport_proposals.map((p) => (
-              <View key={p.id} style={[styles.proposalRow, { borderColor: C.border }]}>
-                <Text style={[styles.proposalText, { color: C.text }]}>
-                  👤 {p.prenom} {p.nom} propose {slotLabel(p.date, p.out_time)}
-                  {p.return_time ? ` · retour ${p.return_time.replace(":", "h")}` : ""}
-                </Text>
-                {p.note && <Text style={[styles.proposalNote, { color: C.muted }]}>{p.note}</Text>}
-                {canManageTransport(t) && (
-                  <TouchableOpacity
-                    style={[styles.actionSmall, { borderColor: C.success, backgroundColor: `${C.success}18`, marginTop: 6, alignSelf: "flex-start" }]}
-                    onPress={() => validateTransportProposal(t, p)}
-                  >
-                    <Text style={[styles.actionSmallText, { color: C.success }]}>✓ Valider cet horaire</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-            ))}
-            {canManageTransport(t) && (
-              <TouchableOpacity
-                style={[styles.actionSmall, { borderColor: C.border, marginTop: 4, alignSelf: "flex-start" }]}
-                onPress={() => rejectTransportProposals(t)}
-              >
-                <Text style={[styles.actionSmallText, { color: C.muted }]}>Aucune ne convient</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
-
-        {t.status !== "ouvert" && t.claimed_by_prenom && (
+        {t.status !== "ouvert" && t.claimed_by_prenom && (!t.transport_round_trip || !t.transport_return_claimed_by_prenom) && (
           <View style={[styles.claimerRow, { borderColor: C.border, backgroundColor: `${C.accent}11` }]}>
             <Text style={[styles.claimerText, { color: C.text }]}>
               👤 {t.claimed_by_prenom} {t.claimed_by_nom} s'en occupe
@@ -922,37 +1086,74 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
 
         {t.status === "ouvert" && t.category === "transport" && (
           <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+            {!transportAnyLegClaimed(t) && (
+              <TouchableOpacity
+                style={[styles.claimBtn, { backgroundColor: C.accent, flex: 1, marginTop: 0 }]}
+                onPress={() => openClaim(t)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.claimBtnText}>🙋 Je m'en occupe</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
-              style={[styles.claimBtn, { backgroundColor: C.accent, flex: 1, marginTop: 0 }]}
-              onPress={() => openClaim(t)}
+              style={[
+                styles.claimBtn,
+                canManageTransport(t)
+                  ? { backgroundColor: C.accent }
+                  : { backgroundColor: C.card, borderWidth: 1, borderColor: C.accent },
+                { flex: 1, marginTop: 0 },
+              ]}
+              onPress={() => canManageTransport(t) ? setProposalsTarget(t) : openTransportPropose(t)}
               activeOpacity={0.85}
             >
-              <Text style={styles.claimBtnText}>🙋 Je m'en occupe</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.claimBtn, { backgroundColor: C.card, borderWidth: 1, borderColor: C.accent, flex: 1, marginTop: 0 }]}
-              onPress={() => openTransportPropose(t)}
-              activeOpacity={0.85}
-            >
-              <Text style={[styles.claimBtnText, { color: C.accent }]}>🕐 Proposition</Text>
+              <Text style={[styles.claimBtnText, canManageTransport(t) ? null : { color: C.accent }]}>
+                {canManageTransport(t)
+                  ? `🕐 Propositions${t.transport_proposals.length ? ` (${t.transport_proposals.length})` : ""}`
+                  : "🕐 Proposition"}
+              </Text>
             </TouchableOpacity>
           </View>
         )}
 
-        {t.status === "pris_en_charge" && !isAdmin && isMine(t) && (
-          <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
+        {t.status === "pris_en_charge" && !isAdmin && myTransportLegs(t).length > 0 && (
+          <View style={{ flexDirection: "row", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
             <TouchableOpacity
               style={[styles.actionSmall, { borderColor: C.success, backgroundColor: `${C.success}18` }]}
               onPress={() => openDone(t)}
             >
               <Text style={[styles.actionSmallText, { color: C.success }]}>✓ C'est fait</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.actionSmall, { borderColor: C.border }]}
-              onPress={() => openPinModal(t, "unclaim")}
-            >
-              <Text style={[styles.actionSmallText, { color: C.muted }]}>Se désinscrire</Text>
-            </TouchableOpacity>
+            {myTransportLegs(t).length > 1 ? (
+              <>
+                <TouchableOpacity
+                  style={[styles.actionSmall, { borderColor: C.border }]}
+                  onPress={() => openPinModal(t, "unclaim", "out")}
+                >
+                  <Text style={[styles.actionSmallText, { color: C.muted }]}>Se désinscrire (aller)</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionSmall, { borderColor: C.border }]}
+                  onPress={() => openPinModal(t, "unclaim", "return")}
+                >
+                  <Text style={[styles.actionSmallText, { color: C.muted }]}>Se désinscrire (retour)</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <TouchableOpacity
+                style={[styles.actionSmall, { borderColor: C.border }]}
+                onPress={() => openPinModal(t, "unclaim", myTransportLegs(t)[0])}
+              >
+                <Text style={[styles.actionSmallText, { color: C.muted }]}>Se désinscrire</Text>
+              </TouchableOpacity>
+            )}
+            {t.category === "transport" && (
+              <TouchableOpacity
+                style={[styles.actionSmall, { borderColor: C.gold, backgroundColor: `${C.gold}18` }]}
+                onPress={() => handleAddTransportToCalendar(t)}
+              >
+                <Text style={[styles.actionSmallText, { color: C.gold }]}>📅 Ajouter au calendrier</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
 
@@ -1162,32 +1363,36 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
                     </View>
                   )}
 
-                  <Text style={[styles.fieldLabel, { color: C.gold }]}>Photo (optionnelle)</Text>
-                  {(fPhotoUri || fExistingPhoto) ? (
-                    <View style={styles.photoPreviewRow}>
-                      <Image
-                        source={{ uri: fPhotoUri ?? taskPhotoUrl(spaceId, fExistingPhoto!) }}
-                        style={styles.photoPreviewImg}
-                        resizeMode="cover"
-                      />
-                      <TouchableOpacity
-                        style={[styles.photoPickRemove, { backgroundColor: "#e94560" }]}
-                        onPress={removeTaskPhoto}
-                      >
-                        <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>✕</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <TouchableOpacity
-                      style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
-                      onPress={pickTaskPhoto}
-                      disabled={pickingPhoto}
-                    >
-                      {pickingPhoto
-                        ? <ActivityIndicator color={C.accent} size="small" />
-                        : <Text style={[styles.photoPickAddText, { color: C.muted }]}>📷 Ajouter une photo</Text>
-                      }
-                    </TouchableOpacity>
+                  {fCat !== "transport" && (
+                    <>
+                      <Text style={[styles.fieldLabel, { color: C.gold }]}>Photo (optionnelle)</Text>
+                      {(fPhotoUri || fExistingPhoto) ? (
+                        <View style={styles.photoPreviewRow}>
+                          <Image
+                            source={{ uri: fPhotoUri ?? taskPhotoUrl(spaceId, fExistingPhoto!) }}
+                            style={styles.photoPreviewImg}
+                            resizeMode="cover"
+                          />
+                          <TouchableOpacity
+                            style={[styles.photoPickRemove, { backgroundColor: "#e94560" }]}
+                            onPress={removeTaskPhoto}
+                          >
+                            <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>✕</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : (
+                        <TouchableOpacity
+                          style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
+                          onPress={pickTaskPhoto}
+                          disabled={pickingPhoto}
+                        >
+                          {pickingPhoto
+                            ? <ActivityIndicator color={C.accent} size="small" />
+                            : <Text style={[styles.photoPickAddText, { color: C.muted }]}>📷 Ajouter une photo</Text>
+                          }
+                        </TouchableOpacity>
+                      )}
+                    </>
                   )}
 
                   {!editTask && (
@@ -1235,7 +1440,7 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
                             </View>
                           )}
 
-                          {!isAdmin && !claimPin && (
+                          {!isAdmin && (
                             <>
                               <Text style={[styles.fieldLabel, { color: C.gold }]}>
                                 🔐 Code PIN (pour te désinscrire si besoin)
@@ -1315,43 +1520,42 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
                     />
                   </View>
 
-                  <Text style={[styles.fieldLabel, { color: C.gold }]}>Photo (optionnelle)</Text>
-                  {claimPhotoUri ? (
-                    <View style={styles.photoPreviewRow}>
-                      <Image source={{ uri: claimPhotoUri }} style={styles.photoPreviewImg} resizeMode="cover" />
-                      <TouchableOpacity
-                        style={[styles.photoPickRemove, { backgroundColor: "#e94560" }]}
-                        onPress={removeClaimPhoto}
-                      >
-                        <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>✕</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <TouchableOpacity
-                      style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
-                      onPress={pickClaimPhoto}
-                      disabled={claimPickingPhoto}
-                    >
-                      {claimPickingPhoto
-                        ? <ActivityIndicator color={C.accent} size="small" />
-                        : <Text style={[styles.photoPickAddText, { color: C.muted }]}>📷 Ajouter une photo (ex : le plat préparé)</Text>
-                      }
-                    </TouchableOpacity>
+                  {claimTarget?.category !== "transport" && (
+                    <>
+                      <Text style={[styles.fieldLabel, { color: C.gold }]}>Photo (optionnelle)</Text>
+                      {claimPhotoUri ? (
+                        <View style={styles.photoPreviewRow}>
+                          <Image source={{ uri: claimPhotoUri }} style={styles.photoPreviewImg} resizeMode="cover" />
+                          <TouchableOpacity
+                            style={[styles.photoPickRemove, { backgroundColor: "#e94560" }]}
+                            onPress={removeClaimPhoto}
+                          >
+                            <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>✕</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : (
+                        <TouchableOpacity
+                          style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
+                          onPress={pickClaimPhoto}
+                          disabled={claimPickingPhoto}
+                        >
+                          {claimPickingPhoto
+                            ? <ActivityIndicator color={C.accent} size="small" />
+                            : <Text style={[styles.photoPickAddText, { color: C.muted }]}>📷 Ajouter une photo (ex : le plat préparé)</Text>
+                          }
+                        </TouchableOpacity>
+                      )}
+                    </>
                   )}
 
                   <TextInput
                     style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 8 }]}
-                    placeholder="Un petit mot sous la photo (optionnel)"
+                    placeholder="Une précision (ou non)..."
                     placeholderTextColor={C.muted}
                     value={claimText}
                     onChangeText={setClaimText}
                     multiline
                   />
-
-                  <Text style={[styles.fieldLabel, { color: C.gold }]}>
-                    🔐 Code PIN (pour se désinscrire si besoin)
-                  </Text>
-                  <PinPad value={claimPin} onChange={setClaimPin} theme={C} />
 
                   <View style={styles.sheetBtns}>
                     <TouchableOpacity
@@ -1414,10 +1618,35 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
                     size="lg"
                   />
 
-                  <Text style={[styles.fieldLabel, { color: C.gold }]}>Heure aller</Text>
-                  <TimeWheelPicker value={pOutTime} onChange={setPOutTime} C={C} />
-
                   {proposeTarget?.transport_round_trip && (
+                    <View style={{ flexDirection: "row", gap: 8, marginBottom: 4 }}>
+                      <TouchableOpacity
+                        onPress={() => setPIncludeOut((v) => !v)}
+                        style={[styles.legToggle, { borderColor: pIncludeOut ? C.accent : C.border, backgroundColor: pIncludeOut ? `${C.accent}22` : "transparent" }]}
+                      >
+                        <Text style={{ color: pIncludeOut ? C.accent : C.muted, fontFamily: "DM_Sans_600SemiBold", fontSize: 13 }}>
+                          {pIncludeOut ? "☑" : "☐"} Aller
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => setPIncludeReturn((v) => !v)}
+                        style={[styles.legToggle, { borderColor: pIncludeReturn ? C.accent : C.border, backgroundColor: pIncludeReturn ? `${C.accent}22` : "transparent" }]}
+                      >
+                        <Text style={{ color: pIncludeReturn ? C.accent : C.muted, fontFamily: "DM_Sans_600SemiBold", fontSize: 13 }}>
+                          {pIncludeReturn ? "☑" : "☐"} Retour
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+
+                  {pIncludeOut && (
+                    <>
+                      <Text style={[styles.fieldLabel, { color: C.gold }]}>Heure aller</Text>
+                      <TimeWheelPicker value={pOutTime} onChange={setPOutTime} C={C} />
+                    </>
+                  )}
+
+                  {proposeTarget?.transport_round_trip && pIncludeReturn && (
                     <>
                       <Text style={[styles.fieldLabel, { color: C.gold }]}>Heure retour</Text>
                       <TimeWheelPicker value={pReturnTime} onChange={setPReturnTime} C={C} />
@@ -1454,13 +1683,6 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
                     </View>
                   )}
 
-                  {!isAdmin && !pPin && (
-                    <>
-                      <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 8 }]}>🔐 Code PIN</Text>
-                      <PinPad value={pPin} onChange={setPPin} theme={C} />
-                    </>
-                  )}
-
                   <View style={styles.sheetBtns}>
                     <TouchableOpacity
                       onPress={() => setProposeTarget(null)}
@@ -1491,6 +1713,87 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
         </KeyboardAvoidingView>
       </Modal>
 
+      {/* ── MODAL PROPOSITIONS REÇUES (demandeur/admin consulte et valide) ──── */}
+      <Modal visible={!!proposalsTarget} transparent animationType="slide" onRequestClose={() => setProposalsTarget(null)}>
+        <View style={styles.overlay}>
+          <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setProposalsTarget(null)}>
+            <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
+              <TouchableOpacity activeOpacity={1}>
+                <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
+                  <View style={{ alignItems: "center", marginBottom: 14 }}>
+                    <Text style={{ fontSize: 32, marginBottom: 6 }}>🕐</Text>
+                    <Text style={[styles.sheetTitle, { color: "#fff" }]}>Propositions reçues</Text>
+                  </View>
+
+                  {proposalsTarget && proposalsTarget.transport_proposals.length === 0 && (
+                    <Text style={[styles.sheetSub, { color: C.muted, textAlign: "center" }]}>
+                      Aucune proposition pour l'instant.
+                    </Text>
+                  )}
+
+                  {proposalsTarget?.transport_proposals.map((p) => {
+                    const offersOut = p.offers_out ?? true;
+                    const offersReturn = p.offers_return ?? !!p.return_time;
+                    const outDone = !!proposalsTarget.claimed_by_prenom;
+                    const returnDone = !!proposalsTarget.transport_return_claimed_by_prenom;
+                    return (
+                      <View key={p.id} style={[styles.proposalRow, { borderColor: C.border }]}>
+                        <Text style={[styles.proposalText, { color: C.text }]}>👤 {p.prenom} {p.nom}</Text>
+                        {offersOut && (
+                          <Text style={[styles.proposalText, { color: C.text }]}>
+                            Aller : {p.out_time ? slotLabel(p.date, p.out_time) : "—"}
+                          </Text>
+                        )}
+                        {offersReturn && (
+                          <Text style={[styles.proposalText, { color: C.text }]}>
+                            Retour : {p.return_time ? p.return_time.replace(":", "h") : "—"}
+                          </Text>
+                        )}
+                        {p.note && <Text style={[styles.proposalNote, { color: C.muted }]}>{p.note}</Text>}
+                        <View style={{ flexDirection: "row", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+                          {offersOut && !outDone && (
+                            <TouchableOpacity
+                              style={[styles.actionSmall, { borderColor: C.success, backgroundColor: `${C.success}18` }]}
+                              onPress={() => validateTransportLeg(proposalsTarget, p, "out")}
+                            >
+                              <Text style={[styles.actionSmallText, { color: C.success }]}>✓ Valider l'aller</Text>
+                            </TouchableOpacity>
+                          )}
+                          {proposalsTarget.transport_round_trip && offersReturn && !returnDone && (
+                            <TouchableOpacity
+                              style={[styles.actionSmall, { borderColor: C.success, backgroundColor: `${C.success}18` }]}
+                              onPress={() => validateTransportLeg(proposalsTarget, p, "return")}
+                            >
+                              <Text style={[styles.actionSmallText, { color: C.success }]}>✓ Valider le retour</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      </View>
+                    );
+                  })}
+
+                  {proposalsTarget && proposalsTarget.transport_proposals.length > 0 && (
+                    <TouchableOpacity
+                      style={[styles.actionSmall, { borderColor: C.border, marginTop: 10, alignSelf: "flex-start" }]}
+                      onPress={() => rejectTransportProposals(proposalsTarget)}
+                    >
+                      <Text style={[styles.actionSmallText, { color: C.muted }]}>Aucune ne convient</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  <TouchableOpacity
+                    onPress={() => setProposalsTarget(null)}
+                    style={[styles.btnSecondary, { borderColor: C.border, marginTop: 14 }]}
+                  >
+                    <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Fermer</Text>
+                  </TouchableOpacity>
+                </View>
+              </TouchableOpacity>
+            </ScrollView>
+          </TouchableOpacity>
+        </View>
+      </Modal>
+
       {/* ── MODAL PIN (désinscrire) ────────────────────────── */}
       <Modal visible={!!pinModal} transparent animationType="fade" onRequestClose={() => setPinModal(null)}>
         <View style={styles.overlay}>
@@ -1509,7 +1812,9 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
                   {CATEGORY_ICONS[pinModal.task.category]} {pinModal.task.title}
                 </Text>
                 <Text style={[styles.pinContextSub, { color: C.muted }]}>
-                  Pris en charge par {pinModal.task.claimed_by_prenom} {pinModal.task.claimed_by_nom}
+                  Pris en charge par {pinModal.leg === "return"
+                    ? `${pinModal.task.transport_return_claimed_by_prenom} ${pinModal.task.transport_return_claimed_by_nom}`
+                    : `${pinModal.task.claimed_by_prenom} ${pinModal.task.claimed_by_nom}`}
                 </Text>
               </View>
             )}
@@ -1662,6 +1967,7 @@ const styles = StyleSheet.create({
   claimBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 13, color: "#fff" },
   actionSmall: { borderWidth: 1, borderRadius: 8, paddingVertical: 7, paddingHorizontal: 14 },
   actionSmallText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
+  legToggle: { borderWidth: 1, borderRadius: 8, paddingVertical: 8, paddingHorizontal: 14 },
 
   input: { borderWidth: 1, borderRadius: 10, padding: 12, fontFamily: "DM_Sans_400Regular", fontSize: 15, marginBottom: 10 },
   descArea: { height: 80, textAlignVertical: "top" },
@@ -1680,8 +1986,6 @@ const styles = StyleSheet.create({
   swapBtn: { borderRadius: 12, paddingVertical: 10, paddingHorizontal: 16 },
   swapBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 13, color: "#0D1B2E", textAlign: "center" },
   transportFlexible: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, marginTop: 2 },
-  proposalsBox: { borderWidth: 1, borderRadius: 10, padding: 10, marginBottom: 8, gap: 6 },
-  proposalsTitle: { fontFamily: "DM_Sans_700Bold", fontSize: 12, textTransform: "uppercase", letterSpacing: 0.5 },
   proposalRow: { borderTopWidth: 1, paddingTop: 8, marginTop: 2 },
   proposalText: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
   proposalNote: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 2, fontStyle: "italic" },

@@ -123,8 +123,14 @@ export interface TransportProposal {
   nom: string;
   pin: string;
   date: string;
-  out_time: string;
+  // Nullable : un aidant peut ne proposer que l'aller, que le retour, ou les
+  // deux — offers_out/offers_return indiquent explicitement lequel, plutôt
+  // que de déduire ça de la présence de out_time/return_time (nécessaire car
+  // le formulaire pré-remplit ces champs même quand une case est décochée).
+  out_time: string | null;
   return_time: string | null;
+  offers_out: boolean;
+  offers_return: boolean;
   note: string | null;
   created_at: string;
 }
@@ -139,6 +145,14 @@ export interface Task {
   claimed_by_prenom: string | null;
   claimed_by_nom: string | null;
   claimed_by_pin: string | null;
+  // Pour un besoin Transport aller-retour, l'aller et le retour peuvent être
+  // pris en charge par deux personnes différentes suite à des propositions
+  // distinctes — claimed_by_prenom/nom/pin ci-dessus désignent alors l'aller,
+  // et ces champs le retour. Restent null quand la même personne fait les
+  // deux (claim direct ou proposition validée pour les deux à la fois).
+  transport_return_claimed_by_prenom: string | null;
+  transport_return_claimed_by_nom: string | null;
+  transport_return_claimed_by_pin: string | null;
   claimed_photo: string | null;
   claimed_text: string | null;
   done_photo: string | null;
