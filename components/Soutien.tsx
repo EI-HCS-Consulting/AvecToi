@@ -4,7 +4,7 @@ import {
   StyleSheet, Alert, ActivityIndicator, Image, Modal,
   KeyboardAvoidingView, Platform,
 } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import { File } from "expo-file-system";
@@ -43,6 +43,7 @@ interface Props {
 }
 
 export default function Soutien({ spaceId, C, isAdmin }: Props) {
+  const router = useRouter();
   const { focusMessageId } = useLocalSearchParams<{ focusMessageId?: string }>();
   const scrollRef = useRef<ScrollView>(null);
   const msgOffsets = useRef<Record<string, number>>({});
@@ -55,6 +56,8 @@ export default function Soutien({ spaceId, C, isAdmin }: Props) {
   // Réponses aux messages, groupées par message_id.
   const [replies, setReplies] = useState<Record<string, SupportMessageReply[]>>({});
   const [replyTarget, setReplyTarget] = useState<SupportMessage | null>(null);
+  const [replyDeleteTarget, setReplyDeleteTarget] = useState<SupportMessageReply | null>(null);
+  const [messageDeleteTarget, setMessageDeleteTarget] = useState<SupportMessage | null>(null);
   const [replyText, setReplyText] = useState("");
   const [replySaving, setReplySaving] = useState(false);
 
@@ -371,18 +374,14 @@ export default function Soutien({ spaceId, C, isAdmin }: Props) {
     loadMessages();
   }
 
-  async function deleteMessage(m: SupportMessage) {
-    Alert.alert("Supprimer ce message ?", `"${m.message.slice(0, 60)}…"`, [
-      { text: "Annuler", style: "cancel" },
-      {
-        text: "Supprimer", style: "destructive", onPress: async () => {
-          if (m.photo) await supabase.storage.from(PHOTO_BUCKET).remove([`${spaceId}/${m.photo}`]);
-          await supabase.from("support_messages").delete().eq("id", m.id);
-          loadMessages();
-          showToast("Message supprimé");
-        },
-      },
-    ]);
+  async function confirmDeleteMessage() {
+    if (!messageDeleteTarget) return;
+    const m = messageDeleteTarget;
+    setMessageDeleteTarget(null);
+    if (m.photo) await supabase.storage.from(PHOTO_BUCKET).remove([`${spaceId}/${m.photo}`]);
+    await supabase.from("support_messages").delete().eq("id", m.id);
+    loadMessages();
+    showToast("Message supprimé");
   }
 
   // ── Réponses (ouvert à tous, y compris sur ses propres messages) ───────────
@@ -415,17 +414,13 @@ export default function Soutien({ spaceId, C, isAdmin }: Props) {
     loadReplies();
   }
 
-  async function deleteReply(r: SupportMessageReply) {
-    Alert.alert("Supprimer cette réponse ?", `"${r.reply_text.slice(0, 60)}…"`, [
-      { text: "Annuler", style: "cancel" },
-      {
-        text: "Supprimer", style: "destructive", onPress: async () => {
-          await supabase.from("support_message_replies").delete().eq("id", r.id);
-          loadReplies();
-          showToast("Réponse supprimée");
-        },
-      },
-    ]);
+  async function confirmDeleteReply() {
+    if (!replyDeleteTarget) return;
+    const r = replyDeleteTarget;
+    setReplyDeleteTarget(null);
+    await supabase.from("support_message_replies").delete().eq("id", r.id);
+    loadReplies();
+    showToast("Réponse supprimée");
   }
 
   const pinReady = isAdmin || !!sessionPin || msgPin.length >= 4;
@@ -434,15 +429,21 @@ export default function Soutien({ spaceId, C, isAdmin }: Props) {
     <View style={[styles.container, { backgroundColor: C.bg }]}>
       <View style={[styles.header, { backgroundColor: C.card, borderBottomColor: C.border }]}>
         <Text style={[styles.headerTitle, { color: "#fff" }]}>💛 Mur de soutien</Text>
+        <TouchableOpacity
+          style={[styles.publishBtn, { backgroundColor: C.accent }]}
+          onPress={() => setShowAddModal(true)}
+        >
+          <Text style={styles.publishBtnText}>+ Publier</Text>
+        </TouchableOpacity>
       </View>
 
       <View style={[styles.subHeader, { backgroundColor: C.card, borderBottomColor: C.border }]}>
         <TouchableOpacity
           style={[styles.addBtn, { backgroundColor: C.gold }]}
-          onPress={() => setShowAddModal(true)}
+          onPress={() => router.push((isAdmin ? "/(admin)/home/calendar" : "/(visitor)/home/calendar") as any)}
           activeOpacity={0.85}
         >
-          <Text style={styles.addBtnText}>Publier un message</Text>
+          <Text style={styles.addBtnText}>← Retour à l'accueil</Text>
         </TouchableOpacity>
       </View>
 
@@ -467,6 +468,12 @@ export default function Soutien({ spaceId, C, isAdmin }: Props) {
             const isOwnMessage = isAdmin
               ? m.author_pin === "ADMIN"
               : (!!sessionPin && m.author_pin === sessionPin && m.author_prenom === msgPrenom && m.author_nom === msgNom);
+            // Dès qu'une réponse existe, seul l'admin garde le droit de
+            // supprimer le message (la suppression entraîne aussi celle de
+            // toutes les réponses via on delete cascade en base) — un
+            // visiteur ne doit pas pouvoir effacer une conversation à
+            // laquelle d'autres ont participé.
+            const canDeleteMessage = isAdmin || (isOwnMessage && !replies[m.id]?.length);
             return (
             <View
               key={m.id}
@@ -496,8 +503,8 @@ export default function Soutien({ spaceId, C, isAdmin }: Props) {
                         <Text style={{ fontSize: 13, color: C.muted }}>✏️</Text>
                       </TouchableOpacity>
                     )}
-                    {isAdmin && (
-                      <TouchableOpacity onPress={() => deleteMessage(m)} style={[styles.iconBtn, { borderColor: "rgba(233,69,96,0.3)" }]}>
+                    {canDeleteMessage && (
+                      <TouchableOpacity onPress={() => setMessageDeleteTarget(m)} style={[styles.iconBtn, { borderColor: "rgba(233,69,96,0.3)" }]}>
                         <Text style={{ fontSize: 13, color: "#e94560" }}>🗑️</Text>
                       </TouchableOpacity>
                     )}
@@ -533,7 +540,7 @@ export default function Soutien({ spaceId, C, isAdmin }: Props) {
                           <Text style={[styles.replyText, { color: C.text }]}>{r.reply_text}</Text>
                         </View>
                         {canDeleteReply && (
-                          <TouchableOpacity onPress={() => deleteReply(r)} style={styles.replyDeleteBtn}>
+                          <TouchableOpacity onPress={() => setReplyDeleteTarget(r)} style={styles.replyDeleteBtn}>
                             <Text style={{ fontSize: 12, color: C.muted }}>✕</Text>
                           </TouchableOpacity>
                         )}
@@ -658,7 +665,7 @@ export default function Soutien({ spaceId, C, isAdmin }: Props) {
                     >
                       {msgSaving
                         ? <ActivityIndicator color="#0D1B2E" size="small" />
-                        : <Text style={[styles.btnPrimaryText, { color: "#0D1B2E" }]}>Envoyer 💛</Text>
+                        : <Text style={[styles.btnPrimaryText, { color: "#0D1B2E" }]}>Envoyer 🩷</Text>
                       }
                     </TouchableOpacity>
                   </View>
@@ -811,18 +818,73 @@ export default function Soutien({ spaceId, C, isAdmin }: Props) {
           </TouchableOpacity>
         </KeyboardAvoidingView>
       </Modal>
+
+      <Modal visible={!!replyDeleteTarget} transparent animationType="fade" onRequestClose={() => setReplyDeleteTarget(null)}>
+        <TouchableOpacity style={styles.confirmOverlay} activeOpacity={1} onPress={() => setReplyDeleteTarget(null)}>
+          <TouchableOpacity activeOpacity={1}>
+            <View style={[styles.confirmSheet, { backgroundColor: C.card, borderColor: C.danger }]}>
+              <Text style={styles.confirmIcon}>🗑️</Text>
+              <Text style={[styles.confirmTitle, { color: "#fff" }]}>Supprimer cette réponse ?</Text>
+              {replyDeleteTarget && (
+                <Text style={[styles.confirmSub, { color: C.muted }]}>"{replyDeleteTarget.reply_text.slice(0, 60)}…"</Text>
+              )}
+              <View style={styles.confirmButtons}>
+                <TouchableOpacity style={[styles.confirmBtn, { borderColor: C.border }]} onPress={() => setReplyDeleteTarget(null)}>
+                  <Text style={[styles.confirmBtnText, { color: C.muted }]}>Annuler</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.confirmBtn, { backgroundColor: C.danger, borderColor: C.danger }]} onPress={confirmDeleteReply}>
+                  <Text style={[styles.confirmBtnText, { color: "#fff" }]}>Supprimer</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
+      <Modal visible={!!messageDeleteTarget} transparent animationType="fade" onRequestClose={() => setMessageDeleteTarget(null)}>
+        <TouchableOpacity style={styles.confirmOverlay} activeOpacity={1} onPress={() => setMessageDeleteTarget(null)}>
+          <TouchableOpacity activeOpacity={1}>
+            <View style={[styles.confirmSheet, { backgroundColor: C.card, borderColor: C.danger }]}>
+              <Text style={styles.confirmIcon}>🗑️</Text>
+              <Text style={[styles.confirmTitle, { color: "#fff" }]}>Supprimer ce message ?</Text>
+              {messageDeleteTarget && (
+                <Text style={[styles.confirmSub, { color: C.muted }]}>"{messageDeleteTarget.message.slice(0, 60)}…"</Text>
+              )}
+              <View style={styles.confirmButtons}>
+                <TouchableOpacity style={[styles.confirmBtn, { borderColor: C.border }]} onPress={() => setMessageDeleteTarget(null)}>
+                  <Text style={[styles.confirmBtnText, { color: C.muted }]}>Annuler</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.confirmBtn, { backgroundColor: C.danger, borderColor: C.danger }]} onPress={confirmDeleteMessage}>
+                  <Text style={[styles.confirmBtnText, { color: "#fff" }]}>Supprimer</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+
+  confirmOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center", padding: 24 },
+  confirmSheet: { width: "100%", maxWidth: 380, borderRadius: 20, borderWidth: 1, padding: 24, alignItems: "center" },
+  confirmIcon: { fontSize: 32, marginBottom: 8 },
+  confirmTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, textAlign: "center", marginBottom: 6 },
+  confirmSub: { fontFamily: "DM_Sans_400Regular", fontSize: 13, textAlign: "center" },
+  confirmButtons: { flexDirection: "row", gap: 10, width: "100%", marginTop: 20 },
+  confirmBtn: { flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 13, alignItems: "center" },
+  confirmBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },
   centered: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32 },
   emptyText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15, textAlign: "center", marginBottom: 6 },
   emptyHint: { fontFamily: "DM_Sans_400Regular", fontSize: 13, textAlign: "center" },
 
-  header: { paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12, borderBottomWidth: 1, flexDirection: "row", alignItems: "center" },
+  header: { paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12, borderBottomWidth: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   headerTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18 },
+  publishBtn: { borderRadius: 8, paddingVertical: 8, paddingHorizontal: 14, minWidth: 104, alignItems: "center" },
+  publishBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 13, color: "#fff", textAlign: "center" },
   subHeader: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1 },
   addBtn: { borderRadius: 10, paddingVertical: 12, alignItems: "center" },
   addBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#0D1B2E" },

@@ -6,6 +6,7 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import { File, Paths } from "expo-file-system";
 import { useRouter } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
 import { useVisitorSpace } from "@/lib/VisitorContext";
 import { themes } from "@/lib/themes";
 import { supabase } from "@/lib/supabase";
@@ -27,15 +28,17 @@ const CAT_ICONS: Record<Task["category"], string> = {
   repas: "🍽️", affaires: "🧳", courses: "🛒", transport: "🚗", administratif: "🗂️", autre: "📌",
 };
 
-type AccountSectionKey = "info" | "pin" | "resv" | "souvenirs" | "news" | "soutien" | "besoins";
+type AccountSectionKey = "info" | "resv" | "souvenirs" | "news" | "soutien" | "besoins";
+// Ordre d'affichage de la grille = ordre des clés ci-dessous (2 tuiles par
+// ligne) : Infos/Réservations, Nouvelles/Souvenirs, Entraide/Soutien. Le PIN
+// n'a plus sa propre tuile — regroupé dans "Mes informations".
 const SECTION_META: Record<AccountSectionKey, { icon: string; label: string }> = {
   info: { icon: "📝", label: "Mes informations" },
-  pin: { icon: "🔒", label: "Mon code PIN" },
   resv: { icon: "📅", label: "Mes réservations" },
-  souvenirs: { icon: "📷", label: "Mes souvenirs" },
   news: { icon: "📰", label: "Mes nouvelles" },
+  souvenirs: { icon: "📷", label: "Mes souvenirs" },
+  besoins: { icon: "🤝", label: "Entraide" },
   soutien: { icon: "💛", label: "Soutien" },
-  besoins: { icon: "🤝", label: "Mes besoins" },
 };
 
 // Onglet "Compte" côté visiteur — juste ses propres infos (pas de bouton
@@ -75,6 +78,11 @@ export default function VisitorAccountScreen() {
   // chargement de la page plutôt que recalculé à chaque frappe.
   const [activityLoading, setActivityLoading] = useState(false);
   const [myReservations, setMyReservations] = useState<Reservation[]>([]);
+  // Accompagnants liés à mes réservations (même group_id), indexés par
+  // group_id — chacun est une réservation à part entière (cf. BookingFlow.tsx)
+  // mais n'apparaît pas dans myReservations lui-même car il porte un autre
+  // prénom/nom que le mien.
+  const [companionsByGroup, setCompanionsByGroup] = useState<Record<string, Reservation[]>>({});
   const [mySouvenirs, setMySouvenirs] = useState<(SouvenirPhoto & { url: string })[]>([]);
   const [myNews, setMyNews] = useState<NewsEntry[]>([]);
   const [myMessages, setMyMessages] = useState<SupportMessage[]>([]);
@@ -87,6 +95,14 @@ export default function VisitorAccountScreen() {
 
   // Section active de la grille de tuiles (null = grille affichée)
   const [activeSection, setActiveSection] = useState<AccountSectionKey | null>(null);
+
+  // Revenir à la grille de tuiles à chaque fois que l'onglet Compte reprend
+  // le focus, plutôt que de rester sur la dernière tuile ouverte.
+  useFocusEffect(
+    useCallback(() => {
+      setActiveSection(null);
+    }, []),
+  );
   const identityMissing = !prenom.trim() || !nom.trim();
 
   function showToast(msg: string) {
@@ -111,12 +127,30 @@ export default function VisitorAccountScreen() {
       supabase.from("tasks").select("*").eq("space_id", spaceId)
         .ilike("author_prenom", p.trim()).ilike("author_nom", n.trim()).order("created_at", { ascending: false }),
     ]);
-    setMyReservations(resv.data || []);
+    const myResv: Reservation[] = resv.data || [];
+    setMyReservations(myResv);
     setMySouvenirs((souv.data || []).map((s: SouvenirPhoto) => ({ ...s, url: souvenirUrl(spaceId, s.filename) })));
     setMyNews(news.data || []);
     setMyMessages(msgs.data || []);
     setMyTasks(tasks.data || []);
     setMyPublishedTasks(published.data || []);
+
+    // Accompagnants : réservations liées par group_id, mais avec un prénom/nom
+    // différent du mien (donc absentes de myResv) — on les recharge à part.
+    const groupIds = [...new Set(myResv.map((r) => r.group_id).filter((id): id is string => !!id))];
+    if (groupIds.length > 0) {
+      const { data: groupRows } = await supabase.from("reservations").select("*")
+        .in("group_id", groupIds);
+      const byGroup: Record<string, Reservation[]> = {};
+      for (const r of groupRows || []) {
+        if (!r.group_id) continue;
+        (byGroup[r.group_id] ??= []).push(r);
+      }
+      setCompanionsByGroup(byGroup);
+    } else {
+      setCompanionsByGroup({});
+    }
+
     setActivityLoading(false);
   }, []);
 
@@ -330,6 +364,20 @@ export default function VisitorAccountScreen() {
           </Text>
         </TouchableOpacity>
 
+        {(prenom.trim() || nom.trim()) && (
+          <Text style={[styles.identityName, { color: "#fff" }]}>
+            {[prenom.trim(), nom.trim()].filter(Boolean).join(" ")}
+          </Text>
+        )}
+
+        <TouchableOpacity
+          style={[styles.backToGrid, { backgroundColor: C.gold, marginBottom: 20 }]}
+          onPress={() => router.push("/(visitor)/home/calendar" as any)}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.backToGridText}>← Retour à l'accueil</Text>
+        </TouchableOpacity>
+
         {activeSection === null && (
           <View style={styles.tileGrid}>
             {(Object.keys(SECTION_META) as AccountSectionKey[]).map((key) => (
@@ -337,30 +385,35 @@ export default function VisitorAccountScreen() {
                 key={key}
                 style={[styles.tile, { backgroundColor: C.card, borderColor: C.border }]}
                 onPress={() => setActiveSection(key)}
-                activeOpacity={0.8}
+                activeOpacity={0.75}
               >
-                <View style={[styles.tileIcon, { backgroundColor: `${C.accent}22` }]}>
-                  <Text style={styles.tileIconText}>{SECTION_META[key].icon}</Text>
+                <View style={styles.tileTopRow}>
+                  <View style={[styles.tileIcon, { backgroundColor: `${C.accent}22` }]}>
+                    <Text style={styles.tileIconText}>{SECTION_META[key].icon}</Text>
+                  </View>
+                  <Text style={[styles.tileChevron, { color: C.muted }]}>›</Text>
                 </View>
                 <Text style={[styles.tileLabel, { color: "#fff" }]}>{SECTION_META[key].label}</Text>
-                <Text style={[styles.tileHint, { color: C.muted }]}>
+                <Text style={[styles.tileHint, { color: C.accent }]} numberOfLines={1}>
                   {key === "info" ? (prenom.trim() && nom.trim() ? `${prenom} ${nom}` : "À compléter")
-                    : key === "pin" ? "Voir / changer"
                     : key === "resv" ? `${myReservations.length} réservation(s)`
                     : key === "souvenirs" ? `${mySouvenirs.length} photo(s)`
                     : key === "news" ? `${myNews.length} nouvelle(s)`
                     : key === "soutien" ? `${myMessages.length} message(s)`
                     : `${myTasks.length + myPublishedTasks.length} besoin(s)`}
                 </Text>
-                <Text style={[styles.tileChevron, { color: C.muted }]}>›</Text>
               </TouchableOpacity>
             ))}
           </View>
         )}
 
         {activeSection !== null && (
-          <TouchableOpacity style={styles.backToGrid} onPress={() => setActiveSection(null)} activeOpacity={0.7}>
-            <Text style={[styles.backToGridText, { color: C.accent }]}>← Retour à mon compte</Text>
+          <TouchableOpacity
+            style={[styles.backToGrid, { backgroundColor: C.gold }]}
+            onPress={() => setActiveSection(null)}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.backToGridText}>← Retour à mon compte</Text>
           </TouchableOpacity>
         )}
 
@@ -406,11 +459,7 @@ export default function VisitorAccountScreen() {
             : <Text style={styles.saveBtnText}>Enregistrer</Text>
           }
         </TouchableOpacity>
-        </>
-        )}
 
-        {activeSection === "pin" && (
-        <>
         <View style={styles.sectionTitleRow}>
           <Text style={[styles.sectionTitle, { color: C.gold, marginBottom: 0 }]}>Mon code PIN</Text>
           <TouchableOpacity onPress={() => setPinRevealed((v) => !v)} style={styles.revealBtn}>
@@ -440,19 +489,29 @@ export default function VisitorAccountScreen() {
               <Text style={[styles.activityGroupTitle, { color: "#fff" }]}>📅 Mes réservations ({myReservations.length})</Text>
               {myReservations.length === 0 ? (
                 <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucune réservation pour le moment.</Text>
-              ) : myReservations.map((r) => (
-                <TouchableOpacity
-                  key={r.id}
-                  style={styles.activityRow}
-                  onPress={() => handleOpenReservation(r)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]}>
-                    {r.type === "Nuit" ? "🌙" : "☀️"} {new Date(r.date).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} · {r.creneau}
-                  </Text>
-                  <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
-                </TouchableOpacity>
-              ))}
+              ) : myReservations.map((r) => {
+                const companionNames = (r.group_id ? companionsByGroup[r.group_id] : undefined)
+                  ?.filter((c) => c.id !== r.id)
+                  .map((c) => `${c.prenom} ${c.nom}`) ?? [];
+                return (
+                  <TouchableOpacity
+                    key={r.id}
+                    style={styles.activityRow}
+                    onPress={() => handleOpenReservation(r)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.activityRowText, { color: C.text }]}>
+                        {r.type === "Nuit" ? "🌙" : "☀️"} {new Date(r.date).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} · {r.creneau}
+                      </Text>
+                      {companionNames.length > 0 && (
+                        <Text style={[styles.activityRowSub, { color: C.muted }]}>Avec {companionNames.join(", ")}</Text>
+                      )}
+                    </View>
+                    <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           )
         )}
@@ -711,26 +770,30 @@ const styles = StyleSheet.create({
   headerTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 20 },
   scroll: { padding: 16, paddingBottom: 48 },
 
-  photoWrap: { alignItems: "center", marginBottom: 24 },
+  photoWrap: { alignItems: "center", marginBottom: 4 },
   photo: { width: 88, height: 88, borderRadius: 44, marginBottom: 8 },
   photoPlaceholder: { width: 88, height: 88, borderRadius: 44, borderWidth: 1, alignItems: "center", justifyContent: "center", marginBottom: 8 },
   photoHint: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
+  identityName: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 17, textAlign: "center", marginBottom: 22 },
 
-  tileGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginBottom: 4 },
+  tileGrid: { flexDirection: "row", flexWrap: "wrap", gap: 14, marginBottom: 4 },
   tile: {
-    width: "47%", borderWidth: 1, borderRadius: 16, padding: 14,
-    gap: 8, position: "relative",
+    width: "47%", borderWidth: 1, borderRadius: 18, padding: 16,
+    gap: 10,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8,
+    elevation: 3,
   },
+  tileTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   tileIcon: {
-    width: 38, height: 38, borderRadius: 12,
+    width: 42, height: 42, borderRadius: 13,
     alignItems: "center", justifyContent: "center",
   },
-  tileIconText: { fontSize: 18 },
-  tileLabel: { fontFamily: "DM_Sans_700Bold", fontSize: 13, lineHeight: 17 },
-  tileHint: { fontFamily: "DM_Sans_400Regular", fontSize: 11, lineHeight: 15 },
-  tileChevron: { position: "absolute", top: 14, right: 12, fontFamily: "DM_Sans_700Bold", fontSize: 14 },
-  backToGrid: { alignSelf: "flex-start", marginBottom: 4, paddingVertical: 4 },
-  backToGridText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
+  tileIconText: { fontSize: 20 },
+  tileLabel: { fontFamily: "DM_Sans_700Bold", fontSize: 14, lineHeight: 18 },
+  tileHint: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11.5, lineHeight: 15 },
+  tileChevron: { fontFamily: "DM_Sans_700Bold", fontSize: 16 },
+  backToGrid: { borderRadius: 10, paddingVertical: 12, alignItems: "center", marginBottom: 16 },
+  backToGridText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#0D1B2E" },
 
   sectionTitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 1, textTransform: "uppercase", marginBottom: 10, marginTop: 8 },
   sectionTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8, marginBottom: 10 },
@@ -744,6 +807,7 @@ const styles = StyleSheet.create({
   activityEmpty: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
   activityRow: { paddingVertical: 6, flexDirection: "row", alignItems: "center", gap: 8 },
   activityRowText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 19 },
+  activityRowSub: { fontFamily: "DM_Sans_400Regular", fontSize: 11.5, lineHeight: 16, marginTop: 1 },
   activityThumbRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   activityThumb: { width: 64, height: 64, borderRadius: 8 },
   activityMsgThumb: { width: 44, height: 44, borderRadius: 8 },
