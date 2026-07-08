@@ -10,9 +10,9 @@ import * as ImageManipulator from "expo-image-manipulator";
 import { File } from "expo-file-system";
 import { supabase } from "@/lib/supabase";
 import { blobToArrayBuffer } from "@/lib/blobToArrayBuffer";
-import { getVisitorSession, rememberAuthorPin, sessionPinMatches } from "@/lib/visitorSession";
+import { getVisitorSession, rememberAuthorPin } from "@/lib/visitorSession";
 import PinPad from "@/components/PinPad";
-import type { SupportMessage } from "@/lib/types";
+import type { SupportMessage, SupportMessageReply } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
 // Section "Mur de soutien" extraite de l'ancien EntraideSoutien.tsx — voir
@@ -52,6 +52,12 @@ export default function Soutien({ spaceId, C, isAdmin }: Props) {
   const [messages, setMessages] = useState<SupportMessage[]>([]);
   const [msgsLoading, setMsgsLoading] = useState(true);
 
+  // Réponses aux messages, groupées par message_id.
+  const [replies, setReplies] = useState<Record<string, SupportMessageReply[]>>({});
+  const [replyTarget, setReplyTarget] = useState<SupportMessage | null>(null);
+  const [replyText, setReplyText] = useState("");
+  const [replySaving, setReplySaving] = useState(false);
+
   const [msgText, setMsgText] = useState("");
   const [msgPrenom, setMsgPrenom] = useState("");
   const [msgNom, setMsgNom] = useState("");
@@ -60,19 +66,14 @@ export default function Soutien({ spaceId, C, isAdmin }: Props) {
   const [pickingPhoto, setPickingPhoto] = useState(false);
   const [msgSaving, setMsgSaving] = useState(false);
 
-  // Édition d'un message déjà posté — déclenchée depuis le bouton ✏️ après
-  // validation du PIN (ou directement pour l'admin), même schéma que
-  // NewsFeed.tsx (openEdit/requestEdit/pinModal).
+  // Édition d'un message déjà posté — bouton ✏️ visible uniquement pour
+  // l'auteur réel du message (voir isOwnMessage plus bas).
   const [editTarget, setEditTarget] = useState<SupportMessage | null>(null);
   const [editMsgText, setEditMsgText] = useState("");
   const [editPrenom, setEditPrenom] = useState("");
   const [editNom, setEditNom] = useState("");
   const [editPhoto, setEditPhoto] = useState<{ uri: string; filename: string | null } | null>(null);
   const [editSaving, setEditSaving] = useState(false);
-
-  const [pinModal, setPinModal] = useState<SupportMessage | null>(null);
-  const [pinEntry, setPinEntry] = useState("");
-  const [pinError, setPinError] = useState(false);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [sessionPin, setSessionPin] = useState("");
@@ -98,6 +99,19 @@ export default function Soutien({ spaceId, C, isAdmin }: Props) {
   }, [spaceId]);
 
   useEffect(() => { loadMessages(); }, [loadMessages]);
+
+  const loadReplies = useCallback(async () => {
+    const { data } = await supabase
+      .from("support_message_replies")
+      .select("*")
+      .eq("space_id", spaceId)
+      .order("created_at", { ascending: true });
+    const grouped: Record<string, SupportMessageReply[]> = {};
+    (data || []).forEach((r) => { (grouped[r.message_id] ??= []).push(r); });
+    setReplies(grouped);
+  }, [spaceId]);
+
+  useEffect(() => { loadReplies(); }, [loadReplies]);
 
   // Arrivée depuis "Mon compte" via un lien profond (?focusMessageId=...) :
   // on scrolle jusqu'à la carte du message et on la surligne brièvement.
@@ -143,6 +157,14 @@ export default function Soutien({ spaceId, C, isAdmin }: Props) {
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [spaceId, loadMessages]);
+
+  useEffect(() => {
+    const ch = supabase
+      .channel(`support-replies:${spaceId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "support_message_replies", filter: `space_id=eq.${spaceId}` }, loadReplies)
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [spaceId, loadReplies]);
 
   async function pickMsgPhoto() {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -261,34 +283,16 @@ export default function Soutien({ spaceId, C, isAdmin }: Props) {
       photo: photoFilename,
     });
     setMsgSaving(false);
-    if (!isAdmin) await rememberAuthorPin(msgPrenom.trim(), msgNom.trim(), pinToUse);
+    if (!isAdmin) {
+      await rememberAuthorPin(msgPrenom.trim(), msgNom.trim(), pinToUse);
+      setSessionPin(pinToUse);
+    }
     setMsgText(""); setMsgPhotoUri(null); setMsgPin(""); setShowAddModal(false);
     showToast("Message posté ✓");
     loadMessages();
   }
 
-  // ── Édition (PIN visiteur ou direct admin) ─────────────────────────────────
-  async function requestEdit(m: SupportMessage) {
-    if (isAdmin || (await sessionPinMatches(m.author_pin))) {
-      openEdit(m);
-      return;
-    }
-    setPinModal(m);
-    setPinEntry(""); setPinError(false);
-  }
-
-  function checkPin() {
-    if (!pinModal) return;
-    if (pinEntry === pinModal.author_pin) {
-      const target = pinModal;
-      setPinModal(null);
-      openEdit(target);
-    } else {
-      setPinError(true);
-      setPinEntry("");
-    }
-  }
-
+  // ── Édition (auteur réel du message ou admin sur ses propres messages) ─────
   function openEdit(m: SupportMessage) {
     setEditTarget(m);
     setEditMsgText(m.message);
@@ -381,17 +385,64 @@ export default function Soutien({ spaceId, C, isAdmin }: Props) {
     ]);
   }
 
+  // ── Réponses (ouvert à tous, y compris sur ses propres messages) ───────────
+  function openReply(m: SupportMessage) {
+    setReplyTarget(m);
+    setReplyText("");
+  }
+
+  async function postReply() {
+    if (!replyTarget || !replyText.trim() || !msgPrenom.trim() || !msgNom.trim()) return;
+    if (!isAdmin && !sessionPin && msgPin.length < 4) return;
+    setReplySaving(true);
+
+    const pinToUse = isAdmin ? "ADMIN" : (sessionPin || msgPin);
+    await supabase.from("support_message_replies").insert({
+      message_id: replyTarget.id,
+      space_id: spaceId,
+      reply_text: replyText.trim(),
+      author_prenom: msgPrenom.trim(),
+      author_nom: msgNom.trim(),
+      author_pin: pinToUse,
+    });
+    setReplySaving(false);
+    if (!isAdmin) {
+      await rememberAuthorPin(msgPrenom.trim(), msgNom.trim(), pinToUse);
+      setSessionPin(pinToUse);
+    }
+    setReplyText(""); setMsgPin(""); setReplyTarget(null);
+    showToast("Réponse envoyée 🙏");
+    loadReplies();
+  }
+
+  async function deleteReply(r: SupportMessageReply) {
+    Alert.alert("Supprimer cette réponse ?", `"${r.reply_text.slice(0, 60)}…"`, [
+      { text: "Annuler", style: "cancel" },
+      {
+        text: "Supprimer", style: "destructive", onPress: async () => {
+          await supabase.from("support_message_replies").delete().eq("id", r.id);
+          loadReplies();
+          showToast("Réponse supprimée");
+        },
+      },
+    ]);
+  }
+
   const pinReady = isAdmin || !!sessionPin || msgPin.length >= 4;
 
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
       <View style={[styles.header, { backgroundColor: C.card, borderBottomColor: C.border }]}>
         <Text style={[styles.headerTitle, { color: "#fff" }]}>💛 Mur de soutien</Text>
+      </View>
+
+      <View style={[styles.subHeader, { backgroundColor: C.card, borderBottomColor: C.border }]}>
         <TouchableOpacity
           style={[styles.addBtn, { backgroundColor: C.gold }]}
           onPress={() => setShowAddModal(true)}
+          activeOpacity={0.85}
         >
-          <Text style={styles.addBtnText}>+ Ajouter</Text>
+          <Text style={styles.addBtnText}>Publier un message</Text>
         </TouchableOpacity>
       </View>
 
@@ -407,7 +458,15 @@ export default function Soutien({ spaceId, C, isAdmin }: Props) {
         ) : (
           messages.map((m) => {
             const highlighted = highlightId === m.id;
-            const canModify = isAdmin || (!!m.author_pin && m.author_pin !== "ADMIN");
+            // Propriété réelle du message : admin uniquement sur ses propres
+            // messages ("ADMIN"), visiteur uniquement si le PIN ET le
+            // prénom+nom de sa session correspondent à l'auteur. Le PIN seul
+            // ne suffit pas : deux personnes différentes choisissant le même
+            // code à 4 chiffres (ex. "1111") se retrouveraient sinon
+            // considérées comme le même auteur.
+            const isOwnMessage = isAdmin
+              ? m.author_pin === "ADMIN"
+              : (!!sessionPin && m.author_pin === sessionPin && m.author_prenom === msgPrenom && m.author_nom === msgNom);
             return (
             <View
               key={m.id}
@@ -430,10 +489,10 @@ export default function Soutien({ spaceId, C, isAdmin }: Props) {
                     {new Date(m.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
                   </Text>
                 </View>
-                {(canModify || isAdmin) && (
+                {(isOwnMessage || isAdmin) && (
                   <View style={{ flexDirection: "row", gap: 6 }}>
-                    {canModify && (
-                      <TouchableOpacity onPress={() => requestEdit(m)} style={[styles.iconBtn, { borderColor: C.border }]}>
+                    {isOwnMessage && (
+                      <TouchableOpacity onPress={() => openEdit(m)} style={[styles.iconBtn, { borderColor: C.border }]}>
                         <Text style={{ fontSize: 13, color: C.muted }}>✏️</Text>
                       </TouchableOpacity>
                     )}
@@ -462,6 +521,35 @@ export default function Soutien({ spaceId, C, isAdmin }: Props) {
                   </TouchableOpacity>
                 </>
               )}
+
+              {!!replies[m.id]?.length && (
+                <View style={styles.repliesWrap}>
+                  {replies[m.id].map((r) => {
+                    const canDeleteReply = isAdmin || (!!sessionPin && r.author_pin === sessionPin);
+                    return (
+                      <View key={r.id} style={[styles.replyItem, { borderLeftColor: C.gold }]}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.replyAuthor, { color: "#fff" }]}>{r.author_prenom} {r.author_nom}</Text>
+                          <Text style={[styles.replyText, { color: C.text }]}>{r.reply_text}</Text>
+                        </View>
+                        {canDeleteReply && (
+                          <TouchableOpacity onPress={() => deleteReply(r)} style={styles.replyDeleteBtn}>
+                            <Text style={{ fontSize: 12, color: C.muted }}>✕</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+
+              <TouchableOpacity
+                style={[styles.replyBtn, { borderColor: C.border }]}
+                onPress={() => openReply(m)}
+                activeOpacity={0.75}
+              >
+                <Text style={[styles.replyBtnText, { color: C.gold }]}>🙏 Répondre</Text>
+              </TouchableOpacity>
             </View>
             );
           })
@@ -581,38 +669,6 @@ export default function Soutien({ spaceId, C, isAdmin }: Props) {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* ── MODAL PIN (édition visiteur) ──────────────────────────────────── */}
-      <Modal visible={!!pinModal} transparent animationType="fade" onRequestClose={() => setPinModal(null)}>
-        <View style={styles.overlay}>
-          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
-            <View style={{ alignItems: "center", marginBottom: 16 }}>
-              <Text style={{ fontSize: 32, marginBottom: 6 }}>🔐</Text>
-              <Text style={[styles.sheetTitle, { color: "#fff" }]}>Code PIN</Text>
-              <Text style={[styles.sheetSub, { color: C.muted }]}>Saisis le code PIN reçu lors de l'envoi de ton message.</Text>
-            </View>
-
-            <PinPad value={pinEntry} onChange={setPinEntry} theme={C} hasError={pinError} />
-
-            {pinError && (
-              <Text style={[styles.pinErrorText, { color: "#e94560" }]}>PIN incorrect.</Text>
-            )}
-
-            <View style={[styles.sheetBtns, { marginTop: 16 }]}>
-              <TouchableOpacity onPress={() => setPinModal(null)} style={[styles.btnSecondary, { borderColor: C.border }]}>
-                <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={checkPin}
-                disabled={pinEntry.length < 4}
-                style={[styles.btnPrimary, { backgroundColor: C.accent }, pinEntry.length < 4 && { opacity: 0.5 }]}
-              >
-                <Text style={styles.btnPrimaryText}>Valider</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
       {/* ── MODAL ÉDITION ─────────────────────────────────────────────────── */}
       <Modal visible={!!editTarget} transparent animationType="slide" onRequestClose={() => !editSaving && setEditTarget(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
@@ -668,6 +724,93 @@ export default function Soutien({ spaceId, C, isAdmin }: Props) {
           </TouchableOpacity>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* ── MODAL RÉPONSE ─────────────────────────────────────────────────── */}
+      <Modal visible={!!replyTarget} transparent animationType="slide" onRequestClose={() => !replySaving && setReplyTarget(null)}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+          <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => !replySaving && setReplyTarget(null)}>
+            <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
+              <TouchableOpacity activeOpacity={1}>
+                <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
+                  <Text style={[styles.sheetTitle, { color: "#fff" }]}>🙏 Répondre</Text>
+                  {replyTarget && (
+                    <Text style={[styles.sheetSub, { color: C.muted }]} numberOfLines={2}>
+                      À {replyTarget.author_prenom} {replyTarget.author_nom} : « {replyTarget.message} »
+                    </Text>
+                  )}
+
+                  <TextInput
+                    style={[styles.input, styles.msgArea, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                    placeholder="Ta réponse…"
+                    placeholderTextColor={C.muted}
+                    value={replyText}
+                    onChangeText={setReplyText}
+                    multiline
+                    numberOfLines={3}
+                    textAlignVertical="top"
+                    autoFocus
+                  />
+
+                  {!(msgPrenom.trim() && msgNom.trim()) && (
+                    <View style={{ flexDirection: "row", gap: 8 }}>
+                      <TextInput
+                        style={[styles.input, { flex: 1, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                        placeholder="Prénom *"
+                        placeholderTextColor={C.muted}
+                        value={msgPrenom}
+                        onChangeText={setMsgPrenom}
+                        autoCapitalize="words"
+                      />
+                      <TextInput
+                        style={[styles.input, { flex: 1, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                        placeholder="Nom *"
+                        placeholderTextColor={C.muted}
+                        value={msgNom}
+                        onChangeText={setMsgNom}
+                        autoCapitalize="words"
+                      />
+                    </View>
+                  )}
+
+                  {!isAdmin && !sessionPin && (
+                    <>
+                      <Text style={[styles.pinLabel, { color: C.gold }]}>🔐 Choisis ton code PIN (4 chiffres)</Text>
+                      <Text style={[styles.pinHint, { color: C.muted }]}>
+                        Garde-le précieusement — tu en auras besoin pour modifier tes contributions.
+                      </Text>
+                      <PinPad value={msgPin} onChange={setMsgPin} theme={C} />
+                    </>
+                  )}
+
+                  <View style={styles.sheetBtns}>
+                    <TouchableOpacity
+                      onPress={() => { setReplyTarget(null); setReplyText(""); setMsgPin(""); }}
+                      disabled={replySaving}
+                      style={[styles.btnSecondary, { borderColor: C.border }]}
+                    >
+                      <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={postReply}
+                      disabled={!replyText.trim() || !msgPrenom.trim() || !msgNom.trim() || !pinReady || replySaving}
+                      style={[
+                        styles.btnPrimary,
+                        { backgroundColor: C.gold },
+                        (!replyText.trim() || !msgPrenom.trim() || !msgNom.trim() || !pinReady || replySaving) && { opacity: 0.5 },
+                      ]}
+                    >
+                      {replySaving
+                        ? <ActivityIndicator color="#0D1B2E" size="small" />
+                        : <Text style={[styles.btnPrimaryText, { color: "#0D1B2E" }]}>Envoyer 🙏</Text>
+                      }
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            </ScrollView>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -678,10 +821,11 @@ const styles = StyleSheet.create({
   emptyText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15, textAlign: "center", marginBottom: 6 },
   emptyHint: { fontFamily: "DM_Sans_400Regular", fontSize: 13, textAlign: "center" },
 
-  header: { paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12, borderBottomWidth: 1, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  header: { paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12, borderBottomWidth: 1, flexDirection: "row", alignItems: "center" },
   headerTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18 },
-  addBtn: { borderRadius: 8, paddingVertical: 7, paddingHorizontal: 14 },
-  addBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 13, color: "#0D1B2E" },
+  subHeader: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1 },
+  addBtn: { borderRadius: 10, paddingVertical: 12, alignItems: "center" },
+  addBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#0D1B2E" },
 
   listPad: { padding: 14, paddingBottom: 40 },
 
@@ -700,6 +844,14 @@ const styles = StyleSheet.create({
   souvenirsBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
   iconBtn: { width: 30, height: 30, borderWidth: 1, borderRadius: 8, alignItems: "center", justifyContent: "center" },
 
+  repliesWrap: { marginTop: 10, gap: 8 },
+  replyItem: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderLeftWidth: 2, paddingLeft: 10 },
+  replyAuthor: { fontFamily: "DM_Sans_700Bold", fontSize: 12 },
+  replyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 19, marginTop: 1 },
+  replyDeleteBtn: { padding: 4 },
+  replyBtn: { alignSelf: "flex-start", borderWidth: 1, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 12, marginTop: 10 },
+  replyBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
+
   input: { borderWidth: 1, borderRadius: 10, padding: 12, fontFamily: "DM_Sans_400Regular", fontSize: 15, marginBottom: 10 },
 
   photoPreviewRow: { position: "relative", marginBottom: 10 },
@@ -713,7 +865,6 @@ const styles = StyleSheet.create({
 
   pinLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 6, marginTop: 4 },
   pinHint: { fontFamily: "DM_Sans_400Regular", fontSize: 12, lineHeight: 18, marginBottom: 12 },
-  pinErrorText: { fontFamily: "DM_Sans_400Regular", fontSize: 12, textAlign: "center", marginTop: 8 },
 
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "flex-end" },
   overlayScroll: { flexGrow: 1, justifyContent: "flex-end" },
