@@ -4,6 +4,7 @@ import {
   StyleSheet, ActivityIndicator, Image, Alert, Modal,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import { File, Paths } from "expo-file-system";
 import { useRouter } from "expo-router";
 import { useVisitorSpace } from "@/lib/VisitorContext";
 import { themes } from "@/lib/themes";
@@ -60,6 +61,7 @@ export default function VisitorAccountScreen() {
   // PinPad : (1) vérifier l'ancien PIN, (2) saisir le nouveau, (3) le
   // confirmer. Le PIN d'un item déjà créé (réservation, nouvelle…) n'est
   // jamais retouché ici : seul celui stocké dans la session change.
+  const [logoutModalVisible, setLogoutModalVisible] = useState(false);
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pinPhase, setPinPhase] = useState<"verify" | "new" | "confirm">("verify");
   const [pinInput, setPinInput] = useState("");
@@ -77,6 +79,7 @@ export default function VisitorAccountScreen() {
   const [myNews, setMyNews] = useState<NewsEntry[]>([]);
   const [myMessages, setMyMessages] = useState<SupportMessage[]>([]);
   const [myTasks, setMyTasks] = useState<Task[]>([]);
+  const [myPublishedTasks, setMyPublishedTasks] = useState<Task[]>([]);
 
   // Lightbox plein écran pour "Mes souvenirs" — index dans mySouvenirs, ou
   // null si fermé.
@@ -94,7 +97,7 @@ export default function VisitorAccountScreen() {
   const loadActivity = useCallback(async (spaceId: string, p: string, n: string) => {
     if (!p.trim() || !n.trim()) return;
     setActivityLoading(true);
-    const [resv, souv, news, msgs, tasks] = await Promise.all([
+    const [resv, souv, news, msgs, tasks, published] = await Promise.all([
       supabase.from("reservations").select("*").eq("space_id", spaceId)
         .ilike("prenom", p.trim()).ilike("nom", n.trim()).order("date", { ascending: false }),
       supabase.from("souvenirs").select("*").eq("space_id", spaceId)
@@ -105,12 +108,15 @@ export default function VisitorAccountScreen() {
         .ilike("author_prenom", p.trim()).ilike("author_nom", n.trim()).order("created_at", { ascending: false }),
       supabase.from("tasks").select("*").eq("space_id", spaceId)
         .ilike("claimed_by_prenom", p.trim()).ilike("claimed_by_nom", n.trim()).order("created_at", { ascending: false }),
+      supabase.from("tasks").select("*").eq("space_id", spaceId)
+        .ilike("author_prenom", p.trim()).ilike("author_nom", n.trim()).order("created_at", { ascending: false }),
     ]);
     setMyReservations(resv.data || []);
     setMySouvenirs((souv.data || []).map((s: SouvenirPhoto) => ({ ...s, url: souvenirUrl(spaceId, s.filename) })));
     setMyNews(news.data || []);
     setMyMessages(msgs.data || []);
     setMyTasks(tasks.data || []);
+    setMyPublishedTasks(published.data || []);
     setActivityLoading(false);
   }, []);
 
@@ -141,7 +147,35 @@ export default function VisitorAccountScreen() {
       aspect: [1, 1],
     });
     if (result.canceled || !result.assets[0]) return;
-    setPhotoUri(result.assets[0].uri);
+
+    // Le fichier renvoyé par le picker vit dans le cache de l'app — pas
+    // garanti de survivre à un redémarrage (l'OS peut le purger). On le
+    // copie dans le dossier document (persistant) avant de l'enregistrer,
+    // et on sauvegarde tout de suite : sinon la photo ne survit que si le
+    // visiteur pense ensuite à cliquer sur "Enregistrer".
+    let persistedUri = result.assets[0].uri;
+    try {
+      const dest = new File(Paths.document, "visitor_profile_photo.jpg");
+      if (dest.exists) dest.delete();
+      new File(result.assets[0].uri).copy(dest);
+      persistedUri = dest.uri;
+    } catch {
+      // Copie échouée : on garde l'URI d'origine (aperçu immédiat quand
+      // même fonctionnel, juste pas garanti après redémarrage).
+    }
+
+    setPhotoUri(persistedUri);
+    if (space) {
+      await saveVisitorSession({
+        token,
+        spaceId: space.id,
+        prenom: prenom.trim(),
+        nom: nom.trim(),
+        email: email.trim(),
+        localPhotoUri: persistedUri,
+      });
+      showToast("Photo enregistrée ✓");
+    }
   }
 
   async function handleSave() {
@@ -229,6 +263,20 @@ export default function VisitorAccountScreen() {
     }
   }
 
+  // Se déconnecter et "Suivre un autre espace" font la même chose côté
+  // stockage (clearVisitorSession + retour à l'entrée du lien d'invitation)
+  // — un visiteur n'a pas de compte serveur, juste une identité liée à cet
+  // appareil. Bouton distinct demandé pour un intitulé clair en bas de page.
+  function handleLogout() {
+    setLogoutModalVisible(true);
+  }
+
+  async function confirmLogout() {
+    setLogoutModalVisible(false);
+    await clearVisitorSession();
+    router.replace("/");
+  }
+
   function handleSwitchSpace() {
     Alert.alert(
       "Suivre un autre espace ?",
@@ -302,7 +350,7 @@ export default function VisitorAccountScreen() {
                     : key === "souvenirs" ? `${mySouvenirs.length} photo(s)`
                     : key === "news" ? `${myNews.length} nouvelle(s)`
                     : key === "soutien" ? `${myMessages.length} message(s)`
-                    : `${myTasks.length} besoin(s)`}
+                    : `${myTasks.length + myPublishedTasks.length} besoin(s)`}
                 </Text>
                 <Text style={[styles.tileChevron, { color: C.muted }]}>›</Text>
               </TouchableOpacity>
@@ -513,8 +561,40 @@ export default function VisitorAccountScreen() {
           )
         )}
 
+        {activeSection === "besoins" && (
+          activityLoading ? null : identityMissing ? null : (
+            <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
+              <Text style={[styles.activityGroupTitle, { color: "#fff" }]}>📌 Besoins que j'ai publiés ({myPublishedTasks.length})</Text>
+              {myPublishedTasks.length === 0 ? (
+                <Text style={[styles.activityEmpty, { color: C.muted }]}>Tu n'as publié aucun besoin pour le moment.</Text>
+              ) : myPublishedTasks.map((t) => (
+                <TouchableOpacity
+                  key={t.id}
+                  style={styles.activityRow}
+                  onPress={() => router.push(`/(visitor)/entraide?focusTaskId=${t.id}` as any)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={1}>
+                    {CAT_ICONS[t.category]} {t.title}
+                  </Text>
+                  <View style={[styles.activityStatusBadge, { borderColor: t.status === "fait" ? C.success : C.orange }]}>
+                    <Text style={[styles.activityStatusText, { color: t.status === "fait" ? C.success : C.orange }]}>
+                      {t.status === "fait" ? "✓ Fait" : t.status === "pris_en_charge" ? "🤝 Pris en charge" : "⏳ Ouvert"}
+                    </Text>
+                  </View>
+                  <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )
+        )}
+
         <TouchableOpacity style={styles.switchLink} onPress={handleSwitchSpace}>
           <Text style={[styles.switchLinkText, { color: C.muted }]}>Suivre un autre espace</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity style={[styles.logoutBtn, { borderColor: "rgba(233,69,96,0.4)" }]} onPress={handleLogout}>
+          <Text style={[styles.logoutBtnText, { color: "#e94560" }]}>🚪 Se déconnecter</Text>
         </TouchableOpacity>
       </ScrollView>
 
@@ -590,6 +670,36 @@ export default function VisitorAccountScreen() {
           </View>
         </View>
       </Modal>
+
+      <Modal visible={logoutModalVisible} transparent animationType="fade" onRequestClose={() => setLogoutModalVisible(false)}>
+        <View style={styles.pinModalOverlay}>
+          <View style={[styles.logoutModalCard, { backgroundColor: C.card, borderColor: C.border }]}>
+            <View style={[styles.logoutModalIconWrap, { backgroundColor: "rgba(233,69,96,0.12)" }]}>
+              <Text style={styles.logoutModalIcon}>🚪</Text>
+            </View>
+            <Text style={[styles.logoutModalTitle, { color: "#fff" }]}>Se déconnecter ?</Text>
+            <Text style={[styles.logoutModalText, { color: C.muted }]}>
+              Tu devras ressaisir tes informations pour revenir sur cet espace.
+            </Text>
+            <View style={styles.logoutModalButtons}>
+              <TouchableOpacity
+                style={[styles.logoutModalBtn, styles.logoutModalCancelBtn, { borderColor: C.border }]}
+                onPress={() => setLogoutModalVisible(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.logoutModalCancelText, { color: C.text }]}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.logoutModalBtn, styles.logoutModalConfirmBtn]}
+                onPress={confirmLogout}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.logoutModalConfirmText}>Se déconnecter</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -654,8 +764,23 @@ const styles = StyleSheet.create({
   pinModalCancel: { marginTop: 16 },
   pinModalCancelText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, textDecorationLine: "underline" },
 
+  logoutModalCard: { width: "100%", maxWidth: 340, borderWidth: 1, borderRadius: 20, padding: 28, alignItems: "center" },
+  logoutModalIconWrap: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", marginBottom: 14 },
+  logoutModalIcon: { fontSize: 26 },
+  logoutModalTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 19, textAlign: "center", marginBottom: 8 },
+  logoutModalText: { fontFamily: "DM_Sans_400Regular", fontSize: 13.5, textAlign: "center", lineHeight: 19, marginBottom: 22 },
+  logoutModalButtons: { flexDirection: "row", gap: 10, width: "100%" },
+  logoutModalBtn: { flex: 1, borderRadius: 12, paddingVertical: 13, alignItems: "center", justifyContent: "center" },
+  logoutModalCancelBtn: { borderWidth: 1 },
+  logoutModalCancelText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
+  logoutModalConfirmBtn: { backgroundColor: "#e94560" },
+  logoutModalConfirmText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: "#fff" },
+
   switchLink: { alignItems: "center", marginTop: 20 },
   switchLinkText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, textDecorationLine: "underline" },
+
+  logoutBtn: { alignItems: "center", justifyContent: "center", borderWidth: 1, borderRadius: 10, paddingVertical: 12, marginTop: 24, marginBottom: 8 },
+  logoutBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },
 
   toast: { position: "absolute", bottom: 24, alignSelf: "center", paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10 },
   toastText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13, color: "#fff" },

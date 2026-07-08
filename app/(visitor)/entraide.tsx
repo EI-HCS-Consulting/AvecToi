@@ -15,5 +15,5 @@ export default function VisitorEntraideScreen() {
     );
   }
 
-  return <Entraide spaceId={space.id} C={C} isAdmin={false} />;
+  return <Entraide spaceId={space.id} C={C} isAdmin={false} hospitalName={space.hospital_name} />;
 }

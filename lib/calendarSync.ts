@@ -101,6 +101,38 @@ export async function addToNativeCalendar(
   }
 }
 
+// Version générique pour un événement ponctuel hors modèle créneau/nuitée
+// (ex. un transport Entraide : titre/horaire/lieu libres, pas de SlotConfig).
+export async function addGenericEventToNativeCalendar(
+  title: string,
+  startDate: Date,
+  endDate: Date,
+  location: string,
+  notes: string | undefined,
+  preferredEmail: string | null,
+): Promise<{ ok: true; eventId: string } | { ok: false; reason: string }> {
+  try {
+    const { status } = await ExpoCalendar.requestCalendarPermissionsAsync();
+    if (status !== "granted") return { ok: false, reason: "Permission calendrier refusée." };
+
+    const target = await findTargetCalendar(preferredEmail);
+    if (!target) return { ok: false, reason: "Aucun calendrier modifiable trouvé sur l'appareil." };
+
+    const eventId = await ExpoCalendar.createEventAsync(target.id, {
+      title,
+      startDate,
+      endDate,
+      location,
+      notes,
+      alarms: [{ relativeOffset: -60 }],
+    });
+
+    return { ok: true, eventId };
+  } catch (e: any) {
+    return { ok: false, reason: e?.message ?? "Erreur inconnue." };
+  }
+}
+
 export async function updateLinkedCalendarEvent(
   reservationId: string, iso: string, slot: string, type: "Visite" | "Nuit", config: SlotConfig,
 ): Promise<void> {

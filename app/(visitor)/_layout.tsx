@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, Modal, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, Modal, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView } from "react-native";
 import { Tabs, useGlobalSearchParams, usePathname, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -8,6 +8,7 @@ import { themes } from "@/lib/themes";
 import { setupNotifications } from "@/lib/notifications";
 import { getVisitorSession, saveVisitorSession } from "@/lib/visitorSession";
 import { isSpaceCapped } from "@/lib/freemiumCap";
+import PinPad from "@/components/PinPad";
 
 function VisitorTabs() {
   const { space, token, reservations, loading } = useVisitorSpace();
@@ -26,6 +27,11 @@ function VisitorTabs() {
   const [identityKnown, setIdentityKnown] = useState<boolean | null>(null);
   const [identityPrenom, setIdentityPrenom] = useState("");
   const [identityNom, setIdentityNom] = useState("");
+  // Choisi une seule fois ici, dès la connexion — devient le PIN par défaut
+  // préempli (mais toujours modifiable) sur toutes les actions protégées
+  // (Entraide, nouvelles, soutien, souvenirs, réservations) : voir samePerson()
+  // dans Entraide.tsx et les écrans équivalents.
+  const [identityPin, setIdentityPin] = useState("");
   const [savingIdentity, setSavingIdentity] = useState(false);
 
   useEffect(() => {
@@ -53,9 +59,9 @@ function VisitorTabs() {
   }, [space?.id]);
 
   async function handleSaveIdentity() {
-    if (!space || !identityPrenom.trim() || !identityNom.trim()) return;
+    if (!space || !identityPrenom.trim() || !identityNom.trim() || identityPin.length < 4) return;
     setSavingIdentity(true);
-    await saveVisitorSession({ token, spaceId: space.id, prenom: identityPrenom.trim(), nom: identityNom.trim() });
+    await saveVisitorSession({ token, spaceId: space.id, prenom: identityPrenom.trim(), nom: identityNom.trim(), pin: identityPin });
     setSavingIdentity(false);
     setIdentityKnown(true);
   }
@@ -86,34 +92,39 @@ function VisitorTabs() {
     <>
       <Modal visible={identityKnown === false} transparent animationType="fade" statusBarTranslucent>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-          <View style={consentStyles.overlay}>
-            <View style={[consentStyles.card, { backgroundColor: C.card, borderColor: C.border }]}>
-              <Text style={consentStyles.emoji}>👋</Text>
-              <Text style={[consentStyles.title, { color: "#fff" }]}>Bienvenue !</Text>
-              <Text style={[consentStyles.body, { color: C.muted }]}>
-                Dis-nous qui tu es — ça préremplira tes prochaines réservations. Tu pourras toujours
-                réserver pour quelqu'un d'autre en changeant le nom au moment de réserver.
+          <ScrollView
+            style={{ flex: 1 }}
+            contentContainerStyle={[consentStyles.overlay, { flexGrow: 1, justifyContent: "center", paddingVertical: 16 }]}
+            keyboardShouldPersistTaps="handled"
+          >
+            <View style={[consentStyles.card, identityStyles.compactCard, { backgroundColor: C.card, borderColor: C.border }]}>
+              <Text style={[consentStyles.title, identityStyles.compactTitle, { color: "#fff" }]}>👋 Bienvenue !</Text>
+              <View style={identityStyles.row}>
+                <TextInput
+                  style={[identityStyles.input, identityStyles.rowInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                  placeholder="Prénom" placeholderTextColor={C.muted}
+                  value={identityPrenom} onChangeText={setIdentityPrenom} autoCapitalize="words"
+                />
+                <TextInput
+                  style={[identityStyles.input, identityStyles.rowInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                  placeholder="Nom" placeholderTextColor={C.muted}
+                  value={identityNom} onChangeText={setIdentityNom} autoCapitalize="words"
+                />
+              </View>
+              <Text style={[identityStyles.pinLabel, { color: C.gold }]}>
+                Ton code à 4 chiffres
               </Text>
-              <TextInput
-                style={[identityStyles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                placeholder="Ton prénom" placeholderTextColor={C.muted}
-                value={identityPrenom} onChangeText={setIdentityPrenom} autoCapitalize="words"
-              />
-              <TextInput
-                style={[identityStyles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                placeholder="Ton nom" placeholderTextColor={C.muted}
-                value={identityNom} onChangeText={setIdentityNom} autoCapitalize="words"
-              />
+              <PinPad value={identityPin} onChange={setIdentityPin} theme={C} />
               <TouchableOpacity
-                style={[consentStyles.btn, { backgroundColor: C.accent }, (!identityPrenom.trim() || !identityNom.trim() || savingIdentity) && { opacity: 0.5 }]}
+                style={[consentStyles.btn, identityStyles.compactBtn, { backgroundColor: C.accent }, (!identityPrenom.trim() || !identityNom.trim() || identityPin.length < 4 || savingIdentity) && { opacity: 0.5 }]}
                 onPress={handleSaveIdentity}
-                disabled={!identityPrenom.trim() || !identityNom.trim() || savingIdentity}
+                disabled={!identityPrenom.trim() || !identityNom.trim() || identityPin.length < 4 || savingIdentity}
                 activeOpacity={0.85}
               >
                 {savingIdentity ? <ActivityIndicator color="#fff" size="small" /> : <Text style={consentStyles.btnText}>Continuer</Text>}
               </TouchableOpacity>
             </View>
-          </View>
+          </ScrollView>
         </KeyboardAvoidingView>
       </Modal>
 
@@ -240,10 +251,36 @@ const identityStyles = StyleSheet.create({
     width: "100%",
     borderWidth: 1,
     borderRadius: 10,
-    padding: 13,
+    padding: 11,
     fontFamily: "DM_Sans_400Regular",
     fontSize: 15,
-    marginBottom: 10,
+  },
+  row: {
+    flexDirection: "row",
+    gap: 8,
+    width: "100%",
+    marginBottom: 12,
+  },
+  rowInput: {
+    flex: 1,
+    width: undefined,
+  },
+  pinLabel: {
+    fontFamily: "DM_Sans_600SemiBold",
+    fontSize: 13,
+    textAlign: "center",
+    marginBottom: 6,
+  },
+  compactCard: {
+    padding: 18,
+  },
+  compactTitle: {
+    fontSize: 18,
+    marginBottom: 12,
+  },
+  compactBtn: {
+    marginTop: 14,
+    paddingVertical: 13,
   },
 });
 

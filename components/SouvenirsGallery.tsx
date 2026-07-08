@@ -53,6 +53,7 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin }: Props) {
   const [upPrenom, setUpPrenom] = useState("");
   const [upNom, setUpNom] = useState("");
   const [upPin, setUpPin] = useState("");
+  const [sessionPin, setSessionPin] = useState("");
   const [upCaption, setUpCaption] = useState("");
   const [uploading, setUploading] = useState(false);
 
@@ -107,9 +108,18 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin }: Props) {
 
   useEffect(() => { loadPhotos(); }, [loadPhotos]);
 
+  // Identité déjà connue (choisie dès la connexion) : évite de redemander le
+  // PIN à chaque upload — même logique que NewsFeed/Soutien/BookingFlow.
+  useEffect(() => {
+    if (isAdmin) return;
+    getVisitorSession().then((s) => {
+      if (s?.pin) setSessionPin(s.pin);
+    });
+  }, [isAdmin]);
+
   // Pré-remplit prénom/nom depuis la session visiteur enregistrée (Mon
   // compte) à l'ouverture du formulaire d'upload — reste modifiable (ex:
-  // photo postée pour quelqu'un d'autre). Le PIN n'est jamais pré-rempli.
+  // photo postée pour quelqu'un d'autre).
   async function prefillFromSession() {
     if (isAdmin) return;
     const s = await getVisitorSession();
@@ -170,7 +180,7 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin }: Props) {
 
   // ── Upload ─────────────────────────────────────────────────────────────────
   async function handleUpload() {
-    if (!uploadUri || !upPrenom.trim() || (!isAdmin && upPin.length < 4)) return;
+    if (!uploadUri || !upPrenom.trim() || (!isAdmin && !sessionPin && upPin.length < 4)) return;
     setUploading(true);
 
     try {
@@ -209,7 +219,7 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin }: Props) {
         caption: upCaption.trim(),
         uploaded_by_prenom: upPrenom.trim(),
         uploaded_by_nom: upNom.trim(),
-        uploaded_by_pin: isAdmin ? "ADMIN" : upPin,
+        uploaded_by_pin: isAdmin ? "ADMIN" : (sessionPin || upPin),
       });
 
       if (dbErr) {
@@ -571,8 +581,8 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin }: Props) {
                     numberOfLines={2}
                   />
 
-                  {/* PIN — seulement pour les visiteurs */}
-                  {!isAdmin && (
+                  {/* PIN — seulement pour les visiteurs sans PIN de session connu */}
+                  {!isAdmin && !sessionPin && (
                     <>
                       <Text style={[styles.pinLabel, { color: C.gold }]}>
                         🔐 Code PIN (pour pouvoir supprimer ta photo)
@@ -591,11 +601,11 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin }: Props) {
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={handleUpload}
-                      disabled={!upPrenom.trim() || (!isAdmin && upPin.length < 4) || uploading || !uploadUri}
+                      disabled={!upPrenom.trim() || (!isAdmin && !sessionPin && upPin.length < 4) || uploading || !uploadUri}
                       style={[
                         styles.btnPrimary,
                         { backgroundColor: C.accent },
-                        (!upPrenom.trim() || (!isAdmin && upPin.length < 4) || uploading || !uploadUri) && { opacity: 0.5 },
+                        (!upPrenom.trim() || (!isAdmin && !sessionPin && upPin.length < 4) || uploading || !uploadUri) && { opacity: 0.5 },
                       ]}
                     >
                       {uploading
