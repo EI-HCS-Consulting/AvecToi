@@ -326,11 +326,19 @@ export default function AdminAccountScreen() {
                 onPress={handleOpenEditProfile}
                 activeOpacity={0.85}
               >
-                <Text style={[styles.editProfileBtnText, { color: "#fff" }]}>Mon profil</Text>
+                <Text style={[styles.editProfileBtnText, { color: "#fff" }]}>Mon profil (Admin)</Text>
               </TouchableOpacity>
             </>
           )}
         </View>
+
+        <TouchableOpacity
+          style={[styles.goldBtn, { backgroundColor: C.gold, marginTop: 16 }]}
+          onPress={() => router.push("/(admin)/home/calendar" as any)}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.goldBtnText}>← Retour à l'accueil</Text>
+        </TouchableOpacity>
 
         {hasSpace && space ? (
           <>
@@ -368,11 +376,11 @@ export default function AdminAccountScreen() {
 
                 {activeContrib === null && (
                   <TouchableOpacity
-                    style={[styles.editProfileBtn, { backgroundColor: C.accent, borderColor: C.accent, marginTop: 16 }]}
+                    style={[styles.goldBtn, { backgroundColor: C.gold, marginTop: 16 }]}
                     onPress={() => router.push("/(admin)/settings")}
                     activeOpacity={0.85}
                   >
-                    <Text style={[styles.editProfileBtnText, { color: "#fff" }]}>⚙️ Paramètres</Text>
+                    <Text style={styles.goldBtnText}>⚙️ Paramètres</Text>
                   </TouchableOpacity>
                 )}
 
@@ -770,6 +778,9 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   editProfileBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
+
+  goldBtn: { borderRadius: 10, paddingVertical: 12, alignItems: "center" },
+  goldBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#0D1B2E" },
 
   toast: { position: "absolute", bottom: 24, alignSelf: "center", paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10 },
   toastText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13, color: "#fff" },

@@ -158,6 +158,8 @@ export default function SettingsScreen() {
   const [homePostalCode, setHomePostalCode] = useState("");
   const [homeCity, setHomeCity] = useState("");
   const [homeCountry, setHomeCountry] = useState("");
+  const [homeMapsUrl, setHomeMapsUrl] = useState("");
+  const [homeAddressResolving, setHomeAddressResolving] = useState(false);
   const [homeCoordsSaving, setHomeCoordsSaving] = useState(false);
   useEffect(() => {
     if (space && !homeCoordsInit.current) {
@@ -167,6 +169,7 @@ export default function SettingsScreen() {
       setHomePostalCode(space.home_postal_code ?? "");
       setHomeCity(space.home_city ?? "");
       setHomeCountry(space.home_country ?? "");
+      setHomeMapsUrl(space.home_maps_url ?? "");
     }
   }, [space]);
 
@@ -460,6 +463,22 @@ export default function SettingsScreen() {
     else if (gotAddress) showToast("Adresse récupérée depuis le lien ✓");
   }
 
+  // Même principe que handleHospitalMapsUrlBlur, mais pas de "nom" à
+  // récupérer pour une adresse de domicile.
+  async function handleHomeMapsUrlBlur() {
+    const url = homeMapsUrl.trim();
+    if (!url) return;
+    setHomeAddressResolving(true);
+    const place = await resolvePlaceFromMapsUrl(url);
+    setHomeAddressResolving(false);
+    if (place.street) setHomeAddress(place.street);
+    if (place.postalCode) setHomePostalCode(place.postalCode);
+    if (place.city) setHomeCity(place.city);
+    if (place.country) setHomeCountry(place.country);
+    const gotAddress = !!(place.street || place.postalCode || place.city);
+    if (gotAddress) showToast("Adresse récupérée depuis le lien ✓");
+  }
+
   // ── Coordonnées hôpital ────────────────────────────────────────────────────
   async function handleSaveHospitalCoords() {
     if (!space) return;
@@ -490,6 +509,7 @@ export default function SettingsScreen() {
     const nextPostalCode = homePostalCode.trim() || null;
     const nextCity = homeCity.trim() || null;
     const nextCountry = homeCountry.trim() || null;
+    const nextMapsUrl = homeMapsUrl.trim() || null;
     if (nextAddress !== space.home_address) await logFieldChange("home_address", space.home_address, nextAddress);
     const { error } = await supabase
       .from("patient_spaces")
@@ -499,6 +519,7 @@ export default function SettingsScreen() {
         home_postal_code: nextPostalCode,
         home_city: nextCity,
         home_country: nextCountry,
+        home_maps_url: nextMapsUrl,
       })
       .eq("id", space.id);
     setHomeCoordsSaving(false);
@@ -539,6 +560,7 @@ export default function SettingsScreen() {
       update.home_postal_code = homePostalCode.trim() || null;
       update.home_city = homeCity.trim() || null;
       update.home_country = homeCountry.trim() || null;
+      update.home_maps_url = homeMapsUrl.trim() || null;
     } else {
       update.hospital_name = hospitalName.trim() || null;
       update.hospital_address = hospitalAddress.trim() || null;
@@ -800,8 +822,12 @@ export default function SettingsScreen() {
     <View style={[styles.container, { backgroundColor: C.bg }]}>
       {/* Header */}
       <View style={[styles.header, { backgroundColor: C.card, borderBottomColor: C.border }]}>
-        <TouchableOpacity onPress={() => router.replace("/(admin)/account")} style={styles.backBtn}>
-          <Text style={[styles.backBtnText, { color: C.muted }]}>← Compte</Text>
+        <TouchableOpacity
+          onPress={() => router.replace("/(admin)/account")}
+          style={[styles.backBtn, { backgroundColor: C.gold }]}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.backBtnText}>← Mon compte</Text>
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: "#fff" }]}>⚙️ Paramètres</Text>
       </View>
@@ -949,7 +975,21 @@ export default function SettingsScreen() {
               <View style={{ marginTop: 16 }}>
                 {homeCareDraft ? (
                   <>
-                      <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 0 }]}>📍 Adresse</Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 0 }]}>🗺️ Lien Google Maps</Text>
+                        {homeAddressResolving && <ActivityIndicator color={C.accent} size="small" />}
+                      </View>
+                      <TextInput
+                        style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                        placeholder="Colle ici le lien copié depuis Google Maps"
+                        placeholderTextColor={C.muted}
+                        value={homeMapsUrl}
+                        onChangeText={setHomeMapsUrl}
+                        onBlur={handleHomeMapsUrlBlur}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                      />
+                      <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 12 }]}>📍 Adresse</Text>
                       <TextInput
                         style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
                         placeholder="Ex : 12 rue des Lilas"
@@ -1102,7 +1142,24 @@ export default function SettingsScreen() {
                 {/* ── Section : Coordonnées (domicile) ─────────────────────── */}
                 <Text style={[styles.sectionTitle, { color: C.gold }]}>Coordonnées</Text>
                 <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
-                  <Text style={[styles.cardDesc, { color: C.muted }]}>Adresse affichée dans l'app — le lien Google Maps est généré automatiquement.</Text>
+                  <Text style={[styles.cardDesc, { color: C.muted }]}>Colle le lien Google Maps trouvé sur internet — l'adresse se remplit automatiquement en dessous (à vérifier, l'adresse peut être approximative).</Text>
+
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                    <Text style={[styles.fieldLabel, { color: C.gold }]}>🗺️ Lien Google Maps</Text>
+                    {homeAddressResolving && <ActivityIndicator color={C.accent} size="small" />}
+                  </View>
+                  <TextInput
+                    style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                    placeholder="Colle ici le lien copié depuis Google Maps"
+                    placeholderTextColor={C.muted}
+                    value={homeMapsUrl}
+                    onChangeText={setHomeMapsUrl}
+                    onBlur={handleHomeMapsUrlBlur}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+
+                  <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
 
                   <Text style={[styles.fieldLabel, { color: C.gold }]}>📍 Adresse</Text>
                   <TextInput
@@ -2188,8 +2245,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingTop: 52, paddingBottom: 14,
     borderBottomWidth: 1,
   },
-  backBtn: { marginBottom: 8 },
-  backBtnText: { fontFamily: "DM_Sans_400Regular", fontSize: 14 },
+  backBtn: { alignSelf: "flex-start", borderRadius: 8, paddingVertical: 6, paddingHorizontal: 12, marginBottom: 10 },
+  backBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 13, color: "#0D1B2E" },
   headerTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 20 },
 
   scroll: { padding: 16, paddingBottom: 48 },
