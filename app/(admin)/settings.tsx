@@ -553,6 +553,7 @@ export default function SettingsScreen() {
     if (!space) return;
     setHomeCareToggling(true);
     const nextMode = homeCareDraft;
+    const modeChanged = nextMode !== space.home_care_mode;
     const update: Record<string, string | boolean | null> = { home_care_mode: nextMode };
     if (nextMode) {
       update.home_address = homeAddress.trim() || null;
@@ -574,7 +575,7 @@ export default function SettingsScreen() {
       .from("patient_spaces")
       .update(update)
       .eq("id", space.id);
-    if (!error) {
+    if (!error && modeChanged) {
       await logFieldChange(
         "home_care_mode",
         space.home_care_mode ? "Soin à domicile" : "Suivi hospitalier",
@@ -587,7 +588,11 @@ export default function SettingsScreen() {
       showToast("Erreur lors de la mise à jour.");
       return;
     }
-    showToast(nextMode ? "Soin à domicile activé ✓" : "Retour au suivi hospitalier ✓");
+    showToast(
+      modeChanged
+        ? (nextMode ? "Soin à domicile activé ✓" : "Retour au suivi hospitalier ✓")
+        : "Coordonnées enregistrées ✓"
+    );
     setActiveSection(null);
   }
 
@@ -1112,7 +1117,26 @@ export default function SettingsScreen() {
                 )}
               </View>
               {(() => {
-                const homeCareChanged = homeCareDraft !== space.home_care_mode;
+                // Le bouton doit aussi s'activer si les champs d'adresse ont
+                // été modifiés sans changer de mode (ex : coller un nouveau
+                // lien Maps) — pas seulement au bascule Hôpital/Domicile,
+                // sinon les modifications de champs sont silencieusement
+                // perdues (bouton grisé, rien à cliquer).
+                const fieldsChanged = homeCareDraft
+                  ? (homeAddress.trim() || null) !== space.home_address
+                    || (homeAddressLine2.trim() || null) !== space.home_address_line2
+                    || (homePostalCode.trim() || null) !== space.home_postal_code
+                    || (homeCity.trim() || null) !== space.home_city
+                    || (homeCountry.trim() || null) !== space.home_country
+                    || (homeMapsUrl.trim() || null) !== space.home_maps_url
+                  : (hospitalName.trim() || null) !== space.hospital_name
+                    || (hospitalAddress.trim() || null) !== space.hospital_address
+                    || (hospitalAddressLine2.trim() || null) !== space.hospital_address_line2
+                    || (hospitalPostalCode.trim() || null) !== space.hospital_postal_code
+                    || (hospitalCity.trim() || null) !== space.hospital_city
+                    || (hospitalCountry.trim() || null) !== space.hospital_country
+                    || (hospitalMapsUrl.trim() || null) !== space.hospital_maps_url;
+                const homeCareChanged = homeCareDraft !== space.home_care_mode || fieldsChanged;
                 return (
                   <TouchableOpacity
                     style={[
