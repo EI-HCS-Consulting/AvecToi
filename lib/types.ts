@@ -201,3 +201,14 @@ export interface SupportMessage {
   photo: string | null;
   created_at: string;
 }
+
+export interface SupportMessageReply {
+  id: string;
+  message_id: string;
+  space_id: string;
+  reply_text: string;
+  author_prenom: string;
+  author_nom: string;
+  author_pin: string | null;
+  created_at: string;
+}
