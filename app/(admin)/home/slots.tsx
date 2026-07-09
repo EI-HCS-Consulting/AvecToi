@@ -10,7 +10,6 @@ import SpaceHeader from "@/components/SpaceHeader";
 import AdminAddReservation, { type AdminAddReservationHandle } from "@/components/AdminAddReservation";
 import AdminEditReservation, { type AdminEditReservationHandle } from "@/components/AdminEditReservation";
 import DeleteReservationConfirm, { type DeleteReservationConfirmHandle } from "@/components/DeleteReservationConfirm";
-import CapBlockScreen from "@/components/CapBlockScreen";
 import { isSpaceCapped } from "@/lib/freemiumCap";
 import type { Reservation } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
@@ -70,8 +69,8 @@ export default function AdminSlotsScreen() {
   }
 
   if (!space || !slotConfig) return null;
-  if (isSpaceCapped(space, reservations)) return <CapBlockScreen C={C} />;
 
+  const capped = isSpaceCapped(space, reservations);
   const iso = toISO(selectedDay);
   const dayIsPast = iso < toISO(new Date());
 
@@ -108,6 +107,7 @@ export default function AdminSlotsScreen() {
           reservations={reservations}
           C={C}
           dayIsPast={dayIsPast}
+          capped={capped}
           onAdd={(slot, maxAdditional) => addRef.current?.open(iso, slot, "Visite", maxAdditional)}
           onEdit={(r) => editRef.current?.open(r)}
         />
@@ -160,6 +160,7 @@ export default function AdminSlotsScreen() {
         spaceId={space.id}
         space={space}
         slotConfig={slotConfig}
+        reservations={reservations}
         onAdded={async () => { await refreshReservations(); showToast("Réservation ajoutée ✓"); }}
         C={C}
       />
@@ -190,12 +191,13 @@ export default function AdminSlotsScreen() {
 // Liste des créneaux horaires "Visite" du jour — pulls `slots`/`slotConfig`
 // from context directly to keep the parent component's JSX uncluttered.
 function SlotsList({
-  iso, reservations, C, dayIsPast, onAdd, onEdit,
+  iso, reservations, C, dayIsPast, capped, onAdd, onEdit,
 }: {
   iso: string;
   reservations: Reservation[];
   C: Theme;
   dayIsPast: boolean;
+  capped: boolean;
   onAdd: (slot: string, maxAdditional: number) => void;
   onEdit: (r: Reservation) => void;
 }) {
@@ -216,7 +218,7 @@ function SlotsList({
             <View style={styles.slotHeader}>
               <Text style={[styles.slotTime, { color: C.gold }]}>{slot}</Text>
               <Text style={[styles.slotCount, { color: C.muted }]}>{occ.length}/{slotConfig.max_visitors_per_slot}</Text>
-              {!full && !dayIsPast && !slotPast && (
+              {!full && !dayIsPast && !slotPast && !capped && (
                 <TouchableOpacity
                   style={[styles.addResaBtn, { backgroundColor: C.accent }]}
                   onPress={() => onAdd(slot, slotConfig.max_visitors_per_slot - occ.length)}
@@ -226,6 +228,7 @@ function SlotsList({
               )}
               {full && <Text style={[styles.fullTag, { color: C.danger }]}>Complet</Text>}
               {!full && slotPast && <Text style={[styles.fullTag, { color: C.muted }]}>Terminé</Text>}
+              {!full && !slotPast && !dayIsPast && capped && <Text style={[styles.fullTag, { color: C.muted }]}>Limite atteinte</Text>}
             </View>
 
             {occ.length === 0

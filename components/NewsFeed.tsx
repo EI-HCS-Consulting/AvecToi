@@ -28,6 +28,7 @@ interface Props {
   spaceId: string;
   C: Theme;
   isAdmin: boolean;
+  capped: boolean;
 }
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
@@ -64,7 +65,7 @@ function sanitize(str: string) {
 }
 
 // ─── Composant principal ──────────────────────────────────────────────────────
-export default function NewsFeed({ spaceId, C, isAdmin }: Props) {
+export default function NewsFeed({ spaceId, C, isAdmin, capped }: Props) {
   const router = useRouter();
   const { focusEntryId } = useLocalSearchParams<{ focusEntryId?: string }>();
   const listRef = useRef<FlatList<NewsEntryWithUrls>>(null);
@@ -162,6 +163,13 @@ export default function NewsFeed({ spaceId, C, isAdmin }: Props) {
 
   // ── Form helpers ───────────────────────────────────────────────────────────
   async function openPublish() {
+    if (capped) {
+      Alert.alert(
+        "Limite atteinte",
+        "Vous avez atteint la limite de votre espace. Consultez l'email envoyé à votre adresse pour en savoir plus.",
+      );
+      return;
+    }
     setEditTarget(null);
     setFormText(""); setFormPrenom(""); setFormNom(""); setFormPin("");
     setFormPhotos([]);

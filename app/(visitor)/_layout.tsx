@@ -1,22 +1,19 @@
 import { useEffect, useState } from "react";
 import { View, Text, TextInput, TouchableOpacity, Modal, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView } from "react-native";
-import { Tabs, useGlobalSearchParams, usePathname, useRouter } from "expo-router";
+import { Tabs, useGlobalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { VisitorSpaceProvider, useVisitorSpace } from "@/lib/VisitorContext";
 import { themes } from "@/lib/themes";
 import { setupNotifications } from "@/lib/notifications";
 import { getVisitorSession, saveVisitorSession } from "@/lib/visitorSession";
-import { isSpaceCapped } from "@/lib/freemiumCap";
 import PinPad from "@/components/PinPad";
 
 function VisitorTabs() {
-  const { space, token, reservations, loading } = useVisitorSpace();
+  const { space, token, loading } = useVisitorSpace();
   const router = useRouter();
-  const pathname = usePathname();
   const C = themes[space?.theme ?? "blue"];
   const [consentGiven, setConsentGiven] = useState<boolean | null>(null);
-  const capped = isSpaceCapped(space, reservations);
 
   // Identité stable du visiteur — demandée une seule fois, à la toute
   // première arrivée sur cet espace (avant même le consentement RGPD),
@@ -65,14 +62,6 @@ function VisitorTabs() {
     setSavingIdentity(false);
     setIdentityKnown(true);
   }
-
-  // Espace bloqué (cap freemium atteint) : seul "Mon compte" reste
-  // accessible (PIN, profil) — tout le reste renvoie vers cet onglet.
-  useEffect(() => {
-    if (capped && !pathname.endsWith("/account")) {
-      router.replace("/(visitor)/account");
-    }
-  }, [capped, pathname]);
 
   async function handleConsent() {
     if (!space) return;
@@ -162,7 +151,6 @@ function VisitorTabs() {
       <Tabs.Screen
         name="news"
         options={{
-          href: capped ? null : undefined,
           title: "Nouvelles",
           tabBarIcon: ({ color, size }) => <Ionicons name="newspaper-outline" size={size} color={color} />,
         }}
@@ -170,7 +158,6 @@ function VisitorTabs() {
       <Tabs.Screen
         name="souvenirs"
         options={{
-          href: capped ? null : undefined,
           title: "Souvenirs",
           tabBarIcon: ({ color, size }) => <Ionicons name="images-outline" size={size} color={color} />,
         }}
@@ -178,7 +165,6 @@ function VisitorTabs() {
       <Tabs.Screen
         name="entraide"
         options={{
-          href: capped ? null : undefined,
           title: "Entraide",
           tabBarIcon: ({ color, size }) => <Ionicons name="people-outline" size={size} color={color} />,
         }}
@@ -186,7 +172,6 @@ function VisitorTabs() {
       <Tabs.Screen
         name="soutien"
         options={{
-          href: capped ? null : undefined,
           title: "Soutien",
           tabBarIcon: ({ color, size }) => <Ionicons name="heart-outline" size={size} color={color} />,
         }}

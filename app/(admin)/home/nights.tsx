@@ -10,8 +10,6 @@ import SpaceHeader from "@/components/SpaceHeader";
 import AdminAddReservation, { type AdminAddReservationHandle } from "@/components/AdminAddReservation";
 import AdminEditReservation, { type AdminEditReservationHandle } from "@/components/AdminEditReservation";
 import DeleteReservationConfirm, { type DeleteReservationConfirmHandle } from "@/components/DeleteReservationConfirm";
-import CapBlockScreen from "@/components/CapBlockScreen";
-import { isSpaceCapped } from "@/lib/freemiumCap";
 import type { Reservation } from "@/lib/types";
 
 export default function AdminNightsScreen() {
@@ -32,7 +30,6 @@ export default function AdminNightsScreen() {
   }
 
   if (!hasSpace || !space || !slotConfig) return null;
-  if (isSpaceCapped(space, reservations)) return <CapBlockScreen C={C} />;
 
   const allNightReservations = reservations.filter((r): r is Reservation => r.type === "Nuit");
   // Programmées : à venir, la plus proche en premier.
@@ -145,6 +142,7 @@ export default function AdminNightsScreen() {
         spaceId={space.id}
         space={space}
         slotConfig={slotConfig}
+        reservations={reservations}
         onAdded={async () => { await refreshReservations(); showToast("Nuitée ajoutée ✓"); }}
         C={C}
       />

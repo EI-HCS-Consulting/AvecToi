@@ -1,10 +1,11 @@
 import { View, ActivityIndicator } from "react-native";
 import { useVisitorSpace } from "@/lib/VisitorContext";
 import { themes } from "@/lib/themes";
+import { isSpaceCapped } from "@/lib/freemiumCap";
 import Entraide from "@/components/Entraide";
 
 export default function VisitorEntraideScreen() {
-  const { space } = useVisitorSpace();
+  const { space, reservations } = useVisitorSpace();
   const C = themes[space?.theme ?? "blue"];
 
   if (!space) {
@@ -15,5 +16,5 @@ export default function VisitorEntraideScreen() {
     );
   }
 
-  return <Entraide spaceId={space.id} C={C} isAdmin={false} hospitalName={space.hospital_name} />;
+  return <Entraide spaceId={space.id} C={C} isAdmin={false} capped={isSpaceCapped(space, reservations)} hospitalName={space.hospital_name} />;
 }

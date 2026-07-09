@@ -40,9 +40,10 @@ interface Props {
   spaceId: string;
   C: Theme;
   isAdmin: boolean;
+  capped: boolean;
 }
 
-export default function Soutien({ spaceId, C, isAdmin }: Props) {
+export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
   const router = useRouter();
   const { focusMessageId } = useLocalSearchParams<{ focusMessageId?: string }>();
   const scrollRef = useRef<ScrollView>(null);
@@ -431,7 +432,16 @@ export default function Soutien({ spaceId, C, isAdmin }: Props) {
         <Text style={[styles.headerTitle, { color: "#fff" }]}>💛 Mur de soutien</Text>
         <TouchableOpacity
           style={[styles.publishBtn, { backgroundColor: C.accent }]}
-          onPress={() => setShowAddModal(true)}
+          onPress={() => {
+            if (capped) {
+              Alert.alert(
+                "Limite atteinte",
+                "Vous avez atteint la limite de votre espace. Consultez l'email envoyé à votre adresse pour en savoir plus.",
+              );
+              return;
+            }
+            setShowAddModal(true);
+          }}
         >
           <Text style={styles.publishBtnText}>+ Publier</Text>
         </TouchableOpacity>

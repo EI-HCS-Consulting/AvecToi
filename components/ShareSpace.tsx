@@ -79,67 +79,46 @@ export default function ShareSpace({ space, C }: { space: PatientSpace; C: Theme
     <View style={styles.container}>
       <Text style={[styles.title, { color: "#fff" }]}>🔗 Partager l'invitation</Text>
 
-      {space.premium ? (
-        <>
-          <Text style={[styles.sub, { color: C.muted }]}>
-            Envoie ce lien aux proches pour qu'ils rejoignent l'espace.
+      <Text style={[styles.sub, { color: C.muted }]}>
+        Envoie ce lien aux proches pour qu'ils rejoignent l'espace.
+      </Text>
+
+      <View style={[styles.qrContainer, { backgroundColor: "#fff", borderColor: C.border }]}>
+        <QRCode value={link} size={170} backgroundColor="#fff" color="#0D1B2E" />
+      </View>
+
+      <View style={[styles.linkBox, { backgroundColor: C.bg, borderColor: C.border }]}>
+        <Text style={[styles.linkText, { color: C.muted }]} numberOfLines={1} ellipsizeMode="middle">
+          {link}
+        </Text>
+      </View>
+
+      <TouchableOpacity style={[styles.actionBtn, { backgroundColor: C.accent }]} onPress={handleCopyLink}>
+        <Text style={styles.actionBtnText}>{copiedLink ? "✓ Copié !" : "📋 Copier le lien"}</Text>
+      </TouchableOpacity>
+
+      <View style={styles.row}>
+        <TouchableOpacity style={[styles.smallBtn, { backgroundColor: "#25D366" }]} onPress={handleWhatsApp}>
+          <Text style={styles.smallBtnText}>WhatsApp</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.smallBtn, { backgroundColor: C.border }]} onPress={handleSMS}>
+          <Text style={[styles.smallBtnText, { color: C.text }]}>💬 SMS</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.smallBtn, { backgroundColor: C.border }]} onPress={handleShareLink}>
+          <Text style={[styles.smallBtnText, { color: C.text }]}>⬆️ Partager</Text>
+        </TouchableOpacity>
+      </View>
+
+      {space.dossier_code && (
+        <View style={[styles.dossierBoxSmall, { borderColor: C.border }]}>
+          <Text style={[styles.dossierLabelSmall, { color: C.muted }]}>
+            Code dossier : <Text style={{ fontFamily: "DM_Sans_700Bold", color: C.text }}>{space.dossier_code}</Text>
           </Text>
-
-          <View style={[styles.qrContainer, { backgroundColor: "#fff", borderColor: C.border }]}>
-            <QRCode value={link} size={170} backgroundColor="#fff" color="#0D1B2E" />
-          </View>
-
-          <View style={[styles.linkBox, { backgroundColor: C.bg, borderColor: C.border }]}>
-            <Text style={[styles.linkText, { color: C.muted }]} numberOfLines={1} ellipsizeMode="middle">
-              {link}
+          <TouchableOpacity onPress={handleCopyDossierCode}>
+            <Text style={[styles.dossierCopySmall, { color: C.accent }]}>
+              {copiedCode ? "✓ Copié" : "Copier"}
             </Text>
-          </View>
-
-          <TouchableOpacity style={[styles.actionBtn, { backgroundColor: C.accent }]} onPress={handleCopyLink}>
-            <Text style={styles.actionBtnText}>{copiedLink ? "✓ Copié !" : "📋 Copier le lien"}</Text>
           </TouchableOpacity>
-
-          <View style={styles.row}>
-            <TouchableOpacity style={[styles.smallBtn, { backgroundColor: "#25D366" }]} onPress={handleWhatsApp}>
-              <Text style={styles.smallBtnText}>WhatsApp</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.smallBtn, { backgroundColor: C.border }]} onPress={handleSMS}>
-              <Text style={[styles.smallBtnText, { color: C.text }]}>💬 SMS</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.smallBtn, { backgroundColor: C.border }]} onPress={handleShareLink}>
-              <Text style={[styles.smallBtnText, { color: C.text }]}>⬆️ Partager</Text>
-            </TouchableOpacity>
-          </View>
-
-          {space.dossier_code && (
-            <View style={[styles.dossierBoxSmall, { borderColor: C.border }]}>
-              <Text style={[styles.dossierLabelSmall, { color: C.muted }]}>
-                Code dossier : <Text style={{ fontFamily: "DM_Sans_700Bold", color: C.text }}>{space.dossier_code}</Text>
-              </Text>
-              <TouchableOpacity onPress={handleCopyDossierCode}>
-                <Text style={[styles.dossierCopySmall, { color: C.accent }]}>
-                  {copiedCode ? "✓ Copié" : "Copier"}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
-        </>
-      ) : (
-        <View style={styles.locked}>
-          <Text style={styles.lockedEmoji}>🔒</Text>
-          <Text style={[styles.lockedText, { color: C.muted }]}>
-            Le partage sera disponible une fois votre espace validé. Consultez l'email envoyé à votre adresse.
-          </Text>
-
-          {space.dossier_code && (
-            <View style={[styles.dossierBox, { backgroundColor: C.bg, borderColor: C.border }]}>
-              <Text style={[styles.dossierLabel, { color: C.muted }]}>En attendant, invite avec le code dossier :</Text>
-              <Text style={[styles.dossierCode, { color: C.text }]}>{space.dossier_code}</Text>
-              <TouchableOpacity style={[styles.actionBtn, { backgroundColor: C.accent, marginTop: 12 }]} onPress={handleCopyDossierCode}>
-                <Text style={styles.actionBtnText}>{copiedCode ? "✓ Copié !" : "📋 Copier le code"}</Text>
-              </TouchableOpacity>
-            </View>
-          )}
         </View>
       )}
     </View>
@@ -158,12 +137,6 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", gap: 8, width: "100%" },
   smallBtn: { flex: 1, borderRadius: 10, paddingVertical: 12, alignItems: "center" },
   smallBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 12, color: "#fff" },
-  locked: { alignItems: "center", paddingVertical: 32, width: "100%" },
-  lockedEmoji: { fontSize: 40, marginBottom: 16 },
-  lockedText: { fontFamily: "DM_Sans_400Regular", fontSize: 14, textAlign: "center", lineHeight: 22 },
-  dossierBox: { marginTop: 24, borderWidth: 1, borderRadius: 12, padding: 18, alignItems: "center", width: "100%" },
-  dossierLabel: { fontFamily: "DM_Sans_400Regular", fontSize: 13, textAlign: "center", marginBottom: 10 },
-  dossierCode: { fontFamily: "DM_Sans_700Bold", fontSize: 24, letterSpacing: 3 },
   dossierBoxSmall: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderTopWidth: 1, width: "100%", paddingTop: 14, marginTop: 14 },
   dossierLabelSmall: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
   dossierCopySmall: { fontFamily: "DM_Sans_700Bold", fontSize: 13 },

@@ -1,9 +1,10 @@
 import { useState } from "react";
 import {
   View, Text, TextInput, TouchableOpacity,
-  StyleSheet, KeyboardAvoidingView, Platform, ScrollView, Alert,
+  StyleSheet, KeyboardAvoidingView, Platform, ScrollView, Modal,
 } from "react-native";
 import { useRouter } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import { themes } from "@/lib/themes";
 
@@ -11,22 +12,28 @@ const C = themes.blue;
 
 export default function SignupScreen() {
   const router = useRouter();
+  const [firstname, setFirstname] = useState("");
+  const [lastname, setLastname] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showCreatedModal, setShowCreatedModal] = useState(false);
+  const [errorModal, setErrorModal] = useState<{ title: string; message: string } | null>(null);
 
-  const canSubmit = email.trim() && password && confirm && !loading;
+  const canSubmit =
+    firstname.trim() && lastname.trim() && email.trim() && password && confirm && !loading;
 
   async function handleSignup() {
     if (!canSubmit) return;
 
     if (password.length < 6) {
-      Alert.alert("Mot de passe trop court", "Utilise au moins 6 caractères.");
+      setErrorModal({ title: "Mot de passe trop court", message: "Utilise au moins 6 caractères." });
       return;
     }
     if (password !== confirm) {
-      Alert.alert("Les mots de passe ne correspondent pas", "Vérifie la confirmation.");
+      setErrorModal({ title: "Les mots de passe ne correspondent pas", message: "Vérifie la confirmation." });
       return;
     }
 
@@ -34,11 +41,12 @@ export default function SignupScreen() {
     const { data, error } = await supabase.auth.signUp({
       email: email.trim(),
       password,
+      options: { data: { firstname: firstname.trim(), lastname: lastname.trim() } },
     });
     setLoading(false);
 
     if (error) {
-      Alert.alert("Inscription impossible", error.message);
+      setErrorModal({ title: "Inscription impossible", message: error.message });
       return;
     }
 
@@ -48,12 +56,13 @@ export default function SignupScreen() {
     } else {
       // Email confirmation required — the admin tabs will pick up onboarding
       // automatically once they log back in with a confirmed account.
-      Alert.alert(
-        "Compte créé ✓",
-        "Vérifie ta boîte mail pour confirmer ton adresse, puis connecte-toi.",
-        [{ text: "OK", onPress: () => router.replace("/auth/login") }],
-      );
+      setShowCreatedModal(true);
     }
+  }
+
+  function closeCreatedModal() {
+    setShowCreatedModal(false);
+    router.replace("/auth/login");
   }
 
   return (
@@ -69,10 +78,26 @@ export default function SignupScreen() {
         <Text style={styles.title}>Créer un compte</Text>
         <Text style={styles.subtitle}>
           Gratuit, sans carte bancaire.{"\n"}
-          Tu pourras planifier jusqu'à 5 visites avant de passer en illimité.
+          Tu pourras planifier jusqu'à 8 visites avant de passer en illimité.
         </Text>
 
         <View style={styles.form}>
+          <TextInput
+            style={styles.input}
+            placeholder="Prénom"
+            placeholderTextColor={C.muted}
+            value={firstname}
+            onChangeText={setFirstname}
+            autoCapitalize="words"
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Nom"
+            placeholderTextColor={C.muted}
+            value={lastname}
+            onChangeText={setLastname}
+            autoCapitalize="words"
+          />
           <TextInput
             style={styles.input}
             placeholder="Email"
@@ -83,22 +108,48 @@ export default function SignupScreen() {
             autoCapitalize="none"
             autoCorrect={false}
           />
-          <TextInput
-            style={styles.input}
-            placeholder="Mot de passe (6 caractères min.)"
-            placeholderTextColor={C.muted}
-            value={password}
-            onChangeText={setPassword}
-            secureTextEntry
-          />
-          <TextInput
-            style={styles.input}
-            placeholder="Confirmer le mot de passe"
-            placeholderTextColor={C.muted}
-            value={confirm}
-            onChangeText={setConfirm}
-            secureTextEntry
-          />
+          <View style={styles.passwordRow}>
+            <TextInput
+              style={[styles.input, styles.passwordInput]}
+              placeholder="Mot de passe (6 caractères min.)"
+              placeholderTextColor={C.muted}
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry={!showPassword}
+            />
+            <TouchableOpacity
+              style={styles.eyeBtn}
+              onPress={() => setShowPassword((v) => !v)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons
+                name={showPassword ? "eye-off" : "eye"}
+                size={20}
+                color={C.muted}
+              />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.passwordRow}>
+            <TextInput
+              style={[styles.input, styles.passwordInput]}
+              placeholder="Confirmer le mot de passe"
+              placeholderTextColor={C.muted}
+              value={confirm}
+              onChangeText={setConfirm}
+              secureTextEntry={!showPassword}
+            />
+            <TouchableOpacity
+              style={styles.eyeBtn}
+              onPress={() => setShowPassword((v) => !v)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <Ionicons
+                name={showPassword ? "eye-off" : "eye"}
+                size={20}
+                color={C.muted}
+              />
+            </TouchableOpacity>
+          </View>
           <TouchableOpacity
             style={[styles.btn, !canSubmit && styles.btnDisabled]}
             onPress={handleSignup}
@@ -118,6 +169,34 @@ export default function SignupScreen() {
           </Text>
         </Text>
       </ScrollView>
+
+      <Modal visible={showCreatedModal} transparent animationType="fade" onRequestClose={closeCreatedModal}>
+        <View style={styles.overlay}>
+          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
+            <Text style={styles.sheetIcon}>✓</Text>
+            <Text style={[styles.sheetTitle, { color: C.success }]}>Compte créé</Text>
+            <Text style={[styles.sheetSub, { color: C.muted }]}>
+              Vérifie ta boîte mail pour confirmer ton adresse, puis connecte-toi.
+            </Text>
+            <TouchableOpacity style={[styles.sheetBtn, { backgroundColor: C.accent }]} onPress={closeCreatedModal} activeOpacity={0.85}>
+              <Text style={styles.sheetBtnText}>OK</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={!!errorModal} transparent animationType="fade" onRequestClose={() => setErrorModal(null)}>
+        <View style={styles.overlay}>
+          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.danger }]}>
+            <Text style={styles.sheetIcon}>⚠️</Text>
+            <Text style={[styles.sheetTitle, { color: "#fff" }]}>{errorModal?.title}</Text>
+            <Text style={[styles.sheetSub, { color: C.muted }]}>{errorModal?.message}</Text>
+            <TouchableOpacity style={[styles.sheetBtn, { backgroundColor: C.danger }]} onPress={() => setErrorModal(null)} activeOpacity={0.85}>
+              <Text style={styles.sheetBtnText}>OK</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -155,6 +234,12 @@ const styles = StyleSheet.create({
     fontFamily: "DM_Sans_400Regular",
     fontSize: 15,
   },
+  passwordRow: { justifyContent: "center" },
+  passwordInput: { paddingRight: 44 },
+  eyeBtn: {
+    position: "absolute",
+    right: 14,
+  },
   btn: {
     backgroundColor: C.accent,
     borderRadius: 10,
@@ -176,4 +261,11 @@ const styles = StyleSheet.create({
     marginTop: 32,
     lineHeight: 20,
   },
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center", padding: 24 },
+  sheet: { width: "100%", maxWidth: 380, borderRadius: 20, borderWidth: 1, padding: 24, alignItems: "center" },
+  sheetIcon: { fontSize: 32, marginBottom: 8 },
+  sheetTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, textAlign: "center", marginBottom: 6 },
+  sheetSub: { fontFamily: "DM_Sans_400Regular", fontSize: 13, textAlign: "center", lineHeight: 20 },
+  sheetBtn: { borderRadius: 10, paddingVertical: 13, paddingHorizontal: 32, alignItems: "center", marginTop: 20 },
+  sheetBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 15, color: "#fff" },
 });
