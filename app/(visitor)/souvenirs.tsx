@@ -1,10 +1,11 @@
 import { useVisitorSpace } from "@/lib/VisitorContext";
 import { themes } from "@/lib/themes";
+import { isSpaceCapped } from "@/lib/freemiumCap";
 import SouvenirsGallery from "@/components/SouvenirsGallery";
 import { View, ActivityIndicator } from "react-native";
 
 export default function VisitorSouvenirsScreen() {
-  const { space } = useVisitorSpace();
+  const { space, reservations } = useVisitorSpace();
   const C = themes[space?.theme ?? "blue"];
 
   if (!space) {
@@ -15,5 +16,5 @@ export default function VisitorSouvenirsScreen() {
     );
   }
 
-  return <SouvenirsGallery spaceId={space.id} C={C} isAdmin={false} />;
+  return <SouvenirsGallery spaceId={space.id} C={C} isAdmin={false} capped={isSpaceCapped(space, reservations)} />;
 }

@@ -1,10 +1,11 @@
 import { View, Text, ActivityIndicator, StyleSheet } from "react-native";
 import { useSpace } from "@/lib/SpaceContext";
 import { themes } from "@/lib/themes";
+import { isSpaceCapped } from "@/lib/freemiumCap";
 import Soutien from "@/components/Soutien";
 
 export default function AdminSoutienScreen() {
-  const { space, loading, hasSpace } = useSpace();
+  const { space, loading, hasSpace, reservations } = useSpace();
   const C = themes[space?.theme ?? "blue"];
 
   if (loading) {
@@ -23,7 +24,7 @@ export default function AdminSoutienScreen() {
     );
   }
 
-  return <Soutien spaceId={space.id} C={C} isAdmin={true} />;
+  return <Soutien spaceId={space.id} C={C} isAdmin={true} capped={isSpaceCapped(space, reservations)} />;
 }
 
 const styles = StyleSheet.create({

@@ -1,10 +1,11 @@
 import { View, Text, ActivityIndicator, StyleSheet } from "react-native";
 import { useSpace } from "@/lib/SpaceContext";
 import { themes } from "@/lib/themes";
+import { isSpaceCapped } from "@/lib/freemiumCap";
 import Entraide from "@/components/Entraide";
 
 export default function AdminEntraideScreen() {
-  const { space, loading, hasSpace } = useSpace();
+  const { space, loading, hasSpace, reservations } = useSpace();
   const C = themes[space?.theme ?? "blue"];
 
   if (loading) {
@@ -23,7 +24,7 @@ export default function AdminEntraideScreen() {
     );
   }
 
-  return <Entraide spaceId={space.id} C={C} isAdmin={true} hospitalName={space.hospital_name} />;
+  return <Entraide spaceId={space.id} C={C} isAdmin={true} capped={isSpaceCapped(space, reservations)} hospitalName={space.hospital_name} />;
 }
 
 const styles = StyleSheet.create({

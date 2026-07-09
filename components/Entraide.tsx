@@ -68,6 +68,7 @@ interface Props {
   spaceId: string;
   C: Theme;
   isAdmin: boolean;
+  capped: boolean;
   // Préremplit "Arrivée" dans le formulaire de création d'un besoin Transport.
   hospitalName?: string;
 }
@@ -79,7 +80,7 @@ function slotLabel(dateIso: string, time: string): string {
   return `${toFrShort(new Date(dateIso + "T12:00:00"))} à ${time.replace(":", "h")}`;
 }
 
-export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
+export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName }: Props) {
   const router = useRouter();
   const { focusTaskId } = useLocalSearchParams<{ focusTaskId?: string }>();
   const scrollRef = useRef<ScrollView>(null);
@@ -383,6 +384,13 @@ export default function Entraide({ spaceId, C, isAdmin, hospitalName }: Props) {
   }, [spaceId, loadTasks]);
 
   function openCreateTask() {
+    if (capped) {
+      Alert.alert(
+        "Limite atteinte",
+        "Vous avez atteint la limite de votre espace. Consultez l'email envoyé à votre adresse pour en savoir plus.",
+      );
+      return;
+    }
     setEditTask(null);
     setFTitle(""); setFDesc(""); setFCat("autre");
     setFPhotoUri(null); setFExistingPhoto(null);

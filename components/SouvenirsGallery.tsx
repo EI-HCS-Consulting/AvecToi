@@ -24,6 +24,7 @@ interface Props {
   spaceId: string;
   C: Theme;
   isAdmin: boolean;
+  capped: boolean;
 }
 
 // ─── Utils ───────────────────────────────────────────────────────────────────
@@ -42,7 +43,7 @@ function photoPublicUrl(spaceId: string, filename: string) {
 }
 
 // ─── Composant principal ──────────────────────────────────────────────────────
-export default function SouvenirsGallery({ spaceId, C, isAdmin }: Props) {
+export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props) {
   const [photos, setPhotos] = useState<(SouvenirPhoto & { url: string })[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -170,6 +171,17 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin }: Props) {
   function choosePickerSource(fn: () => void) {
     setPickerVisible(false);
     fn();
+  }
+
+  function openPicker() {
+    if (capped) {
+      Alert.alert(
+        "Limite atteinte",
+        "Vous avez atteint la limite de votre espace. Consultez l'email envoyé à votre adresse pour en savoir plus.",
+      );
+      return;
+    }
+    setPickerVisible(true);
   }
 
   function resetUploadForm() {
@@ -355,7 +367,7 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin }: Props) {
         <Text style={[styles.headerTitle, { color: "#fff" }]}>📷 Souvenirs</Text>
         <TouchableOpacity
           style={[styles.publishBtn, { backgroundColor: C.accent }]}
-          onPress={() => setPickerVisible(true)}
+          onPress={openPicker}
         >
           <Text style={styles.publishBtnText}>+ Photo</Text>
         </TouchableOpacity>

@@ -6,7 +6,8 @@ import {
 import { supabase } from "@/lib/supabase";
 import { toFrLong } from "@/lib/slotUtils";
 import { addToNativeCalendar, linkCalendarEvent } from "@/lib/calendarSync";
-import type { PatientSpace, SlotConfig } from "@/lib/types";
+import { isSpaceCapped } from "@/lib/freemiumCap";
+import type { PatientSpace, Reservation, SlotConfig } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
 // Modale "ajouter une réservation" côté admin — pas de PIN, mais soumise
@@ -26,6 +27,7 @@ interface Props {
   spaceId: string;
   space: PatientSpace;
   slotConfig: SlotConfig;
+  reservations: Reservation[];
   onAdded: () => void;
   C: Theme;
 }
@@ -37,7 +39,7 @@ interface Person {
 
 const EMPTY_PERSON: Person = { prenom: "", nom: "" };
 
-function AdminAddReservation({ spaceId, space, slotConfig, onAdded, C }: Props, ref: React.Ref<AdminAddReservationHandle>) {
+function AdminAddReservation({ spaceId, space, slotConfig, reservations, onAdded, C }: Props, ref: React.Ref<AdminAddReservationHandle>) {
   const [target, setTarget] = useState<{ iso: string; slot: string; type: "Visite" | "Nuit"; maxAdditional: number } | null>(null);
   const [people, setPeople] = useState<Person[]>([EMPTY_PERSON]);
   const [saving, setSaving] = useState(false);
@@ -86,6 +88,13 @@ function AdminAddReservation({ spaceId, space, slotConfig, onAdded, C }: Props, 
 
   async function handleAdd() {
     if (!target || validPeople.length === 0) return;
+    if (target.type === "Visite" && isSpaceCapped(space, reservations)) {
+      Alert.alert(
+        "Limite atteinte",
+        "Vous avez atteint la limite de votre espace. Consultez l'email envoyé à votre adresse pour en savoir plus.",
+      );
+      return;
+    }
     setSaving(true);
     const { data, error } = await supabase.from("reservations").insert(
       validPeople.map((p) => ({

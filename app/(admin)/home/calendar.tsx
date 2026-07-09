@@ -7,7 +7,6 @@ import {
 } from "@/lib/slotUtils";
 import { themes } from "@/lib/themes";
 import SpaceHeader from "@/components/SpaceHeader";
-import CapBlockScreen from "@/components/CapBlockScreen";
 import { isSpaceCapped } from "@/lib/freemiumCap";
 
 const DAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
@@ -47,6 +46,14 @@ export default function AdminCalendarScreen() {
 
   function reserveNow() {
     if (!nextDispoModal) return;
+    if (isSpaceCapped(space, reservations)) {
+      setNextDispoModal(null);
+      Alert.alert(
+        "Limite atteinte",
+        "Vous avez atteint la limite de votre espace. Consultez l'email envoyé à votre adresse pour en savoir plus.",
+      );
+      return;
+    }
     setSelectedDay(nextDispoModal.date);
     setPendingBookingSlot(nextDispoModal.slot);
     setNextDispoModal(null);
@@ -61,10 +68,6 @@ export default function AdminCalendarScreen() {
         <Text style={[styles.emptyText, { color: C.muted }]}>Aucun espace patient actif.</Text>
       </View>
     );
-  }
-
-  if (isSpaceCapped(space, reservations)) {
-    return <CapBlockScreen C={C} />;
   }
 
   const monthDays = getDaysInMonth(calMonth.year, calMonth.month);
