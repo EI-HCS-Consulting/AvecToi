@@ -11,12 +11,15 @@ const C = themes.blue;
 
 export default function SignupScreen() {
   const router = useRouter();
+  const [firstname, setFirstname] = useState("");
+  const [lastname, setLastname] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const canSubmit = email.trim() && password && confirm && !loading;
+  const canSubmit =
+    firstname.trim() && lastname.trim() && email.trim() && password && confirm && !loading;
 
   async function handleSignup() {
     if (!canSubmit) return;
@@ -34,6 +37,7 @@ export default function SignupScreen() {
     const { data, error } = await supabase.auth.signUp({
       email: email.trim(),
       password,
+      options: { data: { firstname: firstname.trim(), lastname: lastname.trim() } },
     });
     setLoading(false);
 
@@ -69,10 +73,26 @@ export default function SignupScreen() {
         <Text style={styles.title}>Créer un compte</Text>
         <Text style={styles.subtitle}>
           Gratuit, sans carte bancaire.{"\n"}
-          Tu pourras planifier jusqu'à 5 visites avant de passer en illimité.
+          Tu pourras planifier jusqu'à 8 visites avant de passer en illimité.
         </Text>
 
         <View style={styles.form}>
+          <TextInput
+            style={styles.input}
+            placeholder="Prénom"
+            placeholderTextColor={C.muted}
+            value={firstname}
+            onChangeText={setFirstname}
+            autoCapitalize="words"
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Nom"
+            placeholderTextColor={C.muted}
+            value={lastname}
+            onChangeText={setLastname}
+            autoCapitalize="words"
+          />
           <TextInput
             style={styles.input}
             placeholder="Email"

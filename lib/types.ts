@@ -3,6 +3,8 @@ import type { ThemeKey } from "./themes";
 export interface PatientSpace {
   id: string;
   admin_id: string;
+  admin_firstname: string | null;
+  admin_lastname: string | null;
   patient_firstname: string;
   patient_lastname: string;
   patient_photo_url: string | null;
