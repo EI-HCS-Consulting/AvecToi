@@ -11,6 +11,7 @@ import {
 // so the ScrollView actually gets a bounded viewport to scroll within.
 const SHEET_MAX_HEIGHT = Dimensions.get("window").height * 0.85;
 import { useRouter } from "expo-router";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import { File } from "expo-file-system";
@@ -19,7 +20,7 @@ import { useSpace } from "@/lib/SpaceContext";
 import { themes, themeLabels } from "@/lib/themes";
 import PatientAvatar from "@/components/PatientAvatar";
 import { resolvePlaceFromMapsUrl } from "@/lib/address";
-import type { ThemeKey } from "@/lib/themes";
+import type { ThemeKey, Theme } from "@/lib/themes";
 import type { NewsEntry, Task, SupportMessage } from "@/lib/types";
 
 // ─── Historique des champs hospitaliers ───────────────────────────────────────
@@ -71,19 +72,157 @@ const TASK_CAT_ICONS: Record<Task["category"], string> = {
   autre: "💡",
 };
 
-// ─── Grille de réglages (remplace le long défilement par des tuiles) ─────────
-type SectionKey = "soin" | "coord" | "hosp" | "consignes" | "regles" | "nuitees" | "hist" | "rgpd";
+// ─── Barre de navigation des réglages (remplace la grille de tuiles) ─────────
+type SectionKey = "coord" | "hosp" | "regles" | "hist";
 
 const SECTION_META: Record<SectionKey, { icon: string; label: string; hint: string }> = {
-  soin: { icon: "🔄", label: "Mode de soin", hint: "Hôpital ou domicile" },
-  coord: { icon: "📍", label: "Coordonnées", hint: "Adresse, lien Maps" },
-  hosp: { icon: "🏥", label: "Infos hospitalières", hint: "Chambre, service, secteur" },
-  consignes: { icon: "📝", label: "Consignes de visite", hint: "Message pour les visiteurs" },
-  regles: { icon: "⏰", label: "Règles de visite", hint: "Horaires, durée, jours" },
-  nuitees: { icon: "🌙", label: "Nuitées", hint: "Plage horaire de nuit" },
-  hist: { icon: "🕐", label: "Historique", hint: "Modifications passées" },
-  rgpd: { icon: "🔒", label: "Conservation des données", hint: "Suppression automatique" },
+  coord: { icon: "📍", label: "Coordonnées", hint: "Mode de soin, adresse, lien Maps" },
+  hosp: { icon: "🏥", label: "Infos hospitalières", hint: "Chambre, service, secteur, consignes" },
+  regles: { icon: "⏰", label: "Règles de visite", hint: "Horaires, durée, jours, nuitées" },
+  hist: { icon: "🕐", label: "Historique", hint: "Modifications passées, conservation des données" },
 };
+
+const SETTINGS_NAV_ORDER: SectionKey[] = ["coord", "hosp", "regles", "hist"];
+const SETTINGS_NAV_LABELS: Record<SectionKey, string> = {
+  coord: "Lieux",
+  hosp: "Infos",
+  regles: "Règles",
+  hist: "Histo",
+};
+const SETTINGS_NAV_BAR_HEIGHT = 66;
+
+// ─── Sélecteur d'heure "horloge Android" (@react-native-community/datetimepicker) ──
+function hourToDate(hour: number) {
+  const d = new Date();
+  d.setHours(hour, 0, 0, 0);
+  return d;
+}
+function formatDuration(totalMinutes: number) {
+  return totalMinutes < 60
+    ? `${totalMinutes} min`
+    : `${Math.floor(totalMinutes / 60)}h${totalMinutes % 60 ? totalMinutes % 60 : ""}`;
+}
+
+// ─── Curseur "barre de minutes" (intervalle entre créneaux) ──────────────────
+const SLIDER_TRACK_H = 44;
+const SLIDER_BAR_H = 8;
+const SLIDER_THUMB_D = 26;
+const SLIDER_GLOW_D = 40;
+
+function MinuteSlider({ value, onChange, min, max, step, C }: {
+  value: number;
+  onChange: (v: number) => void;
+  min: number;
+  max: number;
+  step: number;
+  C: Theme;
+}) {
+  const trackWidthRef = useRef(0);
+  const [trackWidth, setTrackWidth] = useState(0);
+  const [dragging, setDragging] = useState(false);
+  const dragStartFrac = useRef(0);
+  const thumbScale = useRef(new Animated.Value(1)).current;
+
+  const clampVal = (v: number) => Math.min(max, Math.max(min, v));
+  const fracFromValue = (v: number) => (max === min ? 0 : (clampVal(v) - min) / (max - min));
+  const valueFromFrac = (f: number) => clampVal(Math.round((min + f * (max - min)) / step) * step);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (evt) => {
+        const w = trackWidthRef.current;
+        if (w <= 0) return;
+        setDragging(true);
+        Animated.spring(thumbScale, { toValue: 1.25, friction: 5, useNativeDriver: true }).start();
+        const frac = Math.min(1, Math.max(0, evt.nativeEvent.locationX / w));
+        dragStartFrac.current = frac;
+        onChange(valueFromFrac(frac));
+      },
+      onPanResponderMove: (_, g) => {
+        const w = trackWidthRef.current;
+        if (w <= 0) return;
+        const frac = Math.min(1, Math.max(0, dragStartFrac.current + g.dx / w));
+        onChange(valueFromFrac(frac));
+      },
+      onPanResponderRelease: () => {
+        setDragging(false);
+        Animated.spring(thumbScale, { toValue: 1, friction: 5, useNativeDriver: true }).start();
+      },
+      onPanResponderTerminate: () => {
+        setDragging(false);
+        Animated.spring(thumbScale, { toValue: 1, friction: 5, useNativeDriver: true }).start();
+      },
+    })
+  ).current;
+
+  const frac = fracFromValue(value);
+
+  return (
+    <View
+      style={sliderStyles.track}
+      onLayout={(e) => {
+        trackWidthRef.current = e.nativeEvent.layout.width;
+        setTrackWidth(e.nativeEvent.layout.width);
+      }}
+      {...panResponder.panHandlers}
+    >
+      <View style={[sliderStyles.trackBase, { backgroundColor: C.border }]} />
+      <View style={[sliderStyles.trackFill, { backgroundColor: C.accent, width: `${frac * 100}%` }]} />
+      {trackWidth > 0 && (
+        <>
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              sliderStyles.thumbGlow,
+              {
+                backgroundColor: dragging ? `${C.gold}40` : `${C.gold}22`,
+                left: frac * trackWidth - SLIDER_GLOW_D / 2,
+                transform: [{ scale: thumbScale }],
+              },
+            ]}
+          />
+          <Animated.View
+            pointerEvents="none"
+            style={[
+              sliderStyles.thumb,
+              {
+                backgroundColor: C.gold,
+                borderColor: dragging ? C.accent : C.card,
+                left: frac * trackWidth - SLIDER_THUMB_D / 2,
+                transform: [{ scale: thumbScale }],
+              },
+            ]}
+          />
+        </>
+      )}
+    </View>
+  );
+}
+
+const sliderStyles = StyleSheet.create({
+  track: { height: SLIDER_TRACK_H, justifyContent: "center" },
+  trackBase: {
+    position: "absolute", left: 0, right: 0, height: SLIDER_BAR_H,
+    borderRadius: SLIDER_BAR_H / 2, top: (SLIDER_TRACK_H - SLIDER_BAR_H) / 2,
+  },
+  trackFill: {
+    position: "absolute", left: 0, height: SLIDER_BAR_H,
+    borderRadius: SLIDER_BAR_H / 2, top: (SLIDER_TRACK_H - SLIDER_BAR_H) / 2,
+  },
+  thumbGlow: {
+    position: "absolute", width: SLIDER_GLOW_D, height: SLIDER_GLOW_D,
+    borderRadius: SLIDER_GLOW_D / 2, top: (SLIDER_TRACK_H - SLIDER_GLOW_D) / 2,
+  },
+  thumb: {
+    position: "absolute", width: SLIDER_THUMB_D, height: SLIDER_THUMB_D,
+    borderRadius: SLIDER_THUMB_D / 2, top: (SLIDER_TRACK_H - SLIDER_THUMB_D) / 2,
+    borderWidth: 2.5,
+    shadowColor: "#000", shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.35, shadowRadius: 3,
+    elevation: 4,
+  },
+});
 
 export default function SettingsScreen() {
   const router = useRouter();
@@ -137,7 +276,6 @@ export default function SettingsScreen() {
   const [hospitalCountry, setHospitalCountry] = useState("");
   const [hospitalMapsUrl, setHospitalMapsUrl] = useState("");
   const [hospitalNameResolving, setHospitalNameResolving] = useState(false);
-  const [hospitalCoordsSaving, setHospitalCoordsSaving] = useState(false);
   useEffect(() => {
     if (space && !hospitalCoordsInit.current) {
       hospitalCoordsInit.current = true;
@@ -160,7 +298,6 @@ export default function SettingsScreen() {
   const [homeCountry, setHomeCountry] = useState("");
   const [homeMapsUrl, setHomeMapsUrl] = useState("");
   const [homeAddressResolving, setHomeAddressResolving] = useState(false);
-  const [homeCoordsSaving, setHomeCoordsSaving] = useState(false);
   useEffect(() => {
     if (space && !homeCoordsInit.current) {
       homeCoordsInit.current = true;
@@ -265,49 +402,13 @@ export default function SettingsScreen() {
   const [visitEndHour, setVisitEndHour] = useState(20);
   const [slotDuration, setSlotDuration] = useState(60);
   const [slotGap, setSlotGap] = useState(5);
-  const [slotGapDragging, setSlotGapDragging] = useState(false);
-  const slotGapScale = useRef(new Animated.Value(1)).current;
-  const slotGapDragSteps = useRef(0);
-  const slotGapPanResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 2,
-      onPanResponderGrant: () => {
-        slotGapDragSteps.current = 0;
-        setSlotGapDragging(true);
-        Animated.spring(slotGapScale, { toValue: 1.12, friction: 5, useNativeDriver: true }).start();
-      },
-      onPanResponderMove: (_, g) => {
-        const steps = Math.trunc(-g.dy / 12);
-        const delta = steps - slotGapDragSteps.current;
-        if (delta !== 0) {
-          slotGapDragSteps.current = steps;
-          setSlotGap((v) => Math.min(240, Math.max(5, v + delta * 5)));
-        }
-      },
-      onPanResponderRelease: () => {
-        setSlotGapDragging(false);
-        Animated.spring(slotGapScale, { toValue: 1, friction: 5, useNativeDriver: true }).start();
-      },
-      onPanResponderTerminate: () => {
-        setSlotGapDragging(false);
-        Animated.spring(slotGapScale, { toValue: 1, friction: 5, useNativeDriver: true }).start();
-      },
-    })
-  ).current;
   const [gapIncludesDuration, setGapIncludesDuration] = useState(false);
-  const chevronBounce = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(chevronBounce, { toValue: 1, duration: 700, useNativeDriver: true }),
-        Animated.timing(chevronBounce, { toValue: 0, duration: 700, useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, []);
   const [maxVisitors, setMaxVisitors] = useState(2);
+  // Pickers "horloge Android" (visibilité des popovers natifs)
+  const [showVisitStartPicker, setShowVisitStartPicker] = useState(false);
+  const [showVisitEndPicker, setShowVisitEndPicker] = useState(false);
+  const [showNightStartPicker, setShowNightStartPicker] = useState(false);
+  const [showNightEndPicker, setShowNightEndPicker] = useState(false);
   const [allowedWeekdays, setAllowedWeekdays] = useState<number[]>([0,1,2,3,4,5,6]);
   const [blockedDates, setBlockedDates] = useState<string[]>([]);
   const [blockedDateReasons, setBlockedDateReasons] = useState<Record<string, string>>({});
@@ -480,53 +581,6 @@ export default function SettingsScreen() {
   }
 
   // ── Coordonnées hôpital ────────────────────────────────────────────────────
-  async function handleSaveHospitalCoords() {
-    if (!space) return;
-    setHospitalCoordsSaving(true);
-    const { error } = await supabase
-      .from("patient_spaces")
-      .update({
-        hospital_name: hospitalName.trim() || null,
-        hospital_address: hospitalAddress.trim() || null,
-        hospital_address_line2: hospitalAddressLine2.trim() || null,
-        hospital_postal_code: hospitalPostalCode.trim() || null,
-        hospital_city: hospitalCity.trim() || null,
-        hospital_country: hospitalCountry.trim() || null,
-        hospital_maps_url: hospitalMapsUrl.trim() || null,
-      })
-      .eq("id", space.id);
-    setHospitalCoordsSaving(false);
-    if (error) showToast("Erreur lors de la sauvegarde.");
-    else showToast("Coordonnées enregistrées ✓");
-  }
-
-  // ── Coordonnées domicile (mode Soin à domicile) ───────────────────────────
-  async function handleSaveHomeCoords() {
-    if (!space) return;
-    setHomeCoordsSaving(true);
-    const nextAddress = homeAddress.trim() || null;
-    const nextAddressLine2 = homeAddressLine2.trim() || null;
-    const nextPostalCode = homePostalCode.trim() || null;
-    const nextCity = homeCity.trim() || null;
-    const nextCountry = homeCountry.trim() || null;
-    const nextMapsUrl = homeMapsUrl.trim() || null;
-    if (nextAddress !== space.home_address) await logFieldChange("home_address", space.home_address, nextAddress);
-    const { error } = await supabase
-      .from("patient_spaces")
-      .update({
-        home_address: nextAddress,
-        home_address_line2: nextAddressLine2,
-        home_postal_code: nextPostalCode,
-        home_city: nextCity,
-        home_country: nextCountry,
-        home_maps_url: nextMapsUrl,
-      })
-      .eq("id", space.id);
-    setHomeCoordsSaving(false);
-    if (error) showToast("Erreur lors de la sauvegarde.");
-    else { showToast("Coordonnées enregistrées ✓"); loadHistory(); }
-  }
-
   function handleOpenNameChange() {
     setNameChangeFirstname("");
     setNameChangeLastname("");
@@ -548,7 +602,7 @@ export default function SettingsScreen() {
     setNameChangeModal(false);
   }
 
-  // ── Soin à domicile toggle ─────────────────────────────────────────────────
+  // ── Coordonnées (mode de soin + adresse hôpital/domicile) ─────────────────
   async function handleConfirmHomeCare() {
     if (!space) return;
     setHomeCareToggling(true);
@@ -556,12 +610,16 @@ export default function SettingsScreen() {
     const modeChanged = nextMode !== space.home_care_mode;
     const update: Record<string, string | boolean | null> = { home_care_mode: nextMode };
     if (nextMode) {
-      update.home_address = homeAddress.trim() || null;
+      const nextAddress = homeAddress.trim() || null;
+      update.home_address = nextAddress;
       update.home_address_line2 = homeAddressLine2.trim() || null;
       update.home_postal_code = homePostalCode.trim() || null;
       update.home_city = homeCity.trim() || null;
       update.home_country = homeCountry.trim() || null;
       update.home_maps_url = homeMapsUrl.trim() || null;
+      if (!modeChanged && nextAddress !== space.home_address) {
+        await logFieldChange("home_address", space.home_address, nextAddress);
+      }
     } else {
       update.hospital_name = hospitalName.trim() || null;
       update.hospital_address = hospitalAddress.trim() || null;
@@ -581,8 +639,8 @@ export default function SettingsScreen() {
         space.home_care_mode ? "Soin à domicile" : "Suivi hospitalier",
         nextMode ? "Soin à domicile" : "Suivi hospitalier"
       );
-      loadHistory();
     }
+    if (!error) loadHistory();
     setHomeCareToggling(false);
     if (error) {
       showToast("Erreur lors de la mise à jour.");
@@ -593,7 +651,6 @@ export default function SettingsScreen() {
         ? (nextMode ? "Soin à domicile activé ✓" : "Retour au suivi hospitalier ✓")
         : "Coordonnées enregistrées ✓"
     );
-    setActiveSection(null);
   }
 
   // ── Nuitées toggle ─────────────────────────────────────────────────────────
@@ -827,17 +884,10 @@ export default function SettingsScreen() {
     <View style={[styles.container, { backgroundColor: C.bg }]}>
       {/* Header */}
       <View style={[styles.header, { backgroundColor: C.card, borderBottomColor: C.border }]}>
-        <TouchableOpacity
-          onPress={() => router.replace("/(admin)/account")}
-          style={[styles.backBtn, { backgroundColor: C.gold }]}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.backBtnText}>← Mon compte</Text>
-        </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: "#fff" }]}>⚙️ Paramètres</Text>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll}>
+      <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: 48 + SETTINGS_NAV_BAR_HEIGHT }]}>
 
         {hasSpace && space ? (
           <>
@@ -861,125 +911,95 @@ export default function SettingsScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* ── Grille de tuiles des réglages ─────────────────────────────── */}
-            {activeSection === null && (
-              <View style={styles.tileGrid}>
-                {(
-                  [
-                    "soin",
-                    "coord",
-                    ...(!space.home_care_mode ? (["hosp"] as const) : []),
-                    "consignes",
-                    ...(slotConfig ? (["regles", "nuitees"] as const) : []),
-                    "hist",
-                    "rgpd",
-                  ] as SectionKey[]
-                ).map((key) => (
-                  <TouchableOpacity
-                    key={key}
-                    style={[styles.tile, { backgroundColor: C.card, borderColor: C.border }]}
-                    onPress={() => openSection(key)}
-                    activeOpacity={0.8}
+            {/* ── Section : Coordonnées (mode de soin + adresse) ─────────────── */}
+            {activeSection === "coord" && (
+              <>
+                <Text style={[styles.sectionTitle, { color: C.gold }]}>Coordonnées</Text>
+                <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
+                  {/* Mode de soin */}
+                  <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 0 }]}>🔄 Mode de soin</Text>
+                  <View
+                    style={{
+                      minHeight: Math.max(homeCareDescHeightHospital, homeCareDescHeightHome) || undefined,
+                      marginBottom: 4,
+                    }}
                   >
-                    <View style={[styles.tileIcon, { backgroundColor: `${C.accent}22` }]}>
-                      <Text style={styles.tileIconText}>{SECTION_META[key].icon}</Text>
-                    </View>
-                    <Text style={[styles.tileLabel, { color: "#fff" }]}>{SECTION_META[key].label}</Text>
-                    <Text style={[styles.tileHint, { color: C.muted }]}>{SECTION_META[key].hint}</Text>
-                    <Text style={[styles.tileChevron, { color: C.muted }]}>›</Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-
-            {activeSection !== null && (
-              <TouchableOpacity style={styles.backToGrid} onPress={() => setActiveSection(null)} activeOpacity={0.7}>
-                <Text style={[styles.backToGridText, { color: C.accent }]}>← Retour aux réglages</Text>
-              </TouchableOpacity>
-            )}
-
-            {/* ── Section : Mode de soin ────────────────────────────────────── */}
-            {activeSection === "soin" && (
-            <>
-            <Text style={[styles.sectionTitle, { color: C.gold }]}>Mode de soin</Text>
-            <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
-              <View
-                style={{
-                  minHeight: Math.max(homeCareDescHeightHospital, homeCareDescHeightHome) || undefined,
-                  marginBottom: 4,
-                }}
-              >
-                <Text
-                  onLayout={(e) => setHomeCareDescHeightHospital(e.nativeEvent.layout.height)}
-                  style={[
-                    styles.nightDesc,
-                    { color: C.muted },
-                    homeCareDraft && styles.homeCareDescHidden,
-                  ]}
-                >
-                  Activez si le patient quitte l'hôpital et que les visites se poursuivent à domicile.
-                </Text>
-                <Text
-                  onLayout={(e) => setHomeCareDescHeightHome(e.nativeEvent.layout.height)}
-                  style={[
-                    styles.nightDesc,
-                    { color: C.muted },
-                    !homeCareDraft && styles.homeCareDescHidden,
-                  ]}
-                >
-                  Activez si le patient doit faire un séjour hospitalier.
-                </Text>
-              </View>
-              <View
-                style={[styles.homeCareTrack, { borderColor: C.border, backgroundColor: C.bg }]}
-                onLayout={(e) => {
-                  const w = e.nativeEvent.layout.width;
-                  homeCareTrackWidthRef.current = w;
-                  setHomeCareTrackWidth(w);
-                }}
-                {...homeCarePanResponder.panHandlers}
-              >
-                {homeCareTrackWidth > 0 && homeCareLeftLabelWidth > 0 && homeCareRightLabelWidth > 0 && (() => {
-                  const padding = 24;
-                  const thumbWidth = Math.max(homeCareLeftLabelWidth, homeCareRightLabelWidth) + padding;
-                  const leftPos = 0;
-                  const rightPos = homeCareTrackWidth - thumbWidth;
-                  return (
-                    <Animated.View
-                      pointerEvents="none"
+                    <Text
+                      onLayout={(e) => setHomeCareDescHeightHospital(e.nativeEvent.layout.height)}
                       style={[
-                        styles.homeCareThumb,
-                        {
-                          backgroundColor: C.accent,
-                          width: thumbWidth,
-                          transform: [{
-                            translateX: homeCareThumbX.interpolate({ inputRange: [0, 1], outputRange: [leftPos, rightPos] }),
-                          }],
-                        },
+                        styles.nightDesc,
+                        { color: C.muted },
+                        homeCareDraft && styles.homeCareDescHidden,
                       ]}
-                    />
-                  );
-                })()}
-                <View style={[styles.homeCareOption, { left: 0 }]} pointerEvents="none">
-                  <Text
-                    onLayout={(e) => setHomeCareLeftLabelWidth(e.nativeEvent.layout.width)}
-                    style={[styles.homeCareOptionText, { color: !homeCareDraft ? "#fff" : C.muted }]}
+                    >
+                      Activez si le patient quitte l'hôpital et que les visites se poursuivent à domicile.
+                    </Text>
+                    <Text
+                      onLayout={(e) => setHomeCareDescHeightHome(e.nativeEvent.layout.height)}
+                      style={[
+                        styles.nightDesc,
+                        { color: C.muted },
+                        !homeCareDraft && styles.homeCareDescHidden,
+                      ]}
+                    >
+                      Activez si le patient doit faire un séjour hospitalier.
+                    </Text>
+                  </View>
+                  <View
+                    style={[styles.homeCareTrack, { borderColor: C.border, backgroundColor: C.bg }]}
+                    onLayout={(e) => {
+                      const w = e.nativeEvent.layout.width;
+                      homeCareTrackWidthRef.current = w;
+                      setHomeCareTrackWidth(w);
+                    }}
+                    {...homeCarePanResponder.panHandlers}
                   >
-                    Suivi hospitalier
-                  </Text>
-                </View>
-                <View style={[styles.homeCareOption, { right: 0 }]} pointerEvents="none">
-                  <Text
-                    onLayout={(e) => setHomeCareRightLabelWidth(e.nativeEvent.layout.width)}
-                    style={[styles.homeCareOptionText, { color: homeCareDraft ? "#fff" : C.muted }]}
-                  >
-                    Soin à domicile
-                  </Text>
-                </View>
-              </View>
-              <View style={{ marginTop: 16 }}>
-                {homeCareDraft ? (
-                  <>
+                    {homeCareTrackWidth > 0 && homeCareLeftLabelWidth > 0 && homeCareRightLabelWidth > 0 && (() => {
+                      const padding = 24;
+                      const thumbWidth = Math.max(homeCareLeftLabelWidth, homeCareRightLabelWidth) + padding;
+                      const leftPos = 0;
+                      const rightPos = homeCareTrackWidth - thumbWidth;
+                      return (
+                        <Animated.View
+                          pointerEvents="none"
+                          style={[
+                            styles.homeCareThumb,
+                            {
+                              backgroundColor: C.accent,
+                              width: thumbWidth,
+                              transform: [{
+                                translateX: homeCareThumbX.interpolate({ inputRange: [0, 1], outputRange: [leftPos, rightPos] }),
+                              }],
+                            },
+                          ]}
+                        />
+                      );
+                    })()}
+                    <View style={[styles.homeCareOption, { left: 0 }]} pointerEvents="none">
+                      <Text
+                        onLayout={(e) => setHomeCareLeftLabelWidth(e.nativeEvent.layout.width)}
+                        style={[styles.homeCareOptionText, { color: !homeCareDraft ? "#fff" : C.muted }]}
+                      >
+                        Suivi hospitalier
+                      </Text>
+                    </View>
+                    <View style={[styles.homeCareOption, { right: 0 }]} pointerEvents="none">
+                      <Text
+                        onLayout={(e) => setHomeCareRightLabelWidth(e.nativeEvent.layout.width)}
+                        style={[styles.homeCareOptionText, { color: homeCareDraft ? "#fff" : C.muted }]}
+                      >
+                        Soin à domicile
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={[styles.fieldDivider, { backgroundColor: C.border, marginTop: 16 }]} />
+
+                  {/* Adresse (hôpital ou domicile selon le mode sélectionné ci-dessus) */}
+                  {homeCareDraft ? (
+                    <>
+                      <Text style={[styles.cardDesc, { color: C.muted }]}>Colle le lien Google Maps trouvé sur internet — l'adresse se remplit automatiquement en dessous (à vérifier, l'adresse peut être approximative).</Text>
+
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                         <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 0 }]}>🗺️ Lien Google Maps</Text>
                         {homeAddressResolving && <ActivityIndicator color={C.accent} size="small" />}
@@ -1044,6 +1064,8 @@ export default function SettingsScreen() {
                     </>
                   ) : (
                     <>
+                      <Text style={[styles.cardDesc, { color: C.muted }]}>Colle le lien Google Maps trouvé sur internet — le nom et l'adresse se remplissent automatiquement en dessous (à vérifier, l'adresse peut être approximative).</Text>
+
                       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
                         <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 0 }]}>🗺️ Lien Google Maps</Text>
                         {hospitalNameResolving && <ActivityIndicator color={C.accent} size="small" />}
@@ -1114,344 +1136,141 @@ export default function SettingsScreen() {
                         onChangeText={setHospitalCountry}
                       />
                     </>
-                )}
-              </View>
-              {(() => {
-                // Le bouton doit aussi s'activer si les champs d'adresse ont
-                // été modifiés sans changer de mode (ex : coller un nouveau
-                // lien Maps) — pas seulement au bascule Hôpital/Domicile,
-                // sinon les modifications de champs sont silencieusement
-                // perdues (bouton grisé, rien à cliquer).
-                const fieldsChanged = homeCareDraft
-                  ? (homeAddress.trim() || null) !== space.home_address
-                    || (homeAddressLine2.trim() || null) !== space.home_address_line2
-                    || (homePostalCode.trim() || null) !== space.home_postal_code
-                    || (homeCity.trim() || null) !== space.home_city
-                    || (homeCountry.trim() || null) !== space.home_country
-                    || (homeMapsUrl.trim() || null) !== space.home_maps_url
-                  : (hospitalName.trim() || null) !== space.hospital_name
-                    || (hospitalAddress.trim() || null) !== space.hospital_address
-                    || (hospitalAddressLine2.trim() || null) !== space.hospital_address_line2
-                    || (hospitalPostalCode.trim() || null) !== space.hospital_postal_code
-                    || (hospitalCity.trim() || null) !== space.hospital_city
-                    || (hospitalCountry.trim() || null) !== space.hospital_country
-                    || (hospitalMapsUrl.trim() || null) !== space.hospital_maps_url;
-                const homeCareChanged = homeCareDraft !== space.home_care_mode || fieldsChanged;
-                return (
-                  <TouchableOpacity
-                    style={[
-                      styles.saveNotesBtn,
-                      homeCareChanged
-                        ? { backgroundColor: C.accent, marginTop: 4 }
-                        : { backgroundColor: "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: C.border, marginTop: 4 },
-                      homeCareToggling && { opacity: 0.6 },
-                    ]}
-                    onPress={handleConfirmHomeCare}
-                    disabled={homeCareToggling || !homeCareChanged}
-                  >
-                    {homeCareToggling
-                      ? <ActivityIndicator color={homeCareChanged ? "#fff" : C.muted} size="small" />
-                      : <Text style={[styles.saveNotesBtnText, !homeCareChanged && { color: C.muted }]}>Confirmer</Text>
-                    }
-                  </TouchableOpacity>
-                );
-              })()}
-            </View>
-            </>
-            )}
+                  )}
 
-            {activeSection === "coord" && (
-            space.home_care_mode ? (
-              <>
-                {/* ── Section : Coordonnées (domicile) ─────────────────────── */}
-                <Text style={[styles.sectionTitle, { color: C.gold }]}>Coordonnées</Text>
-                <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
-                  <Text style={[styles.cardDesc, { color: C.muted }]}>Colle le lien Google Maps trouvé sur internet — l'adresse se remplit automatiquement en dessous (à vérifier, l'adresse peut être approximative).</Text>
-
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <Text style={[styles.fieldLabel, { color: C.gold }]}>🗺️ Lien Google Maps</Text>
-                    {homeAddressResolving && <ActivityIndicator color={C.accent} size="small" />}
-                  </View>
-                  <TextInput
-                    style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                    placeholder="Colle ici le lien copié depuis Google Maps"
-                    placeholderTextColor={C.muted}
-                    value={homeMapsUrl}
-                    onChangeText={setHomeMapsUrl}
-                    onBlur={handleHomeMapsUrlBlur}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-
-                  <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
-
-                  <Text style={[styles.fieldLabel, { color: C.gold }]}>📍 Adresse</Text>
-                  <TextInput
-                    style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                    placeholder="Ex : 12 rue des Lilas"
-                    placeholderTextColor={C.muted}
-                    value={homeAddress}
-                    onChangeText={setHomeAddress}
-                  />
-
-                  <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 12 }]}>🏠 Complément d'adresse</Text>
-                  <TextInput
-                    style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                    placeholder="Ex : Bâtiment B, 2e étage"
-                    placeholderTextColor={C.muted}
-                    value={homeAddressLine2}
-                    onChangeText={setHomeAddressLine2}
-                  />
-
-                  <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.fieldLabel, { color: C.gold }]}>Code postal</Text>
-                      <TextInput
-                        style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                        placeholder="38000"
-                        placeholderTextColor={C.muted}
-                        value={homePostalCode}
-                        onChangeText={setHomePostalCode}
-                        keyboardType="number-pad"
-                      />
-                    </View>
-                    <View style={{ flex: 2 }}>
-                      <Text style={[styles.fieldLabel, { color: C.gold }]}>Ville</Text>
-                      <TextInput
-                        style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                        placeholder="Grenoble"
-                        placeholderTextColor={C.muted}
-                        value={homeCity}
-                        onChangeText={setHomeCity}
-                      />
-                    </View>
-                  </View>
-
-                  <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 12 }]}>🌍 Pays</Text>
-                  <TextInput
-                    style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                    placeholder="Laisser vide si France"
-                    placeholderTextColor={C.muted}
-                    value={homeCountry}
-                    onChangeText={setHomeCountry}
-                  />
-
-                  <TouchableOpacity
-                    style={[styles.saveNotesBtn, { backgroundColor: C.accent, marginTop: 8 }, homeCoordsSaving && { opacity: 0.6 }]}
-                    onPress={handleSaveHomeCoords}
-                    disabled={homeCoordsSaving}
-                  >
-                    {homeCoordsSaving
-                      ? <ActivityIndicator color="#fff" size="small" />
-                      : <Text style={styles.saveNotesBtnText}>Enregistrer les coordonnées</Text>
-                    }
-                  </TouchableOpacity>
+                  {(() => {
+                    // Le bouton doit aussi s'activer si les champs d'adresse ont
+                    // été modifiés sans changer de mode (ex : coller un nouveau
+                    // lien Maps) — pas seulement au bascule Hôpital/Domicile,
+                    // sinon les modifications de champs sont silencieusement
+                    // perdues (bouton grisé, rien à cliquer).
+                    const fieldsChanged = homeCareDraft
+                      ? (homeAddress.trim() || null) !== space.home_address
+                        || (homeAddressLine2.trim() || null) !== space.home_address_line2
+                        || (homePostalCode.trim() || null) !== space.home_postal_code
+                        || (homeCity.trim() || null) !== space.home_city
+                        || (homeCountry.trim() || null) !== space.home_country
+                        || (homeMapsUrl.trim() || null) !== space.home_maps_url
+                      : (hospitalName.trim() || null) !== space.hospital_name
+                        || (hospitalAddress.trim() || null) !== space.hospital_address
+                        || (hospitalAddressLine2.trim() || null) !== space.hospital_address_line2
+                        || (hospitalPostalCode.trim() || null) !== space.hospital_postal_code
+                        || (hospitalCity.trim() || null) !== space.hospital_city
+                        || (hospitalCountry.trim() || null) !== space.hospital_country
+                        || (hospitalMapsUrl.trim() || null) !== space.hospital_maps_url;
+                    const homeCareChanged = homeCareDraft !== space.home_care_mode || fieldsChanged;
+                    return (
+                      <TouchableOpacity
+                        style={[
+                          styles.saveNotesBtn,
+                          homeCareChanged
+                            ? { backgroundColor: C.accent, marginTop: 8 }
+                            : { backgroundColor: "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: C.border, marginTop: 8 },
+                          homeCareToggling && { opacity: 0.6 },
+                        ]}
+                        onPress={handleConfirmHomeCare}
+                        disabled={homeCareToggling || !homeCareChanged}
+                      >
+                        {homeCareToggling
+                          ? <ActivityIndicator color={homeCareChanged ? "#fff" : C.muted} size="small" />
+                          : <Text style={[styles.saveNotesBtnText, !homeCareChanged && { color: C.muted }]}>Enregistrer les coordonnées</Text>
+                        }
+                      </TouchableOpacity>
+                    );
+                  })()}
                 </View>
               </>
-            ) : (
-              <>
-                {/* ── Section : Coordonnées de l'hôpital ───────────────────── */}
-                <Text style={[styles.sectionTitle, { color: C.gold }]}>Coordonnées</Text>
-                <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
-                  <Text style={[styles.cardDesc, { color: C.muted }]}>Colle le lien Google Maps trouvé sur internet — le nom et l'adresse se remplissent automatiquement en dessous (à vérifier, l'adresse peut être approximative).</Text>
-
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <Text style={[styles.fieldLabel, { color: C.gold }]}>🗺️ Lien Google Maps</Text>
-                    {hospitalNameResolving && <ActivityIndicator color={C.accent} size="small" />}
-                  </View>
-                  <TextInput
-                    style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                    placeholder="Colle ici le lien copié depuis Google Maps"
-                    placeholderTextColor={C.muted}
-                    value={hospitalMapsUrl}
-                    onChangeText={setHospitalMapsUrl}
-                    onBlur={handleHospitalMapsUrlBlur}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-
-                  <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
-
-                  <Text style={[styles.fieldLabel, { color: C.gold }]}>🏥 Nom de l'hôpital</Text>
-                  <TextInput
-                    style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                    placeholder="Ex : CHU de Grenoble"
-                    placeholderTextColor={C.muted}
-                    value={hospitalName}
-                    onChangeText={setHospitalName}
-                  />
-
-                  <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
-
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                    <Text style={[styles.fieldLabel, { color: C.gold }]}>📍 Adresse</Text>
-                    {hospitalNameResolving && <ActivityIndicator color={C.accent} size="small" />}
-                  </View>
-                  <TextInput
-                    style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                    placeholder="Ex : Avenue de Maquis du Grésivaudan"
-                    placeholderTextColor={C.muted}
-                    value={hospitalAddress}
-                    onChangeText={setHospitalAddress}
-                  />
-
-                  <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 12 }]}>🏥 Complément d'adresse</Text>
-                  <TextInput
-                    style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                    placeholder="Ex : Bâtiment Chevalier, entrée C"
-                    placeholderTextColor={C.muted}
-                    value={hospitalAddressLine2}
-                    onChangeText={setHospitalAddressLine2}
-                  />
-
-                  <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
-                    <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                        <Text style={[styles.fieldLabel, { color: C.gold }]}>Code postal</Text>
-                        {hospitalNameResolving && <ActivityIndicator color={C.accent} size="small" />}
-                      </View>
-                      <TextInput
-                        style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                        placeholder="38000"
-                        placeholderTextColor={C.muted}
-                        value={hospitalPostalCode}
-                        onChangeText={setHospitalPostalCode}
-                        keyboardType="number-pad"
-                      />
-                    </View>
-                    <View style={{ flex: 2 }}>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                        <Text style={[styles.fieldLabel, { color: C.gold }]}>Ville</Text>
-                        {hospitalNameResolving && <ActivityIndicator color={C.accent} size="small" />}
-                      </View>
-                      <TextInput
-                        style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                        placeholder="Grenoble"
-                        placeholderTextColor={C.muted}
-                        value={hospitalCity}
-                        onChangeText={setHospitalCity}
-                      />
-                    </View>
-                  </View>
-
-                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 12 }}>
-                    <Text style={[styles.fieldLabel, { color: C.gold }]}>🌍 Pays</Text>
-                    {hospitalNameResolving && <ActivityIndicator color={C.accent} size="small" />}
-                  </View>
-                  <TextInput
-                    style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                    placeholder="Laisser vide si France"
-                    placeholderTextColor={C.muted}
-                    value={hospitalCountry}
-                    onChangeText={setHospitalCountry}
-                  />
-
-                  <TouchableOpacity
-                    style={[styles.saveNotesBtn, { backgroundColor: C.accent, marginTop: 8 }, hospitalCoordsSaving && { opacity: 0.6 }]}
-                    onPress={handleSaveHospitalCoords}
-                    disabled={hospitalCoordsSaving}
-                  >
-                    {hospitalCoordsSaving
-                      ? <ActivityIndicator color="#fff" size="small" />
-                      : <Text style={styles.saveNotesBtnText}>Enregistrer les coordonnées</Text>
-                    }
-                  </TouchableOpacity>
-                </View>
-              </>
-            )
             )}
 
             {/* ── Section : Infos hospitalières ─────────────────────────────── */}
-            {activeSection === "hosp" && !space.home_care_mode && (
+            {activeSection === "hosp" && (
               <>
                 <Text style={[styles.sectionTitle, { color: C.gold }]}>Infos hospitalières</Text>
-                <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
+                {!space.home_care_mode && (
+                  <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
+                    <Text style={[styles.cardDesc, { color: C.muted }]}>
+                      Affichées dans le bandeau de l'app. Chaque modification est datée et conservée.
+                    </Text>
+
+                    {/* Service médical */}
+                    <Text style={[styles.fieldLabel, { color: C.gold }]}>🏥 Service médical</Text>
+                    <TextInput
+                      style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                      placeholder="Ex : NEUROLOGIE"
+                      placeholderTextColor={C.muted}
+                      value={service}
+                      onChangeText={setService}
+                      autoCapitalize="characters"
+                    />
+
+                    <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
+
+                    {/* Secteur */}
+                    <Text style={[styles.fieldLabel, { color: C.gold }]}>📍 Secteur</Text>
+                    <TextInput
+                      style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                      placeholder="Ex : Secteur A"
+                      placeholderTextColor={C.muted}
+                      value={sector}
+                      onChangeText={setSector}
+                    />
+
+                    <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
+
+                    {/* Chambre */}
+                    <Text style={[styles.fieldLabel, { color: C.gold }]}>🛏️ Chambre</Text>
+                    <TextInput
+                      style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                      placeholder="Ex : 205 B"
+                      placeholderTextColor={C.muted}
+                      value={room}
+                      onChangeText={setRoom}
+                    />
+
+                    <TouchableOpacity
+                      style={[styles.saveNotesBtn, { backgroundColor: C.accent, marginTop: 8 }, hospitalInfosSaving && { opacity: 0.6 }]}
+                      onPress={handleSaveHospitalInfos}
+                      disabled={hospitalInfosSaving}
+                    >
+                      {hospitalInfosSaving
+                        ? <ActivityIndicator color="#fff" size="small" />
+                        : <Text style={styles.saveNotesBtnText}>Enregistrer les infos hospitalières</Text>
+                      }
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {/* ── Bloc : Consignes de visite / Infos ─────────────────────── */}
+                <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: space.home_care_mode ? 0 : 16 }]}>
+                  <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 0 }]}>📋 Consignes de visite / Infos</Text>
                   <Text style={[styles.cardDesc, { color: C.muted }]}>
-                    Affichées dans le bandeau de l'app. Chaque modification est datée et conservée.
+                    Affiché dans le bloc "Informations" de l'onglet Infos, sous les consignes automatiques.
                   </Text>
-
-                  {/* Service médical */}
-                  <Text style={[styles.fieldLabel, { color: C.gold }]}>🏥 Service médical</Text>
+                  <Text style={[styles.warningText, { color: C.orange }]}>
+                    ⚠️ N'indiquez pas d'informations médicales sensibles.
+                  </Text>
                   <TextInput
-                    style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                    placeholder="Ex : NEUROLOGIE"
+                    style={[styles.notesInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                    placeholder="Ex : La chambre se trouve au 3ème étage, aile B…"
                     placeholderTextColor={C.muted}
-                    value={service}
-                    onChangeText={setService}
-                    autoCapitalize="characters"
+                    value={visitRules}
+                    onChangeText={setVisitRules}
+                    multiline
+                    numberOfLines={4}
+                    textAlignVertical="top"
                   />
-
-                  <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
-
-                  {/* Secteur */}
-                  <Text style={[styles.fieldLabel, { color: C.gold }]}>📍 Secteur</Text>
-                  <TextInput
-                    style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                    placeholder="Ex : Secteur A"
-                    placeholderTextColor={C.muted}
-                    value={sector}
-                    onChangeText={setSector}
-                  />
-
-                  <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
-
-                  {/* Chambre */}
-                  <Text style={[styles.fieldLabel, { color: C.gold }]}>🛏️ Chambre</Text>
-                  <TextInput
-                    style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                    placeholder="Ex : 205 B"
-                    placeholderTextColor={C.muted}
-                    value={room}
-                    onChangeText={setRoom}
-                  />
-
                   <TouchableOpacity
-                    style={[styles.saveNotesBtn, { backgroundColor: C.accent, marginTop: 8 }, hospitalInfosSaving && { opacity: 0.6 }]}
-                    onPress={handleSaveHospitalInfos}
-                    disabled={hospitalInfosSaving}
+                    style={[styles.saveNotesBtn, { backgroundColor: C.accent }, notesSaving && { opacity: 0.6 }]}
+                    onPress={handleSaveNotes}
+                    disabled={notesSaving}
                   >
-                    {hospitalInfosSaving
+                    {notesSaving
                       ? <ActivityIndicator color="#fff" size="small" />
-                      : <Text style={styles.saveNotesBtnText}>Enregistrer les infos hospitalières</Text>
+                      : <Text style={styles.saveNotesBtnText}>Enregistrer les consignes</Text>
                     }
                   </TouchableOpacity>
                 </View>
               </>
-            )}
-
-            {/* ── Section : Consignes de visite / Infos ─────────────────────── */}
-            {activeSection === "consignes" && (
-            <>
-            <Text style={[styles.sectionTitle, { color: C.gold }]}>Consignes de visite / Infos</Text>
-            <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
-              <Text style={[styles.cardDesc, { color: C.muted }]}>
-                Affiché dans le bloc "Informations" de l'onglet Infos, sous les consignes automatiques.
-              </Text>
-              <Text style={[styles.warningText, { color: C.orange }]}>
-                ⚠️ N'indiquez pas d'informations médicales sensibles.
-              </Text>
-              <TextInput
-                style={[styles.notesInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                placeholder="Ex : La chambre se trouve au 3ème étage, aile B…"
-                placeholderTextColor={C.muted}
-                value={visitRules}
-                onChangeText={setVisitRules}
-                multiline
-                numberOfLines={4}
-                textAlignVertical="top"
-              />
-              <TouchableOpacity
-                style={[styles.saveNotesBtn, { backgroundColor: C.accent }, notesSaving && { opacity: 0.6 }]}
-                onPress={handleSaveNotes}
-                disabled={notesSaving}
-              >
-                {notesSaving
-                  ? <ActivityIndicator color="#fff" size="small" />
-                  : <Text style={styles.saveNotesBtnText}>Enregistrer les consignes</Text>
-                }
-              </TouchableOpacity>
-            </View>
-            </>
             )}
 
             {/* ── Section : Règles de visite ──────────────────────────────────── */}
@@ -1465,40 +1284,48 @@ export default function SettingsScreen() {
                   <View style={styles.hourRow}>
                     <View style={styles.hourBlock}>
                       <Text style={[styles.hourLabel, { color: C.muted }]}>Début</Text>
-                      <View style={styles.stepper}>
-                        <TouchableOpacity
-                          style={[styles.stepBtn, { backgroundColor: C.bg, borderColor: C.border }]}
-                          onPress={() => setVisitStartHour((h) => Math.max(6, h - 1))}
-                        >
-                          <Text style={[styles.stepBtnText, { color: C.text }]}>−</Text>
-                        </TouchableOpacity>
-                        <Text style={[styles.stepValue, { color: "#fff" }]}>{String(visitStartHour).padStart(2,"0")}:00</Text>
-                        <TouchableOpacity
-                          style={[styles.stepBtn, { backgroundColor: C.bg, borderColor: C.border }]}
-                          onPress={() => setVisitStartHour((h) => Math.min(visitEndHour - 1, h + 1))}
-                        >
-                          <Text style={[styles.stepBtnText, { color: C.text }]}>+</Text>
-                        </TouchableOpacity>
-                      </View>
+                      <TouchableOpacity
+                        style={[styles.timeBtn, { backgroundColor: C.bg, borderColor: C.border }]}
+                        onPress={() => setShowVisitStartPicker(true)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.timeBtnText, { color: "#fff" }]}>🕐 {String(visitStartHour).padStart(2,"0")}:00</Text>
+                      </TouchableOpacity>
+                      {showVisitStartPicker && (
+                        <DateTimePicker
+                          value={hourToDate(visitStartHour)}
+                          mode="time"
+                          is24Hour
+                          display={Platform.OS === "ios" ? "spinner" : "clock"}
+                          onChange={(_, date) => {
+                            setShowVisitStartPicker(false);
+                            if (date) setVisitStartHour(Math.min(date.getHours(), visitEndHour - 1));
+                          }}
+                        />
+                      )}
                     </View>
                     <Text style={[styles.hourSep, { color: C.muted }]}>→</Text>
                     <View style={styles.hourBlock}>
                       <Text style={[styles.hourLabel, { color: C.muted }]}>Fin</Text>
-                      <View style={styles.stepper}>
-                        <TouchableOpacity
-                          style={[styles.stepBtn, { backgroundColor: C.bg, borderColor: C.border }]}
-                          onPress={() => setVisitEndHour((h) => Math.max(visitStartHour + 1, h - 1))}
-                        >
-                          <Text style={[styles.stepBtnText, { color: C.text }]}>−</Text>
-                        </TouchableOpacity>
-                        <Text style={[styles.stepValue, { color: "#fff" }]}>{String(visitEndHour).padStart(2,"0")}:00</Text>
-                        <TouchableOpacity
-                          style={[styles.stepBtn, { backgroundColor: C.bg, borderColor: C.border }]}
-                          onPress={() => setVisitEndHour((h) => Math.min(23, h + 1))}
-                        >
-                          <Text style={[styles.stepBtnText, { color: C.text }]}>+</Text>
-                        </TouchableOpacity>
-                      </View>
+                      <TouchableOpacity
+                        style={[styles.timeBtn, { backgroundColor: C.bg, borderColor: C.border }]}
+                        onPress={() => setShowVisitEndPicker(true)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.timeBtnText, { color: "#fff" }]}>🕐 {String(visitEndHour).padStart(2,"0")}:00</Text>
+                      </TouchableOpacity>
+                      {showVisitEndPicker && (
+                        <DateTimePicker
+                          value={hourToDate(visitEndHour)}
+                          mode="time"
+                          is24Hour
+                          display={Platform.OS === "ios" ? "spinner" : "clock"}
+                          onChange={(_, date) => {
+                            setShowVisitEndPicker(false);
+                            if (date) setVisitEndHour(Math.max(date.getHours(), visitStartHour + 1));
+                          }}
+                        />
+                      )}
                     </View>
                   </View>
 
@@ -1513,9 +1340,7 @@ export default function SettingsScreen() {
                     >
                       <Text style={[styles.stepBtnText, { color: C.text }]}>−</Text>
                     </TouchableOpacity>
-                    <Text style={[styles.stepValue, { color: "#fff" }]}>
-                      {slotDuration < 60 ? `${slotDuration} min` : `${Math.floor(slotDuration / 60)}h${slotDuration % 60 ? slotDuration % 60 : ""}`}
-                    </Text>
+                    <Text style={[styles.stepValue, { color: "#fff" }]}>{formatDuration(slotDuration)}</Text>
                     <TouchableOpacity
                       style={[styles.stepBtn, { backgroundColor: C.bg, borderColor: C.border }]}
                       onPress={() => setSlotDuration((d) => Math.min(240, d + 5))}
@@ -1527,51 +1352,14 @@ export default function SettingsScreen() {
                   <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
 
                   {/* Intervalle entre les créneaux */}
-                  <Text style={[styles.fieldLabel, { color: C.gold }]}>⏲ Intervalle entre deux créneaux</Text>
-                  <View style={styles.stepper}>
-                    <TouchableOpacity
-                      style={[styles.stepBtn, { backgroundColor: C.bg, borderColor: C.border }]}
-                      onPress={() => setSlotGap((g) => Math.max(5, g - 5))}
-                    >
-                      <Text style={[styles.stepBtnText, { color: C.text }]}>−</Text>
-                    </TouchableOpacity>
-                    <Animated.View
-                      {...slotGapPanResponder.panHandlers}
-                      style={[
-                        styles.scrubValue,
-                        {
-                          backgroundColor: slotGapDragging ? `${C.accent}33` : C.bg,
-                          borderColor: slotGapDragging ? C.accent : C.border,
-                          transform: [{ scale: slotGapScale }],
-                        },
-                      ]}
-                    >
-                      <Animated.Text
-                        style={[
-                          styles.scrubChevron,
-                          { color: slotGapDragging ? C.accent : C.gold, transform: [{ translateY: chevronBounce.interpolate({ inputRange: [0, 1], outputRange: [0, -3] }) }] },
-                        ]}
-                      >
-                        ⌃
-                      </Animated.Text>
-                      <Text style={[styles.stepValue, { color: "#fff", marginVertical: 0 }]}>
-                        {slotGap < 60 ? `${slotGap} min` : `${Math.floor(slotGap / 60)}h${slotGap % 60 ? slotGap % 60 : ""}`}
-                      </Text>
-                      <Animated.Text
-                        style={[
-                          styles.scrubChevron,
-                          { color: slotGapDragging ? C.accent : C.gold, transform: [{ translateY: chevronBounce.interpolate({ inputRange: [0, 1], outputRange: [0, 3] }) }] },
-                        ]}
-                      >
-                        ⌄
-                      </Animated.Text>
-                    </Animated.View>
-                    <TouchableOpacity
-                      style={[styles.stepBtn, { backgroundColor: C.bg, borderColor: C.border }]}
-                      onPress={() => setSlotGap((g) => Math.min(240, g + 5))}
-                    >
-                      <Text style={[styles.stepBtnText, { color: C.text }]}>+</Text>
-                    </TouchableOpacity>
+                  <View style={styles.sliderHeaderRow}>
+                    <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 0 }]}>⏲ Intervalle entre deux créneaux</Text>
+                    <Text style={[styles.sliderValueText, { color: C.gold }]}>{formatDuration(slotGap)}</Text>
+                  </View>
+                  <MinuteSlider value={slotGap} onChange={setSlotGap} min={5} max={240} step={5} C={C} />
+                  <View style={styles.sliderBoundsRow}>
+                    <Text style={[styles.sliderBoundLabel, { color: C.muted }]}>5 min</Text>
+                    <Text style={[styles.sliderBoundLabel, { color: C.muted }]}>4h</Text>
                   </View>
 
                   <View style={[styles.nightRow, { marginTop: 12 }]}>
@@ -1695,14 +1483,10 @@ export default function SettingsScreen() {
                     }
                   </TouchableOpacity>
                 </View>
-              </>
-            )}
 
-            {/* ── Section : Nuitées ─────────────────────────────────────────── */}
-            {activeSection === "nuitees" && slotConfig && (
-              <>
-                <Text style={[styles.sectionTitle, { color: C.gold }]}>Nuitées</Text>
-                <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
+                {/* ── Bloc : Nuitées ────────────────────────────────────────── */}
+                <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 16 }]}>
+                  <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 0 }]}>🌙 Nuitées</Text>
                   <View style={styles.nightRow}>
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.nightLabel, { color: "#fff" }]}>
@@ -1731,40 +1515,48 @@ export default function SettingsScreen() {
                   <View style={styles.hourRow}>
                     <View style={styles.hourBlock}>
                       <Text style={[styles.hourLabel, { color: C.muted }]}>Début</Text>
-                      <Text style={[styles.stepValue, { color: "#fff" }]}>{String(nightStartHour).padStart(2,"0")}:00</Text>
-                      <View style={styles.stepperRow}>
-                        <TouchableOpacity
-                          style={[styles.stepBtn, { backgroundColor: C.bg, borderColor: C.border }]}
-                          onPress={() => setNightStartHour((h) => (h + 23) % 24)}
-                        >
-                          <Text style={[styles.stepBtnText, { color: C.text }]}>−</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[styles.stepBtn, { backgroundColor: C.bg, borderColor: C.border }]}
-                          onPress={() => setNightStartHour((h) => (h + 1) % 24)}
-                        >
-                          <Text style={[styles.stepBtnText, { color: C.text }]}>+</Text>
-                        </TouchableOpacity>
-                      </View>
+                      <TouchableOpacity
+                        style={[styles.timeBtn, { backgroundColor: C.bg, borderColor: C.border }]}
+                        onPress={() => setShowNightStartPicker(true)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.timeBtnText, { color: "#fff" }]}>🕐 {String(nightStartHour).padStart(2,"0")}:00</Text>
+                      </TouchableOpacity>
+                      {showNightStartPicker && (
+                        <DateTimePicker
+                          value={hourToDate(nightStartHour)}
+                          mode="time"
+                          is24Hour
+                          display={Platform.OS === "ios" ? "spinner" : "clock"}
+                          onChange={(_, date) => {
+                            setShowNightStartPicker(false);
+                            if (date) setNightStartHour(date.getHours());
+                          }}
+                        />
+                      )}
                     </View>
                     <Text style={[styles.hourSep, { color: C.muted }]}>→</Text>
                     <View style={styles.hourBlock}>
                       <Text style={[styles.hourLabel, { color: C.muted }]}>Fin (lendemain)</Text>
-                      <Text style={[styles.stepValue, { color: "#fff" }]}>{String(nightEndHour).padStart(2,"0")}:00</Text>
-                      <View style={styles.stepperRow}>
-                        <TouchableOpacity
-                          style={[styles.stepBtn, { backgroundColor: C.bg, borderColor: C.border }]}
-                          onPress={() => setNightEndHour((h) => (h + 23) % 24)}
-                        >
-                          <Text style={[styles.stepBtnText, { color: C.text }]}>−</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={[styles.stepBtn, { backgroundColor: C.bg, borderColor: C.border }]}
-                          onPress={() => setNightEndHour((h) => (h + 1) % 24)}
-                        >
-                          <Text style={[styles.stepBtnText, { color: C.text }]}>+</Text>
-                        </TouchableOpacity>
-                      </View>
+                      <TouchableOpacity
+                        style={[styles.timeBtn, { backgroundColor: C.bg, borderColor: C.border }]}
+                        onPress={() => setShowNightEndPicker(true)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.timeBtnText, { color: "#fff" }]}>🕐 {String(nightEndHour).padStart(2,"0")}:00</Text>
+                      </TouchableOpacity>
+                      {showNightEndPicker && (
+                        <DateTimePicker
+                          value={hourToDate(nightEndHour)}
+                          mode="time"
+                          is24Hour
+                          display={Platform.OS === "ios" ? "spinner" : "clock"}
+                          onChange={(_, date) => {
+                            setShowNightEndPicker(false);
+                            if (date) setNightEndHour(date.getHours());
+                          }}
+                        />
+                      )}
                     </View>
                   </View>
 
@@ -1916,64 +1708,110 @@ export default function SettingsScreen() {
                 </>
               )}
             </View>
+
+            {/* ── Bloc : Conservation des données ─────────────────────────── */}
+            {(() => {
+              const purgeDate = new Date(space.purge_scheduled_at);
+              const todayMs = new Date().setHours(0, 0, 0, 0);
+              const daysLeft = Math.ceil((purgeDate.getTime() - todayMs) / (1000 * 60 * 60 * 24));
+              const purgeDateFr = purgeDate.toLocaleDateString("fr-FR", {
+                day: "numeric", month: "long", year: "numeric",
+              });
+              const isUrgent = daysLeft <= 7;
+              const isWarning = daysLeft <= 30;
+              const alertColor = isUrgent ? "#e94560" : isWarning ? C.orange : C.muted;
+
+              return (
+                <View style={[styles.card, {
+                  backgroundColor: C.card,
+                  borderColor: isUrgent ? "rgba(233,69,96,0.5)" : isWarning ? "rgba(230,126,34,0.4)" : C.border,
+                  padding: 12,
+                  marginTop: 16,
+                }]}>
+                  <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 0 }]}>🗄️ Conservation des données</Text>
+                  <View style={styles.rgpdRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.rgpdLabel, { color: C.muted }]}>Suppression prévue le</Text>
+                      <Text style={[styles.rgpdDate, { color: isUrgent ? "#e94560" : "#fff", fontSize: 15 }]}>
+                        {purgeDateFr}
+                      </Text>
+                      <Text style={[styles.rgpdDays, { color: alertColor }]}>
+                        {daysLeft > 0
+                          ? `J-${daysLeft}${isUrgent ? " ⚠️  Suppression imminente" : isWarning ? " — Pensez à prolonger" : ""}`
+                          : "Expiration dépassée"
+                        }
+                      </Text>
+                    </View>
+                  </View>
+
+                  <Text style={[styles.cardDesc, { color: C.muted, fontSize: 12, lineHeight: 17, marginTop: 8, marginBottom: 10 }]}>
+                    Planning, souvenirs et messages seront définitivement supprimés à cette date. Conforme RGPD.
+                  </Text>
+
+                  <TouchableOpacity
+                    style={[styles.prolongBtn, { backgroundColor: C.accent, paddingVertical: 10 }, prolonging && { opacity: 0.6 }]}
+                    onPress={handleProlong}
+                    disabled={prolonging}
+                  >
+                    {prolonging
+                      ? <ActivityIndicator color="#fff" size="small" />
+                      : <Text style={[styles.prolongBtnText, { textAlign: "center" }]}>⏳ Prolonger de 30 jours{"\n"}(renouvelable gratuitement)</Text>
+                    }
+                  </TouchableOpacity>
+                </View>
+              );
+            })()}
           </>
         )}
 
-        {/* ── Section : Conservation RGPD ──────────────────────────────────── */}
-        {hasSpace && space && activeSection === "rgpd" && (() => {
-          const purgeDate = new Date(space.purge_scheduled_at);
-          const todayMs = new Date().setHours(0, 0, 0, 0);
-          const daysLeft = Math.ceil((purgeDate.getTime() - todayMs) / (1000 * 60 * 60 * 24));
-          const purgeDateFr = purgeDate.toLocaleDateString("fr-FR", {
-            day: "numeric", month: "long", year: "numeric",
-          });
-          const isUrgent = daysLeft <= 7;
-          const isWarning = daysLeft <= 30;
-          const alertColor = isUrgent ? "#e94560" : isWarning ? C.orange : C.muted;
-
-          return (
-            <>
-              <Text style={[styles.sectionTitle, { color: C.gold }]}>Conservation des données</Text>
-              <View style={[styles.card, {
-                backgroundColor: C.card,
-                borderColor: isUrgent ? "rgba(233,69,96,0.5)" : isWarning ? "rgba(230,126,34,0.4)" : C.border,
-                padding: 12,
-              }]}>
-                <View style={styles.rgpdRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.rgpdLabel, { color: C.muted }]}>Suppression prévue le</Text>
-                    <Text style={[styles.rgpdDate, { color: isUrgent ? "#e94560" : "#fff", fontSize: 15 }]}>
-                      {purgeDateFr}
-                    </Text>
-                    <Text style={[styles.rgpdDays, { color: alertColor }]}>
-                      {daysLeft > 0
-                        ? `J-${daysLeft}${isUrgent ? " ⚠️  Suppression imminente" : isWarning ? " — Pensez à prolonger" : ""}`
-                        : "Expiration dépassée"
-                      }
-                    </Text>
-                  </View>
-                </View>
-
-                <Text style={[styles.cardDesc, { color: C.muted, fontSize: 12, lineHeight: 17, marginTop: 8, marginBottom: 10 }]}>
-                  Planning, souvenirs et messages seront définitivement supprimés à cette date. Conforme RGPD.
-                </Text>
-
-                <TouchableOpacity
-                  style={[styles.prolongBtn, { backgroundColor: C.accent, paddingVertical: 10 }, prolonging && { opacity: 0.6 }]}
-                  onPress={handleProlong}
-                  disabled={prolonging}
-                >
-                  {prolonging
-                    ? <ActivityIndicator color="#fff" size="small" />
-                    : <Text style={[styles.prolongBtnText, { textAlign: "center" }]}>⏳ Prolonger de 30 jours{"\n"}(renouvelable gratuitement)</Text>
-                  }
-                </TouchableOpacity>
-              </View>
-            </>
-          );
-        })()}
-
       </ScrollView>
+
+      {/* ── Barre horizontale fixe de navigation des réglages ────────────── */}
+      {hasSpace && space && (
+        <View
+          style={[
+            styles.settingsNavBar,
+            { backgroundColor: C.card, borderTopColor: C.border, bottom: 0, height: SETTINGS_NAV_BAR_HEIGHT },
+          ]}
+        >
+          {SETTINGS_NAV_ORDER.map((key) => {
+            const isDisabled = key === "regles" && !slotConfig;
+            const isActive = activeSection === key;
+            return (
+              <TouchableOpacity
+                key={key}
+                style={styles.settingsNavBtn}
+                onPress={() => openSection(key)}
+                disabled={isDisabled}
+                activeOpacity={0.75}
+              >
+                <View style={[styles.settingsNavIconWrap, isActive && { backgroundColor: C.accent }]}>
+                  <Text style={[styles.settingsNavIconText, { opacity: isDisabled ? 0.35 : 1 }]}>
+                    {SECTION_META[key].icon}
+                  </Text>
+                </View>
+                <Text
+                  style={[
+                    styles.settingsNavLabel,
+                    { color: isActive ? C.accent : C.muted, opacity: isDisabled ? 0.35 : 1 },
+                  ]}
+                >
+                  {SETTINGS_NAV_LABELS[key]}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+          <TouchableOpacity
+            style={styles.settingsNavBtn}
+            onPress={() => setActiveSection(null)}
+            activeOpacity={0.75}
+          >
+            <View style={[styles.settingsNavIconWrap, { backgroundColor: `${C.gold}33` }]}>
+              <Text style={styles.settingsNavIconText}>⚙️</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* ── MODAL CALENDRIER DATES BLOQUÉES ─────────────────────────────── */}
       <Modal visible={blockPickerVisible} transparent animationType="slide" onRequestClose={() => setBlockPickerVisible(false)}>
@@ -2269,8 +2107,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingTop: 52, paddingBottom: 14,
     borderBottomWidth: 1,
   },
-  backBtn: { alignSelf: "flex-start", borderRadius: 8, paddingVertical: 6, paddingHorizontal: 12, marginBottom: 10 },
-  backBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 13, color: "#0D1B2E" },
   headerTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 20 },
 
   scroll: { padding: 16, paddingBottom: 48 },
@@ -2289,23 +2125,19 @@ const styles = StyleSheet.create({
   patientName: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 16 },
   patientHospital: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginTop: 2 },
 
-  // Grille de tuiles des réglages
-  tileGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 16 },
-  tile: {
-    width: "47%", borderWidth: 1, borderRadius: 16, padding: 14,
-    gap: 8, position: "relative",
+  // Barre horizontale fixe de navigation des réglages (au-dessus de la tab bar)
+  settingsNavBar: {
+    position: "absolute", left: 0, right: 0,
+    flexDirection: "row", borderTopWidth: 1,
+    paddingTop: 6, paddingBottom: 6,
   },
-  tileIcon: {
-    width: 38, height: 38, borderRadius: 12,
+  settingsNavBtn: { flex: 1, alignItems: "center", justifyContent: "center", paddingVertical: 4, gap: 2 },
+  settingsNavIconWrap: {
+    width: 36, height: 36, borderRadius: 18,
     alignItems: "center", justifyContent: "center",
   },
-  tileIconText: { fontSize: 18 },
-  tileLabel: { fontFamily: "DM_Sans_700Bold", fontSize: 13, lineHeight: 17 },
-  tileHint: { fontFamily: "DM_Sans_400Regular", fontSize: 11, lineHeight: 15 },
-  tileChevron: { position: "absolute", top: 14, right: 12, fontFamily: "DM_Sans_700Bold", fontSize: 14 },
-
-  backToGrid: { alignSelf: "flex-start", marginTop: 16, marginBottom: 4, paddingVertical: 4 },
-  backToGridText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
+  settingsNavIconText: { fontSize: 17 },
+  settingsNavLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11 },
 
   // Photo
   photoRow: { flexDirection: "row", alignItems: "center", gap: 16 },
@@ -2387,12 +2219,15 @@ const styles = StyleSheet.create({
   hourLabel: { fontFamily: "DM_Sans_400Regular", fontSize: 12, textAlign: "center" },
   hourSep: { fontFamily: "DM_Sans_700Bold", fontSize: 18, marginTop: 20 },
   stepper: { flexDirection: "row", alignItems: "center", gap: 8 },
-  stepperRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, marginTop: 4 },
   stepBtn: { width: 36, height: 36, borderWidth: 1, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   stepBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 18, lineHeight: 20 },
   stepValue: { fontFamily: "DM_Sans_700Bold", fontSize: 16, minWidth: 48, textAlign: "center" },
-  scrubValue: { alignItems: "center", justifyContent: "center", borderWidth: 1.5, borderRadius: 18, paddingVertical: 4, paddingHorizontal: 14, minWidth: 72 },
-  scrubChevron: { fontSize: 11, lineHeight: 12, fontFamily: "DM_Sans_700Bold" },
+  timeBtn: { borderWidth: 1, borderRadius: 10, paddingVertical: 12, paddingHorizontal: 14, alignItems: "center" },
+  timeBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 16 },
+  sliderHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  sliderValueText: { fontFamily: "DM_Sans_700Bold", fontSize: 16 },
+  sliderBoundsRow: { flexDirection: "row", justifyContent: "space-between", marginTop: 2 },
+  sliderBoundLabel: { fontFamily: "DM_Sans_400Regular", fontSize: 11 },
   pillRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 4 },
   pill: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 7 },
   pillText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },

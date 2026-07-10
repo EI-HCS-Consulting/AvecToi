@@ -13,7 +13,7 @@ import { getVisitorSession, rememberAuthorPin, sessionPinMatches } from "@/lib/v
 import PinPad from "@/components/PinPad";
 import MiniCalendar from "@/components/MiniCalendar";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
-import TimeWheelPicker from "@/components/TimeWheelPicker";
+import TimeClockPicker from "@/components/TimeClockPicker";
 import { toFrShort } from "@/lib/slotUtils";
 import { googleMapsSearchUrl, joinAddress } from "@/lib/address";
 import { addGenericEventToNativeCalendar } from "@/lib/calendarSync";
@@ -1371,12 +1371,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName }: 
                       />
 
                       <Text style={[styles.fieldLabel, { color: C.gold }]}>Heure aller *</Text>
-                      <TimeWheelPicker value={fTOutTime} onChange={setFTOutTime} C={C} />
+                      <TimeClockPicker value={fTOutTime} onChange={setFTOutTime} C={C} />
 
                       {fTRoundTrip && (
                         <>
                           <Text style={[styles.fieldLabel, { color: C.gold }]}>Heure retour *</Text>
-                          <TimeWheelPicker value={fTReturnTime} onChange={setFTReturnTime} C={C} />
+                          <TimeClockPicker value={fTReturnTime} onChange={setFTReturnTime} C={C} />
                         </>
                       )}
                     </View>
@@ -1661,14 +1661,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName }: 
                   {pIncludeOut && (
                     <>
                       <Text style={[styles.fieldLabel, { color: C.gold }]}>Heure aller</Text>
-                      <TimeWheelPicker value={pOutTime} onChange={setPOutTime} C={C} />
+                      <TimeClockPicker value={pOutTime} onChange={setPOutTime} C={C} />
                     </>
                   )}
 
                   {proposeTarget?.transport_round_trip && pIncludeReturn && (
                     <>
                       <Text style={[styles.fieldLabel, { color: C.gold }]}>Heure retour</Text>
-                      <TimeWheelPicker value={pReturnTime} onChange={setPReturnTime} C={C} />
+                      <TimeClockPicker value={pReturnTime} onChange={setPReturnTime} C={C} />
                     </>
                   )}
 
