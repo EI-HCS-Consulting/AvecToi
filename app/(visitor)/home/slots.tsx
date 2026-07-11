@@ -105,6 +105,11 @@ export default function SlotsScreen() {
                     </View>
                   ))
                 }
+                {mine?.alert_message && !mine.alert_seen && (
+                  <View style={[styles.alertBanner, { backgroundColor: "rgba(233,69,96,0.12)", borderColor: "rgba(233,69,96,0.4)" }]}>
+                    <Text style={[styles.alertText, { color: C.danger }]}>{mine.alert_message}</Text>
+                  </View>
+                )}
               </View>
               <View style={styles.slotRight}>
                 {!full && !past && (
@@ -230,6 +235,8 @@ const styles = StyleSheet.create({
   slotEmpty: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginTop: 4 },
   visitorRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
   visitorName: { fontFamily: "DM_Sans_400Regular", fontSize: 13, flex: 1 },
+  alertBanner: { borderWidth: 1, borderRadius: 8, padding: 8, marginTop: 8 },
+  alertText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, lineHeight: 16 },
   editBtn: { borderWidth: 1, borderRadius: 7, paddingVertical: 6, paddingHorizontal: 10 },
   editBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
   reserveBtn: { borderRadius: 8, paddingHorizontal: 14, paddingVertical: 9, alignSelf: "center" },

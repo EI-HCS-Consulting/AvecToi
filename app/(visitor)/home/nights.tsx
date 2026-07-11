@@ -61,64 +61,74 @@ export default function VisitorNightsScreen() {
       <SpaceHeader space={space} active="nights" basePath="/(visitor)/home" C={C} />
 
       <ScrollView contentContainerStyle={styles.scroll}>
-        {!slotConfig.night_enabled ? (
+        {!slotConfig.night_enabled && (
           <View style={styles.empty}>
             <Text style={{ fontSize: 36, marginBottom: 12 }}>🌙</Text>
             <Text style={[styles.emptyText, { color: C.muted }]}>
               Les nuitées sont actuellement suspendues par l'organisateur.
             </Text>
           </View>
+        )}
+
+        {slotConfig.night_enabled && (
+          <TouchableOpacity
+            style={[styles.reserveNextBtn, { backgroundColor: C.gold }]}
+            onPress={handleReserveNext}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.reserveNextBtnText}>+ Réserver la prochaine nuitée disponible</Text>
+          </TouchableOpacity>
+        )}
+
+        <Text style={[styles.sectionTitle, { color: C.gold }]}>Nuitées programmées</Text>
+
+        {upcomingNights.length === 0 ? (
+          <View style={styles.empty}>
+            <Text style={{ fontSize: 32, marginBottom: 10 }}>🌙</Text>
+            <Text style={[styles.emptyText, { color: C.muted }]}>Aucune nuitée programmée pour l'instant.</Text>
+          </View>
         ) : (
-          <>
-            <TouchableOpacity
-              style={[styles.reserveNextBtn, { backgroundColor: C.gold }]}
-              onPress={handleReserveNext}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.reserveNextBtnText}>+ Réserver la prochaine nuitée disponible</Text>
-            </TouchableOpacity>
-
-            <Text style={[styles.sectionTitle, { color: C.gold }]}>Nuitées programmées</Text>
-
-            {upcomingNights.length === 0 ? (
-              <View style={styles.empty}>
-                <Text style={{ fontSize: 32, marginBottom: 10 }}>🌙</Text>
-                <Text style={[styles.emptyText, { color: C.muted }]}>Aucune nuitée programmée pour l'instant.</Text>
-              </View>
-            ) : (
-              upcomingNights.map((r) => (
-                <View key={r.id} style={[styles.nightCard, { backgroundColor: C.card, borderColor: C.border }]}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.nightDate, { color: "#fff" }]}>{toFrLong(new Date(r.date + "T12:00:00"))}</Text>
-                    <Text style={[styles.nightVisitor, { color: C.success }]}>● {r.prenom} {r.nom}</Text>
+          upcomingNights.map((r) => (
+            <View key={r.id} style={[styles.nightCard, { backgroundColor: C.card, borderColor: C.border }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.nightDate, { color: "#fff" }]}>{toFrLong(new Date(r.date + "T12:00:00"))}</Text>
+                <Text style={[styles.nightVisitor, { color: C.success }]}>● {r.prenom} {r.nom}</Text>
+                {r.alert_message ? (
+                  <View style={[styles.alertBanner, { backgroundColor: "rgba(233,69,96,0.12)", borderColor: "rgba(233,69,96,0.4)" }]}>
+                    <Text style={[styles.alertText, { color: C.danger }]}>{r.alert_message}</Text>
                   </View>
-                  {isMine(r) && (
-                    <TouchableOpacity onPress={() => flowRef.current?.openPinModal(r)} style={[styles.editBtn, { borderColor: C.border }]}>
-                      <Text style={[styles.editBtnText, { color: C.muted }]}>Modifier</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              ))
-            )}
-
-            <Text style={[styles.sectionTitle, { color: C.gold, marginTop: 24 }]}>Nuitées effectuées</Text>
-
-            {pastNights.length === 0 ? (
-              <View style={styles.empty}>
-                <Text style={{ fontSize: 32, marginBottom: 10 }}>🌙</Text>
-                <Text style={[styles.emptyText, { color: C.muted }]}>Aucune nuitée effectuée pour l'instant.</Text>
+                ) : null}
               </View>
-            ) : (
-              pastNights.map((r) => (
-                <View key={r.id} style={[styles.nightCard, { backgroundColor: C.card, borderColor: C.border, opacity: 0.7 }]}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.nightDate, { color: "#fff" }]}>{toFrLong(new Date(r.date + "T12:00:00"))}</Text>
-                    <Text style={[styles.nightVisitor, { color: C.success }]}>● {r.prenom} {r.nom}</Text>
+              {isMine(r) && (
+                <TouchableOpacity onPress={() => flowRef.current?.openPinModal(r)} style={[styles.editBtn, { borderColor: C.border }]}>
+                  <Text style={[styles.editBtnText, { color: C.muted }]}>Modifier</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          ))
+        )}
+
+        <Text style={[styles.sectionTitle, { color: C.gold, marginTop: 24 }]}>Nuitées effectuées</Text>
+
+        {pastNights.length === 0 ? (
+          <View style={styles.empty}>
+            <Text style={{ fontSize: 32, marginBottom: 10 }}>🌙</Text>
+            <Text style={[styles.emptyText, { color: C.muted }]}>Aucune nuitée effectuée pour l'instant.</Text>
+          </View>
+        ) : (
+          pastNights.map((r) => (
+            <View key={r.id} style={[styles.nightCard, { backgroundColor: C.card, borderColor: C.border, opacity: 0.7 }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.nightDate, { color: "#fff" }]}>{toFrLong(new Date(r.date + "T12:00:00"))}</Text>
+                <Text style={[styles.nightVisitor, { color: C.success }]}>● {r.prenom} {r.nom}</Text>
+                {r.alert_message ? (
+                  <View style={[styles.alertBanner, { backgroundColor: "rgba(233,69,96,0.12)", borderColor: "rgba(233,69,96,0.4)" }]}>
+                    <Text style={[styles.alertText, { color: C.danger }]}>{r.alert_message}</Text>
                   </View>
-                </View>
-              ))
-            )}
-          </>
+                ) : null}
+              </View>
+            </View>
+          ))
         )}
       </ScrollView>
 
@@ -153,6 +163,9 @@ const styles = StyleSheet.create({
   nightVisitor: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
   editBtn: { borderWidth: 1, borderRadius: 7, paddingVertical: 6, paddingHorizontal: 10 },
   editBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
+
+  alertBanner: { borderWidth: 1, borderRadius: 8, padding: 8, marginTop: 8 },
+  alertText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, lineHeight: 16 },
 
   empty: { alignItems: "center", paddingVertical: 32 },
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 14, textAlign: "center", lineHeight: 21 },

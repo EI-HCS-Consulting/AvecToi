@@ -111,6 +111,7 @@ export default function AdminSlotsScreen() {
           capped={capped}
           onAdd={(slot, maxAdditional) => addRef.current?.open(iso, slot, "Visite", maxAdditional)}
           onEdit={(r) => editRef.current?.open(r)}
+          onAckAlert={async (rs) => { await supabase.from("reservations").update({ alert_seen: true }).in("id", rs.map((r) => r.id)); await refreshReservations(); }}
         />
 
         {dayConfig?.night_enabled && (() => {
@@ -192,7 +193,7 @@ export default function AdminSlotsScreen() {
 // Liste des créneaux horaires "Visite" du jour — pulls `slots`/`slotConfig`
 // from context directly to keep the parent component's JSX uncluttered.
 function SlotsList({
-  iso, reservations, C, dayIsPast, capped, onAdd, onEdit,
+  iso, reservations, C, dayIsPast, capped, onAdd, onEdit, onAckAlert,
 }: {
   iso: string;
   reservations: Reservation[];
@@ -201,6 +202,7 @@ function SlotsList({
   capped: boolean;
   onAdd: (slot: string, maxAdditional: number) => void;
   onEdit: (r: Reservation) => void;
+  onAckAlert: (rs: Reservation[]) => void;
 }) {
   const { getConfigForDate, getSlotsForDate } = useSpace();
   const slotConfig = getConfigForDate(iso);
@@ -236,7 +238,18 @@ function SlotsList({
 
             {occ.length === 0
               ? <Text style={[styles.slotEmpty, { color: C.muted }]}>Aucun visiteur inscrit</Text>
-              : occ.map((r) => (
+              : occ.map((r) => {
+                // Un accompagnant (même group_id) partage le même événement
+                // d'alerte — on regroupe leurs noms sur une seule bannière/un
+                // seul bouton "Vu, relayé", affichée sur le premier membre du
+                // groupe rencontré dans ce créneau plutôt que dupliquée.
+                const alertCohort = r.alert_message
+                  ? occ.filter((x) => x.alert_message && (r.group_id ? x.group_id === r.group_id : x.id === r.id))
+                  : [];
+                const isAlertLeader = alertCohort.length > 0 && alertCohort[0].id === r.id;
+                const alertNeedsAck = alertCohort.some((c) => c.pin === "ADMIN" && !c.alert_seen);
+
+                return (
                 <View key={r.id} style={[styles.resaRow, { borderColor: C.border }]}>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.resaName, { color: C.success }]}>● {r.prenom} {r.nom}</Text>
@@ -244,6 +257,21 @@ function SlotsList({
                       <Text style={[styles.bookedBy, { color: C.muted }]}>Programmé par : {r.booked_by_prenom} {r.booked_by_nom}</Text>
                     ) : null}
                     {r.telephone ? <Text style={[styles.resaTel, { color: C.muted }]}>{r.telephone}</Text> : null}
+                    {isAlertLeader ? (
+                      <View style={[styles.alertBanner, { backgroundColor: "rgba(233,69,96,0.12)", borderColor: "rgba(233,69,96,0.4)" }]}>
+                        {alertCohort.length > 1 && (
+                          <Text style={[styles.alertNames, { color: C.danger }]}>
+                            {alertCohort.map((c) => `${c.prenom} ${c.nom}`).join(", ")}
+                          </Text>
+                        )}
+                        <Text style={[styles.alertText, { color: C.danger }]}>{r.alert_message}</Text>
+                        {alertNeedsAck && (
+                          <TouchableOpacity style={[styles.ackBtn, { borderColor: C.danger }]} onPress={() => onAckAlert(alertCohort)}>
+                            <Text style={[styles.ackBtnText, { color: C.danger }]}>Vu, relayé ✓</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    ) : null}
                   </View>
                   {!dayIsPast && !slotPast && (
                     <TouchableOpacity style={[styles.editResaBtn, { borderColor: C.border }]} onPress={() => onEdit(r)}>
@@ -251,7 +279,8 @@ function SlotsList({
                     </TouchableOpacity>
                   )}
                 </View>
-              ))
+                );
+              })
             }
           </View>
         );
@@ -284,6 +313,12 @@ const styles = StyleSheet.create({
   deleteResaBtn: { width: 28, height: 28, borderWidth: 1, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   editResaBtn: { borderWidth: 1, borderRadius: 7, paddingVertical: 6, paddingHorizontal: 10 },
   editResaBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
+
+  alertBanner: { borderWidth: 1, borderRadius: 8, padding: 8, marginTop: 6 },
+  alertNames: { fontFamily: "DM_Sans_700Bold", fontSize: 12, marginBottom: 2 },
+  alertText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, lineHeight: 16 },
+  ackBtn: { borderWidth: 1, borderRadius: 7, paddingVertical: 5, paddingHorizontal: 10, alignSelf: "flex-start", marginTop: 6 },
+  ackBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 11 },
 
   toast: { position: "absolute", bottom: 24, alignSelf: "center", paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10 },
   toastText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13, color: "#fff" },

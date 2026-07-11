@@ -12,7 +12,7 @@ import { themes } from "@/lib/themes";
 import { supabase } from "@/lib/supabase";
 import { getVisitorSession, saveVisitorSession, clearVisitorSession } from "@/lib/visitorSession";
 import PinPad from "@/components/PinPad";
-import type { Reservation, SouvenirPhoto, NewsEntry, SupportMessage, Task } from "@/lib/types";
+import type { Reservation, ReservationChangeHistoryEntry, SouvenirPhoto, NewsEntry, SupportMessage, Task } from "@/lib/types";
 
 function souvenirUrl(spaceId: string, filename: string) {
   const { data } = supabase.storage.from("souvenirs").getPublicUrl(`${spaceId}/${filename}`);
@@ -83,6 +83,11 @@ export default function VisitorAccountScreen() {
   // mais n'apparaît pas dans myReservations lui-même car il porte un autre
   // prénom/nom que le mien.
   const [companionsByGroup, setCompanionsByGroup] = useState<Record<string, Reservation[]>>({});
+  // Historique permanent des recasages/annulations automatiques (voir
+  // reservation_change_history) — contrairement aux champs alert_* sur
+  // reservations, ne s'efface jamais quand la réservation est modifiée :
+  // reste affiché sous chaque réservation concernée dans "Mes réservations".
+  const [myChangeHistory, setMyChangeHistory] = useState<ReservationChangeHistoryEntry[]>([]);
   const [mySouvenirs, setMySouvenirs] = useState<(SouvenirPhoto & { url: string })[]>([]);
   const [myNews, setMyNews] = useState<NewsEntry[]>([]);
   const [myMessages, setMyMessages] = useState<SupportMessage[]>([]);
@@ -113,7 +118,7 @@ export default function VisitorAccountScreen() {
   const loadActivity = useCallback(async (spaceId: string, p: string, n: string) => {
     if (!p.trim() || !n.trim()) return;
     setActivityLoading(true);
-    const [resv, souv, news, msgs, tasks, published] = await Promise.all([
+    const [resv, souv, news, msgs, tasks, published, changeHistory] = await Promise.all([
       supabase.from("reservations").select("*").eq("space_id", spaceId)
         .ilike("prenom", p.trim()).ilike("nom", n.trim()).order("date", { ascending: false }),
       supabase.from("souvenirs").select("*").eq("space_id", spaceId)
@@ -126,6 +131,8 @@ export default function VisitorAccountScreen() {
         .ilike("claimed_by_prenom", p.trim()).ilike("claimed_by_nom", n.trim()).order("created_at", { ascending: false }),
       supabase.from("tasks").select("*").eq("space_id", spaceId)
         .ilike("author_prenom", p.trim()).ilike("author_nom", n.trim()).order("created_at", { ascending: false }),
+      supabase.from("reservation_change_history").select("*").eq("space_id", spaceId)
+        .ilike("prenom", p.trim()).ilike("nom", n.trim()).order("changed_at", { ascending: false }),
     ]);
     const myResv: Reservation[] = resv.data || [];
     setMyReservations(myResv);
@@ -134,6 +141,7 @@ export default function VisitorAccountScreen() {
     setMyMessages(msgs.data || []);
     setMyTasks(tasks.data || []);
     setMyPublishedTasks(published.data || []);
+    setMyChangeHistory(changeHistory.data || []);
 
     // Accompagnants : réservations liées par group_id, mais avec un prénom/nom
     // différent du mien (donc absentes de myResv) — on les recharge à part.
@@ -493,6 +501,7 @@ export default function VisitorAccountScreen() {
                 const companionNames = (r.group_id ? companionsByGroup[r.group_id] : undefined)
                   ?.filter((c) => c.id !== r.id)
                   .map((c) => `${c.prenom} ${c.nom}`) ?? [];
+                const history = myChangeHistory.filter((h) => h.reservation_id === r.id);
                 return (
                   <TouchableOpacity
                     key={r.id}
@@ -507,6 +516,11 @@ export default function VisitorAccountScreen() {
                       {companionNames.length > 0 && (
                         <Text style={[styles.activityRowSub, { color: C.muted }]}>Avec {companionNames.join(", ")}</Text>
                       )}
+                      {history.map((h) => (
+                        <Text key={h.id} style={[styles.activityRowSub, { color: C.danger }]}>
+                          ↺ {h.message}
+                        </Text>
+                      ))}
                     </View>
                     <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
                   </TouchableOpacity>
