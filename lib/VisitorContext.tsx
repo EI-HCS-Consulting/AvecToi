@@ -1,7 +1,7 @@
-import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from "react";
 import { supabase } from "./supabase";
-import { generateSlots, toISO } from "./slotUtils";
-import type { PatientSpace, SlotConfig, Reservation } from "./types";
+import { generateSlots, resolveConfigForDate, toISO } from "./slotUtils";
+import type { PatientSpace, SlotConfig, SlotConfigHistoryEntry, Reservation } from "./types";
 
 interface VisitorContextValue {
   space: PatientSpace | null;
@@ -24,6 +24,10 @@ interface VisitorContextValue {
   pendingEditReservationId: string | null;
   setPendingEditReservationId: (id: string | null) => void;
   refreshReservations: () => Promise<void>;
+  // Voir SpaceContext.tsx — même résolution "figée dans le temps" pour les
+  // jours déjà passés, à partir de slot_config_history.
+  getConfigForDate: (iso: string) => SlotConfig | null;
+  getSlotsForDate: (iso: string) => string[];
 }
 
 const VisitorContext = createContext<VisitorContextValue>({
@@ -40,6 +44,8 @@ const VisitorContext = createContext<VisitorContextValue>({
   pendingEditReservationId: null,
   setPendingEditReservationId: () => {},
   refreshReservations: async () => {},
+  getConfigForDate: () => null,
+  getSlotsForDate: () => [],
 });
 
 export function useVisitorSpace() {
@@ -50,8 +56,10 @@ export function VisitorSpaceProvider({ token, children }: { token: string; child
   const [space, setSpace] = useState<PatientSpace | null>(null);
   const [slotConfig, setSlotConfig] = useState<SlotConfig | null>(null);
   const [slots, setSlots] = useState<string[]>([]);
+  const [configHistory, setConfigHistory] = useState<SlotConfigHistoryEntry[]>([]);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(true);
+  const pastSlotsCache = useRef<Map<string, string[]>>(new Map());
   const [selectedDay, setSelectedDay] = useState<Date>(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
@@ -88,12 +96,43 @@ export function VisitorSpaceProvider({ token, children }: { token: string; child
       setSlots(generateSlots(configData));
     }
 
+    const { data: historyData } = await supabase
+      .from("slot_config_history")
+      .select("*")
+      .eq("space_id", spaceData.id)
+      .order("valid_from", { ascending: true });
+    pastSlotsCache.current.clear();
+    setConfigHistory(historyData || []);
+
     setLoading(false);
   }, [token]);
 
   useEffect(() => {
     fetchSpace();
   }, [fetchSpace]);
+
+  const getConfigForDate = useCallback(
+    (iso: string): SlotConfig | null => {
+      if (!slotConfig) return null;
+      if (iso >= toISO(new Date())) return slotConfig;
+      const entry = resolveConfigForDate(configHistory, iso);
+      return entry || slotConfig;
+    },
+    [slotConfig, configHistory],
+  );
+
+  const getSlotsForDate = useCallback(
+    (iso: string): string[] => {
+      if (iso >= toISO(new Date())) return slots;
+      const cached = pastSlotsCache.current.get(iso);
+      if (cached) return cached;
+      const config = getConfigForDate(iso);
+      const generated = config ? generateSlots(config) : [];
+      pastSlotsCache.current.set(iso, generated);
+      return generated;
+    },
+    [slots, getConfigForDate],
+  );
 
   const refreshReservations = useCallback(async () => {
     if (!space) return;
@@ -135,6 +174,13 @@ export function VisitorSpaceProvider({ token, children }: { token: string; child
         async () => {
           const { data } = await supabase.from("slot_config").select("*").eq("space_id", spaceId).single();
           if (data) { setSlotConfig(data); setSlots(generateSlots(data)); }
+          const { data: historyData } = await supabase
+            .from("slot_config_history")
+            .select("*")
+            .eq("space_id", spaceId)
+            .order("valid_from", { ascending: true });
+          pastSlotsCache.current.clear();
+          setConfigHistory(historyData || []);
         },
       )
       .subscribe();
@@ -147,7 +193,7 @@ export function VisitorSpaceProvider({ token, children }: { token: string; child
   }, [space?.id, refreshReservations, fetchSpace]);
 
   return (
-    <VisitorContext.Provider value={{ space, slotConfig, slots, reservations, loading, token, selectedDay, setSelectedDay, pendingBookingSlot, setPendingBookingSlot, pendingEditReservationId, setPendingEditReservationId, refreshReservations }}>
+    <VisitorContext.Provider value={{ space, slotConfig, slots, reservations, loading, token, selectedDay, setSelectedDay, pendingBookingSlot, setPendingBookingSlot, pendingEditReservationId, setPendingEditReservationId, refreshReservations, getConfigForDate, getSlotsForDate }}>
       {children}
     </VisitorContext.Provider>
   );

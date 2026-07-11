@@ -1,7 +1,7 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { supabase } from "./supabase";
-import { generateSlots } from "./slotUtils";
-import type { PatientSpace, SlotConfig, Reservation } from "./types";
+import { generateSlots, resolveConfigForDate, toISO } from "./slotUtils";
+import type { PatientSpace, SlotConfig, SlotConfigHistoryEntry, Reservation } from "./types";
 
 interface SpaceContextValue {
   space: PatientSpace | null;
@@ -19,6 +19,15 @@ interface SpaceContextValue {
   refreshReservations: () => Promise<void>;
   refreshSpace: () => Promise<void>;
   refreshSlotConfig: () => Promise<void>;
+  // Résolution "figée dans le temps" de la config de créneaux : pour
+  // aujourd'hui/le futur, renvoie la config live (référence identique,
+  // aucun lookup) ; pour un jour déjà passé, résout via slot_config_history
+  // pour garder l'affichage tel qu'il était au moment du changement de règles
+  // (voir apply_slot_rule_change). Fallback sur la config live si l'historique
+  // n'a pas encore chargé ou ne couvre pas la date (ne devrait pas arriver
+  // une fois le backfill de la migration passé).
+  getConfigForDate: (iso: string) => SlotConfig | null;
+  getSlotsForDate: (iso: string) => string[];
 }
 
 const SpaceContext = createContext<SpaceContextValue>({
@@ -35,6 +44,8 @@ const SpaceContext = createContext<SpaceContextValue>({
   refreshReservations: async () => {},
   refreshSpace: async () => {},
   refreshSlotConfig: async () => {},
+  getConfigForDate: () => null,
+  getSlotsForDate: () => [],
 });
 
 export function useSpace() {
@@ -45,8 +56,12 @@ export function AdminSpaceProvider({ adminId, children }: { adminId: string; chi
   const [space, setSpace] = useState<PatientSpace | null>(null);
   const [slotConfig, setSlotConfig] = useState<SlotConfig | null>(null);
   const [slots, setSlots] = useState<string[]>([]);
+  const [configHistory, setConfigHistory] = useState<SlotConfigHistoryEntry[]>([]);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [loading, setLoading] = useState(true);
+  // Cache des grilles de créneaux calculées pour des jours passés — évite de
+  // relancer generateSlots() à chaque render pour le même historique/date.
+  const pastSlotsCache = useRef<Map<string, string[]>>(new Map());
   const [selectedDay, setSelectedDay] = useState<Date>(() => {
     const d = new Date();
     d.setHours(0, 0, 0, 0);
@@ -84,6 +99,14 @@ export function AdminSpaceProvider({ adminId, children }: { adminId: string; chi
       setSlots(generateSlots(configData));
     }
 
+    const { data: historyData } = await supabase
+      .from("slot_config_history")
+      .select("*")
+      .eq("space_id", spaceData.id)
+      .order("valid_from", { ascending: true });
+    pastSlotsCache.current.clear();
+    setConfigHistory(historyData || []);
+
     setLoading(false);
   }, [adminId]);
 
@@ -104,7 +127,37 @@ export function AdminSpaceProvider({ adminId, children }: { adminId: string; chi
     if (!space?.id) return;
     const { data } = await supabase.from("slot_config").select("*").eq("space_id", space.id).single();
     if (data) { setSlotConfig(data); setSlots(generateSlots(data)); }
+    const { data: historyData } = await supabase
+      .from("slot_config_history")
+      .select("*")
+      .eq("space_id", space.id)
+      .order("valid_from", { ascending: true });
+    pastSlotsCache.current.clear();
+    setConfigHistory(historyData || []);
   }, [space?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const getConfigForDate = useCallback(
+    (iso: string): SlotConfig | null => {
+      if (!slotConfig) return null;
+      if (iso >= toISO(new Date())) return slotConfig;
+      const entry = resolveConfigForDate(configHistory, iso);
+      return entry || slotConfig;
+    },
+    [slotConfig, configHistory],
+  );
+
+  const getSlotsForDate = useCallback(
+    (iso: string): string[] => {
+      if (iso >= toISO(new Date())) return slots;
+      const cached = pastSlotsCache.current.get(iso);
+      if (cached) return cached;
+      const config = getConfigForDate(iso);
+      const generated = config ? generateSlots(config) : [];
+      pastSlotsCache.current.set(iso, generated);
+      return generated;
+    },
+    [slots, getConfigForDate],
+  );
 
   const refreshReservations = useCallback(async () => {
     if (!space) return;
@@ -152,6 +205,13 @@ export function AdminSpaceProvider({ adminId, children }: { adminId: string; chi
         async () => {
           const { data } = await supabase.from("slot_config").select("*").eq("space_id", spaceId).single();
           if (data) { setSlotConfig(data); setSlots(generateSlots(data)); }
+          const { data: historyData } = await supabase
+            .from("slot_config_history")
+            .select("*")
+            .eq("space_id", spaceId)
+            .order("valid_from", { ascending: true });
+          pastSlotsCache.current.clear();
+          setConfigHistory(historyData || []);
         },
       )
       .subscribe();
@@ -165,7 +225,7 @@ export function AdminSpaceProvider({ adminId, children }: { adminId: string; chi
 
   return (
     <SpaceContext.Provider
-      value={{ space, slotConfig, slots, reservations, loading, hasSpace: !!space, selectedDay, setSelectedDay, pendingBookingSlot, setPendingBookingSlot, refreshReservations, refreshSpace, refreshSlotConfig }}
+      value={{ space, slotConfig, slots, reservations, loading, hasSpace: !!space, selectedDay, setSelectedDay, pendingBookingSlot, setPendingBookingSlot, refreshReservations, refreshSpace, refreshSlotConfig, getConfigForDate, getSlotsForDate }}
     >
       {children}
     </SpaceContext.Provider>

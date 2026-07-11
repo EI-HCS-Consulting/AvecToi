@@ -14,7 +14,7 @@ import { useRouter } from "expo-router";
 const DAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
 
 export default function VisitorCalendarScreen() {
-  const { space, slotConfig, slots, reservations, selectedDay, setSelectedDay, setPendingBookingSlot } = useVisitorSpace();
+  const { space, slotConfig, slots, reservations, selectedDay, setSelectedDay, setPendingBookingSlot, getConfigForDate, getSlotsForDate } = useVisitorSpace();
   const router = useRouter();
   const [nextDispoModal, setNextDispoModal] = useState<{ date: Date; iso: string; slot: string } | null>(null);
   const [blockedDayModal, setBlockedDayModal] = useState<Date | null>(null);
@@ -111,7 +111,9 @@ export default function VisitorCalendarScreen() {
           {Array(firstDow).fill(null).map((_, i) => <View key={`e${i}`} style={styles.cell} />)}
           {monthDays.map((day) => {
             const iso = toISO(day);
-            const status = getDayStatus(reservations, iso, day, slotConfig, slots, startDate);
+            const dayConfig = getConfigForDate(iso) ?? slotConfig;
+            const daySlots = getSlotsForDate(iso);
+            const status = getDayStatus(reservations, iso, day, dayConfig, daySlots, startDate);
             const isToday = toISO(day) === toISO(today);
             const isSelected = toISO(day) === toISO(selectedDay);
             // Un jour déjà passé reste consultable (lecture seule — la

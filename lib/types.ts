@@ -59,6 +59,28 @@ export interface SlotConfig {
   blocked_date_reasons: Record<string, string>;
 }
 
+// Snapshot versionné de SlotConfig — une ligne fait foi de son valid_from
+// jusqu'au valid_from suivant pour le même space_id, voir
+// resolveConfigForDate() dans lib/slotUtils.ts.
+export interface SlotConfigHistoryEntry {
+  id: string;
+  space_id: string;
+  valid_from: string;
+  visit_start_hour: number;
+  visit_end_hour: number;
+  slot_duration_minutes: number;
+  min_gap_minutes: number;
+  gap_includes_duration: boolean;
+  max_visitors_per_slot: number;
+  night_enabled: boolean;
+  max_night_visitors: number;
+  night_start_hour: number;
+  night_end_hour: number;
+  allowed_weekdays: number[];
+  blocked_dates: string[];
+  blocked_date_reasons: Record<string, string>;
+}
+
 export interface Reservation {
   id: string;
   space_id: string;
@@ -71,6 +93,16 @@ export interface Reservation {
   pin: string;
   push_token: string | null;
   timestamp: string;
+  // Posés par apply_slot_rule_change() quand un changement de règles de
+  // visite invalide cette réservation : previous_date/previous_creneau
+  // gardent l'horaire d'origine pour le message affiché au visiteur,
+  // alert_message est le texte à afficher, alert_seen passe à true une
+  // fois le popup vu/la réservation modifiée (voir RebookingAlertModal).
+  previous_date: string | null;
+  previous_creneau: string | null;
+  alert_message: string | null;
+  alert_type: "rebooked" | "night_cancelled" | "rebooking_failed" | null;
+  alert_seen: boolean;
   // Prénoms des personnes accompagnant le réservataire, séparés par des
   // virgules — affiché dans l'événement calendrier natif ("Avec ..."),
   // ne compte pas dans l'occupation du créneau (max_visitors_per_slot).

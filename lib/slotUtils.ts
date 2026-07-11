@@ -1,4 +1,4 @@
-import type { SlotConfig, Reservation } from "./types";
+import type { SlotConfig, Reservation, SlotConfigHistoryEntry } from "./types";
 
 // Défauts de secours tant que la migration night_start_hour/night_end_hour
 // n'a pas tourné en prod (colonnes absentes -> valeurs undefined en DB) —
@@ -38,6 +38,28 @@ export function generateSlots(config: SlotConfig): string[] {
     slots.push(`${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`);
   }
   return slots;
+}
+
+// Résout la config de créneaux qui était effectivement active à une date
+// donnée, à partir de l'historique versionné (slot_config_history). Une
+// entrée fait foi de son valid_from jusqu'au valid_from suivant : on prend
+// donc la plus récente dont valid_from <= iso. `history` doit être triée par
+// valid_from croissant (c'est l'ordre dans lequel SpaceContext/VisitorContext
+// la chargent). Retourne null si aucune entrée ne couvre cette date (ne
+// devrait pas arriver une fois le backfill de la migration passé).
+export function resolveConfigForDate(
+  history: SlotConfigHistoryEntry[],
+  iso: string,
+): SlotConfigHistoryEntry | null {
+  let match: SlotConfigHistoryEntry | null = null;
+  for (const entry of history) {
+    if (entry.valid_from <= iso) {
+      match = entry;
+    } else {
+      break;
+    }
+  }
+  return match;
 }
 
 export type DayStatus = "past" | "empty" | "partial" | "full";

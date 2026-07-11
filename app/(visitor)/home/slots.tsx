@@ -12,7 +12,7 @@ import type { Reservation } from "@/lib/types";
 // a son propre écran (home/nights.tsx). La logique de réservation/PIN/édition
 // elle-même vit dans components/BookingFlow.tsx, partagée entre les deux.
 export default function SlotsScreen() {
-  const { space, slotConfig, slots, reservations, selectedDay, setSelectedDay, refreshReservations, token, pendingBookingSlot, setPendingBookingSlot, pendingEditReservationId, setPendingEditReservationId } = useVisitorSpace();
+  const { space, slotConfig, slots, reservations, selectedDay, setSelectedDay, refreshReservations, token, pendingBookingSlot, setPendingBookingSlot, pendingEditReservationId, setPendingEditReservationId, getConfigForDate, getSlotsForDate } = useVisitorSpace();
   const C = themes[space?.theme ?? "blue"];
   const flowRef = useRef<BookingFlowHandle>(null);
   const nightFlowRef = useRef<BookingFlowHandle>(null);
@@ -56,6 +56,8 @@ export default function SlotsScreen() {
   if (!space || !slotConfig) return null;
 
   const iso = toISO(selectedDay);
+  const dayConfig = getConfigForDate(iso) ?? slotConfig;
+  const daySlots = getSlotsForDate(iso);
 
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
@@ -81,9 +83,9 @@ export default function SlotsScreen() {
         </View>
 
         {/* Slots */}
-        {slots.map((slot) => {
+        {daySlots.map((slot) => {
           const occ = getSlotOccupancy(reservations, iso, slot);
-          const full = occ.length >= slotConfig.max_visitors_per_slot;
+          const full = occ.length >= dayConfig.max_visitors_per_slot;
           const past = isSlotFullyPast(iso, slot);
           const mine = occ.find(isMine);
 
@@ -94,7 +96,7 @@ export default function SlotsScreen() {
             >
               <View style={styles.slotLeft}>
                 <Text style={[styles.slotTime, { color: C.gold }]}>{slot}</Text>
-                <Text style={[styles.slotCount, { color: C.muted }]}>{occ.length}/{slotConfig.max_visitors_per_slot} inscrits</Text>
+                <Text style={[styles.slotCount, { color: C.muted }]}>{occ.length}/{dayConfig.max_visitors_per_slot} inscrits</Text>
                 {occ.length === 0
                   ? <Text style={[styles.slotEmpty, { color: C.muted }]}>——</Text>
                   : occ.map((r) => (
@@ -134,16 +136,16 @@ export default function SlotsScreen() {
             par l'utilisateur). Réservation/édition gérées par une seconde
             instance de BookingFlow en type="Nuit" (la nuitée a sa propre
             logique de créneau/horaire — voir home/nights.tsx). */}
-        {slotConfig.night_enabled && (() => {
+        {dayConfig.night_enabled && (() => {
           const nightResa = getNightReservation(reservations, iso);
-          const nightPast = isSlotFullyPast(iso, nightStartSlot(slotConfig));
+          const nightPast = isSlotFullyPast(iso, nightStartSlot(dayConfig));
           return (
             <View
               style={[styles.slotCard, { backgroundColor: C.card, borderColor: nightResa ? "rgba(233,69,96,0.3)" : C.border, opacity: nightPast ? 0.5 : 1 }]}
             >
               <View style={styles.slotLeft}>
                 <Text style={[styles.slotTime, { color: C.gold }]}>🌙 Nuitée</Text>
-                <Text style={[styles.slotCount, { color: C.muted }]}>{nightRangeLabel(slotConfig)}</Text>
+                <Text style={[styles.slotCount, { color: C.muted }]}>{nightRangeLabel(dayConfig)}</Text>
                 {!nightResa
                   ? <Text style={[styles.slotEmpty, { color: C.muted }]}>——</Text>
                   : (

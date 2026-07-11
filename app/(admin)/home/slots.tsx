@@ -19,7 +19,7 @@ import type { Theme } from "@/lib/themes";
 export default function AdminSlotsScreen() {
   const {
     space, slotConfig, reservations, selectedDay, setSelectedDay, refreshReservations,
-    pendingBookingSlot, setPendingBookingSlot,
+    pendingBookingSlot, setPendingBookingSlot, getConfigForDate,
   } = useSpace();
   const { focusDate } = useLocalSearchParams<{ focusDate?: string }>();
   const C = themes[space?.theme ?? "blue"];
@@ -73,6 +73,7 @@ export default function AdminSlotsScreen() {
   const capped = isSpaceCapped(space, reservations);
   const iso = toISO(selectedDay);
   const dayIsPast = iso < toISO(new Date());
+  const dayConfig = getConfigForDate(iso) ?? slotConfig;
 
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
@@ -112,7 +113,7 @@ export default function AdminSlotsScreen() {
           onEdit={(r) => editRef.current?.open(r)}
         />
 
-        {slotConfig.night_enabled && (() => {
+        {dayConfig?.night_enabled && (() => {
           const nightResa = getNightReservation(reservations, iso);
           return (
             <View style={[styles.slotCard, { backgroundColor: C.card, borderColor: nightResa ? "rgba(233,69,96,0.3)" : C.border }]}>
@@ -121,14 +122,14 @@ export default function AdminSlotsScreen() {
                 {!nightResa && !dayIsPast && (
                   <TouchableOpacity
                     style={[styles.addResaBtn, { backgroundColor: C.accent }]}
-                    onPress={() => addRef.current?.open(iso, nightStartSlot(slotConfig), "Nuit", 1)}
+                    onPress={() => addRef.current?.open(iso, nightStartSlot(dayConfig), "Nuit", 1)}
                   >
                     <Text style={styles.addResaBtnText}>Réserver</Text>
                   </TouchableOpacity>
                 )}
                 {nightResa && <Text style={[styles.fullTag, { color: C.danger }]}>Occupée</Text>}
               </View>
-              <Text style={[styles.slotCount, { color: C.muted, marginBottom: 8 }]}>{nightRangeLabel(slotConfig)}</Text>
+              <Text style={[styles.slotCount, { color: C.muted, marginBottom: 8 }]}>{nightRangeLabel(dayConfig)}</Text>
               {!nightResa ? (
                 <Text style={[styles.slotEmpty, { color: C.muted }]}>Aucun visiteur inscrit</Text>
               ) : (
@@ -201,7 +202,9 @@ function SlotsList({
   onAdd: (slot: string, maxAdditional: number) => void;
   onEdit: (r: Reservation) => void;
 }) {
-  const { slots, slotConfig } = useSpace();
+  const { getConfigForDate, getSlotsForDate } = useSpace();
+  const slotConfig = getConfigForDate(iso);
+  const slots = getSlotsForDate(iso);
   if (!slotConfig) return null;
 
   return (
