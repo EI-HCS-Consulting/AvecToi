@@ -111,7 +111,7 @@ export default function AdminSlotsScreen() {
           capped={capped}
           onAdd={(slot, maxAdditional) => addRef.current?.open(iso, slot, "Visite", maxAdditional)}
           onEdit={(r) => editRef.current?.open(r)}
-          onAckAlert={async (r) => { await supabase.from("reservations").update({ alert_seen: true }).eq("id", r.id); await refreshReservations(); }}
+          onAckAlert={async (rs) => { await supabase.from("reservations").update({ alert_seen: true }).in("id", rs.map((r) => r.id)); await refreshReservations(); }}
         />
 
         {dayConfig?.night_enabled && (() => {
@@ -202,7 +202,7 @@ function SlotsList({
   capped: boolean;
   onAdd: (slot: string, maxAdditional: number) => void;
   onEdit: (r: Reservation) => void;
-  onAckAlert: (r: Reservation) => void;
+  onAckAlert: (rs: Reservation[]) => void;
 }) {
   const { getConfigForDate, getSlotsForDate } = useSpace();
   const slotConfig = getConfigForDate(iso);
@@ -238,7 +238,18 @@ function SlotsList({
 
             {occ.length === 0
               ? <Text style={[styles.slotEmpty, { color: C.muted }]}>Aucun visiteur inscrit</Text>
-              : occ.map((r) => (
+              : occ.map((r) => {
+                // Un accompagnant (même group_id) partage le même événement
+                // d'alerte — on regroupe leurs noms sur une seule bannière/un
+                // seul bouton "Vu, relayé", affichée sur le premier membre du
+                // groupe rencontré dans ce créneau plutôt que dupliquée.
+                const alertCohort = r.alert_message
+                  ? occ.filter((x) => x.alert_message && (r.group_id ? x.group_id === r.group_id : x.id === r.id))
+                  : [];
+                const isAlertLeader = alertCohort.length > 0 && alertCohort[0].id === r.id;
+                const alertNeedsAck = alertCohort.some((c) => c.pin === "ADMIN" && !c.alert_seen);
+
+                return (
                 <View key={r.id} style={[styles.resaRow, { borderColor: C.border }]}>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.resaName, { color: C.success }]}>● {r.prenom} {r.nom}</Text>
@@ -246,11 +257,16 @@ function SlotsList({
                       <Text style={[styles.bookedBy, { color: C.muted }]}>Programmé par : {r.booked_by_prenom} {r.booked_by_nom}</Text>
                     ) : null}
                     {r.telephone ? <Text style={[styles.resaTel, { color: C.muted }]}>{r.telephone}</Text> : null}
-                    {r.alert_message ? (
+                    {isAlertLeader ? (
                       <View style={[styles.alertBanner, { backgroundColor: "rgba(233,69,96,0.12)", borderColor: "rgba(233,69,96,0.4)" }]}>
+                        {alertCohort.length > 1 && (
+                          <Text style={[styles.alertNames, { color: C.danger }]}>
+                            {alertCohort.map((c) => `${c.prenom} ${c.nom}`).join(", ")}
+                          </Text>
+                        )}
                         <Text style={[styles.alertText, { color: C.danger }]}>{r.alert_message}</Text>
-                        {r.pin === "ADMIN" && !r.alert_seen && (
-                          <TouchableOpacity style={[styles.ackBtn, { borderColor: C.danger }]} onPress={() => onAckAlert(r)}>
+                        {alertNeedsAck && (
+                          <TouchableOpacity style={[styles.ackBtn, { borderColor: C.danger }]} onPress={() => onAckAlert(alertCohort)}>
                             <Text style={[styles.ackBtnText, { color: C.danger }]}>Vu, relayé ✓</Text>
                           </TouchableOpacity>
                         )}
@@ -263,7 +279,8 @@ function SlotsList({
                     </TouchableOpacity>
                   )}
                 </View>
-              ))
+                );
+              })
             }
           </View>
         );
@@ -298,6 +315,7 @@ const styles = StyleSheet.create({
   editResaBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
 
   alertBanner: { borderWidth: 1, borderRadius: 8, padding: 8, marginTop: 6 },
+  alertNames: { fontFamily: "DM_Sans_700Bold", fontSize: 12, marginBottom: 2 },
   alertText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, lineHeight: 16 },
   ackBtn: { borderWidth: 1, borderRadius: 7, paddingVertical: 5, paddingHorizontal: 10, alignSelf: "flex-start", marginTop: 6 },
   ackBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 11 },

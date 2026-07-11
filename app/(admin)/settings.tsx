@@ -1891,19 +1891,31 @@ export default function SettingsScreen() {
                 ) : filteredReservationChangeHistory.length === 0 ? (
                   <Text style={[styles.historyEmpty, { color: C.muted }]}>Aucune modification enregistrée.</Text>
                 ) : (
-                  filteredReservationChangeHistory.map((h) => (
-                    <View key={h.id} style={[styles.historyRow, { borderLeftColor: C.danger }]}>
-                      <Text style={[styles.historyField, { color: "#fff" }]}>
-                        {h.change_type === "night_cancelled" ? "🌙" : "☀️"} {h.prenom} {h.nom} — {h.message}
-                      </Text>
-                      <Text style={[styles.historyDate, { color: C.muted }]}>
-                        {new Date(h.changed_at).toLocaleString("fr-FR", {
-                          day: "numeric", month: "long", year: "numeric",
-                          hour: "2-digit", minute: "2-digit",
-                        })}
-                      </Text>
-                    </View>
-                  ))
+                  filteredReservationChangeHistory.map((h) => {
+                    const frDate = (iso: string | null) =>
+                      iso ? new Date(iso + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" }) : "";
+                    const changeLine =
+                      h.change_type === "night_cancelled"
+                        ? `${frDate(h.previous_date)} à ${h.previous_creneau} — nuitée annulée`
+                        : h.change_type === "rebooking_failed"
+                        ? `${frDate(h.previous_date)} à ${h.previous_creneau} → non replacé`
+                        : `${frDate(h.previous_date)} à ${h.previous_creneau} → ${frDate(h.new_date)} à ${h.new_creneau}`;
+                    return (
+                      <View key={h.id} style={[styles.historyRow, { borderLeftColor: C.danger }]}>
+                        <Text style={[styles.historyField, { color: "#fff" }]}>
+                          {h.change_type === "night_cancelled" ? "🌙" : "☀️"} {h.prenom} {h.nom}
+                        </Text>
+                        <Text style={[styles.historyOld, { color: C.muted }]}>{changeLine}</Text>
+                        <Text style={[styles.historyMsg, { color: C.danger }]}>{h.message}</Text>
+                        <Text style={[styles.historyDate, { color: C.muted }]}>
+                          {new Date(h.changed_at).toLocaleString("fr-FR", {
+                            day: "numeric", month: "long", year: "numeric",
+                            hour: "2-digit", minute: "2-digit",
+                          })}
+                        </Text>
+                      </View>
+                    );
+                  })
                 )
               )}
 
@@ -2470,6 +2482,7 @@ const styles = StyleSheet.create({
   historyRowChevron: { fontSize: 18, marginLeft: 8 },
   historyField: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13, marginBottom: 2 },
   historyOld: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginBottom: 2, fontStyle: "italic" },
+  historyMsg: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginBottom: 2 },
   historyDate: { fontFamily: "DM_Sans_400Regular", fontSize: 11 },
   historySubGroup: { fontFamily: "DM_Sans_700Bold", fontSize: 12, marginBottom: 8 },
 
