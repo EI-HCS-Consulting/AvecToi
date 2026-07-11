@@ -118,6 +118,27 @@ export interface Reservation {
   booked_by_nom: string | null;
 }
 
+// Trace permanente d'un recasage/annulation automatique posé par
+// apply_slot_rule_change() — contrairement aux champs alert_* de Reservation
+// (qui s'effacent dès que la réservation est modifiée/vue), cette ligne
+// reste en base pour toujours : c'est l'historique affiché dans "Mes
+// réservations" (visiteur) et "Modification de réservations" (admin).
+export interface ReservationChangeHistoryEntry {
+  id: string;
+  space_id: string;
+  reservation_id: string;
+  prenom: string;
+  nom: string;
+  type: "Visite" | "Nuit";
+  change_type: "rebooked" | "night_cancelled" | "rebooking_failed";
+  previous_date: string | null;
+  previous_creneau: string | null;
+  new_date: string | null;
+  new_creneau: string | null;
+  message: string;
+  changed_at: string;
+}
+
 export interface SouvenirPhoto {
   id: string;
   space_id: string;

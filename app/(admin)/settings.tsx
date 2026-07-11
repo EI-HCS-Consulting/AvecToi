@@ -23,7 +23,7 @@ import { resolvePlaceFromMapsUrl } from "@/lib/address";
 import { generateSlots } from "@/lib/slotUtils";
 import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
 import type { ThemeKey, Theme } from "@/lib/themes";
-import type { NewsEntry, Task, SupportMessage, SlotConfig } from "@/lib/types";
+import type { NewsEntry, Task, SupportMessage, SlotConfig, ReservationChangeHistoryEntry } from "@/lib/types";
 
 // Résultat de la RPC apply_slot_rule_change (voir migration
 // 20260711_apply_slot_rule_change.sql) — ids des réservations recasées/
@@ -396,11 +396,13 @@ export default function SettingsScreen() {
   const [pubNews, setPubNews] = useState<NewsEntry[]>([]);
   const [pubTasks, setPubTasks] = useState<Task[]>([]);
   const [pubMessages, setPubMessages] = useState<SupportMessage[]>([]);
+  const [reservationChangeHistory, setReservationChangeHistory] = useState<ReservationChangeHistoryEntry[]>([]);
+  const [resaHistoryLoading, setResaHistoryLoading] = useState(false);
 
   // Sous-rubriques de l'historique en accordéon (repliées par défaut — trop
   // long à scroller sinon une fois l'espace utilisé depuis un moment).
   const [historyBlocksOpen, setHistoryBlocksOpen] = useState({
-    hosp: false, regles: false, consignes: false, pub: false,
+    hosp: false, regles: false, consignes: false, resa: false, pub: false,
   });
   function toggleHistoryBlock(key: keyof typeof historyBlocksOpen) {
     setHistoryBlocksOpen((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -544,11 +546,25 @@ export default function SettingsScreen() {
     setPubLoading(false);
   }
 
+  async function loadReservationChangeHistory() {
+    if (!space) return;
+    setResaHistoryLoading(true);
+    const { data } = await supabase
+      .from("reservation_change_history")
+      .select("*")
+      .eq("space_id", space.id)
+      .order("changed_at", { ascending: false })
+      .limit(50);
+    setReservationChangeHistory(data || []);
+    setResaHistoryLoading(false);
+  }
+
   function openSection(key: SectionKey) {
     if (key === "hist") {
       setHistorySearch("");
       loadHistory();
       loadPublicationsHistory();
+      loadReservationChangeHistory();
     }
     setActiveSection(key);
   }
@@ -568,6 +584,9 @@ export default function SettingsScreen() {
   );
   const visitRulesHistory = fieldHistory.filter((h) =>
     h.field_name === "visit_rules" && matchesHistoryQuery(h.old_value, h.new_value)
+  );
+  const filteredReservationChangeHistory = reservationChangeHistory.filter((h) =>
+    matchesHistoryQuery(h.prenom, h.nom, h.message)
   );
   const filteredPubNews = pubNews.filter((n) => matchesHistoryQuery(n.content, n.author_prenom, n.author_nom));
   const filteredPubTasks = pubTasks.filter((t) => matchesHistoryQuery(t.title, t.description, t.category));
@@ -1855,7 +1874,42 @@ export default function SettingsScreen() {
 
               <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
 
-              {/* Bloc 4 : Publications */}
+              {/* Bloc 4 : Modification de réservations — recasages/annulations
+                  automatiques posés par apply_slot_rule_change() lors d'un
+                  changement de règles. Historique permanent (reservation_change_history),
+                  distinct des alertes reservations.alert_* qui s'effacent dès que
+                  la réservation concernée est modifiée. */}
+              <TouchableOpacity style={styles.historyBlockHeader} onPress={() => toggleHistoryBlock("resa")} activeOpacity={0.7}>
+                <Text style={[styles.fieldLabel, { color: C.gold }]}>
+                  🔁 Modification de réservations{filteredReservationChangeHistory.length > 0 ? ` (${filteredReservationChangeHistory.length})` : ""}
+                </Text>
+                <Text style={[styles.historyToggleIcon, { color: C.muted }]}>{historyBlocksOpen.resa ? "▾" : "▸"}</Text>
+              </TouchableOpacity>
+              {historyBlocksOpen.resa && (
+                resaHistoryLoading ? (
+                  <ActivityIndicator color={C.accent} style={{ marginVertical: 8 }} />
+                ) : filteredReservationChangeHistory.length === 0 ? (
+                  <Text style={[styles.historyEmpty, { color: C.muted }]}>Aucune modification enregistrée.</Text>
+                ) : (
+                  filteredReservationChangeHistory.map((h) => (
+                    <View key={h.id} style={[styles.historyRow, { borderLeftColor: C.danger }]}>
+                      <Text style={[styles.historyField, { color: "#fff" }]}>
+                        {h.change_type === "night_cancelled" ? "🌙" : "☀️"} {h.prenom} {h.nom} — {h.message}
+                      </Text>
+                      <Text style={[styles.historyDate, { color: C.muted }]}>
+                        {new Date(h.changed_at).toLocaleString("fr-FR", {
+                          day: "numeric", month: "long", year: "numeric",
+                          hour: "2-digit", minute: "2-digit",
+                        })}
+                      </Text>
+                    </View>
+                  ))
+                )
+              )}
+
+              <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
+
+              {/* Bloc 5 : Publications */}
               <TouchableOpacity style={styles.historyBlockHeader} onPress={() => toggleHistoryBlock("pub")} activeOpacity={0.7}>
                 <Text style={[styles.fieldLabel, { color: C.gold }]}>
                   📢 Publications ({filteredPubNews.length + filteredPubTasks.length + filteredPubMessages.length})

@@ -249,6 +249,19 @@ begin
             || ' à ' || v_target_creneau || '.',
           alert_seen = false
         where id = any(v_cohort.member_ids);
+
+        insert into reservation_change_history (
+          space_id, reservation_id, prenom, nom, type, change_type,
+          previous_date, previous_creneau, new_date, new_creneau, message
+        )
+        select p_space_id, id, prenom, nom, type, 'rebooked',
+          v_cohort.cohort_date, v_cohort.cohort_creneau, v_target_date, v_target_creneau,
+          'Suite à une modification des règles de visite, réservation du '
+            || to_char(v_cohort.cohort_date, 'DD/MM/YYYY') || ' à ' || v_cohort.cohort_creneau
+            || ' automatiquement déplacée au ' || to_char(v_target_date, 'DD/MM/YYYY')
+            || ' à ' || v_target_creneau || '.'
+        from reservations where id = any(v_cohort.member_ids);
+
         v_rebooked := v_rebooked || v_cohort.member_ids;
       else
         update reservations set
@@ -259,6 +272,18 @@ begin
             || 'pour choisir un nouveau créneau.',
           alert_seen = false
         where id = any(v_cohort.member_ids);
+
+        insert into reservation_change_history (
+          space_id, reservation_id, prenom, nom, type, change_type,
+          previous_date, previous_creneau, new_date, new_creneau, message
+        )
+        select p_space_id, id, prenom, nom, type, 'rebooking_failed',
+          v_cohort.cohort_date, v_cohort.cohort_creneau, null, null,
+          'Suite à une modification des règles de visite, réservation du '
+            || to_char(v_cohort.cohort_date, 'DD/MM/YYYY') || ' à ' || v_cohort.cohort_creneau
+            || ' n''a pas pu être automatiquement replacée.'
+        from reservations where id = any(v_cohort.member_ids);
+
         v_failed := v_failed || v_cohort.member_ids;
       end if;
     end loop;
@@ -280,6 +305,15 @@ begin
           alert_message = 'Nuitée annulée suite au changement de consignes.',
           alert_seen = false
         where id = v_night.id;
+
+        insert into reservation_change_history (
+          space_id, reservation_id, prenom, nom, type, change_type,
+          previous_date, previous_creneau, new_date, new_creneau, message
+        )
+        select p_space_id, id, prenom, nom, type, 'night_cancelled',
+          date, creneau, date, creneau, 'Nuitée annulée suite au changement de consignes.'
+        from reservations where id = v_night.id;
+
         v_night_cancelled := v_night_cancelled || v_night.id;
       end if;
     end loop;
