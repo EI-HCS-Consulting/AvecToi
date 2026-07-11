@@ -8,6 +8,7 @@ import { themes } from "@/lib/themes";
 import { setupNotifications } from "@/lib/notifications";
 import { getVisitorSession, saveVisitorSession } from "@/lib/visitorSession";
 import PinPad from "@/components/PinPad";
+import RebookingAlertModal from "@/components/RebookingAlertModal";
 
 function VisitorTabs() {
   const { space, token, loading } = useVisitorSpace();
@@ -135,6 +136,9 @@ function VisitorTabs() {
           </View>
         </View>
       </Modal>
+
+      {identityKnown === true && consentGiven === true && <RebookingAlertModal />}
+
     <Tabs
       screenOptions={{
         headerShown: false,

@@ -356,6 +356,14 @@ function BookingFlow(
         prenom: editPrenom.trim(),
         nom: editNom.trim(),
         telephone: editTel.trim(),
+        // Modifier avec succès une réservation recasée/annulée par un
+        // changement de règles efface son alerte du même geste — pas besoin
+        // d'un "dismiss" séparé (voir apply_slot_rule_change).
+        alert_message: null,
+        alert_type: null,
+        alert_seen: true,
+        previous_date: null,
+        previous_creneau: null,
       }, { count: "exact" })
       .eq("id", editModal.id);
 

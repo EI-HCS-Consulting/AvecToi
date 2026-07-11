@@ -20,8 +20,19 @@ import { useSpace } from "@/lib/SpaceContext";
 import { themes, themeLabels } from "@/lib/themes";
 import PatientAvatar from "@/components/PatientAvatar";
 import { resolvePlaceFromMapsUrl } from "@/lib/address";
+import { generateSlots } from "@/lib/slotUtils";
+import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
 import type { ThemeKey, Theme } from "@/lib/themes";
-import type { NewsEntry, Task, SupportMessage } from "@/lib/types";
+import type { NewsEntry, Task, SupportMessage, SlotConfig } from "@/lib/types";
+
+// Résultat de la RPC apply_slot_rule_change (voir migration
+// 20260711_apply_slot_rule_change.sql) — ids des réservations recasées/
+// annulées par le changement de règles qui vient d'être validé.
+interface RuleChangeResult {
+  rebooked: string[];
+  night_cancelled: string[];
+  failed: string[];
+}
 
 // ─── Historique des champs hospitaliers ───────────────────────────────────────
 interface FieldHistoryEntry {
@@ -722,23 +733,65 @@ export default function SettingsScreen() {
     );
   }
 
+  // ── Bascule des règles de créneaux ──────────────────────────────────────────
+  // Point d'entrée unique vers apply_slot_rule_change (RPC atomique) pour les
+  // trois handlers ci-dessous : verse l'historique versionné, met à jour la
+  // config live, et — si le changement est structurel — recase les
+  // réservations futures invalidées (voir la migration pour l'algorithme).
+  // mergedConfig sert à la fois à calculer p_new_slots (seule source de
+  // vérité : generateSlots dans lib/slotUtils.ts) et à la synchro calendrier
+  // native opportuniste des réservations recasées sur cet appareil.
+  async function applyRuleChange(
+    patch: Partial<SlotConfig>,
+  ): Promise<{ ok: true; result: RuleChangeResult } | { ok: false; error: string }> {
+    if (!space || !slotConfig) return { ok: false, error: "NO_SPACE" };
+    const mergedConfig: SlotConfig = { ...slotConfig, ...patch };
+    const newSlots = generateSlots(mergedConfig);
+
+    const { data, error } = await supabase.rpc("apply_slot_rule_change", {
+      p_space_id: space.id,
+      p_new_config: patch,
+      p_new_slots: newSlots,
+    });
+    if (error) return { ok: false, error: error.message };
+
+    const result = data as RuleChangeResult;
+    if (result.rebooked.length > 0) {
+      const { data: rows } = await supabase
+        .from("reservations")
+        .select("id, date, creneau, type")
+        .in("id", result.rebooked);
+      for (const r of rows ?? []) {
+        await updateLinkedCalendarEvent(r.id, r.date, r.creneau, r.type, mergedConfig);
+      }
+    }
+    return { ok: true, result };
+  }
+
+  function rebookingSummary(result: RuleChangeResult): string | null {
+    const parts: string[] = [];
+    if (result.rebooked.length) parts.push(`${result.rebooked.length} réservation(s) recasée(s)`);
+    if (result.night_cancelled.length) parts.push(`${result.night_cancelled.length} nuitée(s) annulée(s)`);
+    if (result.failed.length) parts.push(`${result.failed.length} réservation(s) à recaser manuellement`);
+    return parts.length ? parts.join(", ") + " — visiteurs alertés." : null;
+  }
+
   // ── Nuitées toggle ─────────────────────────────────────────────────────────
   async function handleToggleNight() {
     if (!slotConfig) return;
     setNightToggling(true);
     const nextEnabled = !slotConfig.night_enabled;
-    const { error } = await supabase
-      .from("slot_config")
-      .update({ night_enabled: nextEnabled })
-      .eq("id", slotConfig.id);
+    const wasEnabled = slotConfig.night_enabled;
+    const res = await applyRuleChange({ night_enabled: nextEnabled });
     setNightToggling(false);
-    if (error) {
+    refreshSlotConfig();
+    if (!res.ok) {
       showToast("Erreur lors de la mise à jour.");
       return;
     }
-    showToast(slotConfig.night_enabled ? "Nuitées suspendues ✓" : "Nuitées activées ✓");
-    await logFieldChange("night_enabled", slotConfig.night_enabled ? "Activées" : "Suspendues", nextEnabled ? "Activées" : "Suspendues");
+    await logFieldChange("night_enabled", wasEnabled ? "Activées" : "Suspendues", nextEnabled ? "Activées" : "Suspendues");
     loadHistory();
+    showToast(rebookingSummary(res.result) ?? (wasEnabled ? "Nuitées suspendues ✓" : "Nuitées activées ✓"));
   }
 
   async function handleSaveNightHours() {
@@ -752,13 +805,12 @@ export default function SettingsScreen() {
       logs.push(logFieldChange("night_end_hour", formatHourLabel(slotConfig.night_end_hour ?? 8), formatHourLabel(nightEndHour)));
     }
     await Promise.all(logs);
-    const { error } = await supabase.from("slot_config").update({
-      night_start_hour: nightStartHour,
-      night_end_hour: nightEndHour,
-    }).eq("id", slotConfig.id);
+    const res = await applyRuleChange({ night_start_hour: nightStartHour, night_end_hour: nightEndHour });
     setNightHoursSaving(false);
-    if (error) showToast("Erreur lors de la sauvegarde.");
-    else { showToast("Heures de nuitée enregistrées ✓"); refreshSlotConfig(); loadHistory(); }
+    refreshSlotConfig();
+    loadHistory();
+    if (!res.ok) { showToast("Erreur lors de la sauvegarde."); return; }
+    showToast(rebookingSummary(res.result) ?? "Heures de nuitée enregistrées ✓");
   }
 
   // ── Règles des créneaux ───────────────────────────────────────────────────
@@ -820,37 +872,26 @@ export default function SettingsScreen() {
     }
     await Promise.all(logs);
 
-    // Première update : champs existants (toujours présents en DB)
-    const { error: e1 } = await supabase.from("slot_config").update({
+    const res = await applyRuleChange({
       visit_start_hour: visitStartHour,
       visit_end_hour: visitEndHour,
       slot_duration_minutes: slotDuration,
       min_gap_minutes: slotGap,
       max_visitors_per_slot: maxVisitors,
-    }).eq("id", slotConfig.id);
-
-    if (e1) {
-      setSlotRulesSaving(false);
-      showToast("Erreur : " + e1.message);
-      return;
-    }
-
-    // Deuxième update : nouvelles colonnes (requiert la migration SQL)
-    const { error: e2 } = await supabase.from("slot_config").update({
       allowed_weekdays: allowedWeekdays,
       blocked_dates: blockedDates,
       blocked_date_reasons: blockedDateReasons,
       gap_includes_duration: gapIncludesDuration,
-    }).eq("id", slotConfig.id);
+    });
 
     setSlotRulesSaving(false);
     refreshSlotConfig();
     loadHistory();
-    if (e2) {
-      showToast("Horaires enregistrés ✓ — exécutez la migration SQL pour activer les jours/dates.");
-    } else {
-      showToast("Règles de visite enregistrées ✓");
+    if (!res.ok) {
+      showToast("Erreur : " + res.error);
+      return;
     }
+    showToast(rebookingSummary(res.result) ?? "Règles de visite enregistrées ✓");
   }
 
   // ── Theme switch ───────────────────────────────────────────────────────────
