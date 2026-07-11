@@ -176,14 +176,14 @@ begin
     for v_cohort in
       select
         coalesce(group_id, id) as cohort_key,
-        (array_agg(date order by "timestamp"))[1] as cohort_date,
-        (array_agg(creneau order by "timestamp"))[1] as cohort_creneau,
-        array_agg(id order by "timestamp") as member_ids,
+        (array_agg(date order by created_at))[1] as cohort_date,
+        (array_agg(creneau order by created_at))[1] as cohort_creneau,
+        array_agg(id order by created_at) as member_ids,
         count(*) as cohort_size
       from reservations
       where space_id = p_space_id and type = 'Visite' and date >= current_date
       group by coalesce(group_id, id)
-      order by min("timestamp") asc
+      order by min(created_at) asc
     loop
       v_found := (v_cohort.cohort_creneau = any(p_new_slots))
         and (extract(dow from v_cohort.cohort_date)::integer = any(v_allowed_weekdays))
