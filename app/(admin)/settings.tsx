@@ -20,8 +20,19 @@ import { useSpace } from "@/lib/SpaceContext";
 import { themes, themeLabels } from "@/lib/themes";
 import PatientAvatar from "@/components/PatientAvatar";
 import { resolvePlaceFromMapsUrl } from "@/lib/address";
+import { generateSlots } from "@/lib/slotUtils";
+import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
 import type { ThemeKey, Theme } from "@/lib/themes";
-import type { NewsEntry, Task, SupportMessage } from "@/lib/types";
+import type { NewsEntry, Task, SupportMessage, SlotConfig, ReservationChangeHistoryEntry } from "@/lib/types";
+
+// Résultat de la RPC apply_slot_rule_change (voir migration
+// 20260711_apply_slot_rule_change.sql) — ids des réservations recasées/
+// annulées par le changement de règles qui vient d'être validé.
+interface RuleChangeResult {
+  rebooked: string[];
+  night_cancelled: string[];
+  failed: string[];
+}
 
 // ─── Historique des champs hospitaliers ───────────────────────────────────────
 interface FieldHistoryEntry {
@@ -40,6 +51,17 @@ const FIELD_LABELS: Record<string, string> = {
   home_care_mode: "Mode de soin",
   home_address: "Adresse du domicile",
   home_maps_url: "Lien Google Maps (domicile)",
+  visit_start_hour: "Heure de début des visites",
+  visit_end_hour: "Heure de fin des visites",
+  slot_duration_minutes: "Durée d'une visite",
+  min_gap_minutes: "Intervalle entre créneaux",
+  gap_includes_duration: "Intervalle inclut la durée",
+  max_visitors_per_slot: "Visiteurs max par créneau",
+  allowed_weekdays: "Jours de visite autorisés",
+  blocked_dates: "Dates sans visites",
+  night_enabled: "Nuitées",
+  night_start_hour: "Heure de début des nuitées",
+  night_end_hour: "Heure de fin des nuitées",
 };
 const FIELD_ICONS: Record<string, string> = {
   hospital_room: "🛏️",
@@ -49,7 +71,50 @@ const FIELD_ICONS: Record<string, string> = {
   home_care_mode: "🔄",
   home_address: "📍",
   home_maps_url: "🗺️",
+  visit_start_hour: "⏰",
+  visit_end_hour: "⏰",
+  slot_duration_minutes: "⏱",
+  min_gap_minutes: "⏲",
+  gap_includes_duration: "⏲",
+  max_visitors_per_slot: "👥",
+  allowed_weekdays: "📅",
+  blocked_dates: "🚫",
+  night_enabled: "🌙",
+  night_start_hour: "🌙",
+  night_end_hour: "🌙",
 };
+
+// Champs journalisés dans space_field_history qui appartiennent à la
+// section "Règles de visite" (par opposition aux champs hospitaliers ci-dessus).
+const VISIT_RULE_FIELD_NAMES = new Set([
+  "visit_start_hour", "visit_end_hour", "slot_duration_minutes", "min_gap_minutes",
+  "gap_includes_duration", "max_visitors_per_slot", "allowed_weekdays", "blocked_dates",
+  "night_enabled", "night_start_hour", "night_end_hour",
+]);
+
+const WEEKDAY_HISTORY_LABELS: Record<number, string> = {
+  0: "Dim", 1: "Lun", 2: "Mar", 3: "Mer", 4: "Jeu", 5: "Ven", 6: "Sam",
+};
+
+function formatHourLabel(hour: number) {
+  return `${String(hour).padStart(2, "0")}:00`;
+}
+
+function formatWeekdaysList(days: number[]) {
+  if (!days.length) return "Aucun";
+  return [...days]
+    .sort((a, b) => (a === 0 ? 7 : a) - (b === 0 ? 7 : b))
+    .map((d) => WEEKDAY_HISTORY_LABELS[d])
+    .join(", ");
+}
+
+function formatBlockedDatesList(dates: string[]) {
+  if (!dates.length) return "Aucune";
+  return [...dates]
+    .sort()
+    .map((iso) => new Date(iso + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "short" }))
+    .join(", ");
+}
 
 // ─── Swatches de prévisualisation par thème ───────────────────────────────────
 const THEME_SWATCHES: Record<ThemeKey, string> = {
@@ -237,8 +302,10 @@ export default function SettingsScreen() {
   const [prolonging, setProlonging] = useState(false);
   const [toast, setToast] = useState("");
 
-  // Section active de la grille de réglages (null = grille de tuiles affichée)
-  const [activeSection, setActiveSection] = useState<SectionKey | null>(null);
+  // Section active de la barre de navigation des réglages — la roue ⚙️ n'est
+  // plus cliquable (simple en-tête de rubrique), donc on ouvre toujours sur
+  // le premier onglet ("Lieux") plutôt que sur un état "aucune section".
+  const [activeSection, setActiveSection] = useState<SectionKey | null>("coord");
 
   // Admin notes
   const notesInit = useRef(false);
@@ -323,12 +390,23 @@ export default function SettingsScreen() {
   const [fieldHistory, setFieldHistory] = useState<FieldHistoryEntry[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
-  // Historique (infos hospitalières + consignes + publications) — affiché en tuile
+  // Historique (infos hospitalières + règles de visite + consignes + publications) — affiché en tuile
   const [historySearch, setHistorySearch] = useState("");
   const [pubLoading, setPubLoading] = useState(false);
   const [pubNews, setPubNews] = useState<NewsEntry[]>([]);
   const [pubTasks, setPubTasks] = useState<Task[]>([]);
   const [pubMessages, setPubMessages] = useState<SupportMessage[]>([]);
+  const [reservationChangeHistory, setReservationChangeHistory] = useState<ReservationChangeHistoryEntry[]>([]);
+  const [resaHistoryLoading, setResaHistoryLoading] = useState(false);
+
+  // Sous-rubriques de l'historique en accordéon (repliées par défaut — trop
+  // long à scroller sinon une fois l'espace utilisé depuis un moment).
+  const [historyBlocksOpen, setHistoryBlocksOpen] = useState({
+    hosp: false, regles: false, consignes: false, resa: false, pub: false,
+  });
+  function toggleHistoryBlock(key: keyof typeof historyBlocksOpen) {
+    setHistoryBlocksOpen((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
 
   // Soin à domicile toggle
   const [homeCareToggling, setHomeCareToggling] = useState(false);
@@ -468,11 +546,25 @@ export default function SettingsScreen() {
     setPubLoading(false);
   }
 
+  async function loadReservationChangeHistory() {
+    if (!space) return;
+    setResaHistoryLoading(true);
+    const { data } = await supabase
+      .from("reservation_change_history")
+      .select("*")
+      .eq("space_id", space.id)
+      .order("changed_at", { ascending: false })
+      .limit(50);
+    setReservationChangeHistory(data || []);
+    setResaHistoryLoading(false);
+  }
+
   function openSection(key: SectionKey) {
     if (key === "hist") {
       setHistorySearch("");
       loadHistory();
       loadPublicationsHistory();
+      loadReservationChangeHistory();
     }
     setActiveSection(key);
   }
@@ -484,10 +576,17 @@ export default function SettingsScreen() {
   }
 
   const hospitalFieldHistory = fieldHistory.filter((h) =>
-    h.field_name !== "visit_rules" && matchesHistoryQuery(FIELD_LABELS[h.field_name] ?? h.field_name, h.old_value, h.new_value)
+    h.field_name !== "visit_rules" && !VISIT_RULE_FIELD_NAMES.has(h.field_name)
+    && matchesHistoryQuery(FIELD_LABELS[h.field_name] ?? h.field_name, h.old_value, h.new_value)
+  );
+  const slotRuleFieldHistory = fieldHistory.filter((h) =>
+    VISIT_RULE_FIELD_NAMES.has(h.field_name) && matchesHistoryQuery(FIELD_LABELS[h.field_name] ?? h.field_name, h.old_value, h.new_value)
   );
   const visitRulesHistory = fieldHistory.filter((h) =>
     h.field_name === "visit_rules" && matchesHistoryQuery(h.old_value, h.new_value)
+  );
+  const filteredReservationChangeHistory = reservationChangeHistory.filter((h) =>
+    matchesHistoryQuery(h.prenom, h.nom, h.message)
   );
   const filteredPubNews = pubNews.filter((n) => matchesHistoryQuery(n.content, n.author_prenom, n.author_nom));
   const filteredPubTasks = pubTasks.filter((t) => matchesHistoryQuery(t.title, t.description, t.category));
@@ -653,29 +752,84 @@ export default function SettingsScreen() {
     );
   }
 
+  // ── Bascule des règles de créneaux ──────────────────────────────────────────
+  // Point d'entrée unique vers apply_slot_rule_change (RPC atomique) pour les
+  // trois handlers ci-dessous : verse l'historique versionné, met à jour la
+  // config live, et — si le changement est structurel — recase les
+  // réservations futures invalidées (voir la migration pour l'algorithme).
+  // mergedConfig sert à la fois à calculer p_new_slots (seule source de
+  // vérité : generateSlots dans lib/slotUtils.ts) et à la synchro calendrier
+  // native opportuniste des réservations recasées sur cet appareil.
+  async function applyRuleChange(
+    patch: Partial<SlotConfig>,
+  ): Promise<{ ok: true; result: RuleChangeResult } | { ok: false; error: string }> {
+    if (!space || !slotConfig) return { ok: false, error: "NO_SPACE" };
+    const mergedConfig: SlotConfig = { ...slotConfig, ...patch };
+    const newSlots = generateSlots(mergedConfig);
+
+    const { data, error } = await supabase.rpc("apply_slot_rule_change", {
+      p_space_id: space.id,
+      p_new_config: patch,
+      p_new_slots: newSlots,
+    });
+    if (error) return { ok: false, error: error.message };
+
+    const result = data as RuleChangeResult;
+    if (result.rebooked.length > 0) {
+      const { data: rows } = await supabase
+        .from("reservations")
+        .select("id, date, creneau, type")
+        .in("id", result.rebooked);
+      for (const r of rows ?? []) {
+        await updateLinkedCalendarEvent(r.id, r.date, r.creneau, r.type, mergedConfig);
+      }
+    }
+    return { ok: true, result };
+  }
+
+  function rebookingSummary(result: RuleChangeResult): string | null {
+    const parts: string[] = [];
+    if (result.rebooked.length) parts.push(`${result.rebooked.length} réservation(s) recasée(s)`);
+    if (result.night_cancelled.length) parts.push(`${result.night_cancelled.length} nuitée(s) annulée(s)`);
+    if (result.failed.length) parts.push(`${result.failed.length} réservation(s) à recaser manuellement`);
+    return parts.length ? parts.join(", ") + " — visiteurs alertés." : null;
+  }
+
   // ── Nuitées toggle ─────────────────────────────────────────────────────────
   async function handleToggleNight() {
     if (!slotConfig) return;
     setNightToggling(true);
-    const { error } = await supabase
-      .from("slot_config")
-      .update({ night_enabled: !slotConfig.night_enabled })
-      .eq("id", slotConfig.id);
+    const nextEnabled = !slotConfig.night_enabled;
+    const wasEnabled = slotConfig.night_enabled;
+    const res = await applyRuleChange({ night_enabled: nextEnabled });
     setNightToggling(false);
-    if (error) showToast("Erreur lors de la mise à jour.");
-    else showToast(slotConfig.night_enabled ? "Nuitées suspendues ✓" : "Nuitées activées ✓");
+    refreshSlotConfig();
+    if (!res.ok) {
+      showToast("Erreur lors de la mise à jour.");
+      return;
+    }
+    await logFieldChange("night_enabled", wasEnabled ? "Activées" : "Suspendues", nextEnabled ? "Activées" : "Suspendues");
+    loadHistory();
+    showToast(rebookingSummary(res.result) ?? (wasEnabled ? "Nuitées suspendues ✓" : "Nuitées activées ✓"));
   }
 
   async function handleSaveNightHours() {
     if (!slotConfig) return;
     setNightHoursSaving(true);
-    const { error } = await supabase.from("slot_config").update({
-      night_start_hour: nightStartHour,
-      night_end_hour: nightEndHour,
-    }).eq("id", slotConfig.id);
+    const logs: Promise<void>[] = [];
+    if (nightStartHour !== (slotConfig.night_start_hour ?? 19)) {
+      logs.push(logFieldChange("night_start_hour", formatHourLabel(slotConfig.night_start_hour ?? 19), formatHourLabel(nightStartHour)));
+    }
+    if (nightEndHour !== (slotConfig.night_end_hour ?? 8)) {
+      logs.push(logFieldChange("night_end_hour", formatHourLabel(slotConfig.night_end_hour ?? 8), formatHourLabel(nightEndHour)));
+    }
+    await Promise.all(logs);
+    const res = await applyRuleChange({ night_start_hour: nightStartHour, night_end_hour: nightEndHour });
     setNightHoursSaving(false);
-    if (error) showToast("Erreur lors de la sauvegarde.");
-    else { showToast("Heures de nuitée enregistrées ✓"); refreshSlotConfig(); }
+    refreshSlotConfig();
+    loadHistory();
+    if (!res.ok) { showToast("Erreur lors de la sauvegarde."); return; }
+    showToast(rebookingSummary(res.result) ?? "Heures de nuitée enregistrées ✓");
   }
 
   // ── Règles des créneaux ───────────────────────────────────────────────────
@@ -706,36 +860,57 @@ export default function SettingsScreen() {
     if (!slotConfig) return;
     setSlotRulesSaving(true);
 
-    // Première update : champs existants (toujours présents en DB)
-    const { error: e1 } = await supabase.from("slot_config").update({
+    const logs: Promise<void>[] = [];
+    if (visitStartHour !== slotConfig.visit_start_hour) {
+      logs.push(logFieldChange("visit_start_hour", formatHourLabel(slotConfig.visit_start_hour), formatHourLabel(visitStartHour)));
+    }
+    if (visitEndHour !== slotConfig.visit_end_hour) {
+      logs.push(logFieldChange("visit_end_hour", formatHourLabel(slotConfig.visit_end_hour), formatHourLabel(visitEndHour)));
+    }
+    if (slotDuration !== slotConfig.slot_duration_minutes) {
+      logs.push(logFieldChange("slot_duration_minutes", formatDuration(slotConfig.slot_duration_minutes), formatDuration(slotDuration)));
+    }
+    const prevGap = Math.max(5, slotConfig.min_gap_minutes || 0);
+    if (slotGap !== prevGap) {
+      logs.push(logFieldChange("min_gap_minutes", formatDuration(prevGap), formatDuration(slotGap)));
+    }
+    if (maxVisitors !== slotConfig.max_visitors_per_slot) {
+      logs.push(logFieldChange("max_visitors_per_slot", String(slotConfig.max_visitors_per_slot), String(maxVisitors)));
+    }
+    const prevGapIncludes = slotConfig.gap_includes_duration ?? false;
+    if (gapIncludesDuration !== prevGapIncludes) {
+      logs.push(logFieldChange("gap_includes_duration", prevGapIncludes ? "Oui" : "Non", gapIncludesDuration ? "Oui" : "Non"));
+    }
+    const prevWeekdays = slotConfig.allowed_weekdays ?? [0, 1, 2, 3, 4, 5, 6];
+    if (JSON.stringify([...allowedWeekdays].sort()) !== JSON.stringify([...prevWeekdays].sort())) {
+      logs.push(logFieldChange("allowed_weekdays", formatWeekdaysList(prevWeekdays), formatWeekdaysList(allowedWeekdays)));
+    }
+    const prevBlockedDates = slotConfig.blocked_dates ?? [];
+    if (JSON.stringify([...blockedDates].sort()) !== JSON.stringify([...prevBlockedDates].sort())) {
+      logs.push(logFieldChange("blocked_dates", formatBlockedDatesList(prevBlockedDates), formatBlockedDatesList(blockedDates)));
+    }
+    await Promise.all(logs);
+
+    const res = await applyRuleChange({
       visit_start_hour: visitStartHour,
       visit_end_hour: visitEndHour,
       slot_duration_minutes: slotDuration,
       min_gap_minutes: slotGap,
       max_visitors_per_slot: maxVisitors,
-    }).eq("id", slotConfig.id);
-
-    if (e1) {
-      setSlotRulesSaving(false);
-      showToast("Erreur : " + e1.message);
-      return;
-    }
-
-    // Deuxième update : nouvelles colonnes (requiert la migration SQL)
-    const { error: e2 } = await supabase.from("slot_config").update({
       allowed_weekdays: allowedWeekdays,
       blocked_dates: blockedDates,
       blocked_date_reasons: blockedDateReasons,
       gap_includes_duration: gapIncludesDuration,
-    }).eq("id", slotConfig.id);
+    });
 
     setSlotRulesSaving(false);
     refreshSlotConfig();
-    if (e2) {
-      showToast("Horaires enregistrés ✓ — exécutez la migration SQL pour activer les jours/dates.");
-    } else {
-      showToast("Règles de visite enregistrées ✓");
+    loadHistory();
+    if (!res.ok) {
+      showToast("Erreur : " + res.error);
+      return;
     }
+    showToast(rebookingSummary(res.result) ?? "Règles de visite enregistrées ✓");
   }
 
   // ── Theme switch ───────────────────────────────────────────────────────────
@@ -1596,116 +1771,243 @@ export default function SettingsScreen() {
               />
 
               {/* Bloc 1 : Infos hospitalières */}
-              <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 0 }]}>🏥 Infos hospitalières</Text>
-              {historyLoading ? (
-                <ActivityIndicator color={C.accent} style={{ marginVertical: 8 }} />
-              ) : hospitalFieldHistory.length === 0 ? (
-                <Text style={[styles.historyEmpty, { color: C.muted }]}>Aucun changement trouvé.</Text>
-              ) : (
-                hospitalFieldHistory.map((h) => (
-                  <View key={h.id} style={[styles.historyRow, { borderLeftColor: C.accent }]}>
-                    <Text style={[styles.historyField, { color: "#fff" }]}>
-                      {FIELD_ICONS[h.field_name] ?? "✏️"} {FIELD_LABELS[h.field_name] ?? h.field_name}
-                      {h.new_value ? ` → "${h.new_value}"` : " → (vide)"}
-                    </Text>
-                    {h.old_value != null && (
-                      <Text style={[styles.historyOld, { color: C.muted }]}>était : {h.old_value || "(vide)"}</Text>
-                    )}
-                    <Text style={[styles.historyDate, { color: C.muted }]}>
-                      {new Date(h.changed_at).toLocaleString("fr-FR", {
-                        day: "numeric", month: "long", year: "numeric",
-                        hour: "2-digit", minute: "2-digit",
-                      })}
-                    </Text>
-                  </View>
-                ))
+              <TouchableOpacity style={styles.historyBlockHeader} onPress={() => toggleHistoryBlock("hosp")} activeOpacity={0.7}>
+                <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 0 }]}>
+                  🏥 Infos hospitalières{hospitalFieldHistory.length > 0 ? ` (${hospitalFieldHistory.length})` : ""}
+                </Text>
+                <Text style={[styles.historyToggleIcon, { color: C.muted }]}>{historyBlocksOpen.hosp ? "▾" : "▸"}</Text>
+              </TouchableOpacity>
+              {historyBlocksOpen.hosp && (
+                historyLoading ? (
+                  <ActivityIndicator color={C.accent} style={{ marginVertical: 8 }} />
+                ) : hospitalFieldHistory.length === 0 ? (
+                  <Text style={[styles.historyEmpty, { color: C.muted }]}>Aucun changement trouvé.</Text>
+                ) : (
+                  hospitalFieldHistory.map((h) => (
+                    <View key={h.id} style={[styles.historyRow, { borderLeftColor: C.accent }]}>
+                      <Text style={[styles.historyField, { color: "#fff" }]}>
+                        {FIELD_ICONS[h.field_name] ?? "✏️"} {FIELD_LABELS[h.field_name] ?? h.field_name}
+                        {h.new_value ? ` → "${h.new_value}"` : " → (vide)"}
+                      </Text>
+                      {h.old_value != null && (
+                        <Text style={[styles.historyOld, { color: C.muted }]}>était : {h.old_value || "(vide)"}</Text>
+                      )}
+                      <Text style={[styles.historyDate, { color: C.muted }]}>
+                        {new Date(h.changed_at).toLocaleString("fr-FR", {
+                          day: "numeric", month: "long", year: "numeric",
+                          hour: "2-digit", minute: "2-digit",
+                        })}
+                      </Text>
+                    </View>
+                  ))
+                )
               )}
 
               <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
 
-              {/* Bloc 2 : Consignes de visite */}
-              <Text style={[styles.fieldLabel, { color: C.gold }]}>📝 Consignes de visite</Text>
-              {historyLoading ? (
-                <ActivityIndicator color={C.accent} style={{ marginVertical: 8 }} />
-              ) : visitRulesHistory.length === 0 ? (
-                <Text style={[styles.historyEmpty, { color: C.muted }]}>Aucune modification enregistrée.</Text>
-              ) : (
-                visitRulesHistory.map((h) => (
-                  <View key={h.id} style={[styles.historyRow, { borderLeftColor: C.accent }]}>
-                    <Text style={[styles.historyField, { color: "#fff" }]}>
-                      {h.new_value ? `→ "${h.new_value}"` : "→ (vide)"}
-                    </Text>
-                    {h.old_value != null && (
-                      <Text style={[styles.historyOld, { color: C.muted }]}>était : {h.old_value || "(vide)"}</Text>
-                    )}
-                    <Text style={[styles.historyDate, { color: C.muted }]}>
-                      {new Date(h.changed_at).toLocaleString("fr-FR", {
-                        day: "numeric", month: "long", year: "numeric",
-                        hour: "2-digit", minute: "2-digit",
-                      })}
-                    </Text>
-                  </View>
-                ))
+              {/* Bloc 2 : Règles de visite */}
+              <TouchableOpacity style={styles.historyBlockHeader} onPress={() => toggleHistoryBlock("regles")} activeOpacity={0.7}>
+                <Text style={[styles.fieldLabel, { color: C.gold }]}>
+                  ⏰ Règles de visite{slotRuleFieldHistory.length > 0 ? ` (${slotRuleFieldHistory.length})` : ""}
+                </Text>
+                <Text style={[styles.historyToggleIcon, { color: C.muted }]}>{historyBlocksOpen.regles ? "▾" : "▸"}</Text>
+              </TouchableOpacity>
+              {historyBlocksOpen.regles && (
+                historyLoading ? (
+                  <ActivityIndicator color={C.accent} style={{ marginVertical: 8 }} />
+                ) : slotRuleFieldHistory.length === 0 ? (
+                  <Text style={[styles.historyEmpty, { color: C.muted }]}>Aucun changement trouvé.</Text>
+                ) : (
+                  slotRuleFieldHistory.map((h) => (
+                    <View key={h.id} style={[styles.historyRow, { borderLeftColor: C.accent }]}>
+                      <Text style={[styles.historyField, { color: "#fff" }]}>
+                        {FIELD_ICONS[h.field_name] ?? "✏️"} {FIELD_LABELS[h.field_name] ?? h.field_name}
+                        {h.new_value ? ` → ${h.new_value}` : " → (vide)"}
+                      </Text>
+                      {h.old_value != null && (
+                        <Text style={[styles.historyOld, { color: C.muted }]}>était : {h.old_value || "(vide)"}</Text>
+                      )}
+                      <Text style={[styles.historyDate, { color: C.muted }]}>
+                        {new Date(h.changed_at).toLocaleString("fr-FR", {
+                          day: "numeric", month: "long", year: "numeric",
+                          hour: "2-digit", minute: "2-digit",
+                        })}
+                      </Text>
+                    </View>
+                  ))
+                )
               )}
 
               <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
 
-              {/* Bloc 3 : Publications */}
-              <Text style={[styles.fieldLabel, { color: C.gold }]}>📢 Publications</Text>
-              {pubLoading ? (
-                <ActivityIndicator color={C.accent} style={{ marginVertical: 8 }} />
-              ) : (
-                <>
-                  <Text style={[styles.historySubGroup, { color: C.muted }]}>📰 Nouvelles du jour ({filteredPubNews.length})</Text>
-                  {filteredPubNews.length === 0 ? (
-                    <Text style={[styles.historyEmpty, { color: C.muted }]}>Aucune nouvelle trouvée.</Text>
-                  ) : (
-                    filteredPubNews.map((n) => (
-                      <View key={n.id} style={[styles.historyRow, { borderLeftColor: C.accent }]}>
-                        <Text style={[styles.historyField, { color: "#fff" }]} numberOfLines={2}>{n.content}</Text>
-                        <Text style={[styles.historyDate, { color: C.muted }]}>
-                          {n.author_prenom} {n.author_nom} · {new Date(n.created_at).toLocaleString("fr-FR", {
-                            day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit",
-                          })}
-                        </Text>
-                      </View>
-                    ))
-                  )}
+              {/* Bloc 3 : Consignes de visite */}
+              <TouchableOpacity style={styles.historyBlockHeader} onPress={() => toggleHistoryBlock("consignes")} activeOpacity={0.7}>
+                <Text style={[styles.fieldLabel, { color: C.gold }]}>
+                  📝 Consignes de visite{visitRulesHistory.length > 0 ? ` (${visitRulesHistory.length})` : ""}
+                </Text>
+                <Text style={[styles.historyToggleIcon, { color: C.muted }]}>{historyBlocksOpen.consignes ? "▾" : "▸"}</Text>
+              </TouchableOpacity>
+              {historyBlocksOpen.consignes && (
+                historyLoading ? (
+                  <ActivityIndicator color={C.accent} style={{ marginVertical: 8 }} />
+                ) : visitRulesHistory.length === 0 ? (
+                  <Text style={[styles.historyEmpty, { color: C.muted }]}>Aucune modification enregistrée.</Text>
+                ) : (
+                  visitRulesHistory.map((h) => (
+                    <View key={h.id} style={[styles.historyRow, { borderLeftColor: C.accent }]}>
+                      <Text style={[styles.historyField, { color: "#fff" }]}>
+                        {h.new_value ? `→ "${h.new_value}"` : "→ (vide)"}
+                      </Text>
+                      {h.old_value != null && (
+                        <Text style={[styles.historyOld, { color: C.muted }]}>était : {h.old_value || "(vide)"}</Text>
+                      )}
+                      <Text style={[styles.historyDate, { color: C.muted }]}>
+                        {new Date(h.changed_at).toLocaleString("fr-FR", {
+                          day: "numeric", month: "long", year: "numeric",
+                          hour: "2-digit", minute: "2-digit",
+                        })}
+                      </Text>
+                    </View>
+                  ))
+                )
+              )}
 
-                  <Text style={[styles.historySubGroup, { color: C.muted, marginTop: 10 }]}>🤝 Entraide — besoins ({filteredPubTasks.length})</Text>
-                  {filteredPubTasks.length === 0 ? (
-                    <Text style={[styles.historyEmpty, { color: C.muted }]}>Aucun besoin trouvé.</Text>
-                  ) : (
-                    filteredPubTasks.map((t) => (
-                      <View key={t.id} style={[styles.historyRow, { borderLeftColor: C.accent }]}>
-                        <Text style={[styles.historyField, { color: "#fff" }]} numberOfLines={1}>
-                          {TASK_CAT_ICONS[t.category]} {t.title}
-                        </Text>
-                        <Text style={[styles.historyDate, { color: C.muted }]}>
-                          {new Date(t.created_at).toLocaleString("fr-FR", {
-                            day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit",
-                          })}
-                        </Text>
-                      </View>
-                    ))
-                  )}
+              <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
 
-                  <Text style={[styles.historySubGroup, { color: C.muted, marginTop: 10 }]}>💛 Mur de soutien ({filteredPubMessages.length})</Text>
-                  {filteredPubMessages.length === 0 ? (
-                    <Text style={[styles.historyEmpty, { color: C.muted }]}>Aucun message trouvé.</Text>
-                  ) : (
-                    filteredPubMessages.map((m) => (
-                      <View key={m.id} style={[styles.historyRow, { borderLeftColor: C.accent }]}>
-                        <Text style={[styles.historyField, { color: "#fff" }]} numberOfLines={2}>{m.message}</Text>
+              {/* Bloc 4 : Modification de réservations — recasages/annulations
+                  automatiques posés par apply_slot_rule_change() lors d'un
+                  changement de règles. Historique permanent (reservation_change_history),
+                  distinct des alertes reservations.alert_* qui s'effacent dès que
+                  la réservation concernée est modifiée. */}
+              <TouchableOpacity style={styles.historyBlockHeader} onPress={() => toggleHistoryBlock("resa")} activeOpacity={0.7}>
+                <Text style={[styles.fieldLabel, { color: C.gold }]}>
+                  🔁 Modification de réservations{filteredReservationChangeHistory.length > 0 ? ` (${filteredReservationChangeHistory.length})` : ""}
+                </Text>
+                <Text style={[styles.historyToggleIcon, { color: C.muted }]}>{historyBlocksOpen.resa ? "▾" : "▸"}</Text>
+              </TouchableOpacity>
+              {historyBlocksOpen.resa && (
+                resaHistoryLoading ? (
+                  <ActivityIndicator color={C.accent} style={{ marginVertical: 8 }} />
+                ) : filteredReservationChangeHistory.length === 0 ? (
+                  <Text style={[styles.historyEmpty, { color: C.muted }]}>Aucune modification enregistrée.</Text>
+                ) : (
+                  filteredReservationChangeHistory.map((h) => {
+                    const frDate = (iso: string | null) =>
+                      iso ? new Date(iso + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" }) : "";
+                    const changeLine =
+                      h.change_type === "night_cancelled"
+                        ? `${frDate(h.previous_date)} à ${h.previous_creneau} — nuitée annulée`
+                        : h.change_type === "rebooking_failed"
+                        ? `${frDate(h.previous_date)} à ${h.previous_creneau} → non replacé`
+                        : `${frDate(h.previous_date)} à ${h.previous_creneau} → ${frDate(h.new_date)} à ${h.new_creneau}`;
+                    return (
+                      <View key={h.id} style={[styles.historyRow, { borderLeftColor: C.danger }]}>
+                        <Text style={[styles.historyField, { color: "#fff" }]}>
+                          {h.change_type === "night_cancelled" ? "🌙" : "☀️"} {h.prenom} {h.nom}
+                        </Text>
+                        <Text style={[styles.historyOld, { color: C.muted }]}>{changeLine}</Text>
+                        <Text style={[styles.historyMsg, { color: C.danger }]}>{h.message}</Text>
                         <Text style={[styles.historyDate, { color: C.muted }]}>
-                          {m.author_prenom} {m.author_nom} · {new Date(m.created_at).toLocaleString("fr-FR", {
-                            day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit",
+                          {new Date(h.changed_at).toLocaleString("fr-FR", {
+                            day: "numeric", month: "long", year: "numeric",
+                            hour: "2-digit", minute: "2-digit",
                           })}
                         </Text>
                       </View>
-                    ))
-                  )}
-                </>
+                    );
+                  })
+                )
+              )}
+
+              <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
+
+              {/* Bloc 5 : Publications */}
+              <TouchableOpacity style={styles.historyBlockHeader} onPress={() => toggleHistoryBlock("pub")} activeOpacity={0.7}>
+                <Text style={[styles.fieldLabel, { color: C.gold }]}>
+                  📢 Publications ({filteredPubNews.length + filteredPubTasks.length + filteredPubMessages.length})
+                </Text>
+                <Text style={[styles.historyToggleIcon, { color: C.muted }]}>{historyBlocksOpen.pub ? "▾" : "▸"}</Text>
+              </TouchableOpacity>
+              {historyBlocksOpen.pub && (
+                pubLoading ? (
+                  <ActivityIndicator color={C.accent} style={{ marginVertical: 8 }} />
+                ) : (
+                  <>
+                    <Text style={[styles.historySubGroup, { color: C.muted }]}>📰 Nouvelles du jour ({filteredPubNews.length})</Text>
+                    {filteredPubNews.length === 0 ? (
+                      <Text style={[styles.historyEmpty, { color: C.muted }]}>Aucune nouvelle trouvée.</Text>
+                    ) : (
+                      filteredPubNews.map((n) => (
+                        <TouchableOpacity
+                          key={n.id}
+                          style={[styles.historyRow, styles.historyRowPressable, { borderLeftColor: C.accent }]}
+                          onPress={() => router.push({ pathname: "/(admin)/news", params: { focusEntryId: n.id } } as any)}
+                          activeOpacity={0.7}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.historyField, { color: "#fff" }]} numberOfLines={2}>{n.content}</Text>
+                            <Text style={[styles.historyDate, { color: C.muted }]}>
+                              {n.author_prenom} {n.author_nom} · {new Date(n.created_at).toLocaleString("fr-FR", {
+                                day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit",
+                              })}
+                            </Text>
+                          </View>
+                          <Text style={[styles.historyRowChevron, { color: C.muted }]}>›</Text>
+                        </TouchableOpacity>
+                      ))
+                    )}
+
+                    <Text style={[styles.historySubGroup, { color: C.muted, marginTop: 10 }]}>🤝 Entraide — besoins ({filteredPubTasks.length})</Text>
+                    {filteredPubTasks.length === 0 ? (
+                      <Text style={[styles.historyEmpty, { color: C.muted }]}>Aucun besoin trouvé.</Text>
+                    ) : (
+                      filteredPubTasks.map((t) => (
+                        <TouchableOpacity
+                          key={t.id}
+                          style={[styles.historyRow, styles.historyRowPressable, { borderLeftColor: C.accent }]}
+                          onPress={() => router.push({ pathname: "/(admin)/entraide", params: { focusTaskId: t.id } } as any)}
+                          activeOpacity={0.7}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.historyField, { color: "#fff" }]} numberOfLines={1}>
+                              {TASK_CAT_ICONS[t.category]} {t.title}
+                            </Text>
+                            <Text style={[styles.historyDate, { color: C.muted }]}>
+                              {new Date(t.created_at).toLocaleString("fr-FR", {
+                                day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit",
+                              })}
+                            </Text>
+                          </View>
+                          <Text style={[styles.historyRowChevron, { color: C.muted }]}>›</Text>
+                        </TouchableOpacity>
+                      ))
+                    )}
+
+                    <Text style={[styles.historySubGroup, { color: C.muted, marginTop: 10 }]}>💛 Mur de soutien ({filteredPubMessages.length})</Text>
+                    {filteredPubMessages.length === 0 ? (
+                      <Text style={[styles.historyEmpty, { color: C.muted }]}>Aucun message trouvé.</Text>
+                    ) : (
+                      filteredPubMessages.map((m) => (
+                        <TouchableOpacity
+                          key={m.id}
+                          style={[styles.historyRow, styles.historyRowPressable, { borderLeftColor: C.accent }]}
+                          onPress={() => router.push({ pathname: "/(admin)/soutien", params: { focusMessageId: m.id } } as any)}
+                          activeOpacity={0.7}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.historyField, { color: "#fff" }]} numberOfLines={2}>{m.message}</Text>
+                            <Text style={[styles.historyDate, { color: C.muted }]}>
+                              {m.author_prenom} {m.author_nom} · {new Date(m.created_at).toLocaleString("fr-FR", {
+                                day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit",
+                              })}
+                            </Text>
+                          </View>
+                          <Text style={[styles.historyRowChevron, { color: C.muted }]}>›</Text>
+                        </TouchableOpacity>
+                      ))
+                    )}
+                  </>
+                )
               )}
             </View>
 
@@ -1774,6 +2076,13 @@ export default function SettingsScreen() {
             { backgroundColor: C.card, borderTopColor: C.border, bottom: 0, height: SETTINGS_NAV_BAR_HEIGHT },
           ]}
         >
+          {/* En-tête de rubrique "Paramètres" — non cliquable, marque juste que
+              les onglets Lieux/Infos/Règles/Histo sont ses sous-menus. */}
+          <View style={styles.settingsNavBtn}>
+            <View style={[styles.settingsNavIconWrap, { backgroundColor: `${C.gold}33` }]}>
+              <Text style={styles.settingsNavIconText}>⚙️</Text>
+            </View>
+          </View>
           {SETTINGS_NAV_ORDER.map((key) => {
             const isDisabled = key === "regles" && !slotConfig;
             const isActive = activeSection === key;
@@ -1801,15 +2110,6 @@ export default function SettingsScreen() {
               </TouchableOpacity>
             );
           })}
-          <TouchableOpacity
-            style={styles.settingsNavBtn}
-            onPress={() => setActiveSection(null)}
-            activeOpacity={0.75}
-          >
-            <View style={[styles.settingsNavIconWrap, { backgroundColor: `${C.gold}33` }]}>
-              <Text style={styles.settingsNavIconText}>⚙️</Text>
-            </View>
-          </TouchableOpacity>
         </View>
       )}
 
@@ -2175,9 +2475,14 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   historyEmpty: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginBottom: 4, fontStyle: "italic" },
+  historyBlockHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  historyToggleIcon: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
   historyRow: { borderLeftWidth: 3, paddingLeft: 12, marginBottom: 12 },
+  historyRowPressable: { flexDirection: "row", alignItems: "center" },
+  historyRowChevron: { fontSize: 18, marginLeft: 8 },
   historyField: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13, marginBottom: 2 },
   historyOld: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginBottom: 2, fontStyle: "italic" },
+  historyMsg: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginBottom: 2 },
   historyDate: { fontFamily: "DM_Sans_400Regular", fontSize: 11 },
   historySubGroup: { fontFamily: "DM_Sans_700Bold", fontSize: 12, marginBottom: 8 },
 

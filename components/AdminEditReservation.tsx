@@ -74,6 +74,15 @@ function AdminEditReservation({ onSaved, onDelete, C }: Props, ref: React.Ref<Ad
         creneau: target.type === "Nuit" ? "🌙 Nuit" : editSlot,
         prenom: prenom.trim(),
         nom: nom.trim(),
+        // Modifier avec succès une réservation recasée/annulée par un
+        // changement de règles efface son alerte du même geste — le badge
+        // "Vu, relayé" disparaît, sans étape de dismiss séparée. L'historique
+        // permanent (reservation_change_history), lui, n'est pas touché.
+        alert_message: null,
+        alert_type: null,
+        alert_seen: true,
+        previous_date: null,
+        previous_creneau: null,
       }, { count: "exact" })
       .eq("id", target.id);
     setSaving(false);
@@ -95,7 +104,15 @@ function AdminEditReservation({ onSaved, onDelete, C }: Props, ref: React.Ref<Ad
     if (cascadeIds.length > 0) {
       const { error: cascadeError } = await supabase
         .from("reservations")
-        .update({ date: editDate, creneau: target.type === "Nuit" ? "🌙 Nuit" : editSlot })
+        .update({
+          date: editDate,
+          creneau: target.type === "Nuit" ? "🌙 Nuit" : editSlot,
+          alert_message: null,
+          alert_type: null,
+          alert_seen: true,
+          previous_date: null,
+          previous_creneau: null,
+        })
         .in("id", cascadeIds);
       if (cascadeError) {
         Alert.alert("Attention", "Le créneau de l'accompagnant n'a pas pu être mis à jour : " + cascadeError.message);

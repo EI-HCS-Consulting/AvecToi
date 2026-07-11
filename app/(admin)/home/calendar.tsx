@@ -12,7 +12,7 @@ import { isSpaceCapped } from "@/lib/freemiumCap";
 const DAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
 
 export default function AdminCalendarScreen() {
-  const { space, slotConfig, slots, reservations, loading, hasSpace, selectedDay, setSelectedDay, setPendingBookingSlot } = useSpace();
+  const { space, slotConfig, slots, reservations, loading, hasSpace, selectedDay, setSelectedDay, setPendingBookingSlot, getConfigForDate, getSlotsForDate } = useSpace();
   const router = useRouter();
   const C = themes[space?.theme ?? "blue"];
   const [nextDispoModal, setNextDispoModal] = useState<{ date: Date; iso: string; slot: string } | null>(null);
@@ -121,7 +121,9 @@ export default function AdminCalendarScreen() {
           {Array(firstDow).fill(null).map((_, i) => <View key={`e${i}`} style={styles.cell} />)}
           {monthDays.map((day) => {
             const iso = toISO(day);
-            const status = getDayStatus(reservations, iso, day, slotConfig, slots, startDate);
+            const dayConfig = getConfigForDate(iso) ?? slotConfig;
+            const daySlots = getSlotsForDate(iso);
+            const status = getDayStatus(reservations, iso, day, dayConfig, daySlots, startDate);
             const isToday = toISO(day) === toISO(today);
             const isSelected = toISO(day) === toISO(selectedDay);
             const isPast = iso < toISO(today) || status === "past";

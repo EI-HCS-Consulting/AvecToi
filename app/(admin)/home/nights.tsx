@@ -58,6 +58,11 @@ export default function AdminNightsScreen() {
     deleteRef.current?.open(r);
   }
 
+  async function handleAckAlert(rs: Reservation[]) {
+    await supabase.from("reservations").update({ alert_seen: true }).in("id", rs.map((r) => r.id));
+    await refreshReservations();
+  }
+
   async function handleConfirmDelete(ids: string[]) {
     const { error, count } = await supabase.from("reservations").delete({ count: "exact" }).in("id", ids);
     if (error || count !== ids.length) {
@@ -74,66 +79,110 @@ export default function AdminNightsScreen() {
       <SpaceHeader space={space} active="nights" basePath="/(admin)/home" C={C} />
 
       <ScrollView contentContainerStyle={styles.scroll}>
-        {!slotConfig.night_enabled ? (
+        {!slotConfig.night_enabled && (
           <View style={styles.empty}>
             <Text style={{ fontSize: 36, marginBottom: 12 }}>🌙</Text>
             <Text style={[styles.emptyText, { color: C.muted }]}>
               Les nuitées sont suspendues. Réactive-les depuis Compte → Paramètres.
             </Text>
           </View>
+        )}
+
+        {slotConfig.night_enabled && (
+          <TouchableOpacity style={[styles.reserveNextBtn, { backgroundColor: C.gold }]} onPress={handleReserveNext} activeOpacity={0.85}>
+            <Text style={styles.reserveNextBtnText}>Prochaine nuitée disponible</Text>
+          </TouchableOpacity>
+        )}
+
+        <Text style={[styles.sectionTitle, { color: C.gold }]}>Nuitées programmées</Text>
+
+        {upcomingNights.length === 0 ? (
+          <View style={styles.empty}>
+            <Text style={{ fontSize: 32, marginBottom: 10 }}>🌙</Text>
+            <Text style={[styles.emptyText, { color: C.muted }]}>Aucune nuitée programmée pour l'instant.</Text>
+          </View>
         ) : (
-          <>
-            <TouchableOpacity style={[styles.reserveNextBtn, { backgroundColor: C.gold }]} onPress={handleReserveNext} activeOpacity={0.85}>
-              <Text style={styles.reserveNextBtnText}>Prochaine nuitée disponible</Text>
-            </TouchableOpacity>
+          upcomingNights.map((r) => {
+            // Un accompagnant (même group_id) partage le même événement
+            // d'alerte — regroupés sur une seule bannière/un seul bouton
+            // "Vu, relayé", affichée sur le premier membre du groupe
+            // rencontré dans cette liste plutôt que dupliquée par carte.
+            const alertCohort = r.alert_message
+              ? upcomingNights.filter((x) => x.alert_message && (r.group_id ? x.group_id === r.group_id : x.id === r.id))
+              : [];
+            const isAlertLeader = alertCohort.length > 0 && alertCohort[0].id === r.id;
+            const alertNeedsAck = alertCohort.some((c) => c.pin === "ADMIN" && !c.alert_seen);
 
-            <Text style={[styles.sectionTitle, { color: C.gold }]}>Nuitées programmées</Text>
-
-            {upcomingNights.length === 0 ? (
-              <View style={styles.empty}>
-                <Text style={{ fontSize: 32, marginBottom: 10 }}>🌙</Text>
-                <Text style={[styles.emptyText, { color: C.muted }]}>Aucune nuitée programmée pour l'instant.</Text>
-              </View>
-            ) : (
-              upcomingNights.map((r) => (
-                <View key={r.id} style={[styles.nightCard, { backgroundColor: C.card, borderColor: r.date === focusDate ? C.accent : C.border }]}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.nightDate, { color: "#fff" }]}>{toFrLong(new Date(r.date + "T12:00:00"))}</Text>
-                    <Text style={[styles.nightVisitor, { color: C.success }]}>● {r.prenom} {r.nom}</Text>
-                    {(r.booked_by_prenom || r.booked_by_nom) ? (
-                      <Text style={[styles.bookedBy, { color: C.muted }]}>Programmé par : {r.booked_by_prenom} {r.booked_by_nom}</Text>
-                    ) : null}
-                    {r.telephone ? <Text style={[styles.nightTel, { color: C.muted }]}>{r.telephone}</Text> : null}
+            return (
+            <View key={r.id} style={[styles.nightCard, { backgroundColor: C.card, borderColor: r.date === focusDate ? C.accent : C.border }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.nightDate, { color: "#fff" }]}>{toFrLong(new Date(r.date + "T12:00:00"))}</Text>
+                <Text style={[styles.nightVisitor, { color: C.success }]}>● {r.prenom} {r.nom}</Text>
+                {(r.booked_by_prenom || r.booked_by_nom) ? (
+                  <Text style={[styles.bookedBy, { color: C.muted }]}>Programmé par : {r.booked_by_prenom} {r.booked_by_nom}</Text>
+                ) : null}
+                {r.telephone ? <Text style={[styles.nightTel, { color: C.muted }]}>{r.telephone}</Text> : null}
+                {isAlertLeader ? (
+                  <View style={[styles.alertBanner, { backgroundColor: "rgba(233,69,96,0.12)", borderColor: "rgba(233,69,96,0.4)" }]}>
+                    {alertCohort.length > 1 && (
+                      <Text style={[styles.alertNames, { color: C.danger }]}>
+                        {alertCohort.map((c) => `${c.prenom} ${c.nom}`).join(", ")}
+                      </Text>
+                    )}
+                    <Text style={[styles.alertText, { color: C.danger }]}>{r.alert_message}</Text>
+                    {alertNeedsAck && (
+                      <TouchableOpacity style={[styles.ackBtn, { borderColor: C.danger }]} onPress={() => handleAckAlert(alertCohort)}>
+                        <Text style={[styles.ackBtnText, { color: C.danger }]}>Vu, relayé ✓</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
-                  <TouchableOpacity style={[styles.editBtn, { borderColor: C.border }]} onPress={() => handleEdit(r)}>
-                    <Text style={[styles.editBtnText, { color: C.muted }]}>Modifier</Text>
-                  </TouchableOpacity>
-                </View>
-              ))
-            )}
-
-            <Text style={[styles.sectionTitle, { color: C.gold, marginTop: 24 }]}>Nuitées effectuées</Text>
-
-            {pastNights.length === 0 ? (
-              <View style={styles.empty}>
-                <Text style={{ fontSize: 32, marginBottom: 10 }}>🌙</Text>
-                <Text style={[styles.emptyText, { color: C.muted }]}>Aucune nuitée effectuée pour l'instant.</Text>
+                ) : null}
               </View>
-            ) : (
-              pastNights.map((r) => (
-                <View key={r.id} style={[styles.nightCard, { backgroundColor: C.card, borderColor: r.date === focusDate ? C.accent : C.border, opacity: 0.7 }]}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.nightDate, { color: "#fff" }]}>{toFrLong(new Date(r.date + "T12:00:00"))}</Text>
-                    <Text style={[styles.nightVisitor, { color: C.success }]}>● {r.prenom} {r.nom}</Text>
-                    {(r.booked_by_prenom || r.booked_by_nom) ? (
-                      <Text style={[styles.bookedBy, { color: C.muted }]}>Programmé par : {r.booked_by_prenom} {r.booked_by_nom}</Text>
-                    ) : null}
-                    {r.telephone ? <Text style={[styles.nightTel, { color: C.muted }]}>{r.telephone}</Text> : null}
+              <TouchableOpacity style={[styles.editBtn, { borderColor: C.border }]} onPress={() => handleEdit(r)}>
+                <Text style={[styles.editBtnText, { color: C.muted }]}>Modifier</Text>
+              </TouchableOpacity>
+            </View>
+            );
+          })
+        )}
+
+        <Text style={[styles.sectionTitle, { color: C.gold, marginTop: 24 }]}>Nuitées effectuées</Text>
+
+        {pastNights.length === 0 ? (
+          <View style={styles.empty}>
+            <Text style={{ fontSize: 32, marginBottom: 10 }}>🌙</Text>
+            <Text style={[styles.emptyText, { color: C.muted }]}>Aucune nuitée effectuée pour l'instant.</Text>
+          </View>
+        ) : (
+          pastNights.map((r) => {
+            const alertCohort = r.alert_message
+              ? pastNights.filter((x) => x.alert_message && (r.group_id ? x.group_id === r.group_id : x.id === r.id))
+              : [];
+            const isAlertLeader = alertCohort.length > 0 && alertCohort[0].id === r.id;
+
+            return (
+            <View key={r.id} style={[styles.nightCard, { backgroundColor: C.card, borderColor: r.date === focusDate ? C.accent : C.border, opacity: 0.7 }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.nightDate, { color: "#fff" }]}>{toFrLong(new Date(r.date + "T12:00:00"))}</Text>
+                <Text style={[styles.nightVisitor, { color: C.success }]}>● {r.prenom} {r.nom}</Text>
+                {(r.booked_by_prenom || r.booked_by_nom) ? (
+                  <Text style={[styles.bookedBy, { color: C.muted }]}>Programmé par : {r.booked_by_prenom} {r.booked_by_nom}</Text>
+                ) : null}
+                {r.telephone ? <Text style={[styles.nightTel, { color: C.muted }]}>{r.telephone}</Text> : null}
+                {isAlertLeader ? (
+                  <View style={[styles.alertBanner, { backgroundColor: "rgba(233,69,96,0.12)", borderColor: "rgba(233,69,96,0.4)" }]}>
+                    {alertCohort.length > 1 && (
+                      <Text style={[styles.alertNames, { color: C.danger }]}>
+                        {alertCohort.map((c) => `${c.prenom} ${c.nom}`).join(", ")}
+                      </Text>
+                    )}
+                    <Text style={[styles.alertText, { color: C.danger }]}>{r.alert_message}</Text>
                   </View>
-                </View>
-              ))
-            )}
-          </>
+                ) : null}
+              </View>
+            </View>
+            );
+          })
         )}
       </ScrollView>
 
@@ -186,6 +235,12 @@ const styles = StyleSheet.create({
   nightTel: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 2 },
   editBtn: { borderWidth: 1, borderRadius: 7, paddingVertical: 6, paddingHorizontal: 10 },
   editBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
+
+  alertBanner: { borderWidth: 1, borderRadius: 8, padding: 8, marginTop: 8 },
+  alertNames: { fontFamily: "DM_Sans_700Bold", fontSize: 12, marginBottom: 2 },
+  alertText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, lineHeight: 16 },
+  ackBtn: { borderWidth: 1, borderRadius: 7, paddingVertical: 5, paddingHorizontal: 10, alignSelf: "flex-start", marginTop: 6 },
+  ackBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 11 },
 
   empty: { alignItems: "center", paddingVertical: 32 },
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 14, textAlign: "center", lineHeight: 21 },
