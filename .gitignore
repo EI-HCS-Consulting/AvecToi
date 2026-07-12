@@ -16,7 +16,8 @@ yarn-debug.log*
 yarn-error.log*
 
 # EAS
-.eas/
+.eas/*
+!.eas/workflows/
 google-play-service-account.json
 service-account*.json
 

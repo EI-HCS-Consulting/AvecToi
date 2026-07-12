@@ -12,6 +12,7 @@ import type { ThemeKey } from "@/lib/themes";
 import { generateDossierCode } from "@/lib/dossierCode";
 import { FREE_VISIT_LIMIT } from "@/lib/freemiumCap";
 import { resolvePlaceFromMapsUrl } from "@/lib/address";
+import { openAndroidTimePicker } from "@/lib/androidTimePicker";
 import type { PatientSpace } from "@/lib/types";
 
 const DOSSIER_CODE_UNIQUE_VIOLATION = "23505";
@@ -527,7 +528,13 @@ export default function PatientOnboarding() {
             <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 4 }]}>Début des visites</Text>
             <TouchableOpacity
               style={[styles.timeBtn, { backgroundColor: C.bg, borderColor: C.border }]}
-              onPress={() => setShowStartPicker(true)}
+              onPress={() => {
+                if (Platform.OS === "android") {
+                  openAndroidTimePicker(hourToDate(visitStartHour), (date) => setVisitStartHour(date.getHours()));
+                } else {
+                  setShowStartPicker(true);
+                }
+              }}
               activeOpacity={0.8}
             >
               <Text style={[styles.timeBtnText, { color: C.text }]}>🕐 {String(visitStartHour).padStart(2, "0")}:00</Text>
@@ -548,7 +555,13 @@ export default function PatientOnboarding() {
             <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 16 }]}>Fin des visites</Text>
             <TouchableOpacity
               style={[styles.timeBtn, { backgroundColor: C.bg, borderColor: C.border }]}
-              onPress={() => setShowEndPicker(true)}
+              onPress={() => {
+                if (Platform.OS === "android") {
+                  openAndroidTimePicker(hourToDate(visitEndHour), (date) => setVisitEndHour(date.getHours()));
+                } else {
+                  setShowEndPicker(true);
+                }
+              }}
               activeOpacity={0.8}
             >
               <Text style={[styles.timeBtnText, { color: C.text }]}>🕐 {String(visitEndHour).padStart(2, "0")}:00</Text>
