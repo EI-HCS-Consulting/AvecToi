@@ -13,6 +13,7 @@ import { generateDossierCode } from "@/lib/dossierCode";
 import { FREE_VISIT_LIMIT } from "@/lib/freemiumCap";
 import { resolvePlaceFromMapsUrl } from "@/lib/address";
 import { openAndroidTimePicker } from "@/lib/androidTimePicker";
+import { formatHourMinute } from "@/lib/slotUtils";
 import type { PatientSpace } from "@/lib/types";
 
 const DOSSIER_CODE_UNIQUE_VIOLATION = "23505";
@@ -22,7 +23,9 @@ const DOSSIER_CODE_MAX_ATTEMPTS = 5;
 // dès la création de l'espace au lieu de devoir passer par Paramètres.
 const DEFAULT_HOURS = {
   visit_start_hour: 14,
+  visit_start_minute: 0,
   visit_end_hour: 20,
+  visit_end_minute: 0,
   slot_duration_minutes: 30,
   min_gap_minutes: 0,
 };
@@ -50,9 +53,9 @@ function isoDate(d: Date) {
   return d.toISOString().split("T")[0];
 }
 
-function hourToDate(hour: number) {
+function hourToDate(hour: number, minute = 0) {
   const d = new Date();
-  d.setHours(hour, 0, 0, 0);
+  d.setHours(hour, minute, 0, 0);
   return d;
 }
 
@@ -168,7 +171,9 @@ export default function PatientOnboarding() {
 
   // Horaires de visite (pré-remplis, modifiables avant création de l'espace)
   const [visitStartHour, setVisitStartHour] = useState(DEFAULT_HOURS.visit_start_hour);
+  const [visitStartMinute, setVisitStartMinute] = useState(DEFAULT_HOURS.visit_start_minute);
   const [visitEndHour, setVisitEndHour] = useState(DEFAULT_HOURS.visit_end_hour);
+  const [visitEndMinute, setVisitEndMinute] = useState(DEFAULT_HOURS.visit_end_minute);
   const [showStartPicker, setShowStartPicker] = useState(false);
   const [showEndPicker, setShowEndPicker] = useState(false);
 
@@ -276,12 +281,17 @@ export default function PatientOnboarding() {
 
       if (spaceErr || !space) throw spaceErr ?? new Error("Création de l'espace impossible.");
 
+      const isValidRange =
+        visitEndHour * 60 + visitEndMinute > visitStartHour * 60 + visitStartMinute;
+
       const { error: slotErr } = await supabase
         .from("slot_config")
         .insert({
           space_id: space.id,
-          visit_start_hour: visitEndHour > visitStartHour ? visitStartHour : DEFAULT_HOURS.visit_start_hour,
-          visit_end_hour: visitEndHour > visitStartHour ? visitEndHour : DEFAULT_HOURS.visit_end_hour,
+          visit_start_hour: isValidRange ? visitStartHour : DEFAULT_HOURS.visit_start_hour,
+          visit_start_minute: isValidRange ? visitStartMinute : DEFAULT_HOURS.visit_start_minute,
+          visit_end_hour: isValidRange ? visitEndHour : DEFAULT_HOURS.visit_end_hour,
+          visit_end_minute: isValidRange ? visitEndMinute : DEFAULT_HOURS.visit_end_minute,
           slot_duration_minutes: slotDuration,
           min_gap_minutes: minGap,
           max_visitors_per_slot: maxVisitors,
@@ -530,24 +540,30 @@ export default function PatientOnboarding() {
               style={[styles.timeBtn, { backgroundColor: C.bg, borderColor: C.border }]}
               onPress={() => {
                 if (Platform.OS === "android") {
-                  openAndroidTimePicker(hourToDate(visitStartHour), (date) => setVisitStartHour(date.getHours()));
+                  openAndroidTimePicker(hourToDate(visitStartHour, visitStartMinute), (date) => {
+                    setVisitStartHour(date.getHours());
+                    setVisitStartMinute(date.getMinutes());
+                  });
                 } else {
                   setShowStartPicker(true);
                 }
               }}
               activeOpacity={0.8}
             >
-              <Text style={[styles.timeBtnText, { color: C.text }]}>🕐 {String(visitStartHour).padStart(2, "0")}:00</Text>
+              <Text style={[styles.timeBtnText, { color: C.text }]}>🕐 {formatHourMinute(visitStartHour, visitStartMinute)}</Text>
             </TouchableOpacity>
             {showStartPicker && (
               <DateTimePicker
-                value={hourToDate(visitStartHour)}
+                value={hourToDate(visitStartHour, visitStartMinute)}
                 mode="time"
                 is24Hour
                 display={Platform.OS === "ios" ? "spinner" : "clock"}
                 onChange={(_, date) => {
                   setShowStartPicker(false);
-                  if (date) setVisitStartHour(date.getHours());
+                  if (date) {
+                    setVisitStartHour(date.getHours());
+                    setVisitStartMinute(date.getMinutes());
+                  }
                 }}
               />
             )}
@@ -557,24 +573,30 @@ export default function PatientOnboarding() {
               style={[styles.timeBtn, { backgroundColor: C.bg, borderColor: C.border }]}
               onPress={() => {
                 if (Platform.OS === "android") {
-                  openAndroidTimePicker(hourToDate(visitEndHour), (date) => setVisitEndHour(date.getHours()));
+                  openAndroidTimePicker(hourToDate(visitEndHour, visitEndMinute), (date) => {
+                    setVisitEndHour(date.getHours());
+                    setVisitEndMinute(date.getMinutes());
+                  });
                 } else {
                   setShowEndPicker(true);
                 }
               }}
               activeOpacity={0.8}
             >
-              <Text style={[styles.timeBtnText, { color: C.text }]}>🕐 {String(visitEndHour).padStart(2, "0")}:00</Text>
+              <Text style={[styles.timeBtnText, { color: C.text }]}>🕐 {formatHourMinute(visitEndHour, visitEndMinute)}</Text>
             </TouchableOpacity>
             {showEndPicker && (
               <DateTimePicker
-                value={hourToDate(visitEndHour)}
+                value={hourToDate(visitEndHour, visitEndMinute)}
                 mode="time"
                 is24Hour
                 display={Platform.OS === "ios" ? "spinner" : "clock"}
                 onChange={(_, date) => {
                   setShowEndPicker(false);
-                  if (date) setVisitEndHour(date.getHours());
+                  if (date) {
+                    setVisitEndHour(date.getHours());
+                    setVisitEndMinute(date.getMinutes());
+                  }
                 }}
               />
             )}

@@ -6,24 +6,31 @@ import type { SlotConfig, Reservation, SlotConfigHistoryEntry } from "./types";
 const NIGHT_START_FALLBACK = 19;
 const NIGHT_END_FALLBACK = 8;
 
-// Heure de début de nuitée au format "HH:00", utilisée comme "créneau" de
+// Formate une heure+minute au format "HH:MM" (24h), utilisé partout où une
+// borne horaire (visite ou nuitée) est affichée.
+export function formatHourMinute(hour: number, minute: number): string {
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+// Heure de début de nuitée au format "HH:MM", utilisée comme "créneau" de
 // départ pour le calcul de l'événement calendrier d'une nuitée.
 export function nightStartSlot(config: SlotConfig): string {
   const h = config.night_start_hour ?? NIGHT_START_FALLBACK;
-  return `${String(h).padStart(2, "0")}:00`;
+  const m = config.night_start_minute ?? 0;
+  return formatHourMinute(h, m);
 }
 
-// Libellé d'affichage "19h → 8h" pour une plage de nuitée configurée.
+// Libellé d'affichage "19:00 → 08:30" pour une plage de nuitée configurée.
 export function nightRangeLabel(config: SlotConfig): string {
-  const start = config.night_start_hour ?? NIGHT_START_FALLBACK;
-  const end = config.night_end_hour ?? NIGHT_END_FALLBACK;
-  return `${start}h → ${end}h`;
+  const start = formatHourMinute(config.night_start_hour ?? NIGHT_START_FALLBACK, config.night_start_minute ?? 0);
+  const end = formatHourMinute(config.night_end_hour ?? NIGHT_END_FALLBACK, config.night_end_minute ?? 0);
+  return `${start} → ${end}`;
 }
 
 export function generateSlots(config: SlotConfig): string[] {
   const slots: string[] = [];
-  const startMin = config.visit_start_hour * 60;
-  const endMin = config.visit_end_hour * 60;
+  const startMin = config.visit_start_hour * 60 + (config.visit_start_minute ?? 0);
+  const endMin = config.visit_end_hour * 60 + (config.visit_end_minute ?? 0);
 
   // min_gap_minutes est l'intervalle entre les débuts de créneaux.
   // 0 = dos à dos (step = durée seule). Si gap_includes_duration est activé,

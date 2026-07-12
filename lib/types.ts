@@ -45,7 +45,9 @@ export interface SlotConfig {
   id: string;
   space_id: string;
   visit_start_hour: number;
+  visit_start_minute: number;
   visit_end_hour: number;
+  visit_end_minute: number;
   slot_duration_minutes: number;
   min_gap_minutes: number;
   gap_includes_duration: boolean;
@@ -53,7 +55,9 @@ export interface SlotConfig {
   night_enabled: boolean;
   max_night_visitors: number;
   night_start_hour: number;
+  night_start_minute: number;
   night_end_hour: number;
+  night_end_minute: number;
   allowed_weekdays: number[];
   blocked_dates: string[];
   blocked_date_reasons: Record<string, string>;
@@ -67,7 +71,9 @@ export interface SlotConfigHistoryEntry {
   space_id: string;
   valid_from: string;
   visit_start_hour: number;
+  visit_start_minute: number;
   visit_end_hour: number;
+  visit_end_minute: number;
   slot_duration_minutes: number;
   min_gap_minutes: number;
   gap_includes_duration: boolean;
@@ -75,7 +81,9 @@ export interface SlotConfigHistoryEntry {
   night_enabled: boolean;
   max_night_visitors: number;
   night_start_hour: number;
+  night_start_minute: number;
   night_end_hour: number;
+  night_end_minute: number;
   allowed_weekdays: number[];
   blocked_dates: string[];
   blocked_date_reasons: Record<string, string>;

@@ -34,7 +34,7 @@ export function eventWindow(iso: string, slot: string, type: "Visite" | "Nuit", 
   if (type === "Nuit") {
     endDate = new Date(`${iso}T${slot}:00`);
     endDate.setDate(endDate.getDate() + 1);
-    endDate.setHours(config.night_end_hour ?? 8, 0, 0, 0);
+    endDate.setHours(config.night_end_hour ?? 8, config.night_end_minute ?? 0, 0, 0);
   } else {
     endDate = new Date(startDate.getTime() + config.slot_duration_minutes * 60 * 1000);
   }
