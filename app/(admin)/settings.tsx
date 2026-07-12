@@ -20,7 +20,7 @@ import { useSpace } from "@/lib/SpaceContext";
 import { themes, themeLabels } from "@/lib/themes";
 import PatientAvatar from "@/components/PatientAvatar";
 import { resolvePlaceFromMapsUrl } from "@/lib/address";
-import { generateSlots } from "@/lib/slotUtils";
+import { generateSlots, formatHourMinute } from "@/lib/slotUtils";
 import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
 import type { ThemeKey, Theme } from "@/lib/themes";
 import type { NewsEntry, Task, SupportMessage, SlotConfig, ReservationChangeHistoryEntry } from "@/lib/types";
@@ -97,10 +97,6 @@ const WEEKDAY_HISTORY_LABELS: Record<number, string> = {
   0: "Dim", 1: "Lun", 2: "Mar", 3: "Mer", 4: "Jeu", 5: "Ven", 6: "Sam",
 };
 
-function formatHourLabel(hour: number) {
-  return `${String(hour).padStart(2, "0")}:00`;
-}
-
 function formatWeekdaysList(days: number[]) {
   if (!days.length) return "Aucun";
   return [...days]
@@ -158,10 +154,17 @@ const SETTINGS_NAV_LABELS: Record<SectionKey, string> = {
 const SETTINGS_NAV_BAR_HEIGHT = 66;
 
 // ─── Sélecteur d'heure "horloge Android" (@react-native-community/datetimepicker) ──
-function hourToDate(hour: number) {
+function hourToDate(hour: number, minute = 0) {
   const d = new Date();
-  d.setHours(hour, 0, 0, 0);
+  d.setHours(hour, minute, 0, 0);
   return d;
+}
+function hmToMinutes(h: number, m: number) {
+  return h * 60 + m;
+}
+function minutesToHM(total: number): [number, number] {
+  const wrapped = ((total % 1440) + 1440) % 1440;
+  return [Math.floor(wrapped / 60), wrapped % 60];
 }
 function formatDuration(totalMinutes: number) {
   return totalMinutes < 60
@@ -465,20 +468,26 @@ export default function SettingsScreen() {
   const [nightToggling, setNightToggling] = useState(false);
   const nightHoursInit = useRef(false);
   const [nightStartHour, setNightStartHour] = useState(19);
+  const [nightStartMinute, setNightStartMinute] = useState(0);
   const [nightEndHour, setNightEndHour] = useState(8);
+  const [nightEndMinute, setNightEndMinute] = useState(0);
   const [nightHoursSaving, setNightHoursSaving] = useState(false);
   useEffect(() => {
     if (slotConfig && !nightHoursInit.current) {
       nightHoursInit.current = true;
       setNightStartHour(slotConfig.night_start_hour ?? 19);
+      setNightStartMinute(slotConfig.night_start_minute ?? 0);
       setNightEndHour(slotConfig.night_end_hour ?? 8);
+      setNightEndMinute(slotConfig.night_end_minute ?? 0);
     }
   }, [slotConfig]);
 
   // Règles des créneaux
   const slotRulesInit = useRef(false);
   const [visitStartHour, setVisitStartHour] = useState(9);
+  const [visitStartMinute, setVisitStartMinute] = useState(0);
   const [visitEndHour, setVisitEndHour] = useState(20);
+  const [visitEndMinute, setVisitEndMinute] = useState(0);
   const [slotDuration, setSlotDuration] = useState(60);
   const [slotGap, setSlotGap] = useState(5);
   const [gapIncludesDuration, setGapIncludesDuration] = useState(false);
@@ -497,7 +506,9 @@ export default function SettingsScreen() {
     if (slotConfig && !slotRulesInit.current) {
       slotRulesInit.current = true;
       setVisitStartHour(slotConfig.visit_start_hour);
+      setVisitStartMinute(slotConfig.visit_start_minute ?? 0);
       setVisitEndHour(slotConfig.visit_end_hour);
+      setVisitEndMinute(slotConfig.visit_end_minute ?? 0);
       setSlotDuration(slotConfig.slot_duration_minutes);
       setSlotGap(Math.max(5, slotConfig.min_gap_minutes || 0));
       setGapIncludesDuration(slotConfig.gap_includes_duration ?? false);
@@ -818,14 +829,25 @@ export default function SettingsScreen() {
     if (!slotConfig) return;
     setNightHoursSaving(true);
     const logs: Promise<void>[] = [];
-    if (nightStartHour !== (slotConfig.night_start_hour ?? 19)) {
-      logs.push(logFieldChange("night_start_hour", formatHourLabel(slotConfig.night_start_hour ?? 19), formatHourLabel(nightStartHour)));
+    if (nightStartHour !== (slotConfig.night_start_hour ?? 19) || nightStartMinute !== (slotConfig.night_start_minute ?? 0)) {
+      logs.push(logFieldChange(
+        "night_start_hour",
+        formatHourMinute(slotConfig.night_start_hour ?? 19, slotConfig.night_start_minute ?? 0),
+        formatHourMinute(nightStartHour, nightStartMinute),
+      ));
     }
-    if (nightEndHour !== (slotConfig.night_end_hour ?? 8)) {
-      logs.push(logFieldChange("night_end_hour", formatHourLabel(slotConfig.night_end_hour ?? 8), formatHourLabel(nightEndHour)));
+    if (nightEndHour !== (slotConfig.night_end_hour ?? 8) || nightEndMinute !== (slotConfig.night_end_minute ?? 0)) {
+      logs.push(logFieldChange(
+        "night_end_hour",
+        formatHourMinute(slotConfig.night_end_hour ?? 8, slotConfig.night_end_minute ?? 0),
+        formatHourMinute(nightEndHour, nightEndMinute),
+      ));
     }
     await Promise.all(logs);
-    const res = await applyRuleChange({ night_start_hour: nightStartHour, night_end_hour: nightEndHour });
+    const res = await applyRuleChange({
+      night_start_hour: nightStartHour, night_start_minute: nightStartMinute,
+      night_end_hour: nightEndHour, night_end_minute: nightEndMinute,
+    });
     setNightHoursSaving(false);
     refreshSlotConfig();
     loadHistory();
@@ -862,11 +884,19 @@ export default function SettingsScreen() {
     setSlotRulesSaving(true);
 
     const logs: Promise<void>[] = [];
-    if (visitStartHour !== slotConfig.visit_start_hour) {
-      logs.push(logFieldChange("visit_start_hour", formatHourLabel(slotConfig.visit_start_hour), formatHourLabel(visitStartHour)));
+    if (visitStartHour !== slotConfig.visit_start_hour || visitStartMinute !== (slotConfig.visit_start_minute ?? 0)) {
+      logs.push(logFieldChange(
+        "visit_start_hour",
+        formatHourMinute(slotConfig.visit_start_hour, slotConfig.visit_start_minute ?? 0),
+        formatHourMinute(visitStartHour, visitStartMinute),
+      ));
     }
-    if (visitEndHour !== slotConfig.visit_end_hour) {
-      logs.push(logFieldChange("visit_end_hour", formatHourLabel(slotConfig.visit_end_hour), formatHourLabel(visitEndHour)));
+    if (visitEndHour !== slotConfig.visit_end_hour || visitEndMinute !== (slotConfig.visit_end_minute ?? 0)) {
+      logs.push(logFieldChange(
+        "visit_end_hour",
+        formatHourMinute(slotConfig.visit_end_hour, slotConfig.visit_end_minute ?? 0),
+        formatHourMinute(visitEndHour, visitEndMinute),
+      ));
     }
     if (slotDuration !== slotConfig.slot_duration_minutes) {
       logs.push(logFieldChange("slot_duration_minutes", formatDuration(slotConfig.slot_duration_minutes), formatDuration(slotDuration)));
@@ -894,7 +924,9 @@ export default function SettingsScreen() {
 
     const res = await applyRuleChange({
       visit_start_hour: visitStartHour,
+      visit_start_minute: visitStartMinute,
       visit_end_hour: visitEndHour,
+      visit_end_minute: visitEndMinute,
       slot_duration_minutes: slotDuration,
       min_gap_minutes: slotGap,
       max_visitors_per_slot: maxVisitors,
@@ -1464,26 +1496,32 @@ export default function SettingsScreen() {
                         style={[styles.timeBtn, { backgroundColor: C.bg, borderColor: C.border }]}
                         onPress={() => {
                           if (Platform.OS === "android") {
-                            openAndroidTimePicker(hourToDate(visitStartHour), (date) =>
-                              setVisitStartHour(Math.min(date.getHours(), visitEndHour - 1))
-                            );
+                            openAndroidTimePicker(hourToDate(visitStartHour, visitStartMinute), (date) => {
+                              const endTotal = hmToMinutes(visitEndHour, visitEndMinute);
+                              const [h, m] = minutesToHM(Math.min(hmToMinutes(date.getHours(), date.getMinutes()), endTotal - 1));
+                              setVisitStartHour(h); setVisitStartMinute(m);
+                            });
                           } else {
                             setShowVisitStartPicker(true);
                           }
                         }}
                         activeOpacity={0.8}
                       >
-                        <Text style={[styles.timeBtnText, { color: "#fff" }]}>🕐 {String(visitStartHour).padStart(2,"0")}:00</Text>
+                        <Text style={[styles.timeBtnText, { color: "#fff" }]}>🕐 {formatHourMinute(visitStartHour, visitStartMinute)}</Text>
                       </TouchableOpacity>
                       {showVisitStartPicker && (
                         <DateTimePicker
-                          value={hourToDate(visitStartHour)}
+                          value={hourToDate(visitStartHour, visitStartMinute)}
                           mode="time"
                           is24Hour
                           display={Platform.OS === "ios" ? "spinner" : "clock"}
                           onChange={(_, date) => {
                             setShowVisitStartPicker(false);
-                            if (date) setVisitStartHour(Math.min(date.getHours(), visitEndHour - 1));
+                            if (date) {
+                              const endTotal = hmToMinutes(visitEndHour, visitEndMinute);
+                              const [h, m] = minutesToHM(Math.min(hmToMinutes(date.getHours(), date.getMinutes()), endTotal - 1));
+                              setVisitStartHour(h); setVisitStartMinute(m);
+                            }
                           }}
                         />
                       )}
@@ -1495,26 +1533,32 @@ export default function SettingsScreen() {
                         style={[styles.timeBtn, { backgroundColor: C.bg, borderColor: C.border }]}
                         onPress={() => {
                           if (Platform.OS === "android") {
-                            openAndroidTimePicker(hourToDate(visitEndHour), (date) =>
-                              setVisitEndHour(Math.max(date.getHours(), visitStartHour + 1))
-                            );
+                            openAndroidTimePicker(hourToDate(visitEndHour, visitEndMinute), (date) => {
+                              const startTotal = hmToMinutes(visitStartHour, visitStartMinute);
+                              const [h, m] = minutesToHM(Math.max(hmToMinutes(date.getHours(), date.getMinutes()), startTotal + 1));
+                              setVisitEndHour(h); setVisitEndMinute(m);
+                            });
                           } else {
                             setShowVisitEndPicker(true);
                           }
                         }}
                         activeOpacity={0.8}
                       >
-                        <Text style={[styles.timeBtnText, { color: "#fff" }]}>🕐 {String(visitEndHour).padStart(2,"0")}:00</Text>
+                        <Text style={[styles.timeBtnText, { color: "#fff" }]}>🕐 {formatHourMinute(visitEndHour, visitEndMinute)}</Text>
                       </TouchableOpacity>
                       {showVisitEndPicker && (
                         <DateTimePicker
-                          value={hourToDate(visitEndHour)}
+                          value={hourToDate(visitEndHour, visitEndMinute)}
                           mode="time"
                           is24Hour
                           display={Platform.OS === "ios" ? "spinner" : "clock"}
                           onChange={(_, date) => {
                             setShowVisitEndPicker(false);
-                            if (date) setVisitEndHour(Math.max(date.getHours(), visitStartHour + 1));
+                            if (date) {
+                              const startTotal = hmToMinutes(visitStartHour, visitStartMinute);
+                              const [h, m] = minutesToHM(Math.max(hmToMinutes(date.getHours(), date.getMinutes()), startTotal + 1));
+                              setVisitEndHour(h); setVisitEndMinute(m);
+                            }
                           }}
                         />
                       )}
@@ -1575,13 +1619,18 @@ export default function SettingsScreen() {
 
                   {/* Résumé des créneaux générés */}
                   <Text style={[styles.cardDesc, { color: C.muted, marginBottom: 0 }]}>
-                    {`Créneaux générés : ${(() => {
-                      const step = gapIncludesDuration ? slotDuration + slotGap : (slotGap > 0 ? slotGap : slotDuration);
-                      return Array.from({ length: Math.max(0, Math.floor((visitEndHour * 60 - visitStartHour * 60) / step)) }).map((_, i) => {
-                        const m = visitStartHour * 60 + i * step;
-                        return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
-                      }).join(" · ") || "Aucun — vérifiez les horaires.";
-                    })()}`}
+                    {`Créneaux générés : ${
+                      generateSlots({
+                        ...slotConfig,
+                        visit_start_hour: visitStartHour,
+                        visit_start_minute: visitStartMinute,
+                        visit_end_hour: visitEndHour,
+                        visit_end_minute: visitEndMinute,
+                        slot_duration_minutes: slotDuration,
+                        min_gap_minutes: slotGap,
+                        gap_includes_duration: gapIncludesDuration,
+                      }).join(" · ") || "Aucun — vérifiez les horaires."
+                    }`}
                   </Text>
 
                   <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
@@ -1686,7 +1735,7 @@ export default function SettingsScreen() {
                       </Text>
                       <Text style={[styles.nightDesc, { color: C.muted }]}>
                         {slotConfig.night_enabled
-                          ? `Les visiteurs peuvent réserver une nuit (${nightStartHour}h → ${nightEndHour}h).`
+                          ? `Les visiteurs peuvent réserver une nuit (${formatHourMinute(nightStartHour, nightStartMinute)} → ${formatHourMinute(nightEndHour, nightEndMinute)}).`
                           : "Le bloc nuit est masqué pour les visiteurs."}
                       </Text>
                     </View>
@@ -1711,24 +1760,30 @@ export default function SettingsScreen() {
                         style={[styles.timeBtn, { backgroundColor: C.bg, borderColor: C.border }]}
                         onPress={() => {
                           if (Platform.OS === "android") {
-                            openAndroidTimePicker(hourToDate(nightStartHour), (date) => setNightStartHour(date.getHours()));
+                            openAndroidTimePicker(hourToDate(nightStartHour, nightStartMinute), (date) => {
+                              setNightStartHour(date.getHours());
+                              setNightStartMinute(date.getMinutes());
+                            });
                           } else {
                             setShowNightStartPicker(true);
                           }
                         }}
                         activeOpacity={0.8}
                       >
-                        <Text style={[styles.timeBtnText, { color: "#fff" }]}>🕐 {String(nightStartHour).padStart(2,"0")}:00</Text>
+                        <Text style={[styles.timeBtnText, { color: "#fff" }]}>🕐 {formatHourMinute(nightStartHour, nightStartMinute)}</Text>
                       </TouchableOpacity>
                       {showNightStartPicker && (
                         <DateTimePicker
-                          value={hourToDate(nightStartHour)}
+                          value={hourToDate(nightStartHour, nightStartMinute)}
                           mode="time"
                           is24Hour
                           display={Platform.OS === "ios" ? "spinner" : "clock"}
                           onChange={(_, date) => {
                             setShowNightStartPicker(false);
-                            if (date) setNightStartHour(date.getHours());
+                            if (date) {
+                              setNightStartHour(date.getHours());
+                              setNightStartMinute(date.getMinutes());
+                            }
                           }}
                         />
                       )}
@@ -1740,24 +1795,30 @@ export default function SettingsScreen() {
                         style={[styles.timeBtn, { backgroundColor: C.bg, borderColor: C.border }]}
                         onPress={() => {
                           if (Platform.OS === "android") {
-                            openAndroidTimePicker(hourToDate(nightEndHour), (date) => setNightEndHour(date.getHours()));
+                            openAndroidTimePicker(hourToDate(nightEndHour, nightEndMinute), (date) => {
+                              setNightEndHour(date.getHours());
+                              setNightEndMinute(date.getMinutes());
+                            });
                           } else {
                             setShowNightEndPicker(true);
                           }
                         }}
                         activeOpacity={0.8}
                       >
-                        <Text style={[styles.timeBtnText, { color: "#fff" }]}>🕐 {String(nightEndHour).padStart(2,"0")}:00</Text>
+                        <Text style={[styles.timeBtnText, { color: "#fff" }]}>🕐 {formatHourMinute(nightEndHour, nightEndMinute)}</Text>
                       </TouchableOpacity>
                       {showNightEndPicker && (
                         <DateTimePicker
-                          value={hourToDate(nightEndHour)}
+                          value={hourToDate(nightEndHour, nightEndMinute)}
                           mode="time"
                           is24Hour
                           display={Platform.OS === "ios" ? "spinner" : "clock"}
                           onChange={(_, date) => {
                             setShowNightEndPicker(false);
-                            if (date) setNightEndHour(date.getHours());
+                            if (date) {
+                              setNightEndHour(date.getHours());
+                              setNightEndMinute(date.getMinutes());
+                            }
                           }}
                         />
                       )}

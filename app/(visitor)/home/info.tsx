@@ -2,6 +2,7 @@ import { View, Text, ScrollView, StyleSheet } from "react-native";
 import { useVisitorSpace } from "@/lib/VisitorContext";
 import { themes } from "@/lib/themes";
 import SpaceHeader from "@/components/SpaceHeader";
+import { formatHourMinute, nightRangeLabel } from "@/lib/slotUtils";
 import type { SlotConfig } from "@/lib/types";
 
 const WEEKDAY_FR = ["Dim", "Lun", "Mar", "Mer", "Jeu", "Ven", "Sam"];
@@ -15,7 +16,9 @@ function formatDuration(minutes: number): string {
 
 function buildSlotRules(cfg: SlotConfig): string[] {
   const lines: string[] = [];
-  lines.push(`Visites de ${cfg.visit_start_hour}h à ${cfg.visit_end_hour}h`);
+  lines.push(
+    `Visites de ${formatHourMinute(cfg.visit_start_hour, cfg.visit_start_minute ?? 0)} à ${formatHourMinute(cfg.visit_end_hour, cfg.visit_end_minute ?? 0)}`,
+  );
   lines.push(`Durée max. par visite : ${formatDuration(cfg.slot_duration_minutes)}`);
   if (cfg.min_gap_minutes > 0) {
     const step = cfg.gap_includes_duration ? cfg.slot_duration_minutes + cfg.min_gap_minutes : cfg.min_gap_minutes;
@@ -31,7 +34,7 @@ function buildSlotRules(cfg: SlotConfig): string[] {
       .map((d) => WEEKDAY_FR[d]);
     lines.push(`Jours autorisés : ${labels.join(", ")}`);
   }
-  if (cfg.night_enabled) lines.push(`Nuitées possibles (${cfg.night_start_hour ?? 19}h → ${cfg.night_end_hour ?? 8}h)`);
+  if (cfg.night_enabled) lines.push(`Nuitées possibles (${nightRangeLabel(cfg)})`);
   if (cfg.blocked_dates && cfg.blocked_dates.length > 0) {
     const formatted = cfg.blocked_dates
       .map((iso) =>

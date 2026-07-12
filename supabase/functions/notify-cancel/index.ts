@@ -12,6 +12,10 @@ function json(data: unknown, status = 200) {
   });
 }
 
+function formatHourMinute(hour: number, minute: number): string {
+  return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
@@ -38,15 +42,19 @@ Deno.serve(async (req: Request) => {
     if (!space) return json({ error: "Space not found" }, 404);
 
     let nightStartHour = 19;
+    let nightStartMinute = 0;
     let nightEndHour = 8;
+    let nightEndMinute = 0;
     if (type === "Nuit") {
       const { data: slotConfig } = await supabaseAdmin
         .from("slot_config")
-        .select("night_start_hour, night_end_hour")
+        .select("night_start_hour, night_start_minute, night_end_hour, night_end_minute")
         .eq("space_id", space_id)
         .single();
       if (slotConfig?.night_start_hour != null) nightStartHour = slotConfig.night_start_hour;
+      if (slotConfig?.night_start_minute != null) nightStartMinute = slotConfig.night_start_minute;
       if (slotConfig?.night_end_hour != null) nightEndHour = slotConfig.night_end_hour;
+      if (slotConfig?.night_end_minute != null) nightEndMinute = slotConfig.night_end_minute;
     }
 
     const { data: adminData } = await supabaseAdmin.auth.admin.getUserById(space.admin_id);
@@ -65,7 +73,9 @@ Deno.serve(async (req: Request) => {
       weekday: "long", day: "numeric", month: "long", year: "numeric",
     });
 
-    const slotLabel = type === "Nuit" ? `🌙 Nuit (${nightStartHour}h → ${nightEndHour}h)` : creneau;
+    const slotLabel = type === "Nuit"
+      ? `🌙 Nuit (${formatHourMinute(nightStartHour, nightStartMinute)} → ${formatHourMinute(nightEndHour, nightEndMinute)})`
+      : creneau;
     const locationLabel = `${space.hospital_name}${space.hospital_room ? " — " + space.hospital_room : ""}`;
 
     const html = `
