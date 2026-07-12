@@ -24,6 +24,7 @@ import { generateSlots } from "@/lib/slotUtils";
 import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
 import type { ThemeKey, Theme } from "@/lib/themes";
 import type { NewsEntry, Task, SupportMessage, SlotConfig, ReservationChangeHistoryEntry } from "@/lib/types";
+import { openAndroidTimePicker } from "@/lib/androidTimePicker";
 
 // Résultat de la RPC apply_slot_rule_change (voir migration
 // 20260711_apply_slot_rule_change.sql) — ids des réservations recasées/
@@ -1461,7 +1462,15 @@ export default function SettingsScreen() {
                       <Text style={[styles.hourLabel, { color: C.muted }]}>Début</Text>
                       <TouchableOpacity
                         style={[styles.timeBtn, { backgroundColor: C.bg, borderColor: C.border }]}
-                        onPress={() => setShowVisitStartPicker(true)}
+                        onPress={() => {
+                          if (Platform.OS === "android") {
+                            openAndroidTimePicker(hourToDate(visitStartHour), (date) =>
+                              setVisitStartHour(Math.min(date.getHours(), visitEndHour - 1))
+                            );
+                          } else {
+                            setShowVisitStartPicker(true);
+                          }
+                        }}
                         activeOpacity={0.8}
                       >
                         <Text style={[styles.timeBtnText, { color: "#fff" }]}>🕐 {String(visitStartHour).padStart(2,"0")}:00</Text>
@@ -1484,7 +1493,15 @@ export default function SettingsScreen() {
                       <Text style={[styles.hourLabel, { color: C.muted }]}>Fin</Text>
                       <TouchableOpacity
                         style={[styles.timeBtn, { backgroundColor: C.bg, borderColor: C.border }]}
-                        onPress={() => setShowVisitEndPicker(true)}
+                        onPress={() => {
+                          if (Platform.OS === "android") {
+                            openAndroidTimePicker(hourToDate(visitEndHour), (date) =>
+                              setVisitEndHour(Math.max(date.getHours(), visitStartHour + 1))
+                            );
+                          } else {
+                            setShowVisitEndPicker(true);
+                          }
+                        }}
                         activeOpacity={0.8}
                       >
                         <Text style={[styles.timeBtnText, { color: "#fff" }]}>🕐 {String(visitEndHour).padStart(2,"0")}:00</Text>
@@ -1692,7 +1709,13 @@ export default function SettingsScreen() {
                       <Text style={[styles.hourLabel, { color: C.muted }]}>Début</Text>
                       <TouchableOpacity
                         style={[styles.timeBtn, { backgroundColor: C.bg, borderColor: C.border }]}
-                        onPress={() => setShowNightStartPicker(true)}
+                        onPress={() => {
+                          if (Platform.OS === "android") {
+                            openAndroidTimePicker(hourToDate(nightStartHour), (date) => setNightStartHour(date.getHours()));
+                          } else {
+                            setShowNightStartPicker(true);
+                          }
+                        }}
                         activeOpacity={0.8}
                       >
                         <Text style={[styles.timeBtnText, { color: "#fff" }]}>🕐 {String(nightStartHour).padStart(2,"0")}:00</Text>
@@ -1715,7 +1738,13 @@ export default function SettingsScreen() {
                       <Text style={[styles.hourLabel, { color: C.muted }]}>Fin (lendemain)</Text>
                       <TouchableOpacity
                         style={[styles.timeBtn, { backgroundColor: C.bg, borderColor: C.border }]}
-                        onPress={() => setShowNightEndPicker(true)}
+                        onPress={() => {
+                          if (Platform.OS === "android") {
+                            openAndroidTimePicker(hourToDate(nightEndHour), (date) => setNightEndHour(date.getHours()));
+                          } else {
+                            setShowNightEndPicker(true);
+                          }
+                        }}
                         activeOpacity={0.8}
                       >
                         <Text style={[styles.timeBtnText, { color: "#fff" }]}>🕐 {String(nightEndHour).padStart(2,"0")}:00</Text>

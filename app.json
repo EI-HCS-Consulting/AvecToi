@@ -62,7 +62,41 @@
       ],
       "expo-font",
       "expo-asset",
-      "@react-native-community/datetimepicker"
+      [
+        "@react-native-community/datetimepicker",
+        {
+          "android": {
+            "timePicker": {
+              "background": {
+                "light": "#DCEEFB",
+                "dark": "#DCEEFB"
+              },
+              "headerBackground": {
+                "light": "#2E75B6",
+                "dark": "#2E75B6"
+              },
+              "numbersBackgroundColor": {
+                "light": "#DCEEFB",
+                "dark": "#DCEEFB"
+              },
+              "numbersTextColor": {
+                "light": "#2E75B6",
+                "dark": "#2E75B6"
+              },
+              "numbersSelectorColor": {
+                "light": "#f97316",
+                "dark": "#f97316"
+              }
+            }
+          }
+        }
+      ],
+      [
+        "./plugins/withTimePickerDialogTheme.js",
+        {
+          "color": "#2E75B6"
+        }
+      ]
     ],
     "web": {
       "bundler": "metro",
@@ -80,6 +114,12 @@
       "eas": {
         "projectId": "305abfe3-5d04-449f-9b06-8975f2196588"
       }
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/305abfe3-5d04-449f-9b06-8975f2196588"
     }
   }
 }
