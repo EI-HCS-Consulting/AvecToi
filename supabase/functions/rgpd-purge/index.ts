@@ -62,7 +62,7 @@ async function sendPurgeAlert(
 
   const html = `
 <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
-  <h2 style="color:#e94560;margin-bottom:4px">⚠️ Suppression dans 7 jours</h2>
+  <h2 style="color:#C45911;margin-bottom:4px">⚠️ Suppression dans 7 jours</h2>
   <p style="color:#666;margin-top:0">AvecToi — ${space.patient_firstname} ${space.patient_lastname}</p>
 
   <p>
@@ -78,12 +78,13 @@ async function sendPurgeAlert(
     <li>Tâches d'entraide et messages de soutien</li>
   </ul>
 
-  <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:16px;margin:20px 0">
+  <div style="background:#e8eef7;border:1px solid #2E75B6;border-radius:8px;padding:16px;margin:20px 0">
     <strong>Vous souhaitez conserver les données plus longtemps ?</strong><br/>
     Ouvrez l'application AvecToi → Paramètres → "Prolonger de 30 jours".
   </div>
 
-  <p style="color:#999;font-size:12px;margin-top:24px">
+  <p style="color:#1F3864;font-size:12px;font-weight:bold;margin-top:24px;margin-bottom:0">AvecToi</p>
+  <p style="color:#999;font-size:12px;margin-top:4px">
     Ce message est envoyé automatiquement. Ne pas répondre à cet email.
   </p>
 </div>`;
@@ -95,7 +96,7 @@ async function sendPurgeAlert(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from: "AvecToi <notifications@avectoi.care>",
+      from: "AvecToi <notifications@notifications.avectoi.care>",
       to: [adminEmail],
       subject: `AvecToi — Suppression dans 7 jours (${space.patient_firstname} ${space.patient_lastname})`,
       html,

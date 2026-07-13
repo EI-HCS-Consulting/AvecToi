@@ -501,6 +501,7 @@ export default function SettingsScreen() {
   const [blockedDates, setBlockedDates] = useState<string[]>([]);
   const [blockedDateReasons, setBlockedDateReasons] = useState<Record<string, string>>({});
   const [blockPickerReason, setBlockPickerReason] = useState("");
+  const [lastAddedBlockedDate, setLastAddedBlockedDate] = useState<string | null>(null);
   const [slotRulesSaving, setSlotRulesSaving] = useState(false);
   useEffect(() => {
     if (slotConfig && !slotRulesInit.current) {
@@ -876,7 +877,14 @@ export default function SettingsScreen() {
       }
       return next;
     });
-    if (!isBlocked) setBlockPickerReason("");
+    if (isBlocked) {
+      if (lastAddedBlockedDate === iso) setLastAddedBlockedDate(null);
+    } else {
+      // La date vient d'être bloquée : si le motif est tapé après coup
+      // (plutôt qu'avant, dans le champ au-dessus du calendrier), il doit
+      // quand même s'attacher à cette date — voir onChangeText ci-dessous.
+      setLastAddedBlockedDate(iso);
+    }
   }
 
   async function handleSaveSlotRules() {
@@ -1705,7 +1713,7 @@ export default function SettingsScreen() {
                     </View>
                   )}
                   <TouchableOpacity
-                    onPress={() => { setBlockPickerDate(new Date(new Date().getFullYear(), new Date().getMonth(), 1)); setBlockPickerReason(""); setBlockPickerVisible(true); }}
+                    onPress={() => { setBlockPickerDate(new Date(new Date().getFullYear(), new Date().getMonth(), 1)); setBlockPickerReason(""); setLastAddedBlockedDate(null); setBlockPickerVisible(true); }}
                     style={[styles.saveNotesBtn, { backgroundColor: "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: C.border, marginTop: 4 }]}
                   >
                     <Text style={[styles.saveNotesBtnText, { color: C.muted }]}>+ Ajouter une date bloquée</Text>
@@ -2215,7 +2223,17 @@ export default function SettingsScreen() {
                   placeholder="Ex : Jour férié, indisponibilité…"
                   placeholderTextColor={C.muted}
                   value={blockPickerReason}
-                  onChangeText={setBlockPickerReason}
+                  onChangeText={(text) => {
+                    setBlockPickerReason(text);
+                    if (lastAddedBlockedDate) {
+                      setBlockedDateReasons((prev) => {
+                        const next = { ...prev };
+                        if (text.trim()) next[lastAddedBlockedDate] = text.trim();
+                        else delete next[lastAddedBlockedDate];
+                        return next;
+                      });
+                    }
+                  }}
                 />
 
                 {/* Navigation mois */}
