@@ -1199,13 +1199,20 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName }: 
         <Text style={[styles.headerTitle, { color: "#fff" }]}>🤝 Entraide</Text>
       </View>
 
-      <View style={[styles.subHeader, { backgroundColor: C.card, borderBottomColor: C.border }]}>
+      <View style={[styles.subHeader, styles.subHeaderRow, { backgroundColor: C.card, borderBottomColor: C.border }]}>
         <TouchableOpacity
           style={[styles.addBtn, { backgroundColor: C.gold }]}
           onPress={() => router.push((isAdmin ? "/(admin)/home/calendar" : "/(visitor)/home/calendar") as any)}
           activeOpacity={0.85}
         >
-          <Text style={styles.addBtnText}>← Retour à l'accueil</Text>
+          <Text style={styles.addBtnText}>← Accueil</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.addBtn, { backgroundColor: C.accent }]}
+          onPress={openCreateTask}
+          activeOpacity={0.85}
+        >
+          <Text style={[styles.addBtnText, { color: "#fff" }]}>Publier</Text>
         </TouchableOpacity>
       </View>
 
@@ -1240,16 +1247,9 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName }: 
       </View>
 
       <View style={[styles.sectionBar, { borderBottomColor: C.border }]}>
-        <Text style={[styles.sectionCount, { color: C.muted }]}>
+        <Text style={[styles.sectionCount, { color: C.muted, marginBottom: 0 }]}>
           {tasks.filter((t) => t.status !== "fait").length} besoin{tasks.filter((t) => t.status !== "fait").length !== 1 ? "s" : ""} ouvert{tasks.filter((t) => t.status !== "fait").length !== 1 ? "s" : ""}
         </Text>
-        <TouchableOpacity
-          style={[styles.createBtn, { backgroundColor: C.accent }]}
-          onPress={openCreateTask}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.createBtnText}>+ Ajouter un besoin</Text>
-        </TouchableOpacity>
       </View>
 
       {tasksLoading ? (
@@ -1956,7 +1956,8 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12, borderBottomWidth: 1 },
   headerTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18 },
   subHeader: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1 },
-  addBtn: { borderRadius: 10, paddingVertical: 12, alignItems: "center" },
+  subHeaderRow: { flexDirection: "row", gap: 10 },
+  addBtn: { flex: 1, minWidth: 0, borderRadius: 10, paddingVertical: 12, alignItems: "center" },
   addBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#0D1B2E" },
 
   catTabsBar: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", paddingHorizontal: 10, paddingVertical: 10, gap: 8, borderBottomWidth: 1 },
@@ -1966,8 +1967,6 @@ const styles = StyleSheet.create({
 
   sectionBar: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1 },
   sectionCount: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginBottom: 8 },
-  createBtn: { borderRadius: 10, paddingVertical: 12, alignItems: "center" },
-  createBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" },
 
   listPad: { padding: 14, paddingBottom: 40 },
 
