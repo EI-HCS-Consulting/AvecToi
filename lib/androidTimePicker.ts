@@ -23,3 +23,20 @@ export function openAndroidTimePicker(value: Date, onPick: (date: Date) => void)
     },
   });
 }
+
+// display: "spinner" (et non "calendar") — le widget CalendarView natif
+// d'Android a un bug connu : changer l'année depuis sa vue calendrier
+// réinitialise le jour/mois au 1er janvier de l'année choisie. Le mode
+// spinner (3 roues jour/mois/année indépendantes) n'a pas ce problème.
+export function openAndroidDatePicker(value: Date, onPick: (date: Date) => void, maximumDate?: Date) {
+  DateTimePickerAndroid.open({
+    value,
+    mode: "date",
+    display: "spinner",
+    maximumDate,
+    ...ANDROID_TIME_PICKER_BUTTONS,
+    onChange: (event, date) => {
+      if (event.type === "set" && date) onPick(date);
+    },
+  });
+}

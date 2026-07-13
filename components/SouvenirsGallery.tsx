@@ -13,6 +13,7 @@ import { router } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { getVisitorSession } from "@/lib/visitorSession";
 import PinPad from "@/components/PinPad";
+import VisitorProfileModal from "@/components/VisitorProfileModal";
 import type { SouvenirPhoto } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -67,6 +68,17 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
 
   // Lightbox
   const [lightbox, setLightbox] = useState<(SouvenirPhoto & { url: string }) | null>(null);
+  const lightboxIndex = lightbox ? photos.findIndex((p) => p.id === lightbox.id) : -1;
+
+  function showPrevPhoto() {
+    if (lightboxIndex > 0) setLightbox(photos[lightboxIndex - 1]);
+  }
+  function showNextPhoto() {
+    if (lightboxIndex >= 0 && lightboxIndex < photos.length - 1) setLightbox(photos[lightboxIndex + 1]);
+  }
+
+  // Fiche visiteur — ouverte en cliquant le nom de l'auteur (sauf admin)
+  const [profileTarget, setProfileTarget] = useState<{ prenom: string; nom: string } | null>(null);
 
   // Delete via PIN (visiteur)
   const [deleteTarget, setDeleteTarget] = useState<(SouvenirPhoto & { url: string }) | null>(null);
@@ -487,7 +499,13 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
                 {lightbox.caption ? (
                   <Text style={styles.lightboxCaption}>{lightbox.caption}</Text>
                 ) : null}
-                <Text style={styles.lightboxAuthor}>{lightbox.uploaded_by_prenom} {lightbox.uploaded_by_nom}</Text>
+                {lightbox.uploaded_by_pin !== "ADMIN" ? (
+                  <TouchableOpacity onPress={() => setProfileTarget({ prenom: lightbox.uploaded_by_prenom, nom: lightbox.uploaded_by_nom })} activeOpacity={0.7}>
+                    <Text style={styles.lightboxAuthor}>{lightbox.uploaded_by_prenom} {lightbox.uploaded_by_nom}</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <Text style={styles.lightboxAuthor}>{lightbox.uploaded_by_prenom} {lightbox.uploaded_by_nom}</Text>
+                )}
                 <Text style={styles.lightboxDate}>
                   {new Date(lightbox.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
                 </Text>
@@ -521,6 +539,17 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
           <TouchableOpacity style={styles.lightboxClose} onPress={() => setLightbox(null)}>
             <Text style={styles.lightboxCloseText}>✕</Text>
           </TouchableOpacity>
+
+          {lightboxIndex > 0 && (
+            <TouchableOpacity style={[styles.lightboxNavBtn, styles.lightboxNavLeft]} onPress={showPrevPhoto}>
+              <Text style={styles.lightboxNavText}>‹</Text>
+            </TouchableOpacity>
+          )}
+          {lightboxIndex >= 0 && lightboxIndex < photos.length - 1 && (
+            <TouchableOpacity style={[styles.lightboxNavBtn, styles.lightboxNavRight]} onPress={showNextPhoto}>
+              <Text style={styles.lightboxNavText}>›</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </Modal>
 
@@ -714,6 +743,19 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
           <Text style={styles.toastText}>{toast}</Text>
         </View>
       )}
+
+      {/* ── FICHE VISITEUR ────────────────────────────────────────────────── */}
+      {profileTarget && (
+        <VisitorProfileModal
+          visible={!!profileTarget}
+          onClose={() => setProfileTarget(null)}
+          spaceId={spaceId}
+          C={C}
+          isAdmin={isAdmin}
+          prenom={profileTarget.prenom}
+          nom={profileTarget.nom}
+        />
+      )}
     </View>
   );
 }
@@ -759,6 +801,10 @@ const styles = StyleSheet.create({
   lbBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 13, color: "#fff" },
   lightboxClose: { position: "absolute", top: 52, right: 16, width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" },
   lightboxCloseText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  lightboxNavBtn: { position: "absolute", top: "42%", width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" },
+  lightboxNavLeft: { left: 10 },
+  lightboxNavRight: { right: 10 },
+  lightboxNavText: { color: "#fff", fontSize: 26, fontWeight: "600", lineHeight: 28 },
 
   // Overlay / sheet
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "flex-end" },

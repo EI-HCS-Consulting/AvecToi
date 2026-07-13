@@ -67,6 +67,8 @@ export default function AdminAccountScreen() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [savingPassword, setSavingPassword] = useState(false);
 
+  const [logoutModalVisible, setLogoutModalVisible] = useState(false);
+
   const [toast, setToast] = useState("");
   const [activeContrib, setActiveContrib] = useState<ContribKey | null>(null);
   const [headerHeight, setHeaderHeight] = useState(0);
@@ -250,17 +252,13 @@ export default function AdminAccountScreen() {
   }
 
   function handleLogout() {
-    Alert.alert("Déconnexion", "Voulez-vous vous déconnecter ?", [
-      { text: "Annuler", style: "cancel" },
-      {
-        text: "Se déconnecter",
-        style: "destructive",
-        onPress: async () => {
-          await supabase.auth.signOut();
-          router.replace("/");
-        },
-      },
-    ]);
+    setLogoutModalVisible(true);
+  }
+
+  async function confirmLogout() {
+    setLogoutModalVisible(false);
+    await supabase.auth.signOut();
+    router.replace("/");
   }
 
   function handleOpenReservation(r: Reservation) {
@@ -483,11 +481,11 @@ export default function AdminAccountScreen() {
                 })}
 
                 <TouchableOpacity
-                  style={[styles.editProfileBtn, { borderColor: "rgba(233,69,96,0.4)", marginTop: 18 }]}
+                  style={[styles.logoutBtn, { borderColor: "rgba(233,69,96,0.4)" }]}
                   onPress={handleLogout}
                   activeOpacity={0.85}
                 >
-                  <Text style={[styles.editProfileBtnText, { color: "#e94560" }]}>Se déconnecter</Text>
+                  <Text style={[styles.logoutBtnText, { color: "#e94560" }]}>🚪 Se déconnecter</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -687,6 +685,36 @@ export default function AdminAccountScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      <Modal visible={logoutModalVisible} transparent animationType="fade" onRequestClose={() => setLogoutModalVisible(false)}>
+        <View style={styles.logoutModalOverlay}>
+          <View style={[styles.logoutModalCard, { backgroundColor: C.card, borderColor: C.border }]}>
+            <View style={[styles.logoutModalIconWrap, { backgroundColor: "rgba(233,69,96,0.12)" }]}>
+              <Text style={styles.logoutModalIcon}>🚪</Text>
+            </View>
+            <Text style={[styles.logoutModalTitle, { color: "#fff" }]}>Se déconnecter ?</Text>
+            <Text style={[styles.logoutModalText, { color: C.muted }]}>
+              Tu devras ressaisir ton email et ton mot de passe pour revenir sur cet espace.
+            </Text>
+            <View style={styles.logoutModalButtons}>
+              <TouchableOpacity
+                style={[styles.logoutModalBtn, styles.logoutModalCancelBtn, { borderColor: C.border }]}
+                onPress={() => setLogoutModalVisible(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.logoutModalCancelText, { color: C.text }]}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.logoutModalBtn, styles.logoutModalConfirmBtn]}
+                onPress={confirmLogout}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.logoutModalConfirmText}>Se déconnecter</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -744,6 +772,22 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   editProfileBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
+
+  logoutBtn: { alignItems: "center", justifyContent: "center", borderWidth: 1, borderRadius: 10, paddingVertical: 12, marginTop: 24, marginBottom: 8 },
+  logoutBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },
+
+  logoutModalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.75)", alignItems: "center", justifyContent: "center", padding: 24 },
+  logoutModalCard: { width: "100%", maxWidth: 340, borderWidth: 1, borderRadius: 20, padding: 28, alignItems: "center" },
+  logoutModalIconWrap: { width: 56, height: 56, borderRadius: 28, alignItems: "center", justifyContent: "center", marginBottom: 14 },
+  logoutModalIcon: { fontSize: 26 },
+  logoutModalTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 19, textAlign: "center", marginBottom: 8 },
+  logoutModalText: { fontFamily: "DM_Sans_400Regular", fontSize: 13.5, textAlign: "center", lineHeight: 19, marginBottom: 22 },
+  logoutModalButtons: { flexDirection: "row", gap: 10, width: "100%" },
+  logoutModalBtn: { flex: 1, borderRadius: 12, paddingVertical: 13, alignItems: "center", justifyContent: "center" },
+  logoutModalCancelBtn: { borderWidth: 1 },
+  logoutModalCancelText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
+  logoutModalConfirmBtn: { backgroundColor: "#e94560" },
+  logoutModalConfirmText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: "#fff" },
 
   goldBtn: { flex: 1, minWidth: 0, borderRadius: 10, paddingVertical: 12, alignItems: "center" },
   goldBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#0D1B2E" },

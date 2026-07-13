@@ -16,5 +16,14 @@ export default function VisitorEntraideScreen() {
     );
   }
 
-  return <Entraide spaceId={space.id} C={C} isAdmin={false} capped={isSpaceCapped(space, reservations)} hospitalName={space.hospital_name} />;
+  return (
+    <Entraide
+      spaceId={space.id}
+      C={C}
+      isAdmin={false}
+      capped={isSpaceCapped(space, reservations)}
+      hospitalName={space.hospital_name}
+      allergies={space.patient_allergies}
+    />
+  );
 }

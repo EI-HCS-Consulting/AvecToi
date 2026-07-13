@@ -44,6 +44,25 @@ interface FieldHistoryEntry {
   changed_at: string;
 }
 
+const BLOOD_GROUPS = [["A+", "A-"], ["B+", "B-"], ["AB+", "AB-"], ["O+", "O-"]];
+
+const COMMON_ALLERGIES = [
+  "Arachides", "Fruits à coque", "Gluten", "Lactose",
+  "Œufs", "Poisson", "Crustacés", "Soja",
+];
+
+const BIRTH_MONTHS = [
+  "Janvier", "Février", "Mars", "Avril", "Mai", "Juin",
+  "Juillet", "Août", "Septembre", "Octobre", "Novembre", "Décembre",
+];
+// Roue jour/mois/année native (calendar ET spinner) peu fiable selon la
+// version/le fabricant Android : reset au 1er janvier lors d'un changement
+// d'année, année bloquée à partir de 1970 sur certains launchers. Patientèle
+// visée souvent née avant 1970 → sélecteur maison (3 listes indépendantes),
+// aucune dépendance au widget natif.
+const BIRTH_DAYS = Array.from({ length: 31 }, (_, i) => i + 1);
+const BIRTH_YEARS = Array.from({ length: new Date().getFullYear() - 1900 + 1 }, (_, i) => new Date().getFullYear() - i);
+
 const FIELD_LABELS: Record<string, string> = {
   hospital_room: "Chambre",
   hospital_service: "Service",
@@ -321,6 +340,85 @@ export default function SettingsScreen() {
       setVisitRules(space.visit_rules ?? "");
     }
   }, [space]);
+
+  // Fiche patient (naissance / sexe / groupe sanguin / allergies)
+  const patientMedicalInit = useRef(false);
+  const [patientBirthdate, setPatientBirthdate] = useState<string | null>(null);
+  const [patientSex, setPatientSex] = useState<"M" | "F" | null>(null);
+  const [patientBloodType, setPatientBloodType] = useState<string | null>(null);
+  // Allergies : cases à cocher pour les plus fréquentes + "Autre" en texte
+  // libre. Persistées ensemble comme une simple liste texte séparée par
+  // virgules (colonne patient_allergies inchangée) — au chargement, les
+  // segments reconnus cochent leur case, le reste atterrit dans "Autre".
+  const [allergyChecks, setAllergyChecks] = useState<Set<string>>(new Set());
+  const [allergyOtherChecked, setAllergyOtherChecked] = useState(false);
+  const [allergyOtherText, setAllergyOtherText] = useState("");
+  const [bdPickerField, setBdPickerField] = useState<"day" | "month" | "year" | null>(null);
+  const [patientMedicalSaving, setPatientMedicalSaving] = useState(false);
+  useEffect(() => {
+    if (space && !patientMedicalInit.current) {
+      patientMedicalInit.current = true;
+      setPatientBirthdate(space.patient_birthdate ?? null);
+      setPatientSex(space.patient_sex ?? null);
+      setPatientBloodType(space.patient_blood_type ?? null);
+
+      const parts = (space.patient_allergies ?? "").split(",").map((p) => p.trim()).filter(Boolean);
+      const checks = new Set<string>();
+      const rest: string[] = [];
+      for (const p of parts) {
+        const match = COMMON_ALLERGIES.find((a) => a.toLowerCase() === p.toLowerCase());
+        if (match) checks.add(match); else rest.push(p);
+      }
+      setAllergyChecks(checks);
+      setAllergyOtherChecked(rest.length > 0);
+      setAllergyOtherText(rest.join(", "));
+    }
+  }, [space]);
+
+  function toggleAllergyCheck(item: string) {
+    setAllergyChecks((prev) => {
+      const next = new Set(prev);
+      if (next.has(item)) next.delete(item); else next.add(item);
+      return next;
+    });
+  }
+
+  const bdParts = patientBirthdate ? patientBirthdate.split("-").map(Number) : null;
+  const bdYear = bdParts ? bdParts[0] : null;
+  const bdMonth = bdParts ? bdParts[1] : null;
+  const bdDay = bdParts ? bdParts[2] : null;
+
+  function updateBirthdatePart(part: "day" | "month" | "year", value: number) {
+    const now = new Date();
+    const [y, m, d] = bdParts ?? [now.getFullYear() - 50, now.getMonth() + 1, now.getDate()];
+    const next = { y, m, d };
+    if (part === "year") next.y = value;
+    if (part === "month") next.m = value;
+    if (part === "day") next.d = value;
+    const daysInMonth = new Date(next.y, next.m, 0).getDate();
+    if (next.d > daysInMonth) next.d = daysInMonth;
+    setPatientBirthdate(`${next.y}-${String(next.m).padStart(2, "0")}-${String(next.d).padStart(2, "0")}`);
+    setBdPickerField(null);
+  }
+
+  async function handleSavePatientMedical() {
+    if (!space) return;
+    setPatientMedicalSaving(true);
+    const parts = COMMON_ALLERGIES.filter((a) => allergyChecks.has(a));
+    if (allergyOtherChecked && allergyOtherText.trim()) parts.push(allergyOtherText.trim());
+    const { error } = await supabase
+      .from("patient_spaces")
+      .update({
+        patient_birthdate: patientBirthdate,
+        patient_sex: patientSex,
+        patient_blood_type: patientBloodType,
+        patient_allergies: parts.length ? parts.join(", ") : null,
+      })
+      .eq("id", space.id);
+    setPatientMedicalSaving(false);
+    if (error) showToast("Erreur lors de la sauvegarde.");
+    else showToast("Fiche patient enregistrée ✓");
+  }
 
   // Infos hospitalières (room / service / secteur)
   const hospitalInfosInit = useRef(false);
@@ -2390,6 +2488,202 @@ export default function SettingsScreen() {
 
                   <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
 
+                  <Text style={[styles.fieldLabel, { color: C.gold }]}>🎂 Date de naissance</Text>
+                  <Text style={[styles.cardDesc, { color: C.muted, marginBottom: 8 }]}>
+                    Visible de tous les visiteurs (âge affiché + anniversaire).
+                  </Text>
+                  <View style={{ flexDirection: "row", gap: 5 }}>
+                    <TouchableOpacity
+                      style={[styles.bdFieldBtn, { backgroundColor: C.bg, borderColor: C.border }]}
+                      onPress={() => setBdPickerField("day")}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[styles.bdFieldLabel, { color: C.muted }]}>Jour</Text>
+                      <View style={styles.bdFieldValueRow}>
+                        <Text style={[styles.bdFieldValue, { color: bdDay ? C.text : C.muted }]}>{bdDay ?? "—"}</Text>
+                        <Text style={[styles.bdFieldChevron, { color: C.accent }]}>▾</Text>
+                      </View>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.bdFieldBtn, { backgroundColor: C.bg, borderColor: C.border }]}
+                      onPress={() => setBdPickerField("month")}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[styles.bdFieldLabel, { color: C.muted }]}>Mois</Text>
+                      <View style={styles.bdFieldValueRow}>
+                        <Text
+                          style={[styles.bdFieldValue, { color: bdMonth ? C.text : C.muted }]}
+                          numberOfLines={1}
+                          adjustsFontSizeToFit
+                        >
+                          {bdMonth ? BIRTH_MONTHS[bdMonth - 1] : "—"}
+                        </Text>
+                        <Text style={[styles.bdFieldChevron, { color: C.accent }]}>▾</Text>
+                      </View>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.bdFieldBtn, { backgroundColor: C.bg, borderColor: C.border }]}
+                      onPress={() => setBdPickerField("year")}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[styles.bdFieldLabel, { color: C.muted }]}>Année</Text>
+                      <View style={styles.bdFieldValueRow}>
+                        <Text style={[styles.bdFieldValue, { color: bdYear ? C.text : C.muted }]}>{bdYear ?? "—"}</Text>
+                        <Text style={[styles.bdFieldChevron, { color: C.accent }]}>▾</Text>
+                      </View>
+                    </TouchableOpacity>
+                  </View>
+
+                  <Modal
+                    visible={bdPickerField !== null}
+                    transparent
+                    animationType="slide"
+                    onRequestClose={() => setBdPickerField(null)}
+                  >
+                    <TouchableOpacity style={styles.bdPickerOverlay} activeOpacity={1} onPress={() => setBdPickerField(null)}>
+                      <TouchableOpacity activeOpacity={1}>
+                        <View
+                          style={[
+                            styles.bdPickerCard,
+                            { backgroundColor: C.card, borderColor: C.border, width: bdPickerField === "month" ? 200 : 150 },
+                          ]}
+                        >
+                          <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 0, textAlign: "center" }]}>
+                            {bdPickerField === "day" ? "Jour" : bdPickerField === "month" ? "Mois" : "Année"}
+                          </Text>
+                          <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 260 }}>
+                            {(bdPickerField === "day" ? BIRTH_DAYS : bdPickerField === "month" ? BIRTH_MONTHS.map((_, i) => i + 1) : BIRTH_YEARS).map((v) => {
+                              const label = bdPickerField === "month" ? BIRTH_MONTHS[(v as number) - 1] : String(v);
+                              const selected = bdPickerField === "day" ? bdDay === v : bdPickerField === "month" ? bdMonth === v : bdYear === v;
+                              return (
+                                <TouchableOpacity
+                                  key={v}
+                                  style={[styles.bdPickerRow, selected && { backgroundColor: C.accent + "22" }]}
+                                  onPress={() => updateBirthdatePart(bdPickerField as "day" | "month" | "year", v as number)}
+                                >
+                                  <Text style={[styles.bdPickerRowText, { color: selected ? C.accent : C.text }]}>{label}</Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </ScrollView>
+                        </View>
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  </Modal>
+
+                  <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
+
+                  <Text style={[styles.fieldLabel, { color: C.gold }]}>Sexe</Text>
+                  <View style={{ flexDirection: "row", gap: 8 }}>
+                    <TouchableOpacity
+                      style={[
+                        styles.bloodChip,
+                        { backgroundColor: patientSex === "M" ? C.accent : C.bg, borderColor: patientSex === "M" ? C.accent : C.border, flex: 1 },
+                      ]}
+                      onPress={() => setPatientSex("M")}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[styles.bloodChipText, { color: patientSex === "M" ? "#fff" : C.text, textAlign: "center" }]}>♂ Homme</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.bloodChip,
+                        { backgroundColor: patientSex === "F" ? "#f97316" : C.bg, borderColor: patientSex === "F" ? "#f97316" : C.border, flex: 1 },
+                      ]}
+                      onPress={() => setPatientSex("F")}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={[styles.bloodChipText, { color: patientSex === "F" ? "#fff" : C.text, textAlign: "center" }]}>♀ Femme</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
+
+                  <Text style={[styles.fieldLabel, { color: C.gold }]}>🩸 Groupe sanguin</Text>
+                  <Text style={[styles.cardDesc, { color: C.muted, marginBottom: 8 }]}>
+                    En cas de besoin ponctuel de transfusion, les proches pourront proposer de donner leur sang.
+                  </Text>
+                  <View style={styles.bloodGroupWrap}>
+                    {BLOOD_GROUPS.map((pair) => (
+                      <View key={pair[0]} style={styles.bloodGroupRow}>
+                        {pair.map((bt) => {
+                          const selected = patientBloodType === bt;
+                          return (
+                            <TouchableOpacity
+                              key={bt}
+                              style={[
+                                styles.bloodChip,
+                                styles.bloodChipHalf,
+                                { backgroundColor: selected ? "#f97316" : C.bg, borderColor: selected ? "#f97316" : C.border },
+                              ]}
+                              onPress={() => setPatientBloodType(selected ? null : bt)}
+                              activeOpacity={0.75}
+                            >
+                              <Text style={[styles.bloodChipText, { color: selected ? "#fff" : C.text, textAlign: "center" }]}>{bt}</Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    ))}
+                  </View>
+
+                  <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
+
+                  <Text style={[styles.fieldLabel, { color: C.gold }]}>⚠️ Allergies</Text>
+                  <Text style={[styles.cardDesc, { color: C.muted, marginBottom: 8 }]}>
+                    Affichées en rappel aux proches qui publient ou prennent en charge un besoin "Repas".
+                  </Text>
+                  <View style={styles.allergyGrid}>
+                    {COMMON_ALLERGIES.map((item) => {
+                      const checked = allergyChecks.has(item);
+                      return (
+                        <TouchableOpacity
+                          key={item}
+                          style={styles.allergyRow}
+                          onPress={() => toggleAllergyCheck(item)}
+                          activeOpacity={0.65}
+                        >
+                          <View style={[styles.allergyDot, { borderColor: checked ? "#f97316" : C.border }, checked && styles.allergyDotFilled]} />
+                          <Text style={[styles.allergyRowText, { color: checked ? C.text : C.muted }]}>{item}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                    <TouchableOpacity
+                      style={styles.allergyRow}
+                      onPress={() => setAllergyOtherChecked((v) => !v)}
+                      activeOpacity={0.65}
+                    >
+                      <View style={[styles.allergyDot, { borderColor: allergyOtherChecked ? "#f97316" : C.border }, allergyOtherChecked && styles.allergyDotFilled]} />
+                      <Text style={[styles.allergyRowText, { color: allergyOtherChecked ? C.text : C.muted }]}>Autre</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {allergyOtherChecked && (
+                    <TextInput
+                      style={[styles.notesInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 10 }]}
+                      placeholder="Précise la ou les autres allergies..."
+                      placeholderTextColor={C.muted}
+                      value={allergyOtherText}
+                      onChangeText={setAllergyOtherText}
+                      multiline
+                      numberOfLines={2}
+                      textAlignVertical="top"
+                    />
+                  )}
+
+                  <TouchableOpacity
+                    style={[styles.saveNotesBtn, { backgroundColor: C.accent, marginTop: 8 }, patientMedicalSaving && { opacity: 0.6 }]}
+                    onPress={handleSavePatientMedical}
+                    disabled={patientMedicalSaving}
+                  >
+                    {patientMedicalSaving
+                      ? <ActivityIndicator color="#fff" size="small" />
+                      : <Text style={styles.saveNotesBtnText}>Enregistrer la fiche patient</Text>
+                    }
+                  </TouchableOpacity>
+
+                  <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
+
                   <Text style={[styles.fieldLabel, { color: C.gold }]}>Thème de couleur</Text>
                   <Text style={[styles.cardDesc, { color: C.muted }]}>
                     Appliqué en temps réel pour tous les visiteurs.
@@ -2565,6 +2859,26 @@ const styles = StyleSheet.create({
   themeSwatch: { width: 18, height: 18, borderRadius: 9 },
   themeLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13, flex: 1 },
   themeCheck: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },
+
+  bloodChip: { borderWidth: 1, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 16 },
+  bloodChipText: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },
+  bloodGroupWrap: { gap: 8 },
+  bloodGroupRow: { flexDirection: "row", gap: 8 },
+  bloodChipHalf: { flex: 1 },
+  allergyGrid: { flexDirection: "row", flexWrap: "wrap", rowGap: 13 },
+  allergyRow: { flexDirection: "row", alignItems: "center", gap: 9, width: "50%" },
+  allergyDot: { width: 15, height: 15, borderRadius: 8, borderWidth: 1.5 },
+  allergyDotFilled: { backgroundColor: "#f97316", borderColor: "#f97316" },
+  allergyRowText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13.5 },
+  bdPickerOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center" },
+  bdPickerCard: { borderRadius: 16, borderWidth: 1, paddingVertical: 12, paddingHorizontal: 8 },
+  bdPickerRow: { paddingVertical: 9, paddingHorizontal: 8, borderRadius: 8 },
+  bdPickerRowText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14, textAlign: "center" },
+  bdFieldBtn: { flex: 1, alignItems: "center", borderWidth: 1.5, borderRadius: 14, paddingVertical: 8, paddingHorizontal: 4 },
+  bdFieldLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 10, letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 1 },
+  bdFieldValueRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  bdFieldValue: { fontFamily: "DM_Sans_700Bold", fontSize: 16 },
+  bdFieldChevron: { fontSize: 12, fontFamily: "DM_Sans_700Bold" },
 
   // RGPD
   rgpdRow: { flexDirection: "row", alignItems: "flex-start" },
