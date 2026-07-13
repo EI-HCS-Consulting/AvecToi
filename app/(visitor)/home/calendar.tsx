@@ -225,12 +225,14 @@ export default function VisitorCalendarScreen() {
             <Text style={[styles.modalDate, { color: "#fff" }]}>
               {blockedDayModal && blockedDayModal.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
             </Text>
-            <Text style={[styles.modalMeta, { color: C.muted, marginTop: 4 }]}>
-              Aucune visite n'est possible ce jour-là.
-            </Text>
-            {!!blockedDayModal && !!slotConfig.blocked_date_reasons?.[toISO(blockedDayModal)] && (
+            {!!blockedDayModal && slotConfig.blocked_dates?.includes(toISO(blockedDayModal)) ? (
               <Text style={[styles.modalMeta, { color: C.gold, marginTop: 8, fontStyle: "italic" }]}>
-                {slotConfig.blocked_date_reasons[toISO(blockedDayModal)]}
+                {slotConfig.blocked_date_reasons?.[toISO(blockedDayModal)]
+                  || "Cette date a été bloquée par l'administrateur du groupe."}
+              </Text>
+            ) : (
+              <Text style={[styles.modalMeta, { color: C.muted, marginTop: 4 }]}>
+                Aucune visite n'est possible ce jour-là.
               </Text>
             )}
             <TouchableOpacity

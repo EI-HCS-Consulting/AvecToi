@@ -289,6 +289,23 @@ export default function AdminAccountScreen() {
         <Text style={[styles.headerTitle, { color: "#fff" }]}>👤 Mon compte</Text>
       </View>
 
+      <View style={[styles.subHeader, styles.subHeaderRow, { backgroundColor: C.card, borderBottomColor: C.border }]}>
+        <TouchableOpacity
+          style={[styles.goldBtn, { backgroundColor: C.gold }]}
+          onPress={() => router.push("/(admin)/home/calendar" as any)}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.goldBtnText}>← Accueil</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.goldBtn, { backgroundColor: C.accent }]}
+          onPress={() => router.push("/(admin)/settings")}
+          activeOpacity={0.85}
+        >
+          <Text style={[styles.goldBtnText, { color: "#fff" }]}>⚙️ Paramètres</Text>
+        </TouchableOpacity>
+      </View>
+
       <ScrollView contentContainerStyle={styles.scroll}>
         {/* Bandeau profil admin — distinct du patient (déplacé dans Paramètres) */}
         <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
@@ -332,14 +349,6 @@ export default function AdminAccountScreen() {
           )}
         </View>
 
-        <TouchableOpacity
-          style={[styles.goldBtn, { backgroundColor: C.gold, marginTop: 16 }]}
-          onPress={() => router.push("/(admin)/home/calendar" as any)}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.goldBtnText}>← Retour à l'accueil</Text>
-        </TouchableOpacity>
-
         {hasSpace && space ? (
           <>
             {/* Section Mes contributions */}
@@ -349,174 +358,137 @@ export default function AdminAccountScreen() {
               <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
             ) : (
               <>
-                {activeContrib === null && (
-                  <View style={styles.tileGrid}>
-                    {(["resv", "news", "soutien", "besoins"] as ContribKey[]).map((key) => (
+                {(["resv", "news", "soutien", "besoins"] as ContribKey[]).map((key) => {
+                  const count = key === "resv" ? reservations.length
+                    : key === "news" ? news.length
+                    : key === "soutien" ? messages.length
+                    : tasks.length;
+                  const isOpen = activeContrib === key;
+                  return (
+                    <View key={key}>
                       <TouchableOpacity
-                        key={key}
-                        style={[styles.tile, { backgroundColor: C.card, borderColor: C.border }]}
-                        onPress={() => setActiveContrib(key)}
-                        activeOpacity={0.8}
+                        style={styles.contribHeader}
+                        onPress={() => setActiveContrib(isOpen ? null : key)}
+                        activeOpacity={0.75}
                       >
-                        <View style={[styles.tileIcon, { backgroundColor: `${C.accent}22` }]}>
-                          <Text style={styles.tileIconText}>{CONTRIB_META[key].icon}</Text>
-                        </View>
-                        <Text style={[styles.tileLabel, { color: "#fff" }]}>{CONTRIB_META[key].label}</Text>
-                        <Text style={[styles.tileHint, { color: C.muted }]}>
-                          {key === "resv" ? `${reservations.length} réservation(s)`
-                            : key === "news" ? `${news.length} nouvelle(s)`
-                            : key === "soutien" ? `${messages.length} message(s)`
-                            : `${tasks.length} besoin(s)`}
+                        <Text style={[styles.contribHeaderText, { color: "#fff" }]}>
+                          {CONTRIB_META[key].icon} {CONTRIB_META[key].label} ({count})
                         </Text>
-                        <Text style={[styles.tileChevron, { color: C.muted }]}>›</Text>
+                        <Text style={[styles.tileChevron, { color: C.muted }]}>{isOpen ? "▲" : "▼"}</Text>
                       </TouchableOpacity>
-                    ))}
-                  </View>
-                )}
 
-                {activeContrib === null && (
-                  <TouchableOpacity
-                    style={[styles.goldBtn, { backgroundColor: C.gold, marginTop: 16 }]}
-                    onPress={() => router.push("/(admin)/settings")}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={styles.goldBtnText}>⚙️ Paramètres</Text>
-                  </TouchableOpacity>
-                )}
+                      {isOpen && key === "resv" && (
+                        <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
+                          {reservations.length === 0 ? (
+                            <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucune réservation pour le moment.</Text>
+                          ) : reservations.map((r) => (
+                            <TouchableOpacity
+                              key={r.id}
+                              style={styles.activityRow}
+                              onPress={() => handleOpenReservation(r)}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]}>
+                                {r.type === "Nuit" ? "🌙" : "☀️"}{" "}
+                                {new Date(r.date).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} · {r.type === "Nuit" ? "Nuit" : r.creneau}
+                              </Text>
+                              <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
 
-                {activeContrib === null && (
-                  <TouchableOpacity
-                    style={[styles.editProfileBtn, { borderColor: "rgba(233,69,96,0.4)", marginTop: 18 }]}
-                    onPress={handleLogout}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={[styles.editProfileBtnText, { color: "#e94560" }]}>Se déconnecter</Text>
-                  </TouchableOpacity>
-                )}
+                      {isOpen && key === "news" && (
+                        <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
+                          {news.length === 0 ? (
+                            <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucune nouvelle publiée pour le moment.</Text>
+                          ) : news.map((entry) => (
+                            <TouchableOpacity
+                              key={entry.id}
+                              style={styles.activityRow}
+                              onPress={() => router.push("/(admin)/news" as any)}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
+                                {new Date(entry.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} — {entry.content}
+                              </Text>
+                              <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
 
-                {activeContrib !== null && (
-                  <TouchableOpacity style={styles.backToGrid} onPress={() => setActiveContrib(null)} activeOpacity={0.7}>
-                    <Text style={[styles.backToGridText, { color: C.accent }]}>← Retour à mes contributions</Text>
-                  </TouchableOpacity>
-                )}
+                      {isOpen && key === "soutien" && (
+                        <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
+                          {messages.length === 0 ? (
+                            <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucun message envoyé pour le moment.</Text>
+                          ) : messages.map((m) => (
+                            <TouchableOpacity
+                              key={m.id}
+                              style={styles.activityRow}
+                              onPress={() => router.push("/(admin)/soutien" as any)}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
+                                {new Date(m.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} — {m.message}
+                              </Text>
+                              <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
 
-                {/* Toutes les réservations de l'espace */}
-                {activeContrib === "resv" && (
-                <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
-                  <Text style={[styles.activityGroupTitle, { color: "#fff" }]}>
-                    📅 Mes réservations ({reservations.length})
-                  </Text>
-                  {reservations.length === 0 ? (
-                    <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucune réservation pour le moment.</Text>
-                  ) : reservations.map((r) => (
-                    <TouchableOpacity
-                      key={r.id}
-                      style={styles.activityRow}
-                      onPress={() => handleOpenReservation(r)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]}>
-                        {r.type === "Nuit" ? "🌙" : "☀️"}{" "}
-                        {new Date(r.date).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} · {r.type === "Nuit" ? "Nuit" : r.creneau}
-                      </Text>
-                      <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-                )}
+                      {isOpen && key === "besoins" && (
+                        <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
+                          {tasks.length === 0 ? (
+                            <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucun besoin publié pour le moment.</Text>
+                          ) : tasks.map((t) => (
+                            <TouchableOpacity
+                              key={t.id}
+                              style={styles.activityRow}
+                              onPress={() => router.push("/(admin)/entraide" as any)}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={1}>
+                                {CAT_ICONS[t.category]} {t.title}
+                              </Text>
+                              <View style={[
+                                styles.activityStatusBadge,
+                                {
+                                  borderColor: t.status === "fait" ? C.success
+                                    : t.status === "pris_en_charge" ? C.accent
+                                    : C.orange,
+                                },
+                              ]}>
+                                <Text style={[
+                                  styles.activityStatusText,
+                                  {
+                                    color: t.status === "fait" ? C.success
+                                      : t.status === "pris_en_charge" ? C.accent
+                                      : C.orange,
+                                  },
+                                ]}>
+                                  {t.status === "fait" ? "✓ Fait"
+                                    : t.status === "pris_en_charge" ? "⏳ Pris en charge"
+                                    : "🔓 Ouvert"}
+                                </Text>
+                              </View>
+                              <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
 
-                {/* Nouvelles */}
-                {activeContrib === "news" && (
-                <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
-                  <Text style={[styles.activityGroupTitle, { color: "#fff" }]}>
-                    📰 Mes nouvelles ({news.length})
-                  </Text>
-                  {news.length === 0 ? (
-                    <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucune nouvelle publiée pour le moment.</Text>
-                  ) : news.map((entry) => (
-                    <TouchableOpacity
-                      key={entry.id}
-                      style={styles.activityRow}
-                      onPress={() => router.push("/(admin)/news" as any)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
-                        {new Date(entry.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} — {entry.content}
-                      </Text>
-                      <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-                )}
-
-                {/* Messages de soutien */}
-                {activeContrib === "soutien" && (
-                <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
-                  <Text style={[styles.activityGroupTitle, { color: "#fff" }]}>
-                    💛 Mes messages de soutien ({messages.length})
-                  </Text>
-                  {messages.length === 0 ? (
-                    <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucun message envoyé pour le moment.</Text>
-                  ) : messages.map((m) => (
-                    <TouchableOpacity
-                      key={m.id}
-                      style={styles.activityRow}
-                      onPress={() => router.push("/(admin)/soutien" as any)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
-                        {new Date(m.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} — {m.message}
-                      </Text>
-                      <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-                )}
-
-                {/* Besoins publiés */}
-                {activeContrib === "besoins" && (
-                <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
-                  <Text style={[styles.activityGroupTitle, { color: "#fff" }]}>
-                    🤝 Besoins publiés ({tasks.length})
-                  </Text>
-                  {tasks.length === 0 ? (
-                    <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucun besoin publié pour le moment.</Text>
-                  ) : tasks.map((t) => (
-                    <TouchableOpacity
-                      key={t.id}
-                      style={styles.activityRow}
-                      onPress={() => router.push("/(admin)/entraide" as any)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={1}>
-                        {CAT_ICONS[t.category]} {t.title}
-                      </Text>
-                      <View style={[
-                        styles.activityStatusBadge,
-                        {
-                          borderColor: t.status === "fait" ? C.success
-                            : t.status === "pris_en_charge" ? C.accent
-                            : C.orange,
-                        },
-                      ]}>
-                        <Text style={[
-                          styles.activityStatusText,
-                          {
-                            color: t.status === "fait" ? C.success
-                              : t.status === "pris_en_charge" ? C.accent
-                              : C.orange,
-                          },
-                        ]}>
-                          {t.status === "fait" ? "✓ Fait"
-                            : t.status === "pris_en_charge" ? "⏳ Pris en charge"
-                            : "🔓 Ouvert"}
-                        </Text>
-                      </View>
-                      <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-                )}
+                <TouchableOpacity
+                  style={[styles.editProfileBtn, { borderColor: "rgba(233,69,96,0.4)", marginTop: 18 }]}
+                  onPress={handleLogout}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.editProfileBtnText, { color: "#e94560" }]}>Se déconnecter</Text>
+                </TouchableOpacity>
               </>
             )}
           </>
@@ -729,6 +701,9 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 20 },
 
+  subHeader: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1 },
+  subHeaderRow: { flexDirection: "row", gap: 10 },
+
   scroll: { padding: 16, paddingBottom: 48 },
   sectionTitle: {
     fontFamily: "DM_Sans_600SemiBold", fontSize: 11,
@@ -742,29 +717,20 @@ const styles = StyleSheet.create({
   patientName: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18 },
   patientSub: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginTop: 2 },
 
-  tileGrid: { flexDirection: "row", flexWrap: "wrap", gap: 12, marginTop: 4 },
-  tile: {
-    width: "47%", borderWidth: 1, borderRadius: 16, padding: 14,
-    gap: 8, position: "relative",
-  },
-  tileIcon: {
-    width: 38, height: 38, borderRadius: 12,
-    alignItems: "center", justifyContent: "center",
-  },
-  tileIconText: { fontSize: 18 },
-  tileLabel: { fontFamily: "DM_Sans_700Bold", fontSize: 13, lineHeight: 17 },
-  tileHint: { fontFamily: "DM_Sans_400Regular", fontSize: 11, lineHeight: 15 },
-
   pinTile: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     borderWidth: 1, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 16,
   },
   pinTileText: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },
-  tileChevron: { position: "absolute", top: 14, right: 12, fontFamily: "DM_Sans_700Bold", fontSize: 14 },
-  backToGrid: { alignSelf: "flex-start", marginBottom: 4, paddingVertical: 4 },
-  backToGridText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
+  tileChevron: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },
 
-  activityGroupTitle: { fontFamily: "DM_Sans_700Bold", fontSize: 13, marginBottom: 4 },
+  contribHeader: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.08)",
+  },
+  contribHeaderText: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },
+  contribCard: { marginTop: 10 },
+
   activityEmpty: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
   activityRow: { paddingVertical: 6, flexDirection: "row", alignItems: "center", gap: 8 },
   activityRowText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 19 },
@@ -779,7 +745,7 @@ const styles = StyleSheet.create({
   },
   editProfileBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
 
-  goldBtn: { borderRadius: 10, paddingVertical: 12, alignItems: "center" },
+  goldBtn: { flex: 1, minWidth: 0, borderRadius: 10, paddingVertical: 12, alignItems: "center" },
   goldBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#0D1B2E" },
 
   toast: { position: "absolute", bottom: 24, alignSelf: "center", paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10 },
