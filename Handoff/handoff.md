@@ -9,10 +9,10 @@ _Généré le : 2026-07-12_
 
 **Branches ouvertes sur `origin` :**
 - `main`
-- `docs/spec-web-upgrade` — non mergée, en attente depuis plusieurs sessions, statut toujours à clarifier.
-- `feat/visit-night-minutes` — **mergée cette session (PR #17), branche locale + origin pas encore supprimées** (nettoyage à faire).
+- `docs/spec-web-upgrade` — non mergée, en attente depuis plusieurs sessions ; laissée en attente sur décision explicite de l'utilisateur (2026-07-13).
+- `docs/handoff-2026-07-13` — PR #18 (mise à jour handoff), en attente de merge.
 
-**Branches locales orphelines repérées lors de sessions antérieures, toujours non nettoyées** : `docs/handoff-2026-07-10`, `docs/handoff-onboarding-wizard-2026-07-09`, `fix/freemium-cap-granular-gating` — statut inconnu, à investiguer/nettoyer.
+**Nettoyage effectué le 2026-07-13 :** branches locales+origin `feat/visit-night-minutes` (mergée via PR #17) et locales orphelines `docs/handoff-2026-07-10`, `docs/handoff-onboarding-wizard-2026-07-09` (snapshots handoff jamais mergés, contenu obsolète), `fix/freemium-cap-granular-gating` (déjà entièrement mergée) — toutes supprimées.
 
 **Livré (V1, CLAUDE.md points 1-10) :** setup Expo/Supabase/Git, Auth admin, accès visiteur (lien/token ou code dossier), calendrier + créneaux + réservation + PIN, galerie Souvenirs, Nouvelles du jour, Entraide + Mur de soutien, 6 thèmes, "Prochaine disponibilité", ajout calendrier natif Android, RLS UPDATE/DELETE + cascade `group_id`, accompagnants comme vraies réservations liées, parité admin/visiteur "Mon compte", autofill Google Maps domicile, assistant d'onboarding séquencé + partage freemium débloqué, cap freemium à granularité fine, refonte Paramètres en 4 sections avec barre fixe + historique en accordéon, historique figé + recasage auto + alertes in-app + historique permanent des modifications, fix horloges Android natives (bug enregistrement + design bleu/orange) + infra EAS Update/Workflow, **granularité minute sur les horaires de visite/nuitée (PR #17, mergée)**.
 
@@ -21,7 +21,6 @@ _Généré le : 2026-07-12_
 - Points 13-14 (EAS Build APK signé, fiche Play Store) : pas commencés.
 - Branche `docs/spec-web-upgrade` : toujours en attente, statut/priorité à clarifier avec l'utilisateur.
 - Cap freemium (réactivé) jamais testé en conditions réelles avec un espace non-premium existant en prod.
-- Vérifier que le workflow `.eas/workflows/update-on-main.yml` s'est bien déclenché sur le push de la PR #16 (première exécution jamais confirmée) — et à nouveau sur celui de la PR #17.
 - **Emails d'annulation (`notify-cancel`) toujours inactifs** : la fonction est déployée (avec le fix minutes de cette session) mais `RESEND_API_KEY` n'est pas configurée côté Supabase → aucun email n'est réellement envoyé pour l'instant, c'est un état connu/accepté, pas un bug.
 
 ## Historique cumulé
@@ -50,6 +49,8 @@ Corriger un bug rapporté par l'utilisateur : le réglage minutes des horaires d
 - `npx tsc --noEmit` : clean sur tous les fichiers modifiés (seules erreurs restantes = pré-existantes, sans rapport : types Deno non résolus par le tsconfig RN dans les 3 edge functions, et un mismatch de type `expo-notifications` dans `lib/notifications.ts`).
 - Branche `feat/visit-night-minutes`, commit unique, PR #17 ouverte puis **mergée** dans `main` (`7728f31`) par l'utilisateur.
 - Redéploiement de `notify-cancel` : plusieurs obstacles rencontrés et résolus (voir section 4) — déploiement final réussi via copie du fichier brut depuis GitHub (bouton "Copy raw file"), collé dans l'éditeur du dashboard Supabase.
+- Réglage minute (ex. `09:30`) vérifié manuellement en app par l'utilisateur avant le merge de la PR #17 : fonctionne correctement (Paramètres → Règles de visite/Nuitées, affichage Infos, événement calendrier natif).
+- Workflow `.eas/workflows/update-on-main.yml` confirmé déclenché sur le push de la PR #17 (channel `preview`) — première exécution effectivement observée depuis sa mise en place (PR #16).
 
 **Dernière action avant ce handoff :** confirmation du merge de la PR #17 par l'utilisateur, puis génération de ce handoff.
 
@@ -68,11 +69,7 @@ Corriger un bug rapporté par l'utilisateur : le réglage minutes des horaires d
 - **Collage dans l'éditeur Monaco du dashboard Supabase** : deux tentatives de copier-coller du bloc de code depuis la fenêtre de chat ont échoué avec la même erreur de parsing (`Expected ',', got ')'` à la ligne 12 systématiquement), alors que le fichier source local est vérifié propre (aucun caractère invisible). Cause probable : corruption introduite par le copier-coller depuis le rendu markdown du chat (bouton de copie ou presse-papier navigateur). **Fix qui a marché** : copier le fichier directement depuis GitHub via le bouton "Copy raw file" sur la page du fichier (contourne complètement le pipeline chat → presse-papier). À réutiliser directement la prochaine fois qu'un déploiement manuel via dashboard est nécessaire, plutôt que de reproposer un copier-coller depuis le chat.
 
 ## 5. Prochaine étape
-1. Nettoyer la branche `feat/visit-night-minutes` (locale + `origin`), désormais mergée et inutile.
-2. Vérifier manuellement en app (jamais fait cette session, l'utilisateur a préféré merger directement) : réglage d'un horaire à la minute près (ex. `09:30`) dans Paramètres → Règles de visite / Nuitées, et confirmer l'affichage correct sur les écrans Infos + l'événement calendrier natif d'une nuitée.
-3. Vérifier que le workflow `.eas/workflows/update-on-main.yml` s'est déclenché sur le push de la PR #17 (channel `preview`) — jamais confirmé depuis sa mise en place (PR #16).
-4. Décider du sort de `docs/spec-web-upgrade` (seule autre branche non mergée, en attente depuis plusieurs sessions).
-5. Clarifier le statut des 3 branches locales orphelines (`docs/handoff-2026-07-10`, `docs/handoff-onboarding-wizard-2026-07-09`, `fix/freemium-cap-granular-gating`).
-6. Tester le cap freemium en conditions réelles ; revalider points 11-12 (notifications push, purge RGPD J-7).
-7. Reprendre la roadmap points 13-14 (EAS Build → APK signé, fiche Play Store).
-8. Si un jour les emails d'annulation sont activés (configuration de `RESEND_API_KEY`), le fix minutes de `notify-cancel` est déjà en place et déployé — rien à refaire côté code.
+1. Décider du sort de `docs/spec-web-upgrade` (seule branche non mergée restante, en attente depuis plusieurs sessions — laissée en attente pour l'instant sur décision de l'utilisateur).
+2. Tester le cap freemium en conditions réelles ; revalider points 11-12 (notifications push, purge RGPD J-7).
+3. Reprendre la roadmap points 13-14 (EAS Build → APK signé, fiche Play Store).
+4. Si un jour les emails d'annulation sont activés (configuration de `RESEND_API_KEY`), le fix minutes de `notify-cancel` est déjà en place et déployé — rien à refaire côté code.
