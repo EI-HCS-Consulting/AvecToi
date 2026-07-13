@@ -7,8 +7,7 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import * as Crypto from "expo-crypto";
 import { supabase } from "@/lib/supabase";
 import { useSpace } from "@/lib/SpaceContext";
-import { themes } from "@/lib/themes";
-import type { ThemeKey } from "@/lib/themes";
+import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { generateDossierCode } from "@/lib/dossierCode";
 import { FREE_VISIT_LIMIT } from "@/lib/freemiumCap";
 import { resolvePlaceFromMapsUrl } from "@/lib/address";
@@ -68,7 +67,7 @@ function hourToDate(hour: number, minute = 0) {
  */
 export default function PatientOnboarding() {
   const { refreshSpace } = useSpace();
-  const C = themes.blue;
+  const { theme: C } = useDisplayMode();
 
   const [step, setStep] = useState<Step>("patient");
 
@@ -166,7 +165,6 @@ export default function PatientOnboarding() {
   }
 
   const [visitRules, setVisitRules] = useState("");
-  const [theme, setTheme] = useState<ThemeKey>("blue");
   const [submitting, setSubmitting] = useState(false);
 
   // Horaires de visite (pré-remplis, modifiables avant création de l'espace)
@@ -258,7 +256,10 @@ export default function PatientOnboarding() {
             patient_lastname: lastname.trim(),
             ...careFields,
             visit_rules: visitRules.trim(),
-            theme,
+            // Colonne conservée pour compatibilité DB — le mode d'affichage est
+            // désormais une préférence locale par utilisateur (voir DisplayModeContext),
+            // plus lue depuis patient_spaces.theme.
+            theme: "blue",
             is_active: true,
             premium: false,
             invite_token: Crypto.randomUUID(),
@@ -316,7 +317,7 @@ export default function PatientOnboarding() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
-        <Text style={styles.title}>Bienvenue 👋</Text>
+        <Text style={[styles.title, { color: C.text }]}>Bienvenue 👋</Text>
         <Text style={[styles.stepIndicator, { color: C.muted }]}>
           Étape {formStepIndex + 1} sur {FORM_STEPS.length}
         </Text>
@@ -617,7 +618,7 @@ export default function PatientOnboarding() {
               >
                 <Text style={[styles.stepBtnText, { color: C.text }]}>−</Text>
               </TouchableOpacity>
-              <Text style={[styles.stepValue, { color: "#fff" }]}>{maxVisitors}</Text>
+              <Text style={[styles.stepValue, { color: C.text }]}>{maxVisitors}</Text>
               <TouchableOpacity
                 style={[styles.stepBtn, { backgroundColor: C.bg, borderColor: C.border }]}
                 onPress={() => setMaxVisitors((v) => Math.min(10, v + 1))}
@@ -636,7 +637,7 @@ export default function PatientOnboarding() {
               >
                 <Text style={[styles.stepBtnText, { color: C.text }]}>−</Text>
               </TouchableOpacity>
-              <Text style={[styles.stepValue, { color: "#fff" }]}>
+              <Text style={[styles.stepValue, { color: C.text }]}>
                 {slotDuration < 60 ? `${slotDuration} min` : `${Math.floor(slotDuration / 60)}h${slotDuration % 60 ? slotDuration % 60 : ""}`}
               </Text>
               <TouchableOpacity
@@ -657,7 +658,7 @@ export default function PatientOnboarding() {
               >
                 <Text style={[styles.stepBtnText, { color: C.text }]}>−</Text>
               </TouchableOpacity>
-              <Text style={[styles.stepValue, { color: "#fff" }]}>{minGap} min</Text>
+              <Text style={[styles.stepValue, { color: C.text }]}>{minGap} min</Text>
               <TouchableOpacity
                 style={[styles.stepBtn, { backgroundColor: C.bg, borderColor: C.border }]}
                 onPress={() => setMinGap((g) => Math.min(60, g + 5))}
@@ -704,7 +705,7 @@ export default function PatientOnboarding() {
 
 const styles = StyleSheet.create({
   scroll: { padding: 20, paddingTop: 56, paddingBottom: 48 },
-  title: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 26, color: "#fff", marginBottom: 8 },
+  title: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 26, marginBottom: 8 },
   stepIndicator: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginBottom: 18 },
   sectionTitle: {
     fontFamily: "DM_Sans_600SemiBold", fontSize: 11,

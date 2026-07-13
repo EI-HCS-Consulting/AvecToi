@@ -77,7 +77,7 @@ export default function ShareSpace({ space, C }: { space: PatientSpace; C: Theme
 
   return (
     <View style={styles.container}>
-      <Text style={[styles.title, { color: "#fff" }]}>🔗 Partager l'invitation</Text>
+      <Text style={[styles.title, { color: C.text }]}>🔗 Partager l'invitation</Text>
 
       <Text style={[styles.sub, { color: C.muted }]}>
         Envoie ce lien aux proches pour qu'ils rejoignent l'espace.

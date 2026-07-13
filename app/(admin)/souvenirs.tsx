@@ -1,12 +1,12 @@
 import { useSpace } from "@/lib/SpaceContext";
-import { themes } from "@/lib/themes";
+import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { isSpaceCapped } from "@/lib/freemiumCap";
 import SouvenirsGallery from "@/components/SouvenirsGallery";
 import { View, Text, ActivityIndicator, StyleSheet } from "react-native";
 
 export default function AdminSouvenirsScreen() {
   const { space, loading, hasSpace, reservations } = useSpace();
-  const C = themes[space?.theme ?? "blue"];
+  const { theme: C } = useDisplayMode();
 
   if (loading) {
     return (

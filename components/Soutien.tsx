@@ -433,7 +433,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
       <View style={[styles.header, { backgroundColor: C.card, borderBottomColor: C.border }]}>
-        <Text style={[styles.headerTitle, { color: "#fff" }]}>💛 Mur de soutien</Text>
+        <Text style={[styles.headerTitle, { color: C.text }]}>💛 Mur de soutien</Text>
       </View>
 
       <View style={[styles.subHeader, styles.subHeaderRow, { backgroundColor: C.card, borderBottomColor: C.border }]}>
@@ -508,10 +508,10 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                 <View style={{ flex: 1 }}>
                   {m.author_pin !== "ADMIN" ? (
                     <TouchableOpacity onPress={() => setProfileTarget({ prenom: m.author_prenom, nom: m.author_nom })} activeOpacity={0.7}>
-                      <Text style={[styles.msgAuthor, { color: "#fff" }]}>{m.author_prenom} {m.author_nom}</Text>
+                      <Text style={[styles.msgAuthor, { color: C.text }]}>{m.author_prenom} {m.author_nom}</Text>
                     </TouchableOpacity>
                   ) : (
-                    <Text style={[styles.msgAuthor, { color: "#fff" }]}>{m.author_prenom} {m.author_nom}</Text>
+                    <Text style={[styles.msgAuthor, { color: C.text }]}>{m.author_prenom} {m.author_nom}</Text>
                   )}
                   <Text style={[styles.msgDate, { color: C.muted }]}>
                     {new Date(m.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
@@ -559,10 +559,10 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                         <View style={{ flex: 1 }}>
                           {r.author_pin !== "ADMIN" ? (
                             <TouchableOpacity onPress={() => setProfileTarget({ prenom: r.author_prenom, nom: r.author_nom })} activeOpacity={0.7}>
-                              <Text style={[styles.replyAuthor, { color: "#fff" }]}>{r.author_prenom} {r.author_nom}</Text>
+                              <Text style={[styles.replyAuthor, { color: C.text }]}>{r.author_prenom} {r.author_nom}</Text>
                             </TouchableOpacity>
                           ) : (
-                            <Text style={[styles.replyAuthor, { color: "#fff" }]}>{r.author_prenom} {r.author_nom}</Text>
+                            <Text style={[styles.replyAuthor, { color: C.text }]}>{r.author_prenom} {r.author_nom}</Text>
                           )}
                           <Text style={[styles.replyText, { color: C.text }]}>{r.reply_text}</Text>
                         </View>
@@ -603,7 +603,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
             <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
               <TouchableOpacity activeOpacity={1}>
                 <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
-                  <Text style={[styles.sheetTitle, { color: "#fff" }]}>💛 Laisser un message</Text>
+                  <Text style={[styles.sheetTitle, { color: C.text }]}>💛 Laisser un message</Text>
 
                   <TextInput
                     style={[styles.input, styles.msgArea, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 12 }]}
@@ -710,7 +710,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
             <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
               <TouchableOpacity activeOpacity={1}>
                 <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
-                  <Text style={[styles.sheetTitle, { color: "#fff" }]}>✏️ Modifier le message</Text>
+                  <Text style={[styles.sheetTitle, { color: C.text }]}>✏️ Modifier le message</Text>
 
                   <TextInput
                     style={[styles.input, styles.msgArea, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 12 }]}
@@ -766,7 +766,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
             <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
               <TouchableOpacity activeOpacity={1}>
                 <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
-                  <Text style={[styles.sheetTitle, { color: "#fff" }]}>🙏 Répondre</Text>
+                  <Text style={[styles.sheetTitle, { color: C.text }]}>🙏 Répondre</Text>
                   {replyTarget && (
                     <Text style={[styles.sheetSub, { color: C.muted }]} numberOfLines={2}>
                       À {replyTarget.author_prenom} {replyTarget.author_nom} : « {replyTarget.message} »
@@ -851,7 +851,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
           <TouchableOpacity activeOpacity={1}>
             <View style={[styles.confirmSheet, { backgroundColor: C.card, borderColor: C.danger }]}>
               <Text style={styles.confirmIcon}>🗑️</Text>
-              <Text style={[styles.confirmTitle, { color: "#fff" }]}>Supprimer cette réponse ?</Text>
+              <Text style={[styles.confirmTitle, { color: C.text }]}>Supprimer cette réponse ?</Text>
               {replyDeleteTarget && (
                 <Text style={[styles.confirmSub, { color: C.muted }]}>"{replyDeleteTarget.reply_text.slice(0, 60)}…"</Text>
               )}
@@ -873,7 +873,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
           <TouchableOpacity activeOpacity={1}>
             <View style={[styles.confirmSheet, { backgroundColor: C.card, borderColor: C.danger }]}>
               <Text style={styles.confirmIcon}>🗑️</Text>
-              <Text style={[styles.confirmTitle, { color: "#fff" }]}>Supprimer ce message ?</Text>
+              <Text style={[styles.confirmTitle, { color: C.text }]}>Supprimer ce message ?</Text>
               {messageDeleteTarget && (
                 <Text style={[styles.confirmSub, { color: C.muted }]}>"{messageDeleteTarget.message.slice(0, 60)}…"</Text>
               )}

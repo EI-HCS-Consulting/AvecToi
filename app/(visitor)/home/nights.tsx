@@ -5,12 +5,12 @@ import { getVisitorSession } from "@/lib/visitorSession";
 import SpaceHeader from "@/components/SpaceHeader";
 import BookingFlow, { type BookingFlowHandle } from "@/components/BookingFlow";
 import { findNextAvailableNight, toISO, toFrLong, nightStartSlot } from "@/lib/slotUtils";
-import { themes } from "@/lib/themes";
+import { useDisplayMode } from "@/lib/DisplayModeContext";
 import type { Reservation } from "@/lib/types";
 
 export default function VisitorNightsScreen() {
   const { space, slotConfig, reservations, token, refreshReservations, pendingEditReservationId, setPendingEditReservationId } = useVisitorSpace();
-  const C = themes[space?.theme ?? "blue"];
+  const { theme: C } = useDisplayMode();
   const flowRef = useRef<BookingFlowHandle>(null);
 
   // PIN de session de cet appareil — sert à ne montrer "Modifier" que sur
@@ -91,7 +91,7 @@ export default function VisitorNightsScreen() {
           upcomingNights.map((r) => (
             <View key={r.id} style={[styles.nightCard, { backgroundColor: C.card, borderColor: C.border }]}>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.nightDate, { color: "#fff" }]}>{toFrLong(new Date(r.date + "T12:00:00"))}</Text>
+                <Text style={[styles.nightDate, { color: C.text }]}>{toFrLong(new Date(r.date + "T12:00:00"))}</Text>
                 <Text style={[styles.nightVisitor, { color: C.success }]}>● {r.prenom} {r.nom}</Text>
                 {r.alert_message ? (
                   <View style={[styles.alertBanner, { backgroundColor: "rgba(233,69,96,0.12)", borderColor: "rgba(233,69,96,0.4)" }]}>
@@ -119,7 +119,7 @@ export default function VisitorNightsScreen() {
           pastNights.map((r) => (
             <View key={r.id} style={[styles.nightCard, { backgroundColor: C.card, borderColor: C.border, opacity: 0.7 }]}>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.nightDate, { color: "#fff" }]}>{toFrLong(new Date(r.date + "T12:00:00"))}</Text>
+                <Text style={[styles.nightDate, { color: C.text }]}>{toFrLong(new Date(r.date + "T12:00:00"))}</Text>
                 <Text style={[styles.nightVisitor, { color: C.success }]}>● {r.prenom} {r.nom}</Text>
                 {r.alert_message ? (
                   <View style={[styles.alertBanner, { backgroundColor: "rgba(233,69,96,0.12)", borderColor: "rgba(233,69,96,0.4)" }]}>

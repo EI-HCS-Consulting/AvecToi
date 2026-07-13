@@ -1,12 +1,12 @@
 import { View, ScrollView } from "react-native";
 import { useVisitorSpace } from "@/lib/VisitorContext";
-import { themes } from "@/lib/themes";
+import { useDisplayMode } from "@/lib/DisplayModeContext";
 import SpaceHeader from "@/components/SpaceHeader";
 import ShareSpace from "@/components/ShareSpace";
 
 export default function VisitorShareScreen() {
   const { space } = useVisitorSpace();
-  const C = themes[space?.theme ?? "blue"];
+  const { theme: C } = useDisplayMode();
 
   if (!space) return null;
 

@@ -1,12 +1,12 @@
 import { View, Text, ActivityIndicator, StyleSheet } from "react-native";
 import { useSpace } from "@/lib/SpaceContext";
-import { themes } from "@/lib/themes";
+import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { isSpaceCapped } from "@/lib/freemiumCap";
 import NewsFeed from "@/components/NewsFeed";
 
 export default function AdminNewsScreen() {
   const { space, loading, hasSpace, reservations } = useSpace();
-  const C = themes[space?.theme ?? "blue"];
+  const { theme: C } = useDisplayMode();
 
   if (loading) {
     return (

@@ -12,6 +12,12 @@ import {
   PlayfairDisplay_700Bold,
   PlayfairDisplay_400Regular,
 } from "@expo-google-fonts/playfair-display";
+import { DisplayModeProvider, useDisplayMode } from "@/lib/DisplayModeContext";
+
+function ThemedStatusBar() {
+  const { mode } = useDisplayMode();
+  return <StatusBar style={mode === "light" ? "dark" : "light"} />;
+}
 
 export default function RootLayout() {
   // Clés explicites avec underscore ("DM_Sans_...") pour matcher les noms de
@@ -30,14 +36,14 @@ export default function RootLayout() {
   }
 
   return (
-    <>
-      <StatusBar style="light" />
+    <DisplayModeProvider>
+      <ThemedStatusBar />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" />
         <Stack.Screen name="auth" />
         <Stack.Screen name="(admin)" />
         <Stack.Screen name="(visitor)" />
       </Stack>
-    </>
+    </DisplayModeProvider>
   );
 }

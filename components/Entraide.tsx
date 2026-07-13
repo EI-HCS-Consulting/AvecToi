@@ -1014,7 +1014,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           )}
         </View>
 
-        <Text style={[styles.taskTitle, { color: t.status === "fait" ? C.muted : "#fff" }]}>{t.title}</Text>
+        <Text style={[styles.taskTitle, { color: t.status === "fait" ? C.muted : C.text }]}>{t.title}</Text>
         {t.description ? (
           <Text style={[styles.taskDesc, { color: C.muted }]}>{t.description}</Text>
         ) : null}
@@ -1213,7 +1213,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
       <View style={[styles.header, { backgroundColor: C.card, borderBottomColor: C.border }]}>
-        <Text style={[styles.headerTitle, { color: "#fff" }]}>🤝 Entraide</Text>
+        <Text style={[styles.headerTitle, { color: C.text }]}>🤝 Entraide</Text>
       </View>
 
       <View style={[styles.subHeader, styles.subHeaderRow, { backgroundColor: C.card, borderBottomColor: C.border }]}>
@@ -1292,7 +1292,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
               <TouchableOpacity activeOpacity={1}>
                 <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
-                  <Text style={[styles.sheetTitle, { color: "#fff" }]}>
+                  <Text style={[styles.sheetTitle, { color: C.text }]}>
                     {editTask ? "✏️ Modifier le besoin" : "➕ Nouveau besoin"}
                   </Text>
 
@@ -1573,7 +1573,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                 <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
                   <View style={{ alignItems: "center", marginBottom: 14 }}>
                     <Text style={{ fontSize: 32, marginBottom: 6 }}>🙋</Text>
-                    <Text style={[styles.sheetTitle, { color: "#fff" }]}>Je m'en occupe</Text>
+                    <Text style={[styles.sheetTitle, { color: C.text }]}>Je m'en occupe</Text>
                     {claimTarget && (
                       <Text style={[styles.sheetSub, { color: C.muted }]}>
                         {CATEGORY_ICONS[claimTarget.category]} {claimTarget.title}
@@ -1685,7 +1685,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                 <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
                   <View style={{ alignItems: "center", marginBottom: 14 }}>
                     <Text style={{ fontSize: 32, marginBottom: 6 }}>🕐</Text>
-                    <Text style={[styles.sheetTitle, { color: "#fff" }]}>Proposer un horaire</Text>
+                    <Text style={[styles.sheetTitle, { color: C.text }]}>Proposer un horaire</Text>
                     {proposeTarget && (
                       <Text style={[styles.sheetSub, { color: C.muted }]}>
                         Demandé : {proposeTarget.transport_date && proposeTarget.transport_out_time
@@ -1811,7 +1811,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                 <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
                   <View style={{ alignItems: "center", marginBottom: 14 }}>
                     <Text style={{ fontSize: 32, marginBottom: 6 }}>🕐</Text>
-                    <Text style={[styles.sheetTitle, { color: "#fff" }]}>Propositions reçues</Text>
+                    <Text style={[styles.sheetTitle, { color: C.text }]}>Propositions reçues</Text>
                   </View>
 
                   {proposalsTarget && proposalsTarget.transport_proposals.length === 0 && (
@@ -1889,7 +1889,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
             <View style={{ alignItems: "center", marginBottom: 16 }}>
               <Text style={{ fontSize: 32, marginBottom: 6 }}>🔐</Text>
-              <Text style={[styles.sheetTitle, { color: "#fff" }]}>Confirmer avec ton PIN</Text>
+              <Text style={[styles.sheetTitle, { color: C.text }]}>Confirmer avec ton PIN</Text>
               <Text style={[styles.sheetSub, { color: C.muted }]}>
                 Saisis ton PIN pour te désinscrire de ce besoin.
               </Text>
@@ -1943,7 +1943,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.success }]}>
             <View style={{ alignItems: "center", marginBottom: 16 }}>
               <Text style={{ fontSize: 32, marginBottom: 6 }}>✓</Text>
-              <Text style={[styles.sheetTitle, { color: "#fff" }]}>Marquer comme fait</Text>
+              <Text style={[styles.sheetTitle, { color: C.text }]}>Marquer comme fait</Text>
               <Text style={[styles.sheetSub, { color: C.muted }]}>
                 Tu peux ajouter une photo (optionnel).
               </Text>

@@ -5,7 +5,7 @@ import { getVisitorSession } from "@/lib/visitorSession";
 import SpaceHeader from "@/components/SpaceHeader";
 import BookingFlow, { type BookingFlowHandle } from "@/components/BookingFlow";
 import { getSlotOccupancy, getNightReservation, isReservationDatePast, isSlotFullyPast, toISO, toFrLong, toFrShort, addDays, nightStartSlot, nightRangeLabel } from "@/lib/slotUtils";
-import { themes } from "@/lib/themes";
+import { useDisplayMode } from "@/lib/DisplayModeContext";
 import type { Reservation } from "@/lib/types";
 
 // Recentré sur les créneaux "Visite" uniquement depuis le Lot 3 — la nuitée
@@ -13,7 +13,7 @@ import type { Reservation } from "@/lib/types";
 // elle-même vit dans components/BookingFlow.tsx, partagée entre les deux.
 export default function SlotsScreen() {
   const { space, slotConfig, slots, reservations, selectedDay, setSelectedDay, refreshReservations, token, pendingBookingSlot, setPendingBookingSlot, pendingEditReservationId, setPendingEditReservationId, getConfigForDate, getSlotsForDate } = useVisitorSpace();
-  const C = themes[space?.theme ?? "blue"];
+  const { theme: C } = useDisplayMode();
   const flowRef = useRef<BookingFlowHandle>(null);
   const nightFlowRef = useRef<BookingFlowHandle>(null);
 
@@ -74,7 +74,7 @@ export default function SlotsScreen() {
             <Text style={[styles.navBtnText, { color: C.text }]}>‹</Text>
           </TouchableOpacity>
           <View style={{ alignItems: "center" }}>
-            <Text style={[styles.dayTitle, { color: "#fff" }]}>{toFrLong(selectedDay)}</Text>
+            <Text style={[styles.dayTitle, { color: C.text }]}>{toFrLong(selectedDay)}</Text>
             <Text style={[styles.daySub, { color: C.muted }]}>{toFrShort(selectedDay)}</Text>
           </View>
           <TouchableOpacity onPress={() => setSelectedDay(addDays(selectedDay, 1))} style={[styles.navBtn, { borderColor: C.border }]}>

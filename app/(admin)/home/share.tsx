@@ -1,12 +1,12 @@
 import { View, ScrollView } from "react-native";
 import { useSpace } from "@/lib/SpaceContext";
-import { themes } from "@/lib/themes";
+import { useDisplayMode } from "@/lib/DisplayModeContext";
 import SpaceHeader from "@/components/SpaceHeader";
 import ShareSpace from "@/components/ShareSpace";
 
 export default function AdminShareScreen() {
   const { space, hasSpace } = useSpace();
-  const C = themes[space?.theme ?? "blue"];
+  const { theme: C } = useDisplayMode();
 
   if (!hasSpace || !space) return null;
 

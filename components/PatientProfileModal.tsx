@@ -56,7 +56,7 @@ export default function PatientProfileModal({ visible, onClose, space, C }: Prop
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
-          <View style={styles.headerRow}>
+          <View style={[styles.headerRow, { borderBottomColor: C.border }]}>
             <TouchableOpacity
               onPress={() => space.patient_photo_url && setPhotoLightbox(true)}
               activeOpacity={space.patient_photo_url ? 0.8 : 1}
@@ -70,7 +70,7 @@ export default function PatientProfileModal({ visible, onClose, space, C }: Prop
               />
             </TouchableOpacity>
             <View style={{ flex: 1, marginLeft: 14 }}>
-              <Text style={[styles.name, { color: "#fff" }]}>
+              <Text style={[styles.name, { color: C.text }]}>
                 {space.patient_firstname} {space.patient_lastname}
               </Text>
               <Text style={[styles.sub, { color: C.muted }]}>Fiche patient</Text>
@@ -147,7 +147,7 @@ export default function PatientProfileModal({ visible, onClose, space, C }: Prop
 const styles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "flex-end" },
   sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, padding: 20, paddingBottom: 40 },
-  headerRow: { flexDirection: "row", alignItems: "center", marginBottom: 12, paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.08)" },
+  headerRow: { flexDirection: "row", alignItems: "center", marginBottom: 12, paddingBottom: 16, borderBottomWidth: 1 },
   name: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18 },
   sub: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 2 },
   closeBtn: { width: 32, height: 32, borderRadius: 16, borderWidth: 1, alignItems: "center", justifyContent: "center" },

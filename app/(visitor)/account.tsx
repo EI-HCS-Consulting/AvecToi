@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, ActivityIndicator, Image, Alert, Modal,
+  StyleSheet, ActivityIndicator, Image, Alert, Modal, Switch,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
@@ -9,7 +9,7 @@ import { File, Paths } from "expo-file-system";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { useVisitorSpace } from "@/lib/VisitorContext";
-import { themes } from "@/lib/themes";
+import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { supabase } from "@/lib/supabase";
 import { getVisitorSession, saveVisitorSession, clearVisitorSession } from "@/lib/visitorSession";
 import PinPad from "@/components/PinPad";
@@ -60,7 +60,7 @@ const SECTION_META: Record<AccountSectionKey, { icon: string; label: string }> =
 export default function VisitorAccountScreen() {
   const { space, token, setSelectedDay, setPendingEditReservationId } = useVisitorSpace();
   const router = useRouter();
-  const C = themes[space?.theme ?? "blue"];
+  const { mode, theme: C, setMode } = useDisplayMode();
 
   const [loading, setLoading] = useState(true);
   const [prenom, setPrenom] = useState("");
@@ -409,7 +409,7 @@ export default function VisitorAccountScreen() {
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
       <View style={[styles.header, { backgroundColor: C.card, borderBottomColor: C.border }]}>
-        <Text style={[styles.headerTitle, { color: "#fff" }]}>👤 Mon compte</Text>
+        <Text style={[styles.headerTitle, { color: C.text }]}>👤 Mon compte</Text>
       </View>
 
       <View style={[styles.subHeader, { backgroundColor: C.card, borderBottomColor: C.border }]}>
@@ -437,10 +437,28 @@ export default function VisitorAccountScreen() {
         </TouchableOpacity>
 
         {(prenom.trim() || nom.trim()) && (
-          <Text style={[styles.identityName, { color: "#fff" }]}>
+          <Text style={[styles.identityName, { color: C.text }]}>
             {[prenom.trim(), nom.trim()].filter(Boolean).join(" ")}
           </Text>
         )}
+
+        <Text style={[styles.sectionTitle, { color: C.gold, marginTop: 0 }]}>Mon affichage</Text>
+        <View style={[styles.card, styles.displayModeCard, { backgroundColor: C.card, borderColor: C.border }]}>
+          <View>
+            <Text style={[styles.displayModeLabel, { color: C.text }]}>
+              Mode {mode === "light" ? "Clair" : "Sombre"}
+            </Text>
+            <Text style={[styles.cardDesc, { color: C.muted, marginBottom: 0 }]}>
+              Propre à ton compte, sur cet appareil.
+            </Text>
+          </View>
+          <Switch
+            value={mode === "light"}
+            onValueChange={(v) => setMode(v ? "light" : "dark")}
+            trackColor={{ false: C.border, true: C.accent }}
+            thumbColor="#fff"
+          />
+        </View>
 
         {(Object.keys(SECTION_META) as AccountSectionKey[]).map((key) => {
           const isOpen = activeSection === key;
@@ -453,11 +471,11 @@ export default function VisitorAccountScreen() {
           return (
             <View key={key}>
               <TouchableOpacity
-                style={styles.contribHeader}
+                style={[styles.contribHeader, { borderBottomColor: C.border }]}
                 onPress={() => setActiveSection(isOpen ? null : key)}
                 activeOpacity={0.75}
               >
-                <Text style={[styles.contribHeaderText, { color: "#fff" }]}>
+                <Text style={[styles.contribHeaderText, { color: C.text }]}>
                   {SECTION_META[key].icon} {SECTION_META[key].label}
                 </Text>
                 <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
@@ -767,7 +785,7 @@ export default function VisitorAccountScreen() {
       <Modal visible={pinModalVisible} transparent animationType="fade" onRequestClose={closeChangePinModal}>
         <View style={styles.pinModalOverlay}>
           <View style={[styles.pinModalCard, { backgroundColor: C.card, borderColor: C.border }]}>
-            <Text style={[styles.pinModalTitle, { color: "#fff" }]}>
+            <Text style={[styles.pinModalTitle, { color: C.text }]}>
               {pinPhase === "verify" && "Confirme ton PIN actuel"}
               {pinPhase === "new" && "Choisis ton nouveau PIN"}
               {pinPhase === "confirm" && "Confirme ton nouveau PIN"}
@@ -796,7 +814,7 @@ export default function VisitorAccountScreen() {
             <View style={[styles.logoutModalIconWrap, { backgroundColor: "rgba(233,69,96,0.12)" }]}>
               <Text style={styles.logoutModalIcon}>🚪</Text>
             </View>
-            <Text style={[styles.logoutModalTitle, { color: "#fff" }]}>Se déconnecter ?</Text>
+            <Text style={[styles.logoutModalTitle, { color: C.text }]}>Se déconnecter ?</Text>
             <Text style={[styles.logoutModalText, { color: C.muted }]}>
               Tu devras ressaisir tes informations pour revenir sur cet espace.
             </Text>
@@ -853,7 +871,7 @@ const styles = StyleSheet.create({
 
   contribHeader: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.08)",
+    paddingVertical: 12, borderBottomWidth: 1,
   },
   contribHeaderText: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },
   contribCard: { marginTop: 10 },
@@ -865,6 +883,12 @@ const styles = StyleSheet.create({
   card: { borderWidth: 1, borderRadius: 14, padding: 16, marginBottom: 4, gap: 10 },
   cardDesc: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 19, marginBottom: 4 },
   input: { borderWidth: 1, borderRadius: 10, padding: 13, fontFamily: "DM_Sans_400Regular", fontSize: 15 },
+
+  displayModeCard: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    marginBottom: 18,
+  },
+  displayModeLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15 },
 
   activityEmpty: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
   activityRow: { paddingVertical: 6, flexDirection: "row", alignItems: "center", gap: 8 },

@@ -56,7 +56,7 @@ function DeleteReservationConfirm({ reservations, onConfirm, C }: Props, ref: Re
         <TouchableOpacity activeOpacity={1}>
           <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.danger }]}>
             <Text style={[styles.icon]}>🗑️</Text>
-            <Text style={[styles.title, { color: "#fff" }]}>Supprimer cette réservation ?</Text>
+            <Text style={[styles.title, { color: C.text }]}>Supprimer cette réservation ?</Text>
             {target && (
               <Text style={[styles.sub, { color: C.muted }]}>
                 {target.prenom} {target.nom} · {toFrShort(new Date(target.date + "T12:00:00"))} {target.type === "Nuit" ? "🌙 Nuitée" : target.creneau}
