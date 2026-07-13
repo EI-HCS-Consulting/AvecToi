@@ -407,255 +407,254 @@ export default function VisitorAccountScreen() {
             : key === "soutien" ? `${myMessages.length} message(s)`
             : `${myTasks.length + myPublishedTasks.length} besoin(s)`;
           return (
-            <TouchableOpacity
-              key={key}
-              style={styles.contribHeader}
-              onPress={() => setActiveSection(isOpen ? null : key)}
-              activeOpacity={0.75}
-            >
-              <Text style={[styles.contribHeaderText, { color: "#fff" }]}>
-                {SECTION_META[key].icon} {SECTION_META[key].label}
-              </Text>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <Text style={[styles.tileHint, { color: C.accent }]} numberOfLines={1}>{hint}</Text>
-                <Text style={[styles.tileChevron, { color: C.muted }]}>{isOpen ? "▲" : "▼"}</Text>
-              </View>
-            </TouchableOpacity>
-          );
-        })}
+            <View key={key}>
+              <TouchableOpacity
+                style={styles.contribHeader}
+                onPress={() => setActiveSection(isOpen ? null : key)}
+                activeOpacity={0.75}
+              >
+                <Text style={[styles.contribHeaderText, { color: "#fff" }]}>
+                  {SECTION_META[key].icon} {SECTION_META[key].label}
+                </Text>
+                <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                  <Text style={[styles.tileHint, { color: C.accent }]} numberOfLines={1}>{hint}</Text>
+                  <Text style={[styles.tileChevron, { color: C.muted }]}>{isOpen ? "▲" : "▼"}</Text>
+                </View>
+              </TouchableOpacity>
 
-        {activeSection === "info" && (
-        <>
-        <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
-          <TextInput
-            style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-            placeholder="Prénom"
-            placeholderTextColor={C.muted}
-            value={prenom}
-            onChangeText={setPrenom}
-            autoCapitalize="words"
-          />
-          <TextInput
-            style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-            placeholder="Nom"
-            placeholderTextColor={C.muted}
-            value={nom}
-            onChangeText={setNom}
-            autoCapitalize="words"
-          />
-          <TextInput
-            style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-            placeholder="Adresse email"
-            placeholderTextColor={C.muted}
-            value={email}
-            onChangeText={setEmail}
-            keyboardType="email-address"
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-        </View>
+              {isOpen && key === "info" && (
+                <>
+                  <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
+                    <TextInput
+                      style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                      placeholder="Prénom"
+                      placeholderTextColor={C.muted}
+                      value={prenom}
+                      onChangeText={setPrenom}
+                      autoCapitalize="words"
+                    />
+                    <TextInput
+                      style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                      placeholder="Nom"
+                      placeholderTextColor={C.muted}
+                      value={nom}
+                      onChangeText={setNom}
+                      autoCapitalize="words"
+                    />
+                    <TextInput
+                      style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                      placeholder="Adresse email"
+                      placeholderTextColor={C.muted}
+                      value={email}
+                      onChangeText={setEmail}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                  </View>
 
-        <TouchableOpacity
-          style={[styles.saveBtn, { backgroundColor: C.accent }, saving && { opacity: 0.6 }]}
-          onPress={handleSave}
-          disabled={saving}
-        >
-          {saving
-            ? <ActivityIndicator color="#fff" size="small" />
-            : <Text style={styles.saveBtnText}>Enregistrer</Text>
-          }
-        </TouchableOpacity>
-
-        <View style={styles.sectionTitleRow}>
-          <Text style={[styles.sectionTitle, { color: C.gold, marginBottom: 0 }]}>Mon code PIN</Text>
-          <TouchableOpacity onPress={() => setPinRevealed((v) => !v)} style={styles.revealBtn}>
-            <Text style={[styles.revealBtnText, { color: C.accent }]}>
-              {pinRevealed ? "🙈 Masquer" : "👁 Afficher"}
-            </Text>
-          </TouchableOpacity>
-        </View>
-        <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
-          <Text style={[styles.cardDesc, { color: C.muted }]}>
-            Pour t'en souvenir — il te sera toujours redemandé pour valider une réservation,
-            la modifier, l'annuler ou supprimer une photo.
-          </Text>
-          <PinPad value={pin} onChange={() => {}} theme={C} reveal={pinRevealed} readOnly />
-          <TouchableOpacity style={[styles.changePinBtn, { borderColor: C.accent }]} onPress={openChangePinModal}>
-            <Text style={[styles.changePinBtnText, { color: C.accent }]}>Changer mon PIN</Text>
-          </TouchableOpacity>
-        </View>
-        </>
-        )}
-
-        {activeSection === "resv" && (
-          activityLoading ? (
-            <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
-          ) : identityMissing ? missingIdentityCard : (
-            <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
-              {myReservations.length === 0 ? (
-                <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucune réservation pour le moment.</Text>
-              ) : myReservations.map((r) => {
-                const companionNames = (r.group_id ? companionsByGroup[r.group_id] : undefined)
-                  ?.filter((c) => c.id !== r.id)
-                  .map((c) => `${c.prenom} ${c.nom}`) ?? [];
-                const history = myChangeHistory.filter((h) => h.reservation_id === r.id);
-                return (
                   <TouchableOpacity
-                    key={r.id}
-                    style={styles.activityRow}
-                    onPress={() => handleOpenReservation(r)}
-                    activeOpacity={0.7}
+                    style={[styles.saveBtn, { backgroundColor: C.accent }, saving && { opacity: 0.6 }]}
+                    onPress={handleSave}
+                    disabled={saving}
                   >
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.activityRowText, { color: C.text }]}>
-                        {r.type === "Nuit" ? "🌙" : "☀️"} {new Date(r.date).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} · {r.creneau}
+                    {saving
+                      ? <ActivityIndicator color="#fff" size="small" />
+                      : <Text style={styles.saveBtnText}>Enregistrer</Text>
+                    }
+                  </TouchableOpacity>
+
+                  <View style={styles.sectionTitleRow}>
+                    <Text style={[styles.sectionTitle, { color: C.gold, marginBottom: 0 }]}>Mon code PIN</Text>
+                    <TouchableOpacity onPress={() => setPinRevealed((v) => !v)} style={styles.revealBtn}>
+                      <Text style={[styles.revealBtnText, { color: C.accent }]}>
+                        {pinRevealed ? "🙈 Masquer" : "👁 Afficher"}
                       </Text>
-                      {r.booked_by_prenom && (
-                        <Text style={[styles.activityRowSub, { color: C.muted }]}>Pour {r.prenom} {r.nom}</Text>
-                      )}
-                      {companionNames.length > 0 && (
-                        <Text style={[styles.activityRowSub, { color: C.muted }]}>Avec {companionNames.join(", ")}</Text>
-                      )}
-                      {history.map((h) => (
-                        <Text key={h.id} style={[styles.activityRowSub, { color: C.danger }]}>
-                          ↺ {h.message}
+                    </TouchableOpacity>
+                  </View>
+                  <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
+                    <Text style={[styles.cardDesc, { color: C.muted }]}>
+                      Pour t'en souvenir — il te sera toujours redemandé pour valider une réservation,
+                      la modifier, l'annuler ou supprimer une photo.
+                    </Text>
+                    <PinPad value={pin} onChange={() => {}} theme={C} reveal={pinRevealed} readOnly />
+                    <TouchableOpacity style={[styles.changePinBtn, { borderColor: C.accent }]} onPress={openChangePinModal}>
+                      <Text style={[styles.changePinBtnText, { color: C.accent }]}>Changer mon PIN</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+
+              {isOpen && key === "resv" && (
+                activityLoading ? (
+                  <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
+                ) : identityMissing ? missingIdentityCard : (
+                  <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
+                    {myReservations.length === 0 ? (
+                      <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucune réservation pour le moment.</Text>
+                    ) : myReservations.map((r) => {
+                      const companionNames = (r.group_id ? companionsByGroup[r.group_id] : undefined)
+                        ?.filter((c) => c.id !== r.id)
+                        .map((c) => `${c.prenom} ${c.nom}`) ?? [];
+                      const history = myChangeHistory.filter((h) => h.reservation_id === r.id);
+                      return (
+                        <TouchableOpacity
+                          key={r.id}
+                          style={styles.activityRow}
+                          onPress={() => handleOpenReservation(r)}
+                          activeOpacity={0.7}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.activityRowText, { color: C.text }]}>
+                              {r.type === "Nuit" ? "🌙" : "☀️"} {new Date(r.date).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} · {r.creneau}
+                            </Text>
+                            {r.booked_by_prenom && (
+                              <Text style={[styles.activityRowSub, { color: C.muted }]}>Pour {r.prenom} {r.nom}</Text>
+                            )}
+                            {companionNames.length > 0 && (
+                              <Text style={[styles.activityRowSub, { color: C.muted }]}>Avec {companionNames.join(", ")}</Text>
+                            )}
+                            {history.map((h) => (
+                              <Text key={h.id} style={[styles.activityRowSub, { color: C.danger }]}>
+                                ↺ {h.message}
+                              </Text>
+                            ))}
+                          </View>
+                          <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                )
+              )}
+
+              {isOpen && key === "souvenirs" && (
+                activityLoading ? (
+                  <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
+                ) : identityMissing ? missingIdentityCard : (
+                  <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
+                    {mySouvenirs.length === 0 ? (
+                      <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucune photo envoyée pour le moment.</Text>
+                    ) : (
+                      <View style={styles.activityThumbRow}>
+                        {mySouvenirs.map((s, idx) => (
+                          <TouchableOpacity key={s.id} onPress={() => setLightboxIndex(idx)} activeOpacity={0.8}>
+                            <Image source={{ uri: s.url }} style={styles.activityThumb} resizeMode="cover" />
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                )
+              )}
+
+              {isOpen && key === "news" && (
+                activityLoading ? (
+                  <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
+                ) : identityMissing ? missingIdentityCard : (
+                  <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
+                    {myNews.length === 0 ? (
+                      <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucune nouvelle publiée pour le moment.</Text>
+                    ) : myNews.map((entry) => (
+                      <TouchableOpacity
+                        key={entry.id}
+                        style={styles.activityRow}
+                        onPress={() => router.push(`/(visitor)/news?focusEntryId=${entry.id}` as any)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
+                          {new Date(entry.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} — {entry.content}
                         </Text>
+                        <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )
+              )}
+
+              {isOpen && key === "soutien" && (
+                activityLoading ? (
+                  <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
+                ) : identityMissing ? missingIdentityCard : (
+                  <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
+                    {myMessages.length === 0 ? (
+                      <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucun message envoyé pour le moment.</Text>
+                    ) : myMessages.map((m) => (
+                      <TouchableOpacity
+                        key={m.id}
+                        style={[styles.activityRow, { alignItems: "flex-start" }]}
+                        onPress={() => router.push(`/(visitor)/soutien?focusMessageId=${m.id}` as any)}
+                        activeOpacity={0.7}
+                      >
+                        {m.photo && (
+                          <Image source={{ uri: supportPhotoUrl(space.id, m.photo) }} style={styles.activityMsgThumb} resizeMode="cover" />
+                        )}
+                        <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
+                          {new Date(m.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} — {m.message}
+                        </Text>
+                        <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                )
+              )}
+
+              {isOpen && key === "besoins" && (
+                activityLoading ? (
+                  <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
+                ) : identityMissing ? missingIdentityCard : (
+                  <>
+                    <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
+                      {myTasks.length === 0 ? (
+                        <Text style={[styles.activityEmpty, { color: C.muted }]}>Tu n'as pris en charge aucun besoin pour le moment.</Text>
+                      ) : myTasks.map((t) => (
+                        <TouchableOpacity
+                          key={t.id}
+                          style={styles.activityRow}
+                          onPress={() => router.push(`/(visitor)/entraide?focusTaskId=${t.id}` as any)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={1}>
+                            {CAT_ICONS[t.category]} {t.title}
+                          </Text>
+                          <View style={[styles.activityStatusBadge, { borderColor: t.status === "fait" ? C.success : C.orange }]}>
+                            <Text style={[styles.activityStatusText, { color: t.status === "fait" ? C.success : C.orange }]}>
+                              {t.status === "fait" ? "✓ Fait" : "⏳ En attente"}
+                            </Text>
+                          </View>
+                          <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
+                        </TouchableOpacity>
                       ))}
                     </View>
-                    <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          )
-        )}
 
-        {activeSection === "souvenirs" && (
-          activityLoading ? (
-            <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
-          ) : identityMissing ? missingIdentityCard : (
-            <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
-              {mySouvenirs.length === 0 ? (
-                <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucune photo envoyée pour le moment.</Text>
-              ) : (
-                <View style={styles.activityThumbRow}>
-                  {mySouvenirs.map((s, idx) => (
-                    <TouchableOpacity key={s.id} onPress={() => setLightboxIndex(idx)} activeOpacity={0.8}>
-                      <Image source={{ uri: s.url }} style={styles.activityThumb} resizeMode="cover" />
-                    </TouchableOpacity>
-                  ))}
-                </View>
+                    <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
+                      {myPublishedTasks.length === 0 ? (
+                        <Text style={[styles.activityEmpty, { color: C.muted }]}>Tu n'as publié aucun besoin pour le moment.</Text>
+                      ) : myPublishedTasks.map((t) => (
+                        <TouchableOpacity
+                          key={t.id}
+                          style={styles.activityRow}
+                          onPress={() => router.push(`/(visitor)/entraide?focusTaskId=${t.id}` as any)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={1}>
+                            {CAT_ICONS[t.category]} {t.title}
+                          </Text>
+                          <View style={[styles.activityStatusBadge, { borderColor: t.status === "fait" ? C.success : C.orange }]}>
+                            <Text style={[styles.activityStatusText, { color: t.status === "fait" ? C.success : C.orange }]}>
+                              {t.status === "fait" ? "✓ Fait" : t.status === "pris_en_charge" ? "🤝 Pris en charge" : "⏳ Ouvert"}
+                            </Text>
+                          </View>
+                          <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </>
+                )
               )}
             </View>
-          )
-        )}
-
-        {activeSection === "news" && (
-          activityLoading ? (
-            <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
-          ) : identityMissing ? missingIdentityCard : (
-            <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
-              {myNews.length === 0 ? (
-                <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucune nouvelle publiée pour le moment.</Text>
-              ) : myNews.map((entry) => (
-                <TouchableOpacity
-                  key={entry.id}
-                  style={styles.activityRow}
-                  onPress={() => router.push(`/(visitor)/news?focusEntryId=${entry.id}` as any)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
-                    {new Date(entry.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} — {entry.content}
-                  </Text>
-                  <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )
-        )}
-
-        {activeSection === "soutien" && (
-          activityLoading ? (
-            <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
-          ) : identityMissing ? missingIdentityCard : (
-            <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
-              {myMessages.length === 0 ? (
-                <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucun message envoyé pour le moment.</Text>
-              ) : myMessages.map((m) => (
-                <TouchableOpacity
-                  key={m.id}
-                  style={[styles.activityRow, { alignItems: "flex-start" }]}
-                  onPress={() => router.push(`/(visitor)/soutien?focusMessageId=${m.id}` as any)}
-                  activeOpacity={0.7}
-                >
-                  {m.photo && (
-                    <Image source={{ uri: supportPhotoUrl(space.id, m.photo) }} style={styles.activityMsgThumb} resizeMode="cover" />
-                  )}
-                  <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
-                    {new Date(m.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} — {m.message}
-                  </Text>
-                  <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )
-        )}
-
-        {activeSection === "besoins" && (
-          activityLoading ? (
-            <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
-          ) : identityMissing ? missingIdentityCard : (
-            <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
-              {myTasks.length === 0 ? (
-                <Text style={[styles.activityEmpty, { color: C.muted }]}>Tu n'as pris en charge aucun besoin pour le moment.</Text>
-              ) : myTasks.map((t) => (
-                <TouchableOpacity
-                  key={t.id}
-                  style={styles.activityRow}
-                  onPress={() => router.push(`/(visitor)/entraide?focusTaskId=${t.id}` as any)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={1}>
-                    {CAT_ICONS[t.category]} {t.title}
-                  </Text>
-                  <View style={[styles.activityStatusBadge, { borderColor: t.status === "fait" ? C.success : C.orange }]}>
-                    <Text style={[styles.activityStatusText, { color: t.status === "fait" ? C.success : C.orange }]}>
-                      {t.status === "fait" ? "✓ Fait" : "⏳ En attente"}
-                    </Text>
-                  </View>
-                  <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )
-        )}
-
-        {activeSection === "besoins" && (
-          activityLoading ? null : identityMissing ? null : (
-            <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
-              {myPublishedTasks.length === 0 ? (
-                <Text style={[styles.activityEmpty, { color: C.muted }]}>Tu n'as publié aucun besoin pour le moment.</Text>
-              ) : myPublishedTasks.map((t) => (
-                <TouchableOpacity
-                  key={t.id}
-                  style={styles.activityRow}
-                  onPress={() => router.push(`/(visitor)/entraide?focusTaskId=${t.id}` as any)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={1}>
-                    {CAT_ICONS[t.category]} {t.title}
-                  </Text>
-                  <View style={[styles.activityStatusBadge, { borderColor: t.status === "fait" ? C.success : C.orange }]}>
-                    <Text style={[styles.activityStatusText, { color: t.status === "fait" ? C.success : C.orange }]}>
-                      {t.status === "fait" ? "✓ Fait" : t.status === "pris_en_charge" ? "🤝 Pris en charge" : "⏳ Ouvert"}
-                    </Text>
-                  </View>
-                  <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          )
-        )}
+          );
+        })}
 
         <TouchableOpacity style={styles.switchLink} onPress={handleSwitchSpace}>
           <Text style={[styles.switchLinkText, { color: C.muted }]}>Suivre un autre espace</Text>
