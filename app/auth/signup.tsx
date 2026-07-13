@@ -8,7 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import { themes } from "@/lib/themes";
 
-const C = themes.blue;
+const C = themes.dark;
 
 export default function SignupScreen() {
   const router = useRouter();

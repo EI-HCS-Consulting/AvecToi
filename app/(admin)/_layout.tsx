@@ -4,19 +4,18 @@ import { Tabs, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import { AdminSpaceProvider, useSpace } from "@/lib/SpaceContext";
-import { themes } from "@/lib/themes";
+import { useDisplayMode } from "@/lib/DisplayModeContext";
 import PatientOnboarding from "@/components/PatientOnboarding";
-
-const C = themes.blue;
 
 // Sits inside AdminSpaceProvider — shows the onboarding form instead of the
 // tabs until the admin has an active patient_spaces row.
 function AdminGate({ children }: { children: ReactNode }) {
   const { loading, hasSpace } = useSpace();
+  const { theme: C } = useDisplayMode();
 
   if (loading) {
     return (
-      <View style={styles.loader}>
+      <View style={[styles.loader, { backgroundColor: C.bg }]}>
         <ActivityIndicator color={C.accent} size="large" />
       </View>
     );
@@ -31,6 +30,7 @@ function AdminGate({ children }: { children: ReactNode }) {
 
 export default function AdminLayout() {
   const router = useRouter();
+  const { theme: C } = useDisplayMode();
   const [adminId, setAdminId] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
 
@@ -55,7 +55,7 @@ export default function AdminLayout() {
 
   if (!ready || !adminId) {
     return (
-      <View style={styles.loader}>
+      <View style={[styles.loader, { backgroundColor: C.bg }]}>
         <ActivityIndicator color={C.accent} size="large" />
       </View>
     );
@@ -123,5 +123,5 @@ export default function AdminLayout() {
 }
 
 const styles = StyleSheet.create({
-  loader: { flex: 1, backgroundColor: C.bg, justifyContent: "center", alignItems: "center" },
+  loader: { flex: 1, justifyContent: "center", alignItems: "center" },
 });

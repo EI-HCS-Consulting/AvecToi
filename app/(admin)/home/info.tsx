@@ -1,6 +1,6 @@
 import { View, Text, ScrollView, StyleSheet } from "react-native";
 import { useSpace } from "@/lib/SpaceContext";
-import { themes } from "@/lib/themes";
+import { useDisplayMode } from "@/lib/DisplayModeContext";
 import SpaceHeader from "@/components/SpaceHeader";
 import { formatHourMinute, nightRangeLabel } from "@/lib/slotUtils";
 import type { SlotConfig } from "@/lib/types";
@@ -51,7 +51,7 @@ function buildSlotRules(cfg: SlotConfig): string[] {
 
 export default function AdminInfoScreen() {
   const { space, slotConfig, hasSpace } = useSpace();
-  const C = themes[space?.theme ?? "blue"];
+  const { theme: C } = useDisplayMode();
 
   if (!hasSpace || !space) return null;
 

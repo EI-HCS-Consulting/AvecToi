@@ -468,7 +468,7 @@ function BookingFlow(
             <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
               <TouchableOpacity activeOpacity={1}>
                 <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
-                  <Text style={[styles.sheetTitle, { color: "#fff" }]}>
+                  <Text style={[styles.sheetTitle, { color: C.text }]}>
                     {type === "Nuit" ? "🌙 Réserver une nuit" : `🕐 Visite ${bookingTarget?.slot}`}
                   </Text>
                   <Text style={[styles.sheetSub, { color: C.muted }]}>
@@ -645,7 +645,7 @@ function BookingFlow(
               <>
                 <View style={{ alignItems: "center", marginBottom: 16 }}>
                   <Text style={{ fontSize: 32, marginBottom: 6 }}>🔐</Text>
-                  <Text style={[styles.sheetTitle, { color: "#fff" }]}>Code PIN</Text>
+                  <Text style={[styles.sheetTitle, { color: C.text }]}>Code PIN</Text>
                   <Text style={[styles.sheetSub, { color: C.muted }]}>Saisis le code PIN reçu lors de ta réservation.</Text>
                 </View>
 
@@ -742,7 +742,7 @@ function BookingFlow(
             <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
               <TouchableOpacity activeOpacity={1}>
                 <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
-                  <Text style={[styles.sheetTitle, { color: "#fff" }]}>✏️ Modifier la réservation</Text>
+                  <Text style={[styles.sheetTitle, { color: C.text }]}>✏️ Modifier la réservation</Text>
                   <Text style={[styles.sheetSub, { color: C.muted }]}>
                     {editModal?.prenom} {editModal?.nom} ·{" "}
                     {editModal && toFrShort(new Date(editModal.date + "T12:00:00"))} {editModal?.creneau}

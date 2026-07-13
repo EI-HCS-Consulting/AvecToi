@@ -82,7 +82,7 @@ export default function SpaceHeader({
         </View>
       )}
 
-      <Text style={[styles.title, { color: "#fff" }]}>
+      <Text style={[styles.title, { color: C.text }]}>
         Visites {space.patient_firstname}
       </Text>
 
@@ -109,7 +109,7 @@ export default function SpaceHeader({
               <Text
                 style={[
                   styles.tabLabel,
-                  { color: isActive ? "#fff" : C.muted },
+                  { color: isActive ? C.accent : C.muted },
                   isActive && { borderBottomColor: C.accent, borderBottomWidth: 2 },
                 ]}
               >

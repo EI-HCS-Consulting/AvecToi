@@ -502,12 +502,12 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped }: Props) {
           <View style={{ flex: 1 }}>
             {entry.author_pin !== "ADMIN" ? (
               <TouchableOpacity onPress={() => setProfileTarget({ prenom: entry.author_prenom, nom: entry.author_nom })} activeOpacity={0.7}>
-                <Text style={[styles.authorName, { color: "#fff" }]}>
+                <Text style={[styles.authorName, { color: C.text }]}>
                   {entry.author_prenom} {entry.author_nom}
                 </Text>
               </TouchableOpacity>
             ) : (
-              <Text style={[styles.authorName, { color: "#fff" }]}>
+              <Text style={[styles.authorName, { color: C.text }]}>
                 {entry.author_prenom} {entry.author_nom}
               </Text>
             )}
@@ -571,7 +571,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped }: Props) {
     <View style={[styles.container, { backgroundColor: C.bg }]}>
       {/* Header */}
       <View style={[styles.header, { backgroundColor: C.card, borderBottomColor: C.border }]}>
-        <Text style={[styles.headerTitle, { color: "#fff" }]}>📰 Nouvelles du jour</Text>
+        <Text style={[styles.headerTitle, { color: C.text }]}>📰 Nouvelles du jour</Text>
       </View>
 
       <View style={[styles.subHeader, styles.subHeaderRow, { backgroundColor: C.card, borderBottomColor: C.border }]}>
@@ -620,7 +620,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped }: Props) {
             <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
               <TouchableOpacity activeOpacity={1}>
                 <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
-                  <Text style={[styles.sheetTitle, { color: "#fff" }]}>
+                  <Text style={[styles.sheetTitle, { color: C.text }]}>
                     {editTarget ? "✏️ Modifier la nouvelle" : "📰 Nouvelle du jour"}
                   </Text>
 
@@ -742,7 +742,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped }: Props) {
           <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
             <View style={{ alignItems: "center", marginBottom: 16 }}>
               <Text style={{ fontSize: 32, marginBottom: 6 }}>🔐</Text>
-              <Text style={[styles.sheetTitle, { color: "#fff" }]}>Code PIN</Text>
+              <Text style={[styles.sheetTitle, { color: C.text }]}>Code PIN</Text>
               <Text style={[styles.sheetSub, { color: C.muted }]}>
                 {pinModal?.action === "edit"
                   ? "Saisis ton PIN pour modifier cette nouvelle."

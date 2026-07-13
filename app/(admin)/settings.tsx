@@ -17,12 +17,12 @@ import * as ImageManipulator from "expo-image-manipulator";
 import { File } from "expo-file-system";
 import { supabase } from "@/lib/supabase";
 import { useSpace } from "@/lib/SpaceContext";
-import { themes, themeLabels } from "@/lib/themes";
+import { useDisplayMode } from "@/lib/DisplayModeContext";
 import PatientAvatar from "@/components/PatientAvatar";
 import { resolvePlaceFromMapsUrl } from "@/lib/address";
 import { generateSlots, formatHourMinute } from "@/lib/slotUtils";
 import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
-import type { ThemeKey, Theme } from "@/lib/themes";
+import type { Theme } from "@/lib/themes";
 import type { NewsEntry, Task, SupportMessage, SlotConfig, ReservationChangeHistoryEntry } from "@/lib/types";
 import { openAndroidTimePicker } from "@/lib/androidTimePicker";
 
@@ -131,18 +131,6 @@ function formatBlockedDatesList(dates: string[]) {
     .map((iso) => new Date(iso + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "short" }))
     .join(", ");
 }
-
-// ─── Swatches de prévisualisation par thème ───────────────────────────────────
-const THEME_SWATCHES: Record<ThemeKey, string> = {
-  blue: "#2E75B6",
-  red: "#C0392B",
-  pink: "#E91E8C",
-  green: "#27AE60",
-  yellow: "#D4A017",
-  orange: "#E67E22",
-};
-
-const THEME_ORDER: ThemeKey[] = ["blue", "red", "pink", "green", "yellow", "orange"];
 
 const TASK_CAT_ICONS: Record<Task["category"], string> = {
   repas: "🍽️",
@@ -315,9 +303,8 @@ const sliderStyles = StyleSheet.create({
 export default function SettingsScreen() {
   const router = useRouter();
   const { space, slotConfig, loading, hasSpace, refreshSlotConfig } = useSpace();
-  const C = themes[space?.theme ?? "blue"];
+  const { theme: C } = useDisplayMode();
 
-  const [themeUpdating, setThemeUpdating] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
   // undefined = use space value; null = cleared locally; string = new URL (immediate preview before Realtime)
   const [localPhotoUrl, setLocalPhotoUrl] = useState<string | null | undefined>(undefined);
@@ -1052,19 +1039,6 @@ export default function SettingsScreen() {
     showToast(rebookingSummary(res.result) ?? "Règles de visite enregistrées ✓");
   }
 
-  // ── Theme switch ───────────────────────────────────────────────────────────
-  async function handleThemeChange(key: ThemeKey) {
-    if (!space || key === space.theme) return;
-    setThemeUpdating(true);
-    const { error } = await supabase
-      .from("patient_spaces")
-      .update({ theme: key })
-      .eq("id", space.id);
-    setThemeUpdating(false);
-    if (error) showToast("Erreur lors du changement de thème.");
-    // Realtime in SpaceContext will update space automatically
-  }
-
   // ── Patient photo upload ───────────────────────────────────────────────────
   async function handlePhotoUpload() {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -1198,7 +1172,7 @@ export default function SettingsScreen() {
     <View style={[styles.container, { backgroundColor: C.bg }]}>
       {/* Header */}
       <View style={[styles.header, { backgroundColor: C.card, borderBottomColor: C.border }]}>
-        <Text style={[styles.headerTitle, { color: "#fff" }]}>⚙️ Paramètres</Text>
+        <Text style={[styles.headerTitle, { color: C.text }]}>⚙️ Paramètres</Text>
       </View>
 
       <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: 48 + SETTINGS_NAV_BAR_HEIGHT }]}>
@@ -1211,7 +1185,7 @@ export default function SettingsScreen() {
               <View style={styles.patientRow}>
                 <PatientAvatar photoUrl={displayPhotoUrl} firstname={space.patient_firstname} lastname={space.patient_lastname} size={56} C={C} />
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.patientName, { color: "#fff" }]}>{space.patient_firstname} {space.patient_lastname}</Text>
+                  <Text style={[styles.patientName, { color: C.text }]}>{space.patient_firstname} {space.patient_lastname}</Text>
                   <Text style={[styles.patientHospital, { color: C.muted }]}>
                     {space.home_care_mode ? "🏠 Soin à domicile" : space.hospital_name}
                   </Text>
@@ -1479,7 +1453,7 @@ export default function SettingsScreen() {
                           styles.saveNotesBtn,
                           homeCareChanged
                             ? { backgroundColor: C.accent, marginTop: 8 }
-                            : { backgroundColor: "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: C.border, marginTop: 8 },
+                            : { backgroundColor: C.overlay, borderWidth: 1, borderColor: C.border, marginTop: 8 },
                           homeCareToggling && { opacity: 0.6 },
                         ]}
                         onPress={handleConfirmHomeCare}
@@ -1613,7 +1587,7 @@ export default function SettingsScreen() {
                         }}
                         activeOpacity={0.8}
                       >
-                        <Text style={[styles.timeBtnText, { color: "#fff" }]}>🕐 {formatHourMinute(visitStartHour, visitStartMinute)}</Text>
+                        <Text style={[styles.timeBtnText, { color: C.text }]}>🕐 {formatHourMinute(visitStartHour, visitStartMinute)}</Text>
                       </TouchableOpacity>
                       {showVisitStartPicker && (
                         <DateTimePicker
@@ -1650,7 +1624,7 @@ export default function SettingsScreen() {
                         }}
                         activeOpacity={0.8}
                       >
-                        <Text style={[styles.timeBtnText, { color: "#fff" }]}>🕐 {formatHourMinute(visitEndHour, visitEndMinute)}</Text>
+                        <Text style={[styles.timeBtnText, { color: C.text }]}>🕐 {formatHourMinute(visitEndHour, visitEndMinute)}</Text>
                       </TouchableOpacity>
                       {showVisitEndPicker && (
                         <DateTimePicker
@@ -1682,7 +1656,7 @@ export default function SettingsScreen() {
                     >
                       <Text style={[styles.stepBtnText, { color: C.text }]}>−</Text>
                     </TouchableOpacity>
-                    <Text style={[styles.stepValue, { color: "#fff" }]}>{formatDuration(slotDuration)}</Text>
+                    <Text style={[styles.stepValue, { color: C.text }]}>{formatDuration(slotDuration)}</Text>
                     <TouchableOpacity
                       style={[styles.stepBtn, { backgroundColor: C.bg, borderColor: C.border }]}
                       onPress={() => setSlotDuration((d) => Math.min(240, d + 5))}
@@ -1706,7 +1680,7 @@ export default function SettingsScreen() {
 
                   <View style={[styles.nightRow, { marginTop: 12 }]}>
                     <View style={{ flex: 1 }}>
-                      <Text style={[styles.nightLabel, { color: "#fff" }]}>Ajouter la durée de visite à l'intervalle</Text>
+                      <Text style={[styles.nightLabel, { color: C.text }]}>Ajouter la durée de visite à l'intervalle</Text>
                       <Text style={[styles.nightDesc, { color: C.muted }]}>
                         {gapIncludesDuration
                           ? `Ex. : visite de ${slotDuration} min + ${slotGap} min d'intervalle → créneau suivant ${slotDuration + slotGap} min plus tard.`
@@ -1750,7 +1724,7 @@ export default function SettingsScreen() {
                     >
                       <Text style={[styles.stepBtnText, { color: C.text }]}>−</Text>
                     </TouchableOpacity>
-                    <Text style={[styles.stepValue, { color: "#fff", minWidth: 32, textAlign: "center" }]}>{maxVisitors}</Text>
+                    <Text style={[styles.stepValue, { color: C.text, minWidth: 32, textAlign: "center" }]}>{maxVisitors}</Text>
                     <TouchableOpacity
                       style={[styles.stepBtn, { backgroundColor: C.bg, borderColor: C.border }]}
                       onPress={() => setMaxVisitors((v) => Math.min(10, v + 1))}
@@ -1812,7 +1786,7 @@ export default function SettingsScreen() {
                   )}
                   <TouchableOpacity
                     onPress={() => { setBlockPickerDate(new Date(new Date().getFullYear(), new Date().getMonth(), 1)); setBlockPickerReason(""); setLastAddedBlockedDate(null); setBlockPickerVisible(true); }}
-                    style={[styles.saveNotesBtn, { backgroundColor: "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: C.border, marginTop: 4 }]}
+                    style={[styles.saveNotesBtn, { backgroundColor: C.overlay, borderWidth: 1, borderColor: C.border, marginTop: 4 }]}
                   >
                     <Text style={[styles.saveNotesBtnText, { color: C.muted }]}>+ Ajouter une date bloquée</Text>
                   </TouchableOpacity>
@@ -1836,7 +1810,7 @@ export default function SettingsScreen() {
                   <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 0 }]}>🌙 Nuitées</Text>
                   <View style={styles.nightRow}>
                     <View style={{ flex: 1 }}>
-                      <Text style={[styles.nightLabel, { color: "#fff" }]}>
+                      <Text style={[styles.nightLabel, { color: C.text }]}>
                         {slotConfig.night_enabled ? "Nuitées activées" : "Nuitées suspendues"}
                       </Text>
                       <Text style={[styles.nightDesc, { color: C.muted }]}>
@@ -1876,7 +1850,7 @@ export default function SettingsScreen() {
                         }}
                         activeOpacity={0.8}
                       >
-                        <Text style={[styles.timeBtnText, { color: "#fff" }]}>🕐 {formatHourMinute(nightStartHour, nightStartMinute)}</Text>
+                        <Text style={[styles.timeBtnText, { color: C.text }]}>🕐 {formatHourMinute(nightStartHour, nightStartMinute)}</Text>
                       </TouchableOpacity>
                       {showNightStartPicker && (
                         <DateTimePicker
@@ -1911,7 +1885,7 @@ export default function SettingsScreen() {
                         }}
                         activeOpacity={0.8}
                       >
-                        <Text style={[styles.timeBtnText, { color: "#fff" }]}>🕐 {formatHourMinute(nightEndHour, nightEndMinute)}</Text>
+                        <Text style={[styles.timeBtnText, { color: C.text }]}>🕐 {formatHourMinute(nightEndHour, nightEndMinute)}</Text>
                       </TouchableOpacity>
                       {showNightEndPicker && (
                         <DateTimePicker
@@ -1981,7 +1955,7 @@ export default function SettingsScreen() {
                 ) : (
                   hospitalFieldHistory.map((h) => (
                     <View key={h.id} style={[styles.historyRow, { borderLeftColor: C.accent }]}>
-                      <Text style={[styles.historyField, { color: "#fff" }]}>
+                      <Text style={[styles.historyField, { color: C.text }]}>
                         {FIELD_ICONS[h.field_name] ?? "✏️"} {FIELD_LABELS[h.field_name] ?? h.field_name}
                         {h.new_value ? ` → "${h.new_value}"` : " → (vide)"}
                       </Text>
@@ -2016,7 +1990,7 @@ export default function SettingsScreen() {
                 ) : (
                   slotRuleFieldHistory.map((h) => (
                     <View key={h.id} style={[styles.historyRow, { borderLeftColor: C.accent }]}>
-                      <Text style={[styles.historyField, { color: "#fff" }]}>
+                      <Text style={[styles.historyField, { color: C.text }]}>
                         {FIELD_ICONS[h.field_name] ?? "✏️"} {FIELD_LABELS[h.field_name] ?? h.field_name}
                         {h.new_value ? ` → ${h.new_value}` : " → (vide)"}
                       </Text>
@@ -2051,7 +2025,7 @@ export default function SettingsScreen() {
                 ) : (
                   visitRulesHistory.map((h) => (
                     <View key={h.id} style={[styles.historyRow, { borderLeftColor: C.accent }]}>
-                      <Text style={[styles.historyField, { color: "#fff" }]}>
+                      <Text style={[styles.historyField, { color: C.text }]}>
                         {h.new_value ? `→ "${h.new_value}"` : "→ (vide)"}
                       </Text>
                       {h.old_value != null && (
@@ -2098,7 +2072,7 @@ export default function SettingsScreen() {
                         : `${frDate(h.previous_date)} à ${h.previous_creneau} → ${frDate(h.new_date)} à ${h.new_creneau}`;
                     return (
                       <View key={h.id} style={[styles.historyRow, { borderLeftColor: C.danger }]}>
-                        <Text style={[styles.historyField, { color: "#fff" }]}>
+                        <Text style={[styles.historyField, { color: C.text }]}>
                           {h.change_type === "night_cancelled" ? "🌙" : "☀️"} {h.prenom} {h.nom}
                         </Text>
                         <Text style={[styles.historyOld, { color: C.muted }]}>{changeLine}</Text>
@@ -2141,7 +2115,7 @@ export default function SettingsScreen() {
                           activeOpacity={0.7}
                         >
                           <View style={{ flex: 1 }}>
-                            <Text style={[styles.historyField, { color: "#fff" }]} numberOfLines={2}>{n.content}</Text>
+                            <Text style={[styles.historyField, { color: C.text }]} numberOfLines={2}>{n.content}</Text>
                             <Text style={[styles.historyDate, { color: C.muted }]}>
                               {n.author_prenom} {n.author_nom} · {new Date(n.created_at).toLocaleString("fr-FR", {
                                 day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit",
@@ -2165,7 +2139,7 @@ export default function SettingsScreen() {
                           activeOpacity={0.7}
                         >
                           <View style={{ flex: 1 }}>
-                            <Text style={[styles.historyField, { color: "#fff" }]} numberOfLines={1}>
+                            <Text style={[styles.historyField, { color: C.text }]} numberOfLines={1}>
                               {TASK_CAT_ICONS[t.category]} {t.title}
                             </Text>
                             <Text style={[styles.historyDate, { color: C.muted }]}>
@@ -2191,7 +2165,7 @@ export default function SettingsScreen() {
                           activeOpacity={0.7}
                         >
                           <View style={{ flex: 1 }}>
-                            <Text style={[styles.historyField, { color: "#fff" }]} numberOfLines={2}>{m.message}</Text>
+                            <Text style={[styles.historyField, { color: C.text }]} numberOfLines={2}>{m.message}</Text>
                             <Text style={[styles.historyDate, { color: C.muted }]}>
                               {m.author_prenom} {m.author_nom} · {new Date(m.created_at).toLocaleString("fr-FR", {
                                 day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit",
@@ -2230,7 +2204,7 @@ export default function SettingsScreen() {
                   <View style={styles.rgpdRow}>
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.rgpdLabel, { color: C.muted }]}>Suppression prévue le</Text>
-                      <Text style={[styles.rgpdDate, { color: isUrgent ? "#e94560" : "#fff", fontSize: 15 }]}>
+                      <Text style={[styles.rgpdDate, { color: isUrgent ? C.danger : C.text, fontSize: 15 }]}>
                         {purgeDateFr}
                       </Text>
                       <Text style={[styles.rgpdDays, { color: alertColor }]}>
@@ -2342,7 +2316,7 @@ export default function SettingsScreen() {
                   >
                     <Text style={[styles.calNavText, { color: C.muted }]}>‹</Text>
                   </TouchableOpacity>
-                  <Text style={[styles.calMonthTitle, { color: "#fff" }]}>
+                  <Text style={[styles.calMonthTitle, { color: C.text }]}>
                     {blockPickerDate.toLocaleDateString("fr-FR", { month: "long", year: "numeric" })}
                   </Text>
                   <TouchableOpacity
@@ -2435,7 +2409,7 @@ export default function SettingsScreen() {
             />
             <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: SHEET_MAX_HEIGHT }]}>
                 <ScrollView showsVerticalScrollIndicator={false}>
-                  <Text style={[styles.sheetTitle, { color: "#fff" }]}>✏️ Modifier le profil patient</Text>
+                  <Text style={[styles.sheetTitle, { color: C.text }]}>✏️ Modifier le profil patient</Text>
 
                   <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 0 }]}>Photo</Text>
                   <Text style={[styles.cardDesc, { color: C.muted }]}>
@@ -2480,7 +2454,7 @@ export default function SettingsScreen() {
                     Le nom et prénom ne peuvent pas être modifiés directement. En cas d'erreur ou de changement, contactez le service client.
                   </Text>
                   <TouchableOpacity
-                    style={[styles.saveNotesBtn, { backgroundColor: "rgba(255,255,255,0.08)", borderWidth: 1, borderColor: C.border }]}
+                    style={[styles.saveNotesBtn, { backgroundColor: C.overlay, borderWidth: 1, borderColor: C.border }]}
                     onPress={handleOpenNameChange}
                   >
                     <Text style={[styles.saveNotesBtnText, { color: C.muted }]}>✏️ Demander un changement de nom</Text>
@@ -2682,45 +2656,6 @@ export default function SettingsScreen() {
                     }
                   </TouchableOpacity>
 
-                  <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
-
-                  <Text style={[styles.fieldLabel, { color: C.gold }]}>Thème de couleur</Text>
-                  <Text style={[styles.cardDesc, { color: C.muted }]}>
-                    Appliqué en temps réel pour tous les visiteurs.
-                  </Text>
-                  {themeUpdating && (
-                    <ActivityIndicator color={C.accent} style={{ marginBottom: 12 }} />
-                  )}
-                  <View style={styles.themeGrid}>
-                    {THEME_ORDER.map((key) => {
-                      const isActive = space?.theme === key;
-                      return (
-                        <TouchableOpacity
-                          key={key}
-                          style={[
-                            styles.themeOption,
-                            {
-                              backgroundColor: C.bg,
-                              borderColor: isActive ? THEME_SWATCHES[key] : C.border,
-                              borderWidth: isActive ? 2 : 1,
-                            },
-                          ]}
-                          onPress={() => handleThemeChange(key)}
-                          disabled={themeUpdating}
-                          activeOpacity={0.75}
-                        >
-                          <View style={[styles.themeSwatch, { backgroundColor: THEME_SWATCHES[key] }]} />
-                          <Text style={[styles.themeLabel, { color: isActive ? "#fff" : C.muted }]}>
-                            {themeLabels[key]}
-                          </Text>
-                          {isActive && (
-                            <Text style={[styles.themeCheck, { color: THEME_SWATCHES[key] }]}>✓</Text>
-                          )}
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-
                   <TouchableOpacity
                     onPress={() => setEditProfileModal(false)}
                     style={[styles.saveNotesBtn, { backgroundColor: C.accent, marginTop: 8 }]}
@@ -2739,7 +2674,7 @@ export default function SettingsScreen() {
           <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setNameChangeModal(false)}>
             <TouchableOpacity activeOpacity={1}>
               <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
-                <Text style={[styles.sheetTitle, { color: "#fff" }]}>✏️ Demande de changement de nom</Text>
+                <Text style={[styles.sheetTitle, { color: C.text }]}>✏️ Demande de changement de nom</Text>
                 <Text style={[styles.sheetSub, { color: C.muted }]}>
                   Nom actuel : {space?.patient_firstname} {space?.patient_lastname}
                 </Text>
@@ -2848,17 +2783,6 @@ const styles = StyleSheet.create({
     alignItems: "center", justifyContent: "center",
   },
   photoBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13, color: "#fff" },
-
-  // Theme grid
-  themeGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  themeOption: {
-    flexDirection: "row", alignItems: "center", gap: 8,
-    borderRadius: 10, paddingVertical: 10, paddingHorizontal: 12,
-    minWidth: "46%",
-  },
-  themeSwatch: { width: 18, height: 18, borderRadius: 9 },
-  themeLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13, flex: 1 },
-  themeCheck: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },
 
   bloodChip: { borderWidth: 1, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 16 },
   bloodChipText: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },

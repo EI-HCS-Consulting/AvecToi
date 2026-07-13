@@ -1,12 +1,12 @@
 import { useVisitorSpace } from "@/lib/VisitorContext";
-import { themes } from "@/lib/themes";
+import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { isSpaceCapped } from "@/lib/freemiumCap";
 import SouvenirsGallery from "@/components/SouvenirsGallery";
 import { View, ActivityIndicator } from "react-native";
 
 export default function VisitorSouvenirsScreen() {
   const { space, reservations } = useVisitorSpace();
-  const C = themes[space?.theme ?? "blue"];
+  const { theme: C } = useDisplayMode();
 
   if (!space) {
     return (

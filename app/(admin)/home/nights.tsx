@@ -5,7 +5,7 @@ import { useSpace } from "@/lib/SpaceContext";
 import { supabase } from "@/lib/supabase";
 import { findNextAvailableNight, isReservationDatePast, toFrLong, nightStartSlot } from "@/lib/slotUtils";
 import { deleteLinkedCalendarEvent } from "@/lib/calendarSync";
-import { themes } from "@/lib/themes";
+import { useDisplayMode } from "@/lib/DisplayModeContext";
 import SpaceHeader from "@/components/SpaceHeader";
 import AdminAddReservation, { type AdminAddReservationHandle } from "@/components/AdminAddReservation";
 import AdminEditReservation, { type AdminEditReservationHandle } from "@/components/AdminEditReservation";
@@ -15,7 +15,7 @@ import type { Reservation } from "@/lib/types";
 export default function AdminNightsScreen() {
   const { space, slotConfig, reservations, hasSpace, refreshReservations } = useSpace();
   const { focusDate } = useLocalSearchParams<{ focusDate?: string }>();
-  const C = themes[space?.theme ?? "blue"];
+  const { theme: C } = useDisplayMode();
   const addRef = useRef<AdminAddReservationHandle>(null);
   const editRef = useRef<AdminEditReservationHandle>(null);
   const deleteRef = useRef<DeleteReservationConfirmHandle>(null);
@@ -116,7 +116,7 @@ export default function AdminNightsScreen() {
             return (
             <View key={r.id} style={[styles.nightCard, { backgroundColor: C.card, borderColor: r.date === focusDate ? C.accent : C.border }]}>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.nightDate, { color: "#fff" }]}>{toFrLong(new Date(r.date + "T12:00:00"))}</Text>
+                <Text style={[styles.nightDate, { color: C.text }]}>{toFrLong(new Date(r.date + "T12:00:00"))}</Text>
                 <Text style={[styles.nightVisitor, { color: C.success }]}>● {r.prenom} {r.nom}</Text>
                 {(r.booked_by_prenom || r.booked_by_nom) ? (
                   <Text style={[styles.bookedBy, { color: C.muted }]}>Programmé par : {r.booked_by_prenom} {r.booked_by_nom}</Text>
@@ -163,7 +163,7 @@ export default function AdminNightsScreen() {
             return (
             <View key={r.id} style={[styles.nightCard, { backgroundColor: C.card, borderColor: r.date === focusDate ? C.accent : C.border, opacity: 0.7 }]}>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.nightDate, { color: "#fff" }]}>{toFrLong(new Date(r.date + "T12:00:00"))}</Text>
+                <Text style={[styles.nightDate, { color: C.text }]}>{toFrLong(new Date(r.date + "T12:00:00"))}</Text>
                 <Text style={[styles.nightVisitor, { color: C.success }]}>● {r.prenom} {r.nom}</Text>
                 {(r.booked_by_prenom || r.booked_by_nom) ? (
                   <Text style={[styles.bookedBy, { color: C.muted }]}>Programmé par : {r.booked_by_prenom} {r.booked_by_nom}</Text>

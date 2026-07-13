@@ -5,7 +5,7 @@ import { useVisitorSpace } from "@/lib/VisitorContext";
 import { getVisitorSession } from "@/lib/visitorSession";
 import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
 import { supabase } from "@/lib/supabase";
-import { themes } from "@/lib/themes";
+import { useDisplayMode } from "@/lib/DisplayModeContext";
 import type { Reservation } from "@/lib/types";
 
 // Popup affiché à l'ouverture de l'app quand une ou plusieurs réservations
@@ -16,7 +16,7 @@ import type { Reservation } from "@/lib/types";
 export default function RebookingAlertModal() {
   const { space, slotConfig, reservations, setSelectedDay, setPendingEditReservationId, refreshReservations } = useVisitorSpace();
   const router = useRouter();
-  const C = themes[space?.theme ?? "blue"];
+  const { theme: C } = useDisplayMode();
   const [myPin, setMyPin] = useState<string | null>(null);
 
   useEffect(() => {
@@ -55,7 +55,7 @@ export default function RebookingAlertModal() {
       <View style={styles.overlay}>
         <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
           <Text style={styles.emoji}>📅</Text>
-          <Text style={[styles.title, { color: "#fff" }]}>Changement de réservation</Text>
+          <Text style={[styles.title, { color: C.text }]}>Changement de réservation</Text>
           <Text style={[styles.body, { color: C.muted }]}>{current.alert_message}</Text>
           <View style={styles.row}>
             <TouchableOpacity

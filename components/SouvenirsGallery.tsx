@@ -376,7 +376,7 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
     <View style={[styles.container, { backgroundColor: C.bg }]}>
       {/* Header */}
       <View style={[styles.header, { backgroundColor: C.card, borderBottomColor: C.border }]}>
-        <Text style={[styles.headerTitle, { color: "#fff" }]}>📷 Souvenirs</Text>
+        <Text style={[styles.headerTitle, { color: C.text }]}>📷 Souvenirs</Text>
       </View>
 
       <View style={[styles.subHeader, styles.subHeaderRow, { backgroundColor: C.card, borderBottomColor: C.border }]}>
@@ -558,7 +558,7 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
         <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setPickerVisible(false)}>
           <TouchableOpacity activeOpacity={1}>
             <View style={[styles.sheet, styles.pickerSheet, { backgroundColor: C.card, borderColor: C.accent }]}>
-              <Text style={[styles.sheetTitle, { color: "#fff", textAlign: "center" }]}>📸 Ajouter un souvenir</Text>
+              <Text style={[styles.sheetTitle, { color: C.text, textAlign: "center" }]}>📸 Ajouter un souvenir</Text>
               <Text style={[styles.sheetSub, { color: C.muted, textAlign: "center" }]}>Choisis la source de la photo</Text>
 
               <TouchableOpacity
@@ -597,7 +597,7 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
             <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
               <TouchableOpacity activeOpacity={1}>
                 <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
-                  <Text style={[styles.sheetTitle, { color: "#fff" }]}>📸 Ajouter un souvenir</Text>
+                  <Text style={[styles.sheetTitle, { color: C.text }]}>📸 Ajouter un souvenir</Text>
 
                   {/* Preview */}
                   {uploadPreview && (
@@ -681,7 +681,7 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
           <View style={[styles.sheet, { backgroundColor: C.card, borderColor: "#e94560" }]}>
             <View style={{ alignItems: "center", marginBottom: 16 }}>
               <Text style={{ fontSize: 32, marginBottom: 6 }}>🗑️</Text>
-              <Text style={[styles.sheetTitle, { color: "#fff" }]}>Supprimer la photo ?</Text>
+              <Text style={[styles.sheetTitle, { color: C.text }]}>Supprimer la photo ?</Text>
               <Text style={[styles.sheetSub, { color: C.muted }]}>
                 Saisis le PIN utilisé lors de l'upload de cette photo.
               </Text>

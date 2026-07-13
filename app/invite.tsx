@@ -4,7 +4,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { themes } from "@/lib/themes";
 import { enterByToken, completeVisitorEntry } from "@/lib/visitorEntry";
 
-const C = themes.blue;
+const C = themes.dark;
 
 export default function InviteScreen() {
   const { token } = useLocalSearchParams<{ token: string }>();

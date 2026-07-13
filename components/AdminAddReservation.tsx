@@ -169,7 +169,7 @@ function AdminAddReservation({ spaceId, space, slotConfig, reservations, onAdded
             <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
               {savedId ? (
                 <>
-                  <Text style={[styles.sheetTitle, { color: "#fff" }]}>Réservation ajoutée ✓</Text>
+                  <Text style={[styles.sheetTitle, { color: C.text }]}>Réservation ajoutée ✓</Text>
                   <Text style={[styles.sheetSub, { color: C.muted }]}>
                     {target && toFrLong(new Date(target.iso + "T12:00:00"))}
                     {target?.type === "Visite" ? ` · ${target.slot}` : ""}
@@ -202,7 +202,7 @@ function AdminAddReservation({ spaceId, space, slotConfig, reservations, onAdded
                 </>
               ) : (
                 <>
-                  <Text style={[styles.sheetTitle, { color: "#fff" }]}>
+                  <Text style={[styles.sheetTitle, { color: C.text }]}>
                     {target?.type === "Nuit" ? "Réserver la nuitée" : "Réserver ce créneau"}
                   </Text>
                   <Text style={[styles.sheetSub, { color: C.muted }]}>

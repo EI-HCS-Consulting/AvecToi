@@ -4,7 +4,7 @@ import { Tabs, useGlobalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { VisitorSpaceProvider, useVisitorSpace } from "@/lib/VisitorContext";
-import { themes } from "@/lib/themes";
+import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { setupNotifications } from "@/lib/notifications";
 import { getVisitorSession, saveVisitorSession } from "@/lib/visitorSession";
 import PinPad from "@/components/PinPad";
@@ -13,7 +13,7 @@ import RebookingAlertModal from "@/components/RebookingAlertModal";
 function VisitorTabs() {
   const { space, token, loading } = useVisitorSpace();
   const router = useRouter();
-  const C = themes[space?.theme ?? "blue"];
+  const { theme: C } = useDisplayMode();
   const [consentGiven, setConsentGiven] = useState<boolean | null>(null);
 
   // Identité stable du visiteur — demandée une seule fois, à la toute
@@ -72,8 +72,8 @@ function VisitorTabs() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, backgroundColor: themes.blue.bg, justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator color={themes.blue.accent} size="large" />
+      <View style={{ flex: 1, backgroundColor: C.bg, justifyContent: "center", alignItems: "center" }}>
+        <ActivityIndicator color={C.accent} size="large" />
       </View>
     );
   }
@@ -88,7 +88,7 @@ function VisitorTabs() {
             keyboardShouldPersistTaps="handled"
           >
             <View style={[consentStyles.card, identityStyles.compactCard, { backgroundColor: C.card, borderColor: C.border }]}>
-              <Text style={[consentStyles.title, identityStyles.compactTitle, { color: "#fff" }]}>👋 Bienvenue !</Text>
+              <Text style={[consentStyles.title, identityStyles.compactTitle, { color: C.text }]}>👋 Bienvenue !</Text>
               <View style={identityStyles.row}>
                 <TextInput
                   style={[identityStyles.input, identityStyles.rowInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
@@ -122,7 +122,7 @@ function VisitorTabs() {
         <View style={consentStyles.overlay}>
           <View style={[consentStyles.card, { backgroundColor: C.card, borderColor: C.border }]}>
             <Text style={consentStyles.emoji}>👥</Text>
-            <Text style={[consentStyles.title, { color: "#fff" }]}>Avant de continuer</Text>
+            <Text style={[consentStyles.title, { color: C.text }]}>Avant de continuer</Text>
             <Text style={[consentStyles.body, { color: C.muted }]}>
               Ton prénom et ton nom seront visibles par les autres personnes qui consultent ce planning.
             </Text>
@@ -282,6 +282,7 @@ export default function VisitorLayout() {
   // saves the token there *before* navigating, so it's always available by
   // the time this layout mounts.
   const params = useGlobalSearchParams<{ token: string }>();
+  const { theme: C } = useDisplayMode();
   const [token, setToken] = useState<string | null>(null);
 
   useEffect(() => {
@@ -294,8 +295,8 @@ export default function VisitorLayout() {
 
   if (token === null) {
     return (
-      <View style={{ flex: 1, backgroundColor: themes.blue.bg, justifyContent: "center", alignItems: "center" }}>
-        <ActivityIndicator color={themes.blue.accent} size="large" />
+      <View style={{ flex: 1, backgroundColor: C.bg, justifyContent: "center", alignItems: "center" }}>
+        <ActivityIndicator color={C.accent} size="large" />
       </View>
     );
   }

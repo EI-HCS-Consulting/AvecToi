@@ -7,7 +7,7 @@ import {
   getDayStatus, findNextAvailableSlot, getDaysInMonth,
   toISO, toFrLong, addDays,
 } from "@/lib/slotUtils";
-import { themes } from "@/lib/themes";
+import { useDisplayMode } from "@/lib/DisplayModeContext";
 import SpaceHeader from "@/components/SpaceHeader";
 import { useRouter } from "expo-router";
 
@@ -19,7 +19,7 @@ export default function VisitorCalendarScreen() {
   const [nextDispoModal, setNextDispoModal] = useState<{ date: Date; iso: string; slot: string } | null>(null);
   const [blockedDayModal, setBlockedDayModal] = useState<Date | null>(null);
 
-  const C = themes[space?.theme ?? "blue"];
+  const { theme: C } = useDisplayMode();
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
   const startDate = useMemo(
     () => space ? new Date(space.start_date + "T00:00:00") : today,
@@ -87,7 +87,7 @@ export default function VisitorCalendarScreen() {
           >
             <Text style={[styles.navBtnText, { color: C.text }]}>‹</Text>
           </TouchableOpacity>
-          <Text style={[styles.monthName, { color: "#fff" }]}>{monthName}</Text>
+          <Text style={[styles.monthName, { color: C.text }]}>{monthName}</Text>
           <TouchableOpacity
             onPress={() => setCalMonth((m) => {
               const d = new Date(m.year, m.month + 1, 1);
@@ -195,7 +195,7 @@ export default function VisitorCalendarScreen() {
           <TouchableOpacity activeOpacity={1} style={[styles.modal, { backgroundColor: C.card, borderColor: C.accent }]}>
             <Text style={styles.modalEmoji}>⚡</Text>
             <Text style={[styles.modalLabel, { color: C.gold }]}>Prochaine disponibilité</Text>
-            <Text style={[styles.modalDate, { color: "#fff" }]}>
+            <Text style={[styles.modalDate, { color: C.text }]}>
               {nextDispoModal && toFrLong(nextDispoModal.date)}
             </Text>
             <Text style={[styles.modalSlot, { color: C.gold }]}>{nextDispoModal?.slot}</Text>
@@ -222,7 +222,7 @@ export default function VisitorCalendarScreen() {
           <TouchableOpacity activeOpacity={1} style={[styles.modal, { backgroundColor: C.card, borderColor: C.border }]}>
             <Text style={styles.modalEmoji}>🚫</Text>
             <Text style={[styles.modalLabel, { color: C.gold }]}>Jour non disponible</Text>
-            <Text style={[styles.modalDate, { color: "#fff" }]}>
+            <Text style={[styles.modalDate, { color: C.text }]}>
               {blockedDayModal && blockedDayModal.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
             </Text>
             {!!blockedDayModal && slotConfig.blocked_dates?.includes(toISO(blockedDayModal)) ? (

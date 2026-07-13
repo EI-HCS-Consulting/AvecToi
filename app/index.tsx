@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { themes } from "@/lib/themes";
 import { getVisitorSession } from "@/lib/visitorSession";
 
-const C = themes.blue;
+const C = themes.dark;
 
 export default function WelcomeScreen() {
   const router = useRouter();

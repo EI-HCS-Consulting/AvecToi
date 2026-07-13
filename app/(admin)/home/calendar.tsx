@@ -5,7 +5,7 @@ import { useSpace } from "@/lib/SpaceContext";
 import {
   getDayStatus, findNextAvailableSlot, getDaysInMonth, toISO, toFrLong,
 } from "@/lib/slotUtils";
-import { themes } from "@/lib/themes";
+import { useDisplayMode } from "@/lib/DisplayModeContext";
 import SpaceHeader from "@/components/SpaceHeader";
 import { isSpaceCapped } from "@/lib/freemiumCap";
 
@@ -14,7 +14,7 @@ const DAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
 export default function AdminCalendarScreen() {
   const { space, slotConfig, slots, reservations, loading, hasSpace, selectedDay, setSelectedDay, setPendingBookingSlot, getConfigForDate, getSlotsForDate } = useSpace();
   const router = useRouter();
-  const C = themes[space?.theme ?? "blue"];
+  const { theme: C } = useDisplayMode();
   const [nextDispoModal, setNextDispoModal] = useState<{ date: Date; iso: string; slot: string } | null>(null);
   const [blockedDayModal, setBlockedDayModal] = useState<Date | null>(null);
 
@@ -100,7 +100,7 @@ export default function AdminCalendarScreen() {
           >
             <Text style={[styles.navBtnText, { color: C.text }]}>‹</Text>
           </TouchableOpacity>
-          <Text style={[styles.monthName, { color: "#fff" }]}>{monthName}</Text>
+          <Text style={[styles.monthName, { color: C.text }]}>{monthName}</Text>
           <TouchableOpacity
             onPress={() => setCalMonth((m) => {
               const d = new Date(m.year, m.month + 1, 1);
@@ -201,7 +201,7 @@ export default function AdminCalendarScreen() {
           <TouchableOpacity activeOpacity={1} style={[styles.modal, { backgroundColor: C.card, borderColor: C.accent }]}>
             <Text style={styles.modalEmoji}>⚡</Text>
             <Text style={[styles.modalLabel, { color: C.gold }]}>Prochaine disponibilité</Text>
-            <Text style={[styles.modalDate, { color: "#fff" }]}>
+            <Text style={[styles.modalDate, { color: C.text }]}>
               {nextDispoModal && toFrLong(nextDispoModal.date)}
             </Text>
             <Text style={[styles.modalSlot, { color: C.gold }]}>{nextDispoModal?.slot}</Text>
@@ -228,7 +228,7 @@ export default function AdminCalendarScreen() {
           <TouchableOpacity activeOpacity={1} style={[styles.modal, { backgroundColor: C.card, borderColor: C.border }]}>
             <Text style={styles.modalEmoji}>🚫</Text>
             <Text style={[styles.modalLabel, { color: C.gold }]}>Jour non disponible</Text>
-            <Text style={[styles.modalDate, { color: "#fff" }]}>
+            <Text style={[styles.modalDate, { color: C.text }]}>
               {blockedDayModal && toFrLong(blockedDayModal)}
             </Text>
             {!!blockedDayModal && slotConfig.blocked_dates?.includes(toISO(blockedDayModal)) ? (

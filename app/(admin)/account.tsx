@@ -2,14 +2,14 @@ import { useEffect, useState } from "react";
 import {
   View, Text, TouchableOpacity, ScrollView,
   StyleSheet, ActivityIndicator, TextInput, Alert,
-  Modal, KeyboardAvoidingView, Platform, Dimensions,
+  Modal, KeyboardAvoidingView, Platform, Dimensions, Switch,
 } from "react-native";
 import { useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import { File } from "expo-file-system";
 import { useSpace } from "@/lib/SpaceContext";
-import { themes } from "@/lib/themes";
+import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { supabase } from "@/lib/supabase";
 import PatientAvatar from "@/components/PatientAvatar";
 import PinPad from "@/components/PinPad";
@@ -37,7 +37,7 @@ const SHEET_MAX_HEIGHT = Dimensions.get("window").height * 0.72;
 export default function AdminAccountScreen() {
   const router = useRouter();
   const { space, loading, hasSpace } = useSpace();
-  const C = themes[space?.theme ?? "blue"];
+  const { mode, theme: C, setMode } = useDisplayMode();
 
   const [activityLoading, setActivityLoading] = useState(false);
   const [reservations, setReservations] = useState<Reservation[]>([]);
@@ -284,7 +284,7 @@ export default function AdminAccountScreen() {
         style={[styles.header, { backgroundColor: C.card, borderBottomColor: C.border }]}
         onLayout={(e) => setHeaderHeight(e.nativeEvent.layout.height)}
       >
-        <Text style={[styles.headerTitle, { color: "#fff" }]}>👤 Mon compte</Text>
+        <Text style={[styles.headerTitle, { color: C.text }]}>👤 Mon compte</Text>
       </View>
 
       <View style={[styles.subHeader, styles.subHeaderRow, { backgroundColor: C.card, borderBottomColor: C.border }]}>
@@ -320,7 +320,7 @@ export default function AdminAccountScreen() {
                   C={C}
                 />
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.patientName, { color: "#fff" }]}>
+                  <Text style={[styles.patientName, { color: C.text }]}>
                     {adminFirstname || adminLastname ? `${adminFirstname} ${adminLastname}`.trim() : "Complète ton profil"}
                   </Text>
                   {!!adminEmail && (
@@ -347,6 +347,25 @@ export default function AdminAccountScreen() {
           )}
         </View>
 
+        {/* Section Mon affichage */}
+        <Text style={[styles.sectionTitle, { color: C.gold }]}>Mon affichage</Text>
+        <View style={[styles.card, styles.displayModeCard, { backgroundColor: C.card, borderColor: C.border }]}>
+          <View>
+            <Text style={[styles.displayModeLabel, { color: C.text }]}>
+              Mode {mode === "light" ? "Clair" : "Sombre"}
+            </Text>
+            <Text style={[styles.patientSub, { color: C.muted }]}>
+              Propre à ton compte, sur cet appareil.
+            </Text>
+          </View>
+          <Switch
+            value={mode === "light"}
+            onValueChange={(v) => setMode(v ? "light" : "dark")}
+            trackColor={{ false: C.border, true: C.accent }}
+            thumbColor="#fff"
+          />
+        </View>
+
         {hasSpace && space ? (
           <>
             {/* Section Mes contributions */}
@@ -365,11 +384,11 @@ export default function AdminAccountScreen() {
                   return (
                     <View key={key}>
                       <TouchableOpacity
-                        style={styles.contribHeader}
+                        style={[styles.contribHeader, { borderBottomColor: C.border }]}
                         onPress={() => setActiveContrib(isOpen ? null : key)}
                         activeOpacity={0.75}
                       >
-                        <Text style={[styles.contribHeaderText, { color: "#fff" }]}>
+                        <Text style={[styles.contribHeaderText, { color: C.text }]}>
                           {CONTRIB_META[key].icon} {CONTRIB_META[key].label} ({count})
                         </Text>
                         <Text style={[styles.tileChevron, { color: C.muted }]}>{isOpen ? "▲" : "▼"}</Text>
@@ -525,7 +544,7 @@ export default function AdminAccountScreen() {
               ]}
             >
               <ScrollView showsVerticalScrollIndicator={false}>
-                <Text style={[styles.sheetTitle, { color: "#fff" }]}>✏️ Modifier mon profil</Text>
+                <Text style={[styles.sheetTitle, { color: C.text }]}>✏️ Modifier mon profil</Text>
 
                 <View style={styles.photoSection}>
                   <PatientAvatar
@@ -537,7 +556,7 @@ export default function AdminAccountScreen() {
                   />
                   <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
                     <TouchableOpacity
-                      style={[styles.smallBtn, { backgroundColor: "rgba(255,255,255,0.08)", borderColor: C.border }]}
+                      style={[styles.smallBtn, { backgroundColor: C.overlay, borderColor: C.border }]}
                       onPress={handleAdminPhotoUpload}
                       disabled={photoUploading}
                     >
@@ -590,7 +609,7 @@ export default function AdminAccountScreen() {
                   Email + mot de passe : c'est ce qui te sert à te connecter à ton compte admin, sur l'app comme sur le site web.
                 </Text>
                 <TouchableOpacity
-                  style={[styles.smallBtn, { backgroundColor: "rgba(255,255,255,0.08)", borderColor: C.border, alignSelf: "flex-start", marginTop: 8 }]}
+                  style={[styles.smallBtn, { backgroundColor: C.overlay, borderColor: C.border, alignSelf: "flex-start", marginTop: 8 }]}
                   onPress={handleOpenChangePassword}
                 >
                   <Text style={[styles.smallBtnText, { color: C.muted }]}>🔒 Changer mon mot de passe</Text>
@@ -602,7 +621,7 @@ export default function AdminAccountScreen() {
                   Code PIN : un code à 4 chiffres, différent du mot de passe. Il te sera redemandé si tu réinstalles l'app ou si tu te connectes sur le site web, pour confirmer que c'est bien toi.
                 </Text>
                 <TouchableOpacity
-                  style={[styles.pinTile, { backgroundColor: "rgba(255,255,255,0.08)", borderColor: C.border }]}
+                  style={[styles.pinTile, { backgroundColor: C.overlay, borderColor: C.border }]}
                   onPress={() => setPinTileOpen((v) => !v)}
                   activeOpacity={0.85}
                 >
@@ -652,7 +671,7 @@ export default function AdminAccountScreen() {
               onPress={() => setChangePasswordModal(false)}
             />
             <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
-              <Text style={[styles.sheetTitle, { color: "#fff" }]}>🔒 Changer mon mot de passe</Text>
+              <Text style={[styles.sheetTitle, { color: C.text }]}>🔒 Changer mon mot de passe</Text>
               <TextInput
                 style={[styles.sheetInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
                 placeholder="Nouveau mot de passe"
@@ -692,7 +711,7 @@ export default function AdminAccountScreen() {
             <View style={[styles.logoutModalIconWrap, { backgroundColor: "rgba(233,69,96,0.12)" }]}>
               <Text style={styles.logoutModalIcon}>🚪</Text>
             </View>
-            <Text style={[styles.logoutModalTitle, { color: "#fff" }]}>Se déconnecter ?</Text>
+            <Text style={[styles.logoutModalTitle, { color: C.text }]}>Se déconnecter ?</Text>
             <Text style={[styles.logoutModalText, { color: C.muted }]}>
               Tu devras ressaisir ton email et ton mot de passe pour revenir sur cet espace.
             </Text>
@@ -741,6 +760,12 @@ const styles = StyleSheet.create({
   card: { borderWidth: 1, borderRadius: 14, padding: 16, marginBottom: 4, gap: 10 },
   cardDesc: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 20 },
 
+  displayModeCard: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  displayModeLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15 },
+
   patientRow: { flexDirection: "row", alignItems: "center", gap: 14 },
   patientName: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18 },
   patientSub: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginTop: 2 },
@@ -754,7 +779,7 @@ const styles = StyleSheet.create({
 
   contribHeader: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.08)",
+    paddingVertical: 12, borderBottomWidth: 1,
   },
   contribHeaderText: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },
   contribCard: { marginTop: 10 },

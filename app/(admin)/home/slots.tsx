@@ -5,7 +5,7 @@ import { useSpace } from "@/lib/SpaceContext";
 import { supabase } from "@/lib/supabase";
 import { getSlotOccupancy, getNightReservation, isSlotPast, toISO, toFrLong, toFrShort, addDays, nightStartSlot, nightRangeLabel } from "@/lib/slotUtils";
 import { deleteLinkedCalendarEvent } from "@/lib/calendarSync";
-import { themes } from "@/lib/themes";
+import { useDisplayMode } from "@/lib/DisplayModeContext";
 import SpaceHeader from "@/components/SpaceHeader";
 import AdminAddReservation, { type AdminAddReservationHandle } from "@/components/AdminAddReservation";
 import AdminEditReservation, { type AdminEditReservationHandle } from "@/components/AdminEditReservation";
@@ -22,7 +22,7 @@ export default function AdminSlotsScreen() {
     pendingBookingSlot, setPendingBookingSlot, getConfigForDate,
   } = useSpace();
   const { focusDate } = useLocalSearchParams<{ focusDate?: string }>();
-  const C = themes[space?.theme ?? "blue"];
+  const { theme: C } = useDisplayMode();
   const addRef = useRef<AdminAddReservationHandle>(null);
   const editRef = useRef<AdminEditReservationHandle>(null);
   const deleteRef = useRef<DeleteReservationConfirmHandle>(null);
@@ -92,7 +92,7 @@ export default function AdminSlotsScreen() {
             <Text style={[styles.navBtnText, { color: C.text }]}>‹</Text>
           </TouchableOpacity>
           <View style={{ alignItems: "center" }}>
-            <Text style={[styles.dayTitle, { color: "#fff" }]}>{toFrLong(selectedDay)}</Text>
+            <Text style={[styles.dayTitle, { color: C.text }]}>{toFrLong(selectedDay)}</Text>
             <Text style={[styles.daySub, { color: C.muted }]}>{toFrShort(selectedDay)}</Text>
           </View>
           <TouchableOpacity
