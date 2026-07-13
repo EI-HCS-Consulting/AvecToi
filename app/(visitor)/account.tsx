@@ -4,6 +4,7 @@ import {
   StyleSheet, ActivityIndicator, Image, Alert, Modal,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
 import { File, Paths } from "expo-file-system";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
@@ -12,6 +13,7 @@ import { themes } from "@/lib/themes";
 import { supabase } from "@/lib/supabase";
 import { getVisitorSession, saveVisitorSession, clearVisitorSession } from "@/lib/visitorSession";
 import PinPad from "@/components/PinPad";
+import PatientProfileModal from "@/components/PatientProfileModal";
 import type { Reservation, ReservationChangeHistoryEntry, SouvenirPhoto, NewsEntry, SupportMessage, Task } from "@/lib/types";
 
 function souvenirUrl(spaceId: string, filename: string) {
@@ -22,6 +24,16 @@ function souvenirUrl(spaceId: string, filename: string) {
 function supportPhotoUrl(spaceId: string, filename: string) {
   const { data } = supabase.storage.from("support-photos").getPublicUrl(`${spaceId}/${filename}`);
   return data.publicUrl;
+}
+
+// Même règle de slug que NewsFeed.tsx / SouvenirsGallery.tsx / Soutien.tsx.
+function sanitize(str: string) {
+  return str
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .replace(/[^a-zA-Z0-9]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
 }
 
 const CAT_ICONS: Record<Task["category"], string> = {
@@ -59,6 +71,7 @@ export default function VisitorAccountScreen() {
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
+  const [patientProfileVisible, setPatientProfileVisible] = useState(false);
 
   // Changement de PIN — 3 phases dans une même modale, réutilisant le même
   // PinPad : (1) vérifier l'ancien PIN, (2) saisir le nouveau, (3) le
@@ -227,6 +240,36 @@ export default function VisitorAccountScreen() {
         localPhotoUri: persistedUri,
       });
       showToast("Photo enregistrée ✓");
+      syncProfilePhoto(space.id, prenom.trim(), nom.trim(), persistedUri);
+    }
+  }
+
+  // Synchronise la photo de "Mon compte" vers Supabase — jusqu'ici elle
+  // restait locale à l'appareil (localPhotoUri), invisible pour les autres
+  // visiteurs. Rend cette photo visible dans la fiche visiteur (voir
+  // components/VisitorProfileModal.tsx) quand un autre visiteur clique sur
+  // le nom de celui-ci dans Nouvelles/Souvenirs/Soutien. Best-effort : un
+  // échec ne doit pas bloquer l'enregistrement local, qui a déjà réussi.
+  async function syncProfilePhoto(spaceId: string, p: string, n: string, localUri: string) {
+    if (!p || !n) return;
+    try {
+      const compressed = await ImageManipulator.manipulateAsync(
+        localUri,
+        [{ resize: { width: 300 } }],
+        { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
+      );
+      const fileData = await new File(compressed.uri).arrayBuffer();
+      const filename = `${sanitize(p)}_${sanitize(n)}.jpg`;
+      const { error: storageErr } = await supabase.storage
+        .from("visitor-photos")
+        .upload(`${spaceId}/${filename}`, fileData, { contentType: "image/jpeg", cacheControl: "3600", upsert: true });
+      if (storageErr) return;
+      await supabase.from("visitor_profiles").upsert(
+        { space_id: spaceId, prenom: p, nom: n, photo: filename, updated_at: new Date().toISOString() },
+        { onConflict: "space_id,prenom,nom" },
+      );
+    } catch {
+      /* synchro photo profil en best-effort */
     }
   }
 
@@ -243,6 +286,7 @@ export default function VisitorAccountScreen() {
     });
     setSaving(false);
     showToast("Enregistré ✓");
+    if (photoUri) syncProfilePhoto(space.id, prenom.trim(), nom.trim(), photoUri);
     loadActivity(space.id, prenom, nom);
   }
 
@@ -614,7 +658,7 @@ export default function VisitorAccountScreen() {
                           onPress={() => router.push(`/(visitor)/entraide?focusTaskId=${t.id}` as any)}
                           activeOpacity={0.7}
                         >
-                          <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={1}>
+                          <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
                             {CAT_ICONS[t.category]} {t.title}
                           </Text>
                           <View style={[styles.activityStatusBadge, { borderColor: t.status === "fait" ? C.success : C.orange }]}>
@@ -637,7 +681,7 @@ export default function VisitorAccountScreen() {
                           onPress={() => router.push(`/(visitor)/entraide?focusTaskId=${t.id}` as any)}
                           activeOpacity={0.7}
                         >
-                          <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={1}>
+                          <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
                             {CAT_ICONS[t.category]} {t.title}
                           </Text>
                           <View style={[styles.activityStatusBadge, { borderColor: t.status === "fait" ? C.success : C.orange }]}>
@@ -655,6 +699,14 @@ export default function VisitorAccountScreen() {
             </View>
           );
         })}
+
+        <TouchableOpacity
+          style={styles.patientProfileBtn}
+          onPress={() => setPatientProfileVisible(true)}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.patientProfileBtnText}>🩺 Fiche patient</Text>
+        </TouchableOpacity>
 
         <TouchableOpacity style={styles.switchLink} onPress={handleSwitchSpace}>
           <Text style={[styles.switchLinkText, { color: C.muted }]}>Suivre un autre espace</Text>
@@ -767,6 +819,15 @@ export default function VisitorAccountScreen() {
           </View>
         </View>
       </Modal>
+
+      {space && (
+        <PatientProfileModal
+          visible={patientProfileVisible}
+          onClose={() => setPatientProfileVisible(false)}
+          space={space}
+          C={C}
+        />
+      )}
     </View>
   );
 }
@@ -840,6 +901,12 @@ const styles = StyleSheet.create({
   logoutModalCancelText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
   logoutModalConfirmBtn: { backgroundColor: "#e94560" },
   logoutModalConfirmText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: "#fff" },
+
+  patientProfileBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "center",
+    backgroundColor: "#2E75B6", borderRadius: 10, paddingVertical: 13, marginTop: 24,
+  },
+  patientProfileBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" },
 
   switchLink: { alignItems: "center", marginTop: 20 },
   switchLinkText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, textDecorationLine: "underline" },

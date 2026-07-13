@@ -12,6 +12,7 @@ import { supabase } from "@/lib/supabase";
 import { blobToArrayBuffer } from "@/lib/blobToArrayBuffer";
 import { getVisitorSession, rememberAuthorPin } from "@/lib/visitorSession";
 import PinPad from "@/components/PinPad";
+import VisitorProfileModal from "@/components/VisitorProfileModal";
 import type { SupportMessage, SupportMessageReply } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -90,6 +91,9 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
 
   // Ajout manuel au mur de Souvenirs (message.id en cours de synchro)
   const [syncingToSouvenirs, setSyncingToSouvenirs] = useState<string | null>(null);
+
+  // Fiche visiteur — ouverte en cliquant le nom d'un auteur (sauf admin)
+  const [profileTarget, setProfileTarget] = useState<{ prenom: string; nom: string } | null>(null);
 
   const loadMessages = useCallback(async () => {
     setMsgsLoading(true);
@@ -502,7 +506,13 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                   </Text>
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.msgAuthor, { color: "#fff" }]}>{m.author_prenom} {m.author_nom}</Text>
+                  {m.author_pin !== "ADMIN" ? (
+                    <TouchableOpacity onPress={() => setProfileTarget({ prenom: m.author_prenom, nom: m.author_nom })} activeOpacity={0.7}>
+                      <Text style={[styles.msgAuthor, { color: "#fff" }]}>{m.author_prenom} {m.author_nom}</Text>
+                    </TouchableOpacity>
+                  ) : (
+                    <Text style={[styles.msgAuthor, { color: "#fff" }]}>{m.author_prenom} {m.author_nom}</Text>
+                  )}
                   <Text style={[styles.msgDate, { color: C.muted }]}>
                     {new Date(m.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
                   </Text>
@@ -547,7 +557,13 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                     return (
                       <View key={r.id} style={[styles.replyItem, { borderLeftColor: C.gold }]}>
                         <View style={{ flex: 1 }}>
-                          <Text style={[styles.replyAuthor, { color: "#fff" }]}>{r.author_prenom} {r.author_nom}</Text>
+                          {r.author_pin !== "ADMIN" ? (
+                            <TouchableOpacity onPress={() => setProfileTarget({ prenom: r.author_prenom, nom: r.author_nom })} activeOpacity={0.7}>
+                              <Text style={[styles.replyAuthor, { color: "#fff" }]}>{r.author_prenom} {r.author_nom}</Text>
+                            </TouchableOpacity>
+                          ) : (
+                            <Text style={[styles.replyAuthor, { color: "#fff" }]}>{r.author_prenom} {r.author_nom}</Text>
+                          )}
                           <Text style={[styles.replyText, { color: C.text }]}>{r.reply_text}</Text>
                         </View>
                         {canDeleteReply && (
@@ -873,6 +889,19 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+
+      {/* ── FICHE VISITEUR ────────────────────────────────────────────────── */}
+      {profileTarget && (
+        <VisitorProfileModal
+          visible={!!profileTarget}
+          onClose={() => setProfileTarget(null)}
+          spaceId={spaceId}
+          C={C}
+          isAdmin={isAdmin}
+          prenom={profileTarget.prenom}
+          nom={profileTarget.nom}
+        />
+      )}
     </View>
   );
 }

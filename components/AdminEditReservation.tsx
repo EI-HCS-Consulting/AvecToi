@@ -237,19 +237,19 @@ function AdminEditReservation({ onSaved, onDelete, C }: Props, ref: React.Ref<Ad
                 </TouchableOpacity>
 
                 <View style={styles.modalButtons}>
-                  <TouchableOpacity style={[styles.modalBtn, { borderColor: C.border }]} onPress={() => setTarget(null)} disabled={saving}>
-                    <Text style={[styles.modalBtnText, { color: C.muted }]}>Annuler</Text>
+                  <TouchableOpacity style={[styles.modalBtnSecondary, { borderColor: C.border }]} onPress={() => setTarget(null)} disabled={saving}>
+                    <Text style={[styles.modalBtnSecondaryText, { color: C.muted }]}>Annuler</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[
-                      styles.modalBtn,
-                      { backgroundColor: C.accent, borderColor: C.accent },
+                      styles.modalBtnPrimary,
+                      { backgroundColor: C.accent },
                       (!prenom.trim() || !nom.trim() || (target?.type === "Visite" && !editSlot) || saving) && { opacity: 0.5 },
                     ]}
                     onPress={handleSave}
                     disabled={!prenom.trim() || !nom.trim() || (target?.type === "Visite" && !editSlot) || saving}
                   >
-                    {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={[styles.modalBtnText, { color: "#fff" }]}>Valider</Text>}
+                    {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.modalBtnPrimaryText}>Valider</Text>}
                   </TouchableOpacity>
                 </View>
               </View>
@@ -286,6 +286,8 @@ const styles = StyleSheet.create({
   deleteLink: { alignSelf: "center", paddingVertical: 6, marginTop: 2, marginBottom: 2 },
   deleteLinkText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
   modalButtons: { flexDirection: "row", gap: 10, width: "100%", marginTop: 8 },
-  modalBtn: { flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 14, alignItems: "center", justifyContent: "center" },
-  modalBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },
+  modalBtnSecondary: { flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 13, alignItems: "center" },
+  modalBtnSecondaryText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
+  modalBtnPrimary: { flex: 1.3, borderRadius: 10, paddingVertical: 13, alignItems: "center", justifyContent: "center" },
+  modalBtnPrimaryText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" },
 });

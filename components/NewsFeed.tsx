@@ -12,6 +12,7 @@ import { supabase } from "@/lib/supabase";
 import { blobToArrayBuffer } from "@/lib/blobToArrayBuffer";
 import { getVisitorSession, rememberAuthorPin, sessionPinMatches } from "@/lib/visitorSession";
 import PinPad from "@/components/PinPad";
+import VisitorProfileModal from "@/components/VisitorProfileModal";
 import type { NewsEntry } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -95,6 +96,9 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped }: Props) {
 
   // Lightbox
   const [lightbox, setLightbox] = useState<{ urls: string[]; idx: number } | null>(null);
+
+  // Fiche visiteur — ouverte en cliquant le nom de l'auteur (sauf admin)
+  const [profileTarget, setProfileTarget] = useState<{ prenom: string; nom: string } | null>(null);
 
   // Ajout manuel au mur de Souvenirs (entry.id en cours de synchro)
   const [syncingToSouvenirs, setSyncingToSouvenirs] = useState<string | null>(null);
@@ -496,9 +500,17 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped }: Props) {
             <Text style={styles.avatarText}>{avatarInitial(entry.author_prenom)}</Text>
           </View>
           <View style={{ flex: 1 }}>
-            <Text style={[styles.authorName, { color: "#fff" }]}>
-              {entry.author_prenom} {entry.author_nom}
-            </Text>
+            {entry.author_pin !== "ADMIN" ? (
+              <TouchableOpacity onPress={() => setProfileTarget({ prenom: entry.author_prenom, nom: entry.author_nom })} activeOpacity={0.7}>
+                <Text style={[styles.authorName, { color: "#fff" }]}>
+                  {entry.author_prenom} {entry.author_nom}
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <Text style={[styles.authorName, { color: "#fff" }]}>
+                {entry.author_prenom} {entry.author_nom}
+              </Text>
+            )}
             <Text style={[styles.entryDate, { color: C.muted }]}>
               {frDateTime(entry.created_at)}
             </Text>
@@ -827,6 +839,19 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped }: Props) {
         <View style={[styles.toast, { backgroundColor: C.success }]}>
           <Text style={styles.toastText}>{toast}</Text>
         </View>
+      )}
+
+      {/* ── FICHE VISITEUR ────────────────────────────────────────────────── */}
+      {profileTarget && (
+        <VisitorProfileModal
+          visible={!!profileTarget}
+          onClose={() => setProfileTarget(null)}
+          spaceId={spaceId}
+          C={C}
+          isAdmin={isAdmin}
+          prenom={profileTarget.prenom}
+          nom={profileTarget.nom}
+        />
       )}
     </View>
   );

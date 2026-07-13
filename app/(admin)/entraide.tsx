@@ -24,7 +24,16 @@ export default function AdminEntraideScreen() {
     );
   }
 
-  return <Entraide spaceId={space.id} C={C} isAdmin={true} capped={isSpaceCapped(space, reservations)} hospitalName={space.hospital_name} />;
+  return (
+    <Entraide
+      spaceId={space.id}
+      C={C}
+      isAdmin={true}
+      capped={isSpaceCapped(space, reservations)}
+      hospitalName={space.hospital_name}
+      allergies={space.patient_allergies}
+    />
+  );
 }
 
 const styles = StyleSheet.create({

@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import type { PatientSpace } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 import { activeAddressParts, addressLines, googleMapsSearchUrl, joinAddress } from "@/lib/address";
+import PatientProfileModal from "@/components/PatientProfileModal";
 
 export type HomeTab = "calendar" | "slots" | "nights" | "info" | "share";
 
@@ -34,6 +35,8 @@ export default function SpaceHeader({
 }) {
   const router = useRouter();
   const [lightbox, setLightbox] = useState(false);
+  const [patientProfile, setPatientProfile] = useState(false);
+  const isVisitor = basePath === "/(visitor)/home";
 
   const serviceSector = [space.hospital_service, space.hospital_sector]
     .filter((p): p is string => !!p && p.trim().length > 0)
@@ -62,7 +65,11 @@ export default function SpaceHeader({
   return (
     <View style={[styles.header, { backgroundColor: C.card, borderBottomColor: C.border }]}>
       {space.patient_photo_url ? (
-        <TouchableOpacity onPress={() => setLightbox(true)} style={styles.logoWrap} activeOpacity={0.85}>
+        <TouchableOpacity
+          onPress={() => (isVisitor ? setPatientProfile(true) : setLightbox(true))}
+          style={styles.logoWrap}
+          activeOpacity={0.85}
+        >
           <Image source={{ uri: space.patient_photo_url }} style={styles.logoPhoto} resizeMode="cover" />
           {/* eslint-disable-next-line @typescript-eslint/no-require-imports */}
           <Image source={require("@/assets/icon-sans-512.png")} style={styles.logoFrame} resizeMode="contain" />
@@ -126,6 +133,10 @@ export default function SpaceHeader({
             </View>
           </TouchableOpacity>
         </Modal>
+      )}
+
+      {isVisitor && (
+        <PatientProfileModal visible={patientProfile} onClose={() => setPatientProfile(false)} space={space} C={C} />
       )}
     </View>
   );

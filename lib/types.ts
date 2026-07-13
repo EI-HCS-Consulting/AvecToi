@@ -8,6 +8,10 @@ export interface PatientSpace {
   patient_firstname: string;
   patient_lastname: string;
   patient_photo_url: string | null;
+  patient_birthdate: string | null;
+  patient_sex: "M" | "F" | null;
+  patient_blood_type: string | null;
+  patient_allergies: string | null;
   hospital_name: string;
   hospital_service: string;
   hospital_sector: string | null;
@@ -243,6 +247,11 @@ export interface Task {
   transport_flexible: boolean;
   transport_from: string | null;
   transport_to: string | null;
+  // Renseigné uniquement quand l'auteur publie le besoin pour une autre
+  // personne (ex. un proche âgé) — distinct de author_prenom/nom, qui reste
+  // toujours "qui a posté le besoin". Null = transport pour l'auteur lui-même.
+  transport_for_prenom: string | null;
+  transport_for_nom: string | null;
   // Composants d'adresse du domicile du demandeur (le lieu de soin est figé
   // — hospital_name côté espace, jamais saisi ici) — servent à générer un
   // lien Google Maps pour l'aidant qui prend en charge. transport_home_is_arrival
@@ -269,6 +278,20 @@ export interface SupportMessage {
   author_pin: string | null;
   photo: string | null;
   created_at: string;
+}
+
+// Photo de profil visiteur, synchronisée depuis "Mon compte" (voir
+// app/(visitor)/account.tsx) — affichée dans la fiche visiteur en lecture
+// seule ouverte en cliquant le nom d'un autre visiteur (voir
+// components/VisitorProfileModal.tsx). Identité approximée par prénom+nom,
+// comme "Mes contributions" dans le même écran.
+export interface VisitorProfile {
+  id: string;
+  space_id: string;
+  prenom: string;
+  nom: string;
+  photo: string | null;
+  updated_at: string;
 }
 
 export interface SupportMessageReply {

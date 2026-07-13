@@ -71,6 +71,9 @@ interface Props {
   capped: boolean;
   // Préremplit "Arrivée" dans le formulaire de création d'un besoin Transport.
   hospitalName?: string;
+  // Allergies du patient (saisies par l'admin dans "Profil Patient") — affichées
+  // en rappel à quiconque publie ou prend en charge un besoin "Repas".
+  allergies?: string | null;
 }
 
 // "07/07 à 14h30" — combine la date (toFrShort) et une heure "HH:MM" stockée
@@ -80,7 +83,7 @@ function slotLabel(dateIso: string, time: string): string {
   return `${toFrShort(new Date(dateIso + "T12:00:00"))} à ${time.replace(":", "h")}`;
 }
 
-export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName }: Props) {
+export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, allergies }: Props) {
   const router = useRouter();
   const { focusTaskId } = useLocalSearchParams<{ focusTaskId?: string }>();
   const scrollRef = useRef<ScrollView>(null);
@@ -180,6 +183,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName }: 
   const [fTHomePostalCode, setFTHomePostalCode] = useState("");
   const [fTHomeCity, setFTHomeCity] = useState("");
   const [fTHomeCountry, setFTHomeCountry] = useState("");
+  // "Publier pour quelqu'un d'autre" (ex. un proche âgé) — distinct de
+  // l'auteur (author_prenom/nom), qui reste toujours la personne connectée.
+  const [fTForSomeoneElse, setFTForSomeoneElse] = useState(false);
+  const [fTForPrenom, setFTForPrenom] = useState("");
+  const [fTForNom, setFTForNom] = useState("");
   // Dernier titre généré automatiquement (catégorie/date) — permet de ne
   // jamais écraser un titre que la personne a personnalisé à la main.
   const autoTransportTitleRef = useRef("");
@@ -189,7 +197,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName }: 
   const [transportThumbWidth, setTransportThumbWidth] = useState(0);
 
   const transportFormReady = fTDate.trim() && fTOutTime.length === 5 && fTHomeAddress.trim()
-    && (!fTRoundTrip || fTReturnTime.length === 5);
+    && (!fTRoundTrip || fTReturnTime.length === 5)
+    && (!fTForSomeoneElse || (fTForPrenom.trim() && fTForNom.trim()));
 
   function selectCategory(cat: TaskCategory) {
     setFCat(cat);
@@ -401,6 +410,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName }: 
     setFTHomeAddress("");
     setFTSwapped(false);
     setFTHomePostalCode(""); setFTHomeCity(""); setFTHomeCountry("");
+    setFTForSomeoneElse(false); setFTForPrenom(""); setFTForNom("");
     setFTCalMonth(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
     autoTransportTitleRef.current = "";
     setTaskForm(true);
@@ -521,6 +531,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName }: 
           transport_home_city: fTHomeCity.trim() || null,
           transport_home_country: fTHomeCountry.trim() || null,
           transport_home_is_arrival: fTSwapped,
+          transport_for_prenom: fTForSomeoneElse ? fTForPrenom.trim() : null,
+          transport_for_nom: fTForSomeoneElse ? fTForNom.trim() : null,
         };
       }
       const { error: insertError } = await supabase.from("tasks").insert({
@@ -1017,6 +1029,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName }: 
                 👤 Demandé par {t.author_prenom} {t.author_nom}
               </Text>
             )}
+            {(t.transport_for_prenom || t.transport_for_nom) && (
+              <Text style={[styles.transportInfoText, { color: C.muted }]}>
+                Pour {t.transport_for_prenom} {t.transport_for_nom}
+              </Text>
+            )}
             <Text style={[styles.transportInfoText, { color: C.text }]}>
               📍 {t.transport_home_is_arrival ? t.transport_from : `${t.transport_from}${t.transport_home_city ? `, ${t.transport_home_city}` : ""}`}
               {" → "}
@@ -1321,6 +1338,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName }: 
                     ))}
                   </View>
 
+                  {fCat === "repas" && !!allergies && (
+                    <View style={[styles.allergyBanner, { backgroundColor: "rgba(233,69,96,0.1)", borderColor: "rgba(233,69,96,0.35)" }]}>
+                      <Text style={[styles.allergyBannerText, { color: "#e94560" }]}>
+                        ⚠️ Allergies du patient : {allergies}
+                      </Text>
+                    </View>
+                  )}
+
                   {!editTask && fCat === "transport" && (
                     <View style={[styles.transportForm, { borderColor: C.border }]}>
                       <Text style={[styles.fieldLabel, { color: C.gold }]}>Départ *</Text>
@@ -1378,6 +1403,43 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName }: 
                           <Text style={[styles.fieldLabel, { color: C.gold }]}>Heure retour *</Text>
                           <TimeClockPicker value={fTReturnTime} onChange={setFTReturnTime} C={C} />
                         </>
+                      )}
+
+                      <TouchableOpacity
+                        style={[
+                          styles.claimOnCreateBtn,
+                          {
+                            backgroundColor: fTForSomeoneElse ? `${C.accent}22` : C.bg,
+                            borderColor: fTForSomeoneElse ? C.accent : C.border,
+                          },
+                        ]}
+                        onPress={() => setFTForSomeoneElse((v) => !v)}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.claimOnCreateText, { color: fTForSomeoneElse ? C.accent : C.text }]}>
+                          {fTForSomeoneElse ? "👤 Pour une autre personne" : "👤 Publier pour quelqu'un d'autre"}
+                        </Text>
+                      </TouchableOpacity>
+
+                      {fTForSomeoneElse && (
+                        <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
+                          <TextInput
+                            style={[styles.input, { flex: 1, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                            placeholder="Son prénom *"
+                            placeholderTextColor={C.muted}
+                            value={fTForPrenom}
+                            onChangeText={setFTForPrenom}
+                            autoCapitalize="words"
+                          />
+                          <TextInput
+                            style={[styles.input, { flex: 1, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                            placeholder="Son nom *"
+                            placeholderTextColor={C.muted}
+                            value={fTForNom}
+                            onChangeText={setFTForNom}
+                            autoCapitalize="words"
+                          />
+                        </View>
                       )}
                     </View>
                   )}
@@ -1538,6 +1600,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName }: 
                       autoCapitalize="words"
                     />
                   </View>
+
+                  {claimTarget?.category === "repas" && !!allergies && (
+                    <View style={[styles.allergyBanner, { backgroundColor: "rgba(233,69,96,0.1)", borderColor: "rgba(233,69,96,0.35)" }]}>
+                      <Text style={[styles.allergyBannerText, { color: "#e94560" }]}>
+                        ⚠️ Allergies du patient : {allergies}
+                      </Text>
+                    </View>
+                  )}
 
                   {claimTarget?.category !== "transport" && (
                     <>
@@ -1999,6 +2069,9 @@ const styles = StyleSheet.create({
   catOption: { borderWidth: 1, borderRadius: 10, paddingVertical: 10, paddingHorizontal: 14, flexDirection: "row", alignItems: "center", gap: 6, minWidth: "45%" },
   catOptionIcon: { fontSize: 16 },
   catOptionLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
+
+  allergyBanner: { borderWidth: 1, borderRadius: 10, padding: 12, marginTop: 4, marginBottom: 10 },
+  allergyBannerText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13, lineHeight: 19 },
 
   transportForm: { borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 10 },
   transportInfo: { borderWidth: 1, borderRadius: 10, padding: 10, marginBottom: 8, gap: 4 },
