@@ -124,6 +124,12 @@ export interface Reservation {
   // Null quand le visiteur a réservé pour lui-même.
   booked_by_prenom: string | null;
   booked_by_nom: string | null;
+  // Email optionnel de la personne pour qui la réservation est faite (ex. un
+  // proche âgé) — saisi uniquement quand le visiteur réserve sous un nom
+  // différent du sien, sert à proposer l'envoi d'un email de confirmation
+  // (voir notify-guest-confirmation). Null si non renseigné ou réservation
+  // pour soi-même.
+  email: string | null;
 }
 
 // Trace permanente d'un recasage/annulation automatique posé par

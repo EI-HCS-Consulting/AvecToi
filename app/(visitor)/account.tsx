@@ -118,9 +118,15 @@ export default function VisitorAccountScreen() {
   const loadActivity = useCallback(async (spaceId: string, p: string, n: string) => {
     if (!p.trim() || !n.trim()) return;
     setActivityLoading(true);
-    const [resv, souv, news, msgs, tasks, published, changeHistory] = await Promise.all([
+    const [resv, resvBookedFor, souv, news, msgs, tasks, published, changeHistory] = await Promise.all([
       supabase.from("reservations").select("*").eq("space_id", spaceId)
         .ilike("prenom", p.trim()).ilike("nom", n.trim()).order("date", { ascending: false }),
+      // Réservations faites pour quelqu'un d'autre (ex. un proche âgé) — le
+      // prénom/nom de la réservation est celui du proche, pas le mien, donc
+      // absentes de la requête ci-dessus ; on les retrouve via booked_by_*
+      // (rempli uniquement quand on réserve sous un autre nom, cf. BookingFlow.tsx).
+      supabase.from("reservations").select("*").eq("space_id", spaceId)
+        .ilike("booked_by_prenom", p.trim()).ilike("booked_by_nom", n.trim()).order("date", { ascending: false }),
       supabase.from("souvenirs").select("*").eq("space_id", spaceId)
         .ilike("uploaded_by_prenom", p.trim()).ilike("uploaded_by_nom", n.trim()).order("created_at", { ascending: false }),
       supabase.from("news_entries").select("*").eq("space_id", spaceId)
@@ -134,7 +140,11 @@ export default function VisitorAccountScreen() {
       supabase.from("reservation_change_history").select("*").eq("space_id", spaceId)
         .ilike("prenom", p.trim()).ilike("nom", n.trim()).order("changed_at", { ascending: false }),
     ]);
-    const myResv: Reservation[] = resv.data || [];
+    const bookedForIds = new Set((resv.data || []).map((r: Reservation) => r.id));
+    const myResv: Reservation[] = [
+      ...(resv.data || []),
+      ...((resvBookedFor.data || []).filter((r: Reservation) => !bookedForIds.has(r.id))),
+    ].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
     setMyReservations(myResv);
     setMySouvenirs((souv.data || []).map((s: SouvenirPhoto) => ({ ...s, url: souvenirUrl(spaceId, s.filename) })));
     setMyNews(news.data || []);
@@ -358,6 +368,16 @@ export default function VisitorAccountScreen() {
         <Text style={[styles.headerTitle, { color: "#fff" }]}>👤 Mon compte</Text>
       </View>
 
+      <View style={[styles.subHeader, { backgroundColor: C.card, borderBottomColor: C.border }]}>
+        <TouchableOpacity
+          style={[styles.backToGrid, { backgroundColor: C.gold, marginBottom: 0 }]}
+          onPress={() => router.push("/(visitor)/home/calendar" as any)}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.backToGridText}>← Accueil</Text>
+        </TouchableOpacity>
+      </View>
+
       <ScrollView contentContainerStyle={styles.scroll}>
         <TouchableOpacity onPress={handlePickPhoto} style={styles.photoWrap} activeOpacity={0.8}>
           {photoUri ? (
@@ -378,57 +398,35 @@ export default function VisitorAccountScreen() {
           </Text>
         )}
 
-        <TouchableOpacity
-          style={[styles.backToGrid, { backgroundColor: C.gold, marginBottom: 20 }]}
-          onPress={() => router.push("/(visitor)/home/calendar" as any)}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.backToGridText}>← Retour à l'accueil</Text>
-        </TouchableOpacity>
-
-        {activeSection === null && (
-          <View style={styles.tileGrid}>
-            {(Object.keys(SECTION_META) as AccountSectionKey[]).map((key) => (
-              <TouchableOpacity
-                key={key}
-                style={[styles.tile, { backgroundColor: C.card, borderColor: C.border }]}
-                onPress={() => setActiveSection(key)}
-                activeOpacity={0.75}
-              >
-                <View style={styles.tileTopRow}>
-                  <View style={[styles.tileIcon, { backgroundColor: `${C.accent}22` }]}>
-                    <Text style={styles.tileIconText}>{SECTION_META[key].icon}</Text>
-                  </View>
-                  <Text style={[styles.tileChevron, { color: C.muted }]}>›</Text>
-                </View>
-                <Text style={[styles.tileLabel, { color: "#fff" }]}>{SECTION_META[key].label}</Text>
-                <Text style={[styles.tileHint, { color: C.accent }]} numberOfLines={1}>
-                  {key === "info" ? (prenom.trim() && nom.trim() ? `${prenom} ${nom}` : "À compléter")
-                    : key === "resv" ? `${myReservations.length} réservation(s)`
-                    : key === "souvenirs" ? `${mySouvenirs.length} photo(s)`
-                    : key === "news" ? `${myNews.length} nouvelle(s)`
-                    : key === "soutien" ? `${myMessages.length} message(s)`
-                    : `${myTasks.length + myPublishedTasks.length} besoin(s)`}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-
-        {activeSection !== null && (
-          <TouchableOpacity
-            style={[styles.backToGrid, { backgroundColor: C.gold }]}
-            onPress={() => setActiveSection(null)}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.backToGridText}>← Retour à mon compte</Text>
-          </TouchableOpacity>
-        )}
+        {(Object.keys(SECTION_META) as AccountSectionKey[]).map((key) => {
+          const isOpen = activeSection === key;
+          const hint = key === "info" ? (prenom.trim() && nom.trim() ? `${prenom} ${nom}` : "À compléter")
+            : key === "resv" ? `${myReservations.length} réservation(s)`
+            : key === "souvenirs" ? `${mySouvenirs.length} photo(s)`
+            : key === "news" ? `${myNews.length} nouvelle(s)`
+            : key === "soutien" ? `${myMessages.length} message(s)`
+            : `${myTasks.length + myPublishedTasks.length} besoin(s)`;
+          return (
+            <TouchableOpacity
+              key={key}
+              style={styles.contribHeader}
+              onPress={() => setActiveSection(isOpen ? null : key)}
+              activeOpacity={0.75}
+            >
+              <Text style={[styles.contribHeaderText, { color: "#fff" }]}>
+                {SECTION_META[key].icon} {SECTION_META[key].label}
+              </Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Text style={[styles.tileHint, { color: C.accent }]} numberOfLines={1}>{hint}</Text>
+                <Text style={[styles.tileChevron, { color: C.muted }]}>{isOpen ? "▲" : "▼"}</Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
 
         {activeSection === "info" && (
         <>
-        <Text style={[styles.sectionTitle, { color: C.gold }]}>Mes informations</Text>
-        <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
+        <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
           <TextInput
             style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
             placeholder="Prénom"
@@ -493,8 +491,7 @@ export default function VisitorAccountScreen() {
           activityLoading ? (
             <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
           ) : identityMissing ? missingIdentityCard : (
-            <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
-              <Text style={[styles.activityGroupTitle, { color: "#fff" }]}>📅 Mes réservations ({myReservations.length})</Text>
+            <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
               {myReservations.length === 0 ? (
                 <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucune réservation pour le moment.</Text>
               ) : myReservations.map((r) => {
@@ -513,6 +510,9 @@ export default function VisitorAccountScreen() {
                       <Text style={[styles.activityRowText, { color: C.text }]}>
                         {r.type === "Nuit" ? "🌙" : "☀️"} {new Date(r.date).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} · {r.creneau}
                       </Text>
+                      {r.booked_by_prenom && (
+                        <Text style={[styles.activityRowSub, { color: C.muted }]}>Pour {r.prenom} {r.nom}</Text>
+                      )}
                       {companionNames.length > 0 && (
                         <Text style={[styles.activityRowSub, { color: C.muted }]}>Avec {companionNames.join(", ")}</Text>
                       )}
@@ -534,8 +534,7 @@ export default function VisitorAccountScreen() {
           activityLoading ? (
             <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
           ) : identityMissing ? missingIdentityCard : (
-            <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
-              <Text style={[styles.activityGroupTitle, { color: "#fff" }]}>📷 Mes souvenirs ({mySouvenirs.length})</Text>
+            <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
               {mySouvenirs.length === 0 ? (
                 <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucune photo envoyée pour le moment.</Text>
               ) : (
@@ -555,8 +554,7 @@ export default function VisitorAccountScreen() {
           activityLoading ? (
             <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
           ) : identityMissing ? missingIdentityCard : (
-            <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
-              <Text style={[styles.activityGroupTitle, { color: "#fff" }]}>📰 Mes nouvelles ({myNews.length})</Text>
+            <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
               {myNews.length === 0 ? (
                 <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucune nouvelle publiée pour le moment.</Text>
               ) : myNews.map((entry) => (
@@ -580,8 +578,7 @@ export default function VisitorAccountScreen() {
           activityLoading ? (
             <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
           ) : identityMissing ? missingIdentityCard : (
-            <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
-              <Text style={[styles.activityGroupTitle, { color: "#fff" }]}>💛 Mes messages de soutien ({myMessages.length})</Text>
+            <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
               {myMessages.length === 0 ? (
                 <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucun message envoyé pour le moment.</Text>
               ) : myMessages.map((m) => (
@@ -608,8 +605,7 @@ export default function VisitorAccountScreen() {
           activityLoading ? (
             <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
           ) : identityMissing ? missingIdentityCard : (
-            <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
-              <Text style={[styles.activityGroupTitle, { color: "#fff" }]}>🤝 Besoins dont je m'occupe ({myTasks.length})</Text>
+            <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
               {myTasks.length === 0 ? (
                 <Text style={[styles.activityEmpty, { color: C.muted }]}>Tu n'as pris en charge aucun besoin pour le moment.</Text>
               ) : myTasks.map((t) => (
@@ -636,8 +632,7 @@ export default function VisitorAccountScreen() {
 
         {activeSection === "besoins" && (
           activityLoading ? null : identityMissing ? null : (
-            <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
-              <Text style={[styles.activityGroupTitle, { color: "#fff" }]}>📌 Besoins que j'ai publiés ({myPublishedTasks.length})</Text>
+            <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
               {myPublishedTasks.length === 0 ? (
                 <Text style={[styles.activityEmpty, { color: C.muted }]}>Tu n'as publié aucun besoin pour le moment.</Text>
               ) : myPublishedTasks.map((t) => (
@@ -782,6 +777,7 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: "center", justifyContent: "center" },
   header: { paddingHorizontal: 16, paddingTop: 52, paddingBottom: 14, borderBottomWidth: 1 },
   headerTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 20 },
+  subHeader: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1 },
   scroll: { padding: 16, paddingBottom: 48 },
 
   photoWrap: { alignItems: "center", marginBottom: 4 },
@@ -790,24 +786,17 @@ const styles = StyleSheet.create({
   photoHint: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
   identityName: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 17, textAlign: "center", marginBottom: 22 },
 
-  tileGrid: { flexDirection: "row", flexWrap: "wrap", gap: 14, marginBottom: 4 },
-  tile: {
-    width: "47%", borderWidth: 1, borderRadius: 18, padding: 16,
-    gap: 10,
-    shadowColor: "#000", shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8,
-    elevation: 3,
-  },
-  tileTopRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  tileIcon: {
-    width: 42, height: 42, borderRadius: 13,
-    alignItems: "center", justifyContent: "center",
-  },
-  tileIconText: { fontSize: 20 },
-  tileLabel: { fontFamily: "DM_Sans_700Bold", fontSize: 14, lineHeight: 18 },
   tileHint: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11.5, lineHeight: 15 },
   tileChevron: { fontFamily: "DM_Sans_700Bold", fontSize: 16 },
   backToGrid: { borderRadius: 10, paddingVertical: 12, alignItems: "center", marginBottom: 16 },
   backToGridText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#0D1B2E" },
+
+  contribHeader: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: "rgba(255,255,255,0.08)",
+  },
+  contribHeaderText: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },
+  contribCard: { marginTop: 10 },
 
   sectionTitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 1, textTransform: "uppercase", marginBottom: 10, marginTop: 8 },
   sectionTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8, marginBottom: 10 },
@@ -817,7 +806,6 @@ const styles = StyleSheet.create({
   cardDesc: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 19, marginBottom: 4 },
   input: { borderWidth: 1, borderRadius: 10, padding: 13, fontFamily: "DM_Sans_400Regular", fontSize: 15 },
 
-  activityGroupTitle: { fontFamily: "DM_Sans_700Bold", fontSize: 13, marginBottom: 4 },
   activityEmpty: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
   activityRow: { paddingVertical: 6, flexDirection: "row", alignItems: "center", gap: 8 },
   activityRowText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 19 },

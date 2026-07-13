@@ -59,7 +59,7 @@ Deno.serve(async (req: Request) => {
 
     const html = `
 <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
-  <h2 style="color:#0D1B2E;margin-bottom:4px">📋 Limite de l'espace atteinte</h2>
+  <h2 style="color:#1F3864;margin-bottom:4px">📋 Limite de l'espace atteinte</h2>
   <p style="color:#666;margin-top:0">AvecToi — ${space.patient_firstname} ${space.patient_lastname}</p>
 
   <p>
@@ -68,13 +68,14 @@ Deno.serve(async (req: Request) => {
     visiteurs comme pour vous.
   </p>
 
-  <div style="background:#fff3cd;border:1px solid #ffc107;border-radius:8px;padding:16px;margin:20px 0">
+  <div style="background:#fdece1;border:1px solid #C45911;border-radius:8px;padding:16px;margin:20px 0">
     <strong>Passez à la version illimitée</strong> pour débloquer instantanément l'espace,
     sans limite de réservations.<br/><br/>
-    <a href="${UPGRADE_URL}" style="color:#0D1B2E;font-weight:bold">${UPGRADE_URL}</a>
+    <a href="${UPGRADE_URL}" style="color:#1F3864;font-weight:bold">${UPGRADE_URL}</a>
   </div>
 
-  <p style="color:#999;font-size:12px;margin-top:24px">
+  <p style="color:#C45911;font-size:12px;font-weight:bold;margin-top:24px;margin-bottom:0">AvecToi</p>
+  <p style="color:#999;font-size:12px;margin-top:4px">
     Ce message est envoyé automatiquement. Ne pas répondre à cet email.
   </p>
 </div>`;
@@ -86,7 +87,7 @@ Deno.serve(async (req: Request) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: "AvecToi <notifications@avectoi.care>",
+        from: "AvecToi <notifications@notifications.avectoi.care>",
         to: [adminEmail],
         subject: `AvecToi — Limite atteinte pour ${space.patient_firstname} ${space.patient_lastname}`,
         html,

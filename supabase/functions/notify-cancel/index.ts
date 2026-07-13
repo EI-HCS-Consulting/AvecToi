@@ -80,7 +80,7 @@ Deno.serve(async (req: Request) => {
 
     const html = `
 <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;padding:20px">
-  <h2 style="color:#0D1B2E;margin-bottom:4px">🗑️ Annulation de visite</h2>
+  <h2 style="color:#1F3864;margin-bottom:4px">🗑️ Annulation de visite</h2>
   <p style="color:#666;margin-top:0">AvecToi — ${space.patient_firstname} ${space.patient_lastname}</p>
 
   <p><strong>${visitor_prenom} ${visitor_nom}</strong> a annulé sa visite.</p>
@@ -104,7 +104,8 @@ Deno.serve(async (req: Request) => {
     </tr>
   </table>
 
-  <p style="color:#999;font-size:12px;margin-top:24px">
+  <p style="color:#C45911;font-size:12px;font-weight:bold;margin-top:24px;margin-bottom:0">AvecToi</p>
+  <p style="color:#999;font-size:12px;margin-top:4px">
     Ce créneau est maintenant disponible. Connectez-vous à l'app pour gérer le planning.
   </p>
 </div>`;
@@ -116,7 +117,7 @@ Deno.serve(async (req: Request) => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: "AvecToi <notifications@avectoi.care>",
+        from: "AvecToi <notifications@notifications.avectoi.care>",
         to: [adminEmail],
         subject: `AvecToi — Annulation de ${visitor_prenom} ${visitor_nom} (${dateFr})`,
         html,

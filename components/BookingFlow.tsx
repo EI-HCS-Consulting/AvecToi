@@ -72,6 +72,12 @@ function BookingFlow(
   const [nom, setNom] = useState("");
   const [pinValue, setPinValue] = useState("");
   const [saving, setSaving] = useState(false);
+  // Email optionnel de la personne réservée, proposé uniquement quand le
+  // visiteur réserve sous un nom différent du sien (ex. un proche âgé) —
+  // permet d'envoyer un email de confirmation avec les infos pratiques
+  // (hôpital, plan, lien calendrier), voir handleBook / notify-guest-confirmation.
+  const [guestEmail, setGuestEmail] = useState("");
+  const [sendGuestEmail, setSendGuestEmail] = useState(true);
   // Accompagnants — chacun devient sa propre réservation (prenom/nom), liée
   // au réservataire principal via group_id : ils comptent donc dans
   // l'occupation du créneau et apparaissent partout comme des réservations
@@ -135,10 +141,15 @@ function BookingFlow(
     }
     setPrenom(prefill?.prenom ?? savedPrenom); setNom(prefill?.nom ?? savedNom); setPinValue("");
     setCompanions([]);
+    setGuestEmail(""); setSendGuestEmail(true);
     setBookingTarget({ iso, slot });
     setConfirmed(null);
     setCalendarAdded(false);
   }
+
+  // Recalculé à chaque frappe (pas seulement à la soumission, cf. handleBook)
+  // pour afficher/masquer le champ email au bon moment pendant la saisie.
+  const bookingForSomeoneElse = !!(savedPrenom || savedNom) && (prenom.trim() !== savedPrenom || nom.trim() !== savedNom);
 
   function addCompanion() {
     setCompanions((prev) => [...prev, { prenom: "", nom: "" }]);
@@ -223,6 +234,7 @@ function BookingFlow(
         pin: effectivePin,
         booked_by_prenom: nameChanged ? savedPrenom : null,
         booked_by_nom: nameChanged ? savedNom : null,
+        email: nameChanged && guestEmail.trim() ? guestEmail.trim() : null,
       },
       ...validCompanions.map((c) => ({
         space_id: space.id,
@@ -286,6 +298,19 @@ function BookingFlow(
 
     if (newResa?.id) {
       scheduleVisitReminder(newResa.id, iso, slot, prenom.trim(), `${space.patient_firstname} ${space.patient_lastname}`);
+    }
+
+    if (nameChanged && sendGuestEmail && guestEmail.trim()) {
+      supabase.functions.invoke("notify-guest-confirmation", {
+        body: {
+          space_id: space.id,
+          guest_email: guestEmail.trim(),
+          guest_prenom: prenom.trim(),
+          date: iso,
+          creneau,
+          type,
+        },
+      }).catch(() => {});
     }
   }
 
@@ -461,6 +486,41 @@ function BookingFlow(
                     placeholder="Nom *" placeholderTextColor={C.muted}
                     value={nom} onChangeText={setNom} autoCapitalize="words"
                   />
+
+                  {bookingForSomeoneElse && (
+                    <View style={[styles.guestEmailBox, { borderColor: C.border, backgroundColor: C.bg }]}>
+                      <Text style={[styles.guestEmailLabel, { color: C.gold }]}>
+                        ✉️ Email de {prenom.trim() || "cette personne"} (optionnel)
+                      </Text>
+                      <Text style={[styles.guestEmailHint, { color: C.muted }]}>
+                        Pour lui envoyer un email avec les infos pratiques (hôpital, plan, calendrier).
+                      </Text>
+                      <TextInput
+                        style={[styles.input, { backgroundColor: C.card, borderColor: C.border, color: C.text, marginBottom: 8 }]}
+                        placeholder="email@exemple.fr" placeholderTextColor={C.muted}
+                        value={guestEmail} onChangeText={setGuestEmail}
+                        keyboardType="email-address" autoCapitalize="none"
+                      />
+                      {!!guestEmail.trim() && (
+                        <TouchableOpacity
+                          style={styles.guestEmailToggle}
+                          onPress={() => setSendGuestEmail((v) => !v)}
+                          activeOpacity={0.75}
+                        >
+                          <View style={[
+                            styles.checkbox,
+                            { borderColor: C.accent, backgroundColor: sendGuestEmail ? C.accent : "transparent" },
+                          ]}>
+                            {sendGuestEmail && <Text style={styles.checkboxMark}>✓</Text>}
+                          </View>
+                          <Text style={[styles.guestEmailToggleText, { color: C.text }]}>
+                            Envoyer un email de confirmation
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  )}
+
                   {type === "Visite" && (
                     <>
                       {companions.length > 0 && (
@@ -797,6 +857,14 @@ const styles = StyleSheet.create({
   sheetSub: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginBottom: 20 },
 
   input: { borderWidth: 1, borderRadius: 10, padding: 13, fontFamily: "DM_Sans_400Regular", fontSize: 15, marginBottom: 10 },
+
+  guestEmailBox: { borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 10 },
+  guestEmailLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, marginBottom: 4 },
+  guestEmailHint: { fontFamily: "DM_Sans_400Regular", fontSize: 11, lineHeight: 15, marginBottom: 10 },
+  guestEmailToggle: { flexDirection: "row", alignItems: "center", gap: 8 },
+  checkbox: { width: 18, height: 18, borderRadius: 4, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
+  checkboxMark: { color: "#fff", fontSize: 12, fontFamily: "DM_Sans_700Bold" },
+  guestEmailToggleText: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
 
   companionSeparator: { borderTopWidth: 1, paddingTop: 12, marginTop: 4, marginBottom: 10 },
   companionSeparatorText: { fontFamily: "DM_Sans_700Bold", fontSize: 13 },
