@@ -2468,7 +2468,7 @@ export default function SettingsScreen() {
                   </Text>
                   <View style={{ flexDirection: "row", gap: 5 }}>
                     <TouchableOpacity
-                      style={[styles.bdFieldBtn, { backgroundColor: C.bg, borderColor: C.border }]}
+                      style={[styles.bdFieldBtn, { backgroundColor: C.bg, borderColor: C.border, flex: 0.75 }]}
                       onPress={() => setBdPickerField("day")}
                       activeOpacity={0.75}
                     >
@@ -2479,7 +2479,7 @@ export default function SettingsScreen() {
                       </View>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={[styles.bdFieldBtn, { backgroundColor: C.bg, borderColor: C.border }]}
+                      style={[styles.bdFieldBtn, { backgroundColor: C.bg, borderColor: C.border, flex: 1.5 }]}
                       onPress={() => setBdPickerField("month")}
                       activeOpacity={0.75}
                     >
@@ -2496,7 +2496,7 @@ export default function SettingsScreen() {
                       </View>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={[styles.bdFieldBtn, { backgroundColor: C.bg, borderColor: C.border }]}
+                      style={[styles.bdFieldBtn, { backgroundColor: C.bg, borderColor: C.border, flex: 0.75 }]}
                       onPress={() => setBdPickerField("year")}
                       activeOpacity={0.75}
                     >
