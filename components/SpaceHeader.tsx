@@ -55,7 +55,12 @@ export default function SpaceHeader({
   // Hôpital : lien collé manuellement par l'admin (trouvé sur internet) —
   // avec repli sur la génération auto tant qu'il n'a rien collé.
   function openAddress() {
-    const full = joinAddress(parts);
+    // En mode hôpital, le complément d'adresse est exclu du lien Maps
+    // généré automatiquement : il sert aussi de champ "Secteur" côté admin
+    // (voir settings.tsx), et l'y inclure mélangerait ces deux informations
+    // dans la recherche Maps. Sans effet en mode domicile (pas de secteur).
+    const mapsParts = space.home_care_mode ? parts : { ...parts, line2: null };
+    const full = joinAddress(mapsParts);
     const url = space.home_care_mode
       ? (full ? googleMapsSearchUrl(full) : null)
       : (space.hospital_maps_url || (full ? googleMapsSearchUrl(full) : null));

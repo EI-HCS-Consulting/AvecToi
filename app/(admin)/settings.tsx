@@ -466,6 +466,16 @@ export default function SettingsScreen() {
     }
   }, [space]);
 
+  // "Secteur" (Infos hospitalières) et "Complément d'adresse" (Coordonnées,
+  // mode hôpital) désignent en pratique la même information pour les
+  // admins — pour éviter la saisie en double (et les valeurs contradictoires
+  // entre les deux écrans), on les synchronise en temps réel. Uniquement en
+  // mode hôpital : pas de champ "Secteur" en soin à domicile.
+  function setHospitalSectorSynced(value: string) {
+    setSector(value);
+    setHospitalAddressLine2(value);
+  }
+
   // Modal profil patient (photo + changement de nom + thème)
   const [editProfileModal, setEditProfileModal] = useState(false);
 
@@ -716,9 +726,13 @@ export default function SettingsScreen() {
     if (nextService !== space.hospital_service) logChanges.push(logFieldChange("hospital_service", space.hospital_service, nextService));
     if (nextSector !== space.hospital_sector) logChanges.push(logFieldChange("hospital_sector", space.hospital_sector, nextSector));
     await Promise.all(logChanges);
+    // "Secteur" et "Complément d'adresse" sont synchronisés en temps réel
+    // (voir setHospitalSectorSynced) — on persiste donc aussi hospital_address_line2
+    // ici pour que la BDD reste cohérente même si l'admin n'a jamais ouvert
+    // la section Coordonnées.
     const { error } = await supabase
       .from("patient_spaces")
-      .update({ hospital_room: nextRoom, hospital_service: nextService, hospital_sector: nextSector })
+      .update({ hospital_room: nextRoom, hospital_service: nextService, hospital_sector: nextSector, hospital_address_line2: nextSector })
       .eq("id", space.id);
     setHospitalInfosSaving(false);
     if (error) showToast("Erreur lors de la sauvegarde.");
@@ -821,6 +835,10 @@ export default function SettingsScreen() {
       update.hospital_name = hospitalName.trim() || null;
       update.hospital_address = hospitalAddress.trim() || null;
       update.hospital_address_line2 = hospitalAddressLine2.trim() || null;
+      // Synchronisé avec "Secteur" (voir setHospitalSectorSynced) — persisté
+      // ici aussi pour que la BDD reste cohérente même si l'admin n'a jamais
+      // ouvert la section Infos hospitalières.
+      update.hospital_sector = hospitalAddressLine2.trim() || null;
       update.hospital_postal_code = hospitalPostalCode.trim() || null;
       update.hospital_city = hospitalCity.trim() || null;
       update.hospital_country = hospitalCountry.trim() || null;
@@ -1390,7 +1408,7 @@ export default function SettingsScreen() {
                         placeholder="Ex : Bâtiment Chevalier, entrée C"
                         placeholderTextColor={C.muted}
                         value={hospitalAddressLine2}
-                        onChangeText={setHospitalAddressLine2}
+                        onChangeText={setHospitalSectorSynced}
                       />
                       <View style={{ flexDirection: "row", gap: 8, marginTop: 12 }}>
                         <View style={{ flex: 1 }}>
@@ -1500,7 +1518,7 @@ export default function SettingsScreen() {
                       placeholder="Ex : Secteur A"
                       placeholderTextColor={C.muted}
                       value={sector}
-                      onChangeText={setSector}
+                      onChangeText={setHospitalSectorSynced}
                     />
 
                     <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />

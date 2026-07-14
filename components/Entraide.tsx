@@ -2137,7 +2137,7 @@ const styles = StyleSheet.create({
   sectionCount: { fontFamily: "DM_Sans_400Regular", fontSize: 12 },
 
   openFilterChip: {
-    alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6,
+    flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6,
     borderWidth: 1, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6,
   },
   openFilterDot: { width: 7, height: 7, borderRadius: 4 },
