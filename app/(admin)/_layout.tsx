@@ -67,7 +67,7 @@ export default function AdminLayout() {
         <Tabs
           screenOptions={{
             headerShown: false,
-            tabBarStyle: { backgroundColor: C.card, borderTopColor: C.border, borderTopWidth: 1 },
+            tabBarStyle: { backgroundColor: C.card, borderTopColor: C.border, borderTopWidth: 1, paddingBottom: 6 },
             tabBarActiveTintColor: C.accent,
             tabBarInactiveTintColor: C.muted,
             tabBarLabelStyle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11 },
