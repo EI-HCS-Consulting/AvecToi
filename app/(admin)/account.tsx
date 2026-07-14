@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import {
   View, Text, TouchableOpacity, ScrollView,
   StyleSheet, ActivityIndicator, TextInput, Alert,
-  Modal, KeyboardAvoidingView, Platform, Dimensions, Switch,
+  Modal, KeyboardAvoidingView, Platform, Dimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
@@ -13,6 +13,7 @@ import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { supabase } from "@/lib/supabase";
 import PatientAvatar from "@/components/PatientAvatar";
 import PinPad from "@/components/PinPad";
+import SegmentedSwitch from "@/components/SegmentedSwitch";
 import type { Reservation, NewsEntry, SupportMessage, Task } from "@/lib/types";
 
 const CAT_ICONS: Record<Task["category"], string> = {
@@ -349,20 +350,17 @@ export default function AdminAccountScreen() {
 
         {/* Section Mon affichage */}
         <Text style={[styles.sectionTitle, { color: C.gold }]}>Mon affichage</Text>
-        <View style={[styles.card, styles.displayModeCard, { backgroundColor: C.card, borderColor: C.border }]}>
-          <View>
-            <Text style={[styles.displayModeLabel, { color: C.text }]}>
-              Mode {mode === "light" ? "Clair" : "Sombre"}
-            </Text>
-            <Text style={[styles.patientSub, { color: C.muted }]}>
-              Propre à ton compte, sur cet appareil.
-            </Text>
-          </View>
-          <Switch
+        <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
+          <Text style={[styles.displayModeLabel, { color: C.text }]}>
+            Mode {mode === "light" ? "Clair" : "Sombre"}
+          </Text>
+          <SegmentedSwitch
             value={mode === "light"}
-            onValueChange={(v) => setMode(v ? "light" : "dark")}
-            trackColor={{ false: C.border, true: C.accent }}
-            thumbColor="#fff"
+            onChange={(v) => setMode(v ? "light" : "dark")}
+            leftLabel="Dark"
+            rightLabel="Light"
+            C={C}
+            minWidthRatio={0.55}
           />
         </View>
 
@@ -474,6 +472,7 @@ export default function AdminAccountScreen() {
                                 {
                                   borderColor: t.status === "fait" ? C.success
                                     : t.status === "pris_en_charge" ? C.accent
+                                    : t.status === "ferme" ? C.danger
                                     : C.orange,
                                 },
                               ]}>
@@ -482,11 +481,13 @@ export default function AdminAccountScreen() {
                                   {
                                     color: t.status === "fait" ? C.success
                                       : t.status === "pris_en_charge" ? C.accent
+                                      : t.status === "ferme" ? C.danger
                                       : C.orange,
                                   },
                                 ]}>
                                   {t.status === "fait" ? "✓ Fait"
                                     : t.status === "pris_en_charge" ? "⏳ Pris en charge"
+                                    : t.status === "ferme" ? "🔒 Fermé"
                                     : "🔓 Ouvert"}
                                 </Text>
                               </View>
@@ -760,10 +761,6 @@ const styles = StyleSheet.create({
   card: { borderWidth: 1, borderRadius: 14, padding: 16, marginBottom: 4, gap: 10 },
   cardDesc: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 20 },
 
-  displayModeCard: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    marginBottom: 4,
-  },
   displayModeLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15 },
 
   patientRow: { flexDirection: "row", alignItems: "center", gap: 14 },

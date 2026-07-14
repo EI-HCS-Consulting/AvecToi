@@ -56,12 +56,14 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
   ouvert: "Ouvert",
   pris_en_charge: "Pris en charge",
   fait: "Fait ✓",
+  ferme: "Fermé",
 };
 
 const STATUS_COLORS = (C: Theme): Record<TaskStatus, string> => ({
   ouvert: C.success,
   pris_en_charge: C.orange,
   fait: C.muted,
+  ferme: C.danger,
 });
 
 interface Props {
@@ -93,6 +95,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState(true);
+  const tasksRef = useRef<Task[]>([]);
+  useEffect(() => { tasksRef.current = tasks; }, [tasks]);
 
   // PIN de session de cet appareil — sert à ne montrer "C'est fait" /
   // "Se désinscrire" que sur les besoins pris en charge par ce même
@@ -151,6 +155,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // null = pas de filtre, affiche tous les besoins (existant). Cliquer à
   // nouveau sur l'onglet actif désélectionne.
   const [activeCat, setActiveCat] = useState<TaskCategory | null>(null);
+  const [openOnlyFilter, setOpenOnlyFilter] = useState(false);
+  const [closedOnlyFilter, setClosedOnlyFilter] = useState(false);
 
   const [taskForm, setTaskForm] = useState(false);
   const [editTask, setEditTask] = useState<Task | null>(null);
@@ -376,13 +382,15 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     if (!target) return;
     focusedRef.current = true;
     if (activeCat && activeCat !== target.category) setActiveCat(null);
+    if (openOnlyFilter && (target.status === "fait" || target.status === "ferme")) setOpenOnlyFilter(false);
+    if (closedOnlyFilter && target.status !== "ferme") setClosedOnlyFilter(false);
     setHighlightId(focusTaskId);
     setTimeout(() => {
       const y = taskOffsets.current[focusTaskId];
       if (y != null) scrollRef.current?.scrollTo({ y: Math.max(y - 12, 0), animated: true });
     }, 300);
     setTimeout(() => setHighlightId(null), 2500);
-  }, [focusTaskId, tasks, tasksLoading, activeCat]);
+  }, [focusTaskId, tasks, tasksLoading, activeCat, openOnlyFilter, closedOnlyFilter]);
 
   useEffect(() => {
     const ch = supabase
@@ -391,6 +399,27 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [spaceId, loadTasks]);
+
+  // Un besoin jamais pris en charge ("ouvert") dont la date est dépassée
+  // passe automatiquement en "fermé" — évite qu'il traîne indéfiniment en
+  // attente de réponse. En revanche un besoin "pris en charge" reste tel
+  // quel tant que "Fait" n'a pas été cliqué (voir openClaim : un rappel est
+  // affiché à la prise en charge pour limiter l'oubli). Seule la catégorie
+  // Transport porte aujourd'hui une date structurée (taskOverdueUnclaimed) ;
+  // la vérification reste générique pour couvrir les autres catégories le
+  // jour où elles en auront une. Vérifié au montage puis toutes les 60s via
+  // tasksRef (évite de dépendre de `tasks` pour ne pas réinitialiser
+  // l'intervalle à chaque rechargement).
+  useEffect(() => {
+    async function closeOverdueUnclaimed() {
+      const overdue = tasksRef.current.filter(taskOverdueUnclaimed);
+      if (overdue.length === 0) return;
+      await Promise.all(overdue.map((t) => supabase.from("tasks").update({ status: "ferme" }).eq("id", t.id)));
+    }
+    closeOverdueUnclaimed();
+    const interval = setInterval(closeOverdueUnclaimed, 60000);
+    return () => clearInterval(interval);
+  }, [spaceId]);
 
   function openCreateTask() {
     if (capped) {
@@ -746,7 +775,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       // masquerait "C'est fait"/"Ajouter au calendrier".
       setMySession({ prenom: claimPrenom.trim(), nom: claimNom.trim(), pin: claimPin });
     }
-    showToast("Merci ! Tu t'en occupes 💛");
+    Alert.alert(
+      "Merci, tu t'en occupes 💛",
+      "Pense bien à revenir sur cette page et à cliquer sur \"Fait\" une fois que ce sera fait, pour que les autres le sachent.",
+    );
     loadTasks();
   }
 
@@ -833,12 +865,27 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // ── Négociation d'horaire Transport ──────────────────────────────────
   // Un besoin "pris en charge" dont l'horaire confirmé (aller, ou retour
   // s'il y en a un) est déjà passé bascule visuellement en "Fait" — sans
-  // toucher au statut réel en base, pour que "C'est fait" (avec photo)
+  // toucher au statut réel en base, pour que "C'est fait"/"Marquer fait"
   // reste possible ensuite si personne ne l'a cliqué.
   function transportOverdue(t: Task): boolean {
     if (t.category !== "transport" || t.status !== "pris_en_charge" || !t.transport_confirmed_date) return false;
     const time = t.transport_confirmed_return_time || t.transport_confirmed_out_time || "23:59";
     return new Date(`${t.transport_confirmed_date}T${time}:00`) < new Date();
+  }
+
+  // Besoin jamais pris en charge (status toujours "ouvert") et dont la date
+  // demandée est déjà passée — fermé automatiquement (voir l'effet plus
+  // haut) pour ne pas rester affiché indéfiniment comme "en attente de
+  // réponse". Seule la catégorie Transport porte une date structurée
+  // aujourd'hui ; les autres catégories n'ont pas ce champ et ne matchent
+  // donc jamais ici pour l'instant.
+  function taskOverdueUnclaimed(t: Task): boolean {
+    if (t.category !== "transport" || t.status !== "ouvert") return false;
+    const date = t.transport_confirmed_date || t.transport_date;
+    if (!date) return false;
+    const time = t.transport_confirmed_return_time || t.transport_return_time
+      || t.transport_confirmed_out_time || t.transport_out_time || "23:59";
+    return new Date(`${date}T${time}:00`) < new Date();
   }
 
   async function openTransportPropose(t: Task) {
@@ -1196,7 +1243,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           <Image source={{ uri: taskPhotoUrl(spaceId, t.done_photo) }} style={styles.claimedPhoto} resizeMode="cover" />
         )}
 
-        {t.status === "fait" && isAdmin && (
+        {(t.status === "fait" || t.status === "ferme") && isAdmin && (
           <TouchableOpacity
             style={[styles.actionSmall, { borderColor: C.border, marginTop: 10, alignSelf: "flex-start" }]}
             onPress={() => adminSetStatus(t, "ouvert")}
@@ -1208,7 +1255,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     );
   }
 
-  const visibleTasks = activeCat ? tasks.filter((t) => t.category === activeCat) : tasks;
+  const visibleTasks = tasks.filter(
+    (t) =>
+      (!activeCat || t.category === activeCat) &&
+      (!openOnlyFilter || (t.status !== "fait" && t.status !== "ferme")) &&
+      (!closedOnlyFilter || t.status === "ferme")
+  );
+  const openCount = tasks.filter((t) => t.status !== "fait" && t.status !== "ferme").length;
+  const closedCount = tasks.filter((t) => t.status === "ferme").length;
 
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
@@ -1263,10 +1317,48 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         </TouchableOpacity>
       </View>
 
-      <View style={[styles.sectionBar, { borderBottomColor: C.border }]}>
-        <Text style={[styles.sectionCount, { color: C.muted, marginBottom: 0 }]}>
-          {tasks.filter((t) => t.status !== "fait").length} besoin{tasks.filter((t) => t.status !== "fait").length !== 1 ? "s" : ""} ouvert{tasks.filter((t) => t.status !== "fait").length !== 1 ? "s" : ""}
-        </Text>
+      <View style={[styles.sectionBar, { borderBottomColor: C.border, flexDirection: "row", flexWrap: "wrap", gap: 8 }]}>
+        <TouchableOpacity
+          style={[
+            styles.openFilterChip,
+            {
+              backgroundColor: openOnlyFilter ? C.accent : C.overlay,
+              borderColor: openOnlyFilter ? C.accent : C.border,
+            },
+          ]}
+          onPress={() => { setOpenOnlyFilter((prev) => !prev); setClosedOnlyFilter(false); }}
+          activeOpacity={0.75}
+        >
+          <View style={[styles.openFilterDot, { backgroundColor: openOnlyFilter ? "#fff" : C.success }]} />
+          <Text style={[styles.sectionCount, { color: openOnlyFilter ? "#fff" : C.muted }]}>
+            {openCount} besoin{openCount !== 1 ? "s" : ""} ouvert{openCount !== 1 ? "s" : ""}
+          </Text>
+          <Text style={[styles.openFilterIcon, { color: openOnlyFilter ? "#fff" : C.muted }]}>
+            {openOnlyFilter ? "✕" : "▾"}
+          </Text>
+        </TouchableOpacity>
+
+        {closedCount > 0 && (
+          <TouchableOpacity
+            style={[
+              styles.openFilterChip,
+              {
+                backgroundColor: closedOnlyFilter ? C.danger : C.overlay,
+                borderColor: closedOnlyFilter ? C.danger : C.border,
+              },
+            ]}
+            onPress={() => { setClosedOnlyFilter((prev) => !prev); setOpenOnlyFilter(false); }}
+            activeOpacity={0.75}
+          >
+            <View style={[styles.openFilterDot, { backgroundColor: closedOnlyFilter ? "#fff" : C.danger }]} />
+            <Text style={[styles.sectionCount, { color: closedOnlyFilter ? "#fff" : C.muted }]}>
+              {closedCount} besoin{closedCount !== 1 ? "s" : ""} fermé{closedCount !== 1 ? "s" : ""}
+            </Text>
+            <Text style={[styles.openFilterIcon, { color: closedOnlyFilter ? "#fff" : C.muted }]}>
+              {closedOnlyFilter ? "✕" : "▾"}
+            </Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {tasksLoading ? (
@@ -1275,7 +1367,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         <View style={styles.centered}>
           <Text style={{ fontSize: 36, marginBottom: 12 }}>🤝</Text>
           <Text style={[styles.emptyText, { color: C.muted }]}>
-            {activeCat ? `Aucun besoin dans ${CATEGORY_LABELS[activeCat]} pour l'instant.` : "Aucun besoin pour l'instant."}
+            {openOnlyFilter
+              ? "Aucun besoin ouvert pour l'instant."
+              : closedOnlyFilter
+              ? "Aucun besoin fermé pour l'instant."
+              : activeCat
+              ? `Aucun besoin dans ${CATEGORY_LABELS[activeCat]} pour l'instant.`
+              : "Aucun besoin pour l'instant."}
           </Text>
           <Text style={[styles.emptyHint, { color: C.muted }]}>Crée un besoin si tu as besoin d'aide.</Text>
         </View>
@@ -2036,7 +2134,14 @@ const styles = StyleSheet.create({
   catTabLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, textAlign: "center" },
 
   sectionBar: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1 },
-  sectionCount: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginBottom: 8 },
+  sectionCount: { fontFamily: "DM_Sans_400Regular", fontSize: 12 },
+
+  openFilterChip: {
+    alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 6,
+    borderWidth: 1, borderRadius: 20, paddingHorizontal: 12, paddingVertical: 6,
+  },
+  openFilterDot: { width: 7, height: 7, borderRadius: 4 },
+  openFilterIcon: { fontSize: 11 },
 
   listPad: { padding: 14, paddingBottom: 40 },
 

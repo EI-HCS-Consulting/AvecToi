@@ -21,16 +21,24 @@ interface Props {
   // Remonte la largeur de pastille calculée naturellement à partir des
   // libellés, pour qu'un autre switch puisse s'y aligner via `thumbWidth`.
   onThumbWidth?: (w: number) => void;
+  // Largeur mini de la pastille en fraction de la piste (0-1) — pour les
+  // libellés courts (ex. Sombre/Clair) qui donneraient sinon une pastille
+  // disproportionnée par rapport aux switches à libellés longs (ex. Mode
+  // de soin, Suivi hospitalier/Soin à domicile), afin de garder un poids
+  // visuel cohérent avec le reste de l'app.
+  minWidthRatio?: number;
 }
 
-export default function SegmentedSwitch({ value, onChange, leftLabel, rightLabel, C, thumbWidth, onThumbWidth }: Props) {
+export default function SegmentedSwitch({ value, onChange, leftLabel, rightLabel, C, thumbWidth, onThumbWidth, minWidthRatio }: Props) {
   const [trackWidth, setTrackWidth] = useState(0);
   const trackWidthRef = useRef(0);
   const valueRef = useRef(value);
   useEffect(() => { valueRef.current = value; }, [value]);
   const [leftLabelWidth, setLeftLabelWidth] = useState(0);
   const [rightLabelWidth, setRightLabelWidth] = useState(0);
-  const naturalThumbWidth = leftLabelWidth > 0 && rightLabelWidth > 0 ? Math.max(leftLabelWidth, rightLabelWidth) + 24 : 0;
+  const naturalThumbWidth = leftLabelWidth > 0 && rightLabelWidth > 0
+    ? Math.max(Math.max(leftLabelWidth, rightLabelWidth) + 24, minWidthRatio ? trackWidth * minWidthRatio : 0)
+    : 0;
   useEffect(() => { if (naturalThumbWidth > 0) onThumbWidth?.(naturalThumbWidth); }, [naturalThumbWidth]);
   const thumbX = useRef(new Animated.Value(value ? 1 : 0)).current;
   const dragStart = useRef(0);
@@ -76,16 +84,17 @@ export default function SegmentedSwitch({ value, onChange, leftLabel, rightLabel
     setTrackWidth(w);
   }
 
+  const effectiveThumbWidth = thumbWidth ?? naturalThumbWidth;
+
   return (
     <View
       style={[styles.track, { borderColor: C.border, backgroundColor: C.bg }]}
       onLayout={onTrackLayout}
       {...panResponder.panHandlers}
     >
-      {trackWidth > 0 && (thumbWidth ?? naturalThumbWidth) > 0 && (() => {
-        const w = thumbWidth ?? naturalThumbWidth;
+      {trackWidth > 0 && effectiveThumbWidth > 0 && (() => {
         const leftPos = 0;
-        const rightPos = trackWidth - w;
+        const rightPos = trackWidth - effectiveThumbWidth;
         return (
           <Animated.View
             pointerEvents="none"
@@ -93,7 +102,7 @@ export default function SegmentedSwitch({ value, onChange, leftLabel, rightLabel
               styles.thumb,
               {
                 backgroundColor: C.accent,
-                width: w,
+                width: effectiveThumbWidth,
                 transform: [{
                   translateX: thumbX.interpolate({ inputRange: [0, 1], outputRange: [leftPos, rightPos] }),
                 }],
@@ -102,7 +111,10 @@ export default function SegmentedSwitch({ value, onChange, leftLabel, rightLabel
           />
         );
       })()}
-      <View style={[styles.option, { left: 0 }]} pointerEvents="none">
+      {/* Largeur = celle de la pastille, pour que le texte se recentre sur
+          l'espace qu'il occupe une fois la pastille dessus (et pas juste
+          collé au bord de la piste). */}
+      <View style={[styles.option, { left: 0, width: effectiveThumbWidth || undefined }]} pointerEvents="none">
         <Text
           onLayout={(e) => setLeftLabelWidth(e.nativeEvent.layout.width)}
           style={[styles.optionText, { color: !value ? "#fff" : C.muted }]}
@@ -110,7 +122,7 @@ export default function SegmentedSwitch({ value, onChange, leftLabel, rightLabel
           {leftLabel}
         </Text>
       </View>
-      <View style={[styles.option, { right: 0 }]} pointerEvents="none">
+      <View style={[styles.option, { right: 0, width: effectiveThumbWidth || undefined }]} pointerEvents="none">
         <Text
           onLayout={(e) => setRightLabelWidth(e.nativeEvent.layout.width)}
           style={[styles.optionText, { color: value ? "#fff" : C.muted }]}
@@ -125,6 +137,6 @@ export default function SegmentedSwitch({ value, onChange, leftLabel, rightLabel
 const styles = StyleSheet.create({
   track: { width: "100%", height: 48, borderWidth: 1, borderRadius: 24, overflow: "hidden", position: "relative" },
   thumb: { position: "absolute", top: 0, bottom: 0, left: 0, borderRadius: 24 },
-  option: { position: "absolute", top: 0, bottom: 0, justifyContent: "center", paddingHorizontal: 12 },
+  option: { position: "absolute", top: 0, bottom: 0, justifyContent: "center", alignItems: "center" },
   optionText: { fontFamily: "DM_Sans_700Bold", fontSize: 13 },
 });
