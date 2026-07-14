@@ -19,6 +19,7 @@ import { supabase } from "@/lib/supabase";
 import { useSpace } from "@/lib/SpaceContext";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import PatientAvatar from "@/components/PatientAvatar";
+import VisitorsBlock from "@/components/VisitorsBlock";
 import { resolvePlaceFromMapsUrl } from "@/lib/address";
 import { generateSlots, formatHourMinute } from "@/lib/slotUtils";
 import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
@@ -158,7 +159,7 @@ const SETTINGS_NAV_LABELS: Record<SectionKey, string> = {
   regles: "Règles",
   hist: "Histo",
 };
-const SETTINGS_NAV_BAR_HEIGHT = 66;
+const SETTINGS_NAV_BAR_HEIGHT = 60;
 
 // ─── Sélecteur d'heure "horloge Android" (@react-native-community/datetimepicker) ──
 function hourToDate(hour: number, minute = 0) {
@@ -1945,7 +1946,10 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        {/* ── Section : Historique ─────────────────────────────────────── */}
+        {/* ── Section : Historique (sous-bloc Visiteurs, puis Historique) ── */}
+        {hasSpace && space && activeSection === "hist" && (
+          <VisitorsBlock spaceId={space.id} C={C} />
+        )}
         {hasSpace && space && activeSection === "hist" && (
           <>
             <Text style={[styles.sectionTitle, { color: C.gold }]}>Historique</Text>
@@ -2920,7 +2924,7 @@ const styles = StyleSheet.create({
 
   // Modal changement de nom
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "flex-end" },
-  sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, padding: 24, paddingBottom: 40 },
+  sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, padding: 24, paddingBottom: 40, marginBottom: 12 },
   sheetTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, marginBottom: 4 },
   sheetSub: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginBottom: 16 },
   sheetInput: { borderWidth: 1, borderRadius: 10, padding: 12, fontFamily: "DM_Sans_400Regular", fontSize: 15, marginBottom: 10 },

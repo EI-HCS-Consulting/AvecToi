@@ -47,6 +47,8 @@ export default function VisitorProfileModal({ visible, onClose, spaceId, C, isAd
   const [loading, setLoading] = useState(true);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [photoLightbox, setPhotoLightbox] = useState(false);
+  const [telephone, setTelephone] = useState<string | null>(null);
+  const [email, setEmail] = useState<string | null>(null);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [news, setNews] = useState<NewsEntry[]>([]);
   const [tasksClaimed, setTasksClaimed] = useState<Task[]>([]);
@@ -78,6 +80,13 @@ export default function VisitorProfileModal({ visible, onClose, spaceId, C, isAd
     ]);
 
     setPhotoUrl(profile.data?.photo ? visitorPhotoUrl(spaceId, profile.data.photo) : null);
+    // Coordonnées (admin uniquement) : téléphone/email vivent sur la réservation
+    // elle-même (pas de compte visiteur) — on prend la première réservation
+    // faite à son propre nom (pas "booked_by") qui en porte une, peu importe
+    // sa date, puisque le téléphone est le même à chaque réservation.
+    const ownResv: Reservation[] = resv.data || [];
+    setTelephone(ownResv.find((r) => r.telephone)?.telephone ?? null);
+    setEmail(ownResv.find((r) => r.email)?.email ?? null);
 
     const bookedForIds = new Set((resv.data || []).map((r: Reservation) => r.id));
     setReservations([
@@ -125,6 +134,13 @@ export default function VisitorProfileModal({ visible, onClose, spaceId, C, isAd
             <ActivityIndicator color={C.accent} style={{ marginVertical: 32 }} />
           ) : (
             <ScrollView contentContainerStyle={styles.scroll}>
+              {isAdmin && (telephone || email) && (
+                <Section title="☎️ Coordonnées" C={C} empty={false} emptyText="">
+                  {telephone && <Text style={[styles.rowText, { color: C.text }]}>📞 {telephone}</Text>}
+                  {email && <Text style={[styles.rowText, { color: C.text, marginTop: telephone ? 4 : 0 }]}>✉️ {email}</Text>}
+                </Section>
+              )}
+
               <Section title={`📅 Réservations (${reservations.length})`} C={C} empty={reservations.length === 0} emptyText="Aucune réservation.">
                 {reservations.map((r) => (
                   <TouchableOpacity
@@ -244,7 +260,7 @@ function Section({
 
 const styles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "flex-end" },
-  sheet: { maxHeight: "88%", borderTopLeftRadius: 20, borderTopRightRadius: 20, borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, paddingTop: 20, paddingHorizontal: 20 },
+  sheet: { maxHeight: "88%", borderTopLeftRadius: 20, borderTopRightRadius: 20, borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, paddingTop: 20, paddingHorizontal: 20, marginBottom: 12 },
   headerRow: { flexDirection: "row", alignItems: "center", marginBottom: 12, paddingBottom: 16, borderBottomWidth: 1 },
   name: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18 },
   sub: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 2 },
