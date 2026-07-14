@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, ActivityIndicator, Image, Alert, Modal, Switch,
+  StyleSheet, ActivityIndicator, Image, Alert, Modal,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
@@ -14,6 +14,7 @@ import { supabase } from "@/lib/supabase";
 import { getVisitorSession, saveVisitorSession, clearVisitorSession } from "@/lib/visitorSession";
 import PinPad from "@/components/PinPad";
 import PatientProfileModal from "@/components/PatientProfileModal";
+import SegmentedSwitch from "@/components/SegmentedSwitch";
 import type { Reservation, ReservationChangeHistoryEntry, SouvenirPhoto, NewsEntry, SupportMessage, Task } from "@/lib/types";
 
 function souvenirUrl(spaceId: string, filename: string) {
@@ -443,20 +444,17 @@ export default function VisitorAccountScreen() {
         )}
 
         <Text style={[styles.sectionTitle, { color: C.gold, marginTop: 0 }]}>Mon affichage</Text>
-        <View style={[styles.card, styles.displayModeCard, { backgroundColor: C.card, borderColor: C.border }]}>
-          <View>
-            <Text style={[styles.displayModeLabel, { color: C.text }]}>
-              Mode {mode === "light" ? "Clair" : "Sombre"}
-            </Text>
-            <Text style={[styles.cardDesc, { color: C.muted, marginBottom: 0 }]}>
-              Propre à ton compte, sur cet appareil.
-            </Text>
-          </View>
-          <Switch
+        <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
+          <Text style={[styles.displayModeLabel, { color: C.text }]}>
+            Mode {mode === "light" ? "Clair" : "Sombre"}
+          </Text>
+          <SegmentedSwitch
             value={mode === "light"}
-            onValueChange={(v) => setMode(v ? "light" : "dark")}
-            trackColor={{ false: C.border, true: C.accent }}
-            thumbColor="#fff"
+            onChange={(v) => setMode(v ? "light" : "dark")}
+            leftLabel="Dark"
+            rightLabel="Light"
+            C={C}
+            minWidthRatio={0.55}
           />
         </View>
 
@@ -702,9 +700,18 @@ export default function VisitorAccountScreen() {
                           <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
                             {CAT_ICONS[t.category]} {t.title}
                           </Text>
-                          <View style={[styles.activityStatusBadge, { borderColor: t.status === "fait" ? C.success : C.orange }]}>
-                            <Text style={[styles.activityStatusText, { color: t.status === "fait" ? C.success : C.orange }]}>
-                              {t.status === "fait" ? "✓ Fait" : t.status === "pris_en_charge" ? "🤝 Pris en charge" : "⏳ Ouvert"}
+                          <View style={[
+                            styles.activityStatusBadge,
+                            { borderColor: t.status === "fait" ? C.success : t.status === "ferme" ? C.danger : C.orange },
+                          ]}>
+                            <Text style={[
+                              styles.activityStatusText,
+                              { color: t.status === "fait" ? C.success : t.status === "ferme" ? C.danger : C.orange },
+                            ]}>
+                              {t.status === "fait" ? "✓ Fait"
+                                : t.status === "pris_en_charge" ? "🤝 Pris en charge"
+                                : t.status === "ferme" ? "🔒 Fermé"
+                                : "⏳ Ouvert"}
                             </Text>
                           </View>
                           <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
@@ -884,10 +891,6 @@ const styles = StyleSheet.create({
   cardDesc: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 19, marginBottom: 4 },
   input: { borderWidth: 1, borderRadius: 10, padding: 13, fontFamily: "DM_Sans_400Regular", fontSize: 15 },
 
-  displayModeCard: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    marginBottom: 18,
-  },
   displayModeLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15 },
 
   activityEmpty: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },

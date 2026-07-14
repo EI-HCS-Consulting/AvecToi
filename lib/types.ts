@@ -214,7 +214,7 @@ export interface Task {
   title: string;
   description: string;
   category: "repas" | "affaires" | "courses" | "transport" | "administratif" | "autre";
-  status: "ouvert" | "pris_en_charge" | "fait";
+  status: "ouvert" | "pris_en_charge" | "fait" | "ferme";
   claimed_by_prenom: string | null;
   claimed_by_nom: string | null;
   claimed_by_pin: string | null;
