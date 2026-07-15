@@ -480,6 +480,10 @@ export default function SettingsScreen() {
   // Modal profil patient (photo + changement de nom + thème)
   const [editProfileModal, setEditProfileModal] = useState(false);
 
+  // Modal suppression photo patient — bottom-sheet plutôt qu'Alert native,
+  // pour rester cohérent avec le reste des popups de cet écran.
+  const [removePhotoModal, setRemovePhotoModal] = useState(false);
+
   // Modal changement de nom
   const [nameChangeModal, setNameChangeModal] = useState(false);
   const [nameChangeFirstname, setNameChangeFirstname] = useState("");
@@ -1121,21 +1125,18 @@ export default function SettingsScreen() {
     setPhotoUploading(false);
   }
 
-  async function handleRemovePhoto() {
+  function handleRemovePhoto() {
     if (!space?.patient_photo_url) return;
-    Alert.alert("Supprimer la photo ?", "La photo du patient sera retirée de l'app.", [
-      { text: "Annuler", style: "cancel" },
-      {
-        text: "Supprimer",
-        style: "destructive",
-        onPress: async () => {
-          await supabase.storage.from("patient-photos").remove([`${space.id}/photo.jpg`]);
-          await supabase.from("patient_spaces").update({ patient_photo_url: null }).eq("id", space.id);
-          setLocalPhotoUrl(null);
-          showToast("Photo supprimée ✓");
-        },
-      },
-    ]);
+    setRemovePhotoModal(true);
+  }
+
+  async function confirmRemovePhoto() {
+    setRemovePhotoModal(false);
+    if (!space) return;
+    await supabase.storage.from("patient-photos").remove([`${space.id}/photo.jpg`]);
+    await supabase.from("patient_spaces").update({ patient_photo_url: null }).eq("id", space.id);
+    setLocalPhotoUrl(null);
+    showToast("Photo supprimée ✓");
   }
 
   // ── Prolongation RGPD ─────────────────────────────────────────────────────
@@ -1948,7 +1949,7 @@ export default function SettingsScreen() {
 
         {/* ── Section : Historique (sous-bloc Visiteurs, puis Historique) ── */}
         {hasSpace && space && activeSection === "hist" && (
-          <VisitorsBlock spaceId={space.id} C={C} />
+          <VisitorsBlock spaceId={space.id} C={C} adminFirstname={space.admin_firstname} adminLastname={space.admin_lastname} />
         )}
         {hasSpace && space && activeSection === "hist" && (
           <>
@@ -2688,6 +2689,31 @@ export default function SettingsScreen() {
             </View>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ── MODAL SUPPRESSION PHOTO PATIENT ──────────────────────────────── */}
+      <Modal visible={removePhotoModal} transparent animationType="slide" onRequestClose={() => setRemovePhotoModal(false)}>
+        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setRemovePhotoModal(false)}>
+          <TouchableOpacity activeOpacity={1}>
+            <View style={[styles.sheet, { backgroundColor: C.card, borderColor: "#e94560" }]}>
+              <View style={{ alignItems: "center", marginBottom: 4 }}>
+                <Text style={{ fontSize: 32, marginBottom: 6 }}>🗑️</Text>
+                <Text style={[styles.sheetTitle, { color: C.text }]}>Supprimer la photo ?</Text>
+                <Text style={[styles.sheetSub, { color: C.muted, textAlign: "center" }]}>
+                  La photo du patient sera retirée de l'app.
+                </Text>
+              </View>
+              <View style={styles.sheetBtns}>
+                <TouchableOpacity onPress={() => setRemovePhotoModal(false)} style={[styles.btnSecondary, { borderColor: C.border }]}>
+                  <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={confirmRemovePhoto} style={[styles.btnPrimary, { backgroundColor: "#e94560" }]}>
+                  <Text style={styles.btnPrimaryText}>Supprimer</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
 
       {/* ── MODAL CHANGEMENT DE NOM ──────────────────────────────────────── */}

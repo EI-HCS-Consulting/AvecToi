@@ -73,6 +73,7 @@ export default function PatientOnboarding() {
 
   const [firstname, setFirstname] = useState("");
   const [lastname, setLastname] = useState("");
+  const [patientMotto, setPatientMotto] = useState("");
 
   const [homeCareMode, setHomeCareMode] = useState(false);
   const homeCareModeRef = useRef(homeCareMode);
@@ -254,6 +255,7 @@ export default function PatientOnboarding() {
             admin_lastname: userData.user.user_metadata?.lastname ?? null,
             patient_firstname: firstname.trim(),
             patient_lastname: lastname.trim(),
+            patient_motto: patientMotto.trim() || null,
             ...careFields,
             visit_rules: visitRules.trim(),
             // Colonne conservée pour compatibilité DB — le mode d'affichage est
@@ -342,6 +344,20 @@ export default function PatientOnboarding() {
             <Text style={[styles.cardDesc, { color: C.muted }]}>
               Le nom du patient ne pourra plus être modifié directement une fois l'espace créé.
               Pour tout changement, une demande sera à envoyer depuis Paramètres.
+            </Text>
+
+            <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
+
+            <Text style={[styles.fieldLabel, { color: C.gold }]}>💬 Phrase totem (optionnel)</Text>
+            <TextInput
+              style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+              placeholder="Ex : Aimer c'est Agir !"
+              placeholderTextColor={C.muted}
+              value={patientMotto}
+              onChangeText={setPatientMotto}
+            />
+            <Text style={[styles.cardDesc, { color: C.muted }]}>
+              Un mantra qui définit le patient — affiché sous son nom dans la fiche patient et dans le bandeau de l'app.
             </Text>
           </View>
         )}
@@ -666,6 +682,23 @@ export default function PatientOnboarding() {
                 <Text style={[styles.stepBtnText, { color: C.text }]}>+</Text>
               </TouchableOpacity>
             </View>
+
+            <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
+
+            <Text style={[styles.fieldLabel, { color: C.gold }]}>📋 Consignes de visite (optionnel)</Text>
+            <Text style={[styles.cardDesc, { color: C.muted, marginBottom: 0 }]}>
+              Réglable plus tard dans Paramètres si besoin. N'indique pas d'informations médicales sensibles.
+            </Text>
+            <TextInput
+              style={[styles.textarea, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+              placeholder="Ex : La chambre se trouve au 3ème étage, aile B…"
+              placeholderTextColor={C.muted}
+              value={visitRules}
+              onChangeText={setVisitRules}
+              multiline
+              numberOfLines={4}
+              textAlignVertical="top"
+            />
           </View>
         )}
 
@@ -717,6 +750,10 @@ const styles = StyleSheet.create({
   input: {
     borderWidth: 1, borderRadius: 10, padding: 13,
     fontFamily: "DM_Sans_400Regular", fontSize: 15,
+  },
+  textarea: {
+    borderWidth: 1, borderRadius: 10, padding: 13, minHeight: 90,
+    fontFamily: "DM_Sans_400Regular", fontSize: 14, lineHeight: 20,
   },
   fieldLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
   careTrack: {

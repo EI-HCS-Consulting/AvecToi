@@ -12,6 +12,7 @@ export interface PatientSpace {
   patient_sex: "M" | "F" | null;
   patient_blood_type: string | null;
   patient_allergies: string | null;
+  patient_motto: string | null;
   hospital_name: string;
   hospital_service: string;
   hospital_sector: string | null;

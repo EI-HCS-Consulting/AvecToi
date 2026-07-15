@@ -35,9 +35,16 @@ function identityKey(prenom: string, nom: string) {
 interface Props {
   spaceId: string;
   C: Theme;
+  // L'admin est aussi un proche qui peut rendre visite au patient — son nom
+  // et sa photo (stockés à part : auth.updateUser/user_metadata.photo_url,
+  // voir app/(admin)/account.tsx, jamais dans visitor_profiles puisqu'il n'a
+  // pas de compte "visiteur") sont ajoutés à la liste au même titre que les
+  // autres.
+  adminFirstname?: string | null;
+  adminLastname?: string | null;
 }
 
-export default function VisitorsBlock({ spaceId, C }: Props) {
+export default function VisitorsBlock({ spaceId, C, adminFirstname, adminLastname }: Props) {
   const [loading, setLoading] = useState(true);
   const [visitors, setVisitors] = useState<VisitorRow[]>([]);
   const [profileTarget, setProfileTarget] = useState<{ prenom: string; nom: string } | null>(null);
@@ -47,7 +54,7 @@ export default function VisitorsBlock({ spaceId, C }: Props) {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [resv, resvGuestOf, news, tasksAuthor, tasksClaimed, tasksReturnClaimed, souv, msgs, profiles] = await Promise.all([
+    const [resv, resvGuestOf, news, tasksAuthor, tasksClaimed, tasksReturnClaimed, souv, msgs, profiles, authUser] = await Promise.all([
       supabase.from("reservations").select("prenom,nom").eq("space_id", spaceId),
       supabase.from("reservations").select("booked_by_prenom,booked_by_nom").eq("space_id", spaceId),
       supabase.from("news_entries").select("author_prenom,author_nom").eq("space_id", spaceId),
@@ -57,7 +64,10 @@ export default function VisitorsBlock({ spaceId, C }: Props) {
       supabase.from("souvenirs").select("uploaded_by_prenom,uploaded_by_nom").eq("space_id", spaceId),
       supabase.from("support_messages").select("author_prenom,author_nom").eq("space_id", spaceId),
       supabase.from("visitor_profiles").select("prenom,nom,photo").eq("space_id", spaceId),
+      supabase.auth.getUser(),
     ]);
+
+    if (profiles.error) console.error("[VisitorsBlock] visitor_profiles select failed:", profiles.error);
 
     const byKey = new Map<string, VisitorRow>();
     function add(prenom?: string | null, nom?: string | null) {
@@ -74,11 +84,18 @@ export default function VisitorsBlock({ spaceId, C }: Props) {
     (souv.data || []).forEach((s) => add(s.uploaded_by_prenom, s.uploaded_by_nom));
     (msgs.data || []).forEach((m) => add(m.author_prenom, m.author_nom));
     (profiles.data || []).forEach((p) => add(p.prenom, p.nom));
+    add(adminFirstname, adminLastname);
 
     for (const p of profiles.data || []) {
       if (!p.photo) continue;
       const row = byKey.get(identityKey(p.prenom, p.nom));
       if (row) row.photoUrl = visitorPhotoUrl(spaceId, p.photo);
+    }
+
+    const adminPhotoUrl = authUser.data.user?.user_metadata?.photo_url as string | undefined;
+    if (adminPhotoUrl && adminFirstname && adminLastname) {
+      const adminRow = byKey.get(identityKey(adminFirstname, adminLastname));
+      if (adminRow) adminRow.photoUrl = adminPhotoUrl;
     }
 
     setVisitors(
@@ -87,7 +104,7 @@ export default function VisitorsBlock({ spaceId, C }: Props) {
       )
     );
     setLoading(false);
-  }, [spaceId]);
+  }, [spaceId, adminFirstname, adminLastname]);
 
   useEffect(() => {
     load();
