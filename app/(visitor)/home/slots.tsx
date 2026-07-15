@@ -41,9 +41,11 @@ export default function SlotsScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Arrivée via "Mon compte" > "Mes réservations" : rouvre la modale
-  // PIN/modification directement sur la réservation visée, une fois les
-  // réservations chargées dans le contexte.
+  // Arrivée via RebookingAlertModal (recasage/annulation suite à un
+  // changement de règles admin) : rouvre la modale PIN/modification
+  // directement sur la réservation visée, une fois les réservations
+  // chargées dans le contexte. Ne concerne pas "Mon compte" > "Mes
+  // réservations", qui ne fait qu'une navigation simple (pas de pendingEditReservationId).
   useEffect(() => {
     if (!pendingEditReservationId) return;
     const r = reservations.find((x) => x.id === pendingEditReservationId);

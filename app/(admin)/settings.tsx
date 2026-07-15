@@ -2757,7 +2757,7 @@ export default function SettingsScreen() {
       <Modal visible={removePhotoModal} transparent animationType="slide" onRequestClose={() => setRemovePhotoModal(false)}>
         <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setRemovePhotoModal(false)}>
           <TouchableOpacity activeOpacity={1}>
-            <View style={[styles.sheet, { backgroundColor: C.card, borderColor: "#e94560" }]}>
+            <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.danger }]}>
               <View style={{ alignItems: "center", marginBottom: 4 }}>
                 <Text style={{ fontSize: 32, marginBottom: 6 }}>🗑️</Text>
                 <Text style={[styles.sheetTitle, { color: C.text }]}>Supprimer la photo ?</Text>
@@ -2769,7 +2769,7 @@ export default function SettingsScreen() {
                 <TouchableOpacity onPress={() => setRemovePhotoModal(false)} style={[styles.btnSecondary, { borderColor: C.border }]}>
                   <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
                 </TouchableOpacity>
-                <TouchableOpacity onPress={confirmRemovePhoto} style={[styles.btnPrimary, { backgroundColor: "#e94560" }]}>
+                <TouchableOpacity onPress={confirmRemovePhoto} style={[styles.btnPrimary, { backgroundColor: C.danger }]}>
                   <Text style={styles.btnPrimaryText}>Supprimer</Text>
                 </TouchableOpacity>
               </View>
