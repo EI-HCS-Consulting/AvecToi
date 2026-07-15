@@ -779,7 +779,7 @@ export default function AdminAccountScreen() {
                 <Text style={[styles.logoutModalCancelText, { color: C.text }]}>Annuler</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.logoutModalBtn, styles.logoutModalConfirmBtn]}
+                style={[styles.logoutModalBtn, { backgroundColor: C.danger }]}
                 onPress={confirmModal === "logout" ? confirmLogout : confirmRemoveAdminPhoto}
                 activeOpacity={0.8}
               >
@@ -866,7 +866,6 @@ const styles = StyleSheet.create({
   logoutModalBtn: { flex: 1, borderRadius: 12, paddingVertical: 13, alignItems: "center", justifyContent: "center" },
   logoutModalCancelBtn: { borderWidth: 1 },
   logoutModalCancelText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
-  logoutModalConfirmBtn: { backgroundColor: "#e94560" },
   logoutModalConfirmText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: "#fff" },
 
   goldBtn: { flex: 1, minWidth: 0, borderRadius: 10, paddingVertical: 12, alignItems: "center" },
@@ -875,7 +874,7 @@ const styles = StyleSheet.create({
   toast: { position: "absolute", bottom: 24, alignSelf: "center", paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10 },
   toastText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13, color: "#fff" },
 
-  overlay: { flex: 1, justifyContent: "flex-end" },
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "flex-end" },
   sheet: {
     borderWidth: 1, borderTopLeftRadius: 20, borderTopRightRadius: 20,
     padding: 20, paddingBottom: 32, marginBottom: 12,

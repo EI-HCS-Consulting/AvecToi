@@ -14,6 +14,7 @@ import { supabase } from "@/lib/supabase";
 import { getVisitorSession } from "@/lib/visitorSession";
 import PinPad from "@/components/PinPad";
 import VisitorProfileModal from "@/components/VisitorProfileModal";
+import ConfirmModal from "@/components/ConfirmModal";
 import type { SouvenirPhoto } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -85,6 +86,10 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
   const [deletePinEntry, setDeletePinEntry] = useState("");
   const [deletePinError, setDeletePinError] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  // Confirmation de suppression (admin) — remplace un ancien Alert.alert()
+  // natif, cohérent avec le reste de l'app (cf. Entraide.tsx / ConfirmModal.tsx).
+  const [adminDeleteTarget, setAdminDeleteTarget] = useState<(SouvenirPhoto & { url: string }) | null>(null);
 
   // Downloading
   const [downloading, setDownloading] = useState(false);
@@ -319,14 +324,7 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
   // ── Delete ─────────────────────────────────────────────────────────────────
   function confirmDelete(photo: SouvenirPhoto & { url: string }) {
     if (isAdmin) {
-      Alert.alert(
-        "Supprimer la photo ?",
-        `Photo de ${photo.uploaded_by_prenom} ${photo.uploaded_by_nom}.`,
-        [
-          { text: "Annuler", style: "cancel" },
-          { text: "Supprimer", style: "destructive", onPress: () => doDelete(photo) },
-        ],
-      );
+      setAdminDeleteTarget(photo);
     } else {
       setDeleteTarget(photo);
       setDeletePinEntry("");
@@ -529,7 +527,7 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
                       style={[styles.lbBtn, { backgroundColor: "rgba(233,69,96,0.2)", borderWidth: 1, borderColor: "rgba(233,69,96,0.4)" }]}
                       onPress={() => confirmDelete(lightbox)}
                     >
-                      <Text style={[styles.lbBtnText, { color: "#e94560" }]}>🗑️ Supprimer</Text>
+                      <Text style={[styles.lbBtnText, { color: C.danger }]}>🗑️ Supprimer</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -678,7 +676,7 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
       {/* ── MODAL DELETE PIN (visiteur) ────────────────────────────────────── */}
       <Modal visible={!!deleteTarget && !isAdmin} transparent animationType="fade" onRequestClose={() => setDeleteTarget(null)}>
         <View style={styles.overlay}>
-          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: "#e94560" }]}>
+          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.danger }]}>
             <View style={{ alignItems: "center", marginBottom: 16 }}>
               <Text style={{ fontSize: 32, marginBottom: 6 }}>🗑️</Text>
               <Text style={[styles.sheetTitle, { color: C.text }]}>Supprimer la photo ?</Text>
@@ -706,7 +704,7 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
             <PinPad value={deletePinEntry} onChange={setDeletePinEntry} theme={C} hasError={deletePinError} />
 
             {deletePinError && (
-              <Text style={[styles.pinErrorText, { color: "#e94560" }]}>
+              <Text style={[styles.pinErrorText, { color: C.danger }]}>
                 PIN incorrect. Saisis le code choisi lors de l'upload.
               </Text>
             )}
@@ -723,7 +721,7 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
                 disabled={deletePinEntry.length < 4 || deleting}
                 style={[
                   styles.btnPrimary,
-                  { backgroundColor: "#e94560" },
+                  { backgroundColor: C.danger },
                   (deletePinEntry.length < 4 || deleting) && { opacity: 0.5 },
                 ]}
               >
@@ -736,6 +734,25 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
           </View>
         </View>
       </Modal>
+
+      <ConfirmModal
+        visible={!!adminDeleteTarget}
+        title="Supprimer la photo ?"
+        message={
+          adminDeleteTarget
+            ? `Photo de ${adminDeleteTarget.uploaded_by_prenom} ${adminDeleteTarget.uploaded_by_nom}.`
+            : undefined
+        }
+        confirmLabel="Supprimer"
+        onCancel={() => setAdminDeleteTarget(null)}
+        onConfirm={() => {
+          if (!adminDeleteTarget) return;
+          const photo = adminDeleteTarget;
+          setAdminDeleteTarget(null);
+          doDelete(photo);
+        }}
+        C={C}
+      />
 
       {/* Toast */}
       {!!toast && (

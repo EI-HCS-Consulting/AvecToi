@@ -18,9 +18,12 @@ interface VisitorContextValue {
   // reliably survive navigation through the Tabs > home Stack nesting.
   pendingBookingSlot: string | null;
   setPendingBookingSlot: (slot: string | null) => void;
-  // Set par "Mon compte" > "Mes réservations" pour que l'écran Créneaux ou
-  // Nuitées rouvre directement la modale PIN/modification sur la réservation
-  // visée — même mécanisme que pendingBookingSlot, pour la même raison.
+  // Set par RebookingAlertModal (recasage/annulation suite à un changement de
+  // règles admin) pour que l'écran Créneaux ou Nuitées rouvre directement la
+  // modale PIN/modification sur la réservation visée — même mécanisme que
+  // pendingBookingSlot, pour la même raison. Volontairement PAS utilisé par
+  // "Mon compte" > "Mes réservations" : là, le clic doit seulement naviguer,
+  // jamais ouvrir de modale automatiquement.
   pendingEditReservationId: string | null;
   setPendingEditReservationId: (id: string | null) => void;
   refreshReservations: () => Promise<void>;

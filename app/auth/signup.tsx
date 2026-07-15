@@ -189,7 +189,7 @@ export default function SignupScreen() {
         <View style={styles.overlay}>
           <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.danger }]}>
             <Text style={styles.sheetIcon}>⚠️</Text>
-            <Text style={[styles.sheetTitle, { color: "#fff" }]}>{errorModal?.title}</Text>
+            <Text style={[styles.sheetTitle, { color: C.text }]}>{errorModal?.title}</Text>
             <Text style={[styles.sheetSub, { color: C.muted }]}>{errorModal?.message}</Text>
             <TouchableOpacity style={[styles.sheetBtn, { backgroundColor: C.danger }]} onPress={() => setErrorModal(null)} activeOpacity={0.85}>
               <Text style={styles.sheetBtnText}>OK</Text>

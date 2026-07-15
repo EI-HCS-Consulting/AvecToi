@@ -26,8 +26,10 @@ export default function VisitorNightsScreen() {
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
   const startDate = space ? new Date(space.start_date + "T00:00:00") : today;
 
-  // Arrivée via "Mon compte" > "Mes réservations" sur une nuitée : rouvre la
-  // modale PIN/modification directement sur la réservation visée.
+  // Arrivée via RebookingAlertModal (recasage/annulation suite à un
+  // changement de règles admin) : rouvre la modale PIN/modification
+  // directement sur la nuitée visée. Ne concerne pas "Mon compte" > "Mes
+  // réservations", qui ne fait qu'une navigation simple.
   useEffect(() => {
     if (!pendingEditReservationId) return;
     const r = reservations.find((x) => x.id === pendingEditReservationId && x.type === "Nuit");

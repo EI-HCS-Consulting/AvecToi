@@ -14,6 +14,7 @@ import PinPad from "@/components/PinPad";
 import MiniCalendar from "@/components/MiniCalendar";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import TimeClockPicker from "@/components/TimeClockPicker";
+import ConfirmModal from "@/components/ConfirmModal";
 import { toFrShort } from "@/lib/slotUtils";
 import { googleMapsSearchUrl, joinAddress } from "@/lib/address";
 import { addGenericEventToNativeCalendar } from "@/lib/calendarSync";
@@ -353,6 +354,17 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [donePinVerified, setDonePinVerified] = useState(false);
   const [doneSaving, setDoneSaving] = useState(false);
 
+  // Confirmation affichée juste après une prise en charge — remplace un
+  // ancien Alert.alert() natif, incohérent avec le reste de l'app (même
+  // constat que pour le picker photo de SouvenirsGallery.tsx).
+  const [thanksModal, setThanksModal] = useState(false);
+
+  // Confirmations de suppression/désinscription — remplacent d'anciens
+  // Alert.alert() natifs par ConfirmModal, cohérent avec le reste de l'app.
+  const [deleteTaskTarget, setDeleteTaskTarget] = useState<Task | null>(null);
+  const [deleteTaskSaving, setDeleteTaskSaving] = useState(false);
+  const [unclaimConfirm, setUnclaimConfirm] = useState<{ task: Task; leg: "out" | "return" } | null>(null);
+
   const [toast, setToast] = useState("");
   function showToast(msg: string) {
     setToast(msg);
@@ -588,7 +600,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         } : {}),
       });
       if (insertError) {
-        Alert.alert("DEBUG insert error", JSON.stringify(insertError));
+        Alert.alert("Erreur", "Impossible de créer le besoin : " + insertError.message);
         setTaskSaving(false);
         return;
       }
@@ -600,20 +612,22 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     loadTasks();
   }
 
-  async function deleteTask(t: Task) {
+  function deleteTask(t: Task) {
     if (t.status === "fait") return;
-    Alert.alert("Supprimer ce besoin ?", t.title, [
-      { text: "Annuler", style: "cancel" },
-      {
-        text: "Supprimer", style: "destructive", onPress: async () => {
-          const toRemove = [t.photo, t.claimed_photo].filter((f): f is string => !!f);
-          if (toRemove.length) await supabase.storage.from(PHOTO_BUCKET).remove(toRemove.map((f) => `${spaceId}/${f}`));
-          await supabase.from("tasks").delete().eq("id", t.id);
-          showToast("Besoin supprimé");
-          loadTasks();
-        },
-      },
-    ]);
+    setDeleteTaskTarget(t);
+  }
+
+  async function confirmDeleteTask() {
+    if (!deleteTaskTarget) return;
+    const t = deleteTaskTarget;
+    setDeleteTaskSaving(true);
+    const toRemove = [t.photo, t.claimed_photo].filter((f): f is string => !!f);
+    if (toRemove.length) await supabase.storage.from(PHOTO_BUCKET).remove(toRemove.map((f) => `${spaceId}/${f}`));
+    await supabase.from("tasks").delete().eq("id", t.id);
+    setDeleteTaskSaving(false);
+    setDeleteTaskTarget(null);
+    showToast("Besoin supprimé");
+    loadTasks();
   }
 
   async function adminSetStatus(t: Task, status: TaskStatus) {
@@ -680,14 +694,18 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           .from(PHOTO_BUCKET)
           .upload(`${spaceId}/${fname}`, fileData, { contentType: "image/jpeg", cacheControl: "3600" });
         if (!error) doneFilename = fname;
-        else Alert.alert("DEBUG upload error", JSON.stringify(error));
-      } catch (e: any) {
-        Alert.alert("DEBUG catch error", String(e?.message || e));
+        else Alert.alert("Photo non envoyée", "Le besoin sera marqué fait sans la photo.");
+      } catch {
+        Alert.alert("Photo non envoyée", "Le besoin sera marqué fait sans la photo.");
       }
     }
 
     const { error: updateError } = await supabase.from("tasks").update({ status: "fait", done_photo: doneFilename }).eq("id", doneTarget.id);
-    if (updateError) Alert.alert("DEBUG update error", JSON.stringify(updateError));
+    if (updateError) {
+      Alert.alert("Erreur", "Impossible de marquer ce besoin comme fait : " + updateError.message);
+      setDoneSaving(false);
+      return;
+    }
     setDoneSaving(false);
     setDoneTarget(null);
     showToast("Marqué comme fait ✓");
@@ -775,10 +793,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       // masquerait "C'est fait"/"Ajouter au calendrier".
       setMySession({ prenom: claimPrenom.trim(), nom: claimNom.trim(), pin: claimPin });
     }
-    Alert.alert(
-      "Merci, tu t'en occupes 💛",
-      "Pense bien à revenir sur cette page et à cliquer sur \"Fait\" une fois que ce sera fait, pour que les autres le sachent.",
-    );
+    setThanksModal(true);
     loadTasks();
   }
 
@@ -835,18 +850,18 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   async function openPinModal(task: Task, action: "unclaim", leg: "out" | "return" = "out") {
     const legPin = leg === "return" ? task.transport_return_claimed_by_pin : task.claimed_by_pin;
     if (!isAdmin && (await sessionPinMatches(legPin))) {
-      Alert.alert(
-        "Te désinscrire de cette tâche ?",
-        task.title,
-        [
-          { text: "Annuler", style: "cancel" },
-          { text: "Me désinscrire", style: "destructive", onPress: () => performUnclaim(task, leg) },
-        ],
-      );
+      setUnclaimConfirm({ task, leg });
       return;
     }
     setPinModal({ task, action, leg });
     setPinEntry(""); setPinError(false);
+  }
+
+  async function confirmUnclaimSelf() {
+    if (!unclaimConfirm) return;
+    const { task, leg } = unclaimConfirm;
+    setUnclaimConfirm(null);
+    await performUnclaim(task, leg);
   }
 
   async function checkPin() {
@@ -1054,7 +1069,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               </TouchableOpacity>
               {t.status !== "fait" && (
                 <TouchableOpacity onPress={() => deleteTask(t)} style={[styles.iconBtn, { borderColor: "rgba(233,69,96,0.3)" }]}>
-                  <Text style={{ fontSize: 13, color: "#e94560" }}>🗑️</Text>
+                  <Text style={{ fontSize: 13, color: C.danger }}>🗑️</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -1438,7 +1453,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
                   {fCat === "repas" && !!allergies && (
                     <View style={[styles.allergyBanner, { backgroundColor: "rgba(233,69,96,0.1)", borderColor: "rgba(233,69,96,0.35)" }]}>
-                      <Text style={[styles.allergyBannerText, { color: "#e94560" }]}>
+                      <Text style={[styles.allergyBannerText, { color: C.danger }]}>
                         ⚠️ Allergies du patient : {allergies}
                       </Text>
                     </View>
@@ -1553,7 +1568,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                             resizeMode="cover"
                           />
                           <TouchableOpacity
-                            style={[styles.photoPickRemove, { backgroundColor: "#e94560" }]}
+                            style={[styles.photoPickRemove, { backgroundColor: C.danger }]}
                             onPress={removeTaskPhoto}
                           >
                             <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>✕</Text>
@@ -1701,7 +1716,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
                   {claimTarget?.category === "repas" && !!allergies && (
                     <View style={[styles.allergyBanner, { backgroundColor: "rgba(233,69,96,0.1)", borderColor: "rgba(233,69,96,0.35)" }]}>
-                      <Text style={[styles.allergyBannerText, { color: "#e94560" }]}>
+                      <Text style={[styles.allergyBannerText, { color: C.danger }]}>
                         ⚠️ Allergies du patient : {allergies}
                       </Text>
                     </View>
@@ -1714,7 +1729,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                         <View style={styles.photoPreviewRow}>
                           <Image source={{ uri: claimPhotoUri }} style={styles.photoPreviewImg} resizeMode="cover" />
                           <TouchableOpacity
-                            style={[styles.photoPickRemove, { backgroundColor: "#e94560" }]}
+                            style={[styles.photoPickRemove, { backgroundColor: C.danger }]}
                             onPress={removeClaimPhoto}
                           >
                             <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>✕</Text>
@@ -2009,7 +2024,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             <PinPad value={pinEntry} onChange={setPinEntry} theme={C} hasError={pinError} />
 
             {pinError && (
-              <Text style={[styles.pinErrorText, { color: "#e94560" }]}>PIN incorrect.</Text>
+              <Text style={[styles.pinErrorText, { color: C.danger }]}>PIN incorrect.</Text>
             )}
 
             <View style={[styles.sheetBtns, { marginTop: 16 }]}>
@@ -2050,7 +2065,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             {donePhotoUri ? (
               <View style={styles.photoPreviewRow}>
                 <Image source={{ uri: donePhotoUri }} style={styles.photoPreviewImg} resizeMode="cover" />
-                <TouchableOpacity onPress={removeDonePhoto} style={[styles.photoPickRemove, { backgroundColor: "#e94560" }]}>
+                <TouchableOpacity onPress={removeDonePhoto} style={[styles.photoPickRemove, { backgroundColor: C.danger }]}>
                   <Text style={{ color: "#fff", fontSize: 12 }}>✕</Text>
                 </TouchableOpacity>
               </View>
@@ -2074,7 +2089,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                 </Text>
                 <PinPad value={donePin} onChange={setDonePin} theme={C} hasError={donePinError} />
                 {donePinError && (
-                  <Text style={[styles.pinErrorText, { color: "#e94560" }]}>PIN incorrect.</Text>
+                  <Text style={[styles.pinErrorText, { color: C.danger }]}>PIN incorrect.</Text>
                 )}
               </>
             )}
@@ -2105,6 +2120,46 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           </View>
         </View>
       </Modal>
+
+      <Modal visible={thanksModal} transparent animationType="fade" onRequestClose={() => setThanksModal(false)}>
+        <View style={styles.overlay}>
+          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.gold }]}>
+            <View style={{ alignItems: "center", marginBottom: 16 }}>
+              <Text style={{ fontSize: 32, marginBottom: 6 }}>💛</Text>
+              <Text style={[styles.sheetTitle, { color: C.text }]}>Merci, tu t'en occupes</Text>
+              <Text style={[styles.sheetSub, { color: C.muted }]}>
+                Pense bien à revenir sur cette page et à cliquer sur "Fait" une fois que ce sera fait, pour que les autres le sachent.
+              </Text>
+            </View>
+
+            <TouchableOpacity onPress={() => setThanksModal(false)} style={[styles.btnPrimary, { backgroundColor: C.gold }]}>
+              <Text style={[styles.btnPrimaryText, { color: "#0D1B2E" }]}>J'ai compris</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <ConfirmModal
+        visible={!!deleteTaskTarget}
+        title="Supprimer ce besoin ?"
+        message={deleteTaskTarget?.title}
+        confirmLabel="Supprimer"
+        saving={deleteTaskSaving}
+        onCancel={() => setDeleteTaskTarget(null)}
+        onConfirm={confirmDeleteTask}
+        C={C}
+      />
+
+      <ConfirmModal
+        visible={!!unclaimConfirm}
+        icon="🙋"
+        title="Te désinscrire de cette tâche ?"
+        message={unclaimConfirm?.task.title}
+        confirmLabel="Me désinscrire"
+        onCancel={() => setUnclaimConfirm(null)}
+        onConfirm={confirmUnclaimSelf}
+        C={C}
+      />
 
       {!!toast && (
         <View style={[styles.toast, { backgroundColor: C.success }]}>

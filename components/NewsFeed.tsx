@@ -13,6 +13,7 @@ import { blobToArrayBuffer } from "@/lib/blobToArrayBuffer";
 import { getVisitorSession, rememberAuthorPin, sessionPinMatches } from "@/lib/visitorSession";
 import PinPad from "@/components/PinPad";
 import VisitorProfileModal from "@/components/VisitorProfileModal";
+import ConfirmModal from "@/components/ConfirmModal";
 import type { NewsEntry } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -93,6 +94,10 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped }: Props) {
   const [pinModal, setPinModal] = useState<{ entry: NewsEntryWithUrls; action: "edit" | "delete" } | null>(null);
   const [pinEntry, setPinEntry] = useState("");
   const [pinError, setPinError] = useState(false);
+
+  // Confirmation de suppression — remplace un ancien Alert.alert() natif,
+  // cohérent avec le reste de l'app (cf. Entraide.tsx / ConfirmModal.tsx).
+  const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<NewsEntryWithUrls | null>(null);
 
   // Lightbox
   const [lightbox, setLightbox] = useState<{ urls: string[]; idx: number } | null>(null);
@@ -432,28 +437,10 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped }: Props) {
   }
 
   async function requestDelete(entry: NewsEntryWithUrls) {
-    if (isAdmin) {
-      Alert.alert(
-        "Supprimer cette nouvelle ?",
-        `"${entry.content.slice(0, 60)}${entry.content.length > 60 ? "…" : ""}"`,
-        [
-          { text: "Annuler", style: "cancel" },
-          { text: "Supprimer", style: "destructive", onPress: () => doDelete(entry) },
-        ],
-      );
-      return;
-    }
     // Le PIN enregistré dans "Mon compte" (ou choisi à la publication) fait
-    // foi : s'il correspond, on évite de le redemander.
-    if (await sessionPinMatches(entry.author_pin)) {
-      Alert.alert(
-        "Supprimer cette nouvelle ?",
-        `"${entry.content.slice(0, 60)}${entry.content.length > 60 ? "…" : ""}"`,
-        [
-          { text: "Annuler", style: "cancel" },
-          { text: "Supprimer", style: "destructive", onPress: () => doDelete(entry) },
-        ],
-      );
+    // foi : s'il correspond (ou si admin), on évite de le redemander.
+    if (isAdmin || (await sessionPinMatches(entry.author_pin))) {
+      setDeleteConfirmTarget(entry);
       return;
     }
     setPinModal({ entry, action: "delete" });
@@ -521,7 +508,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped }: Props) {
                 <Text style={[styles.actionBtnText, { color: C.muted }]}>✏️</Text>
               </TouchableOpacity>
               <TouchableOpacity onPress={() => requestDelete(entry)} style={[styles.actionBtn, { borderColor: "rgba(233,69,96,0.3)" }]}>
-                <Text style={[styles.actionBtnText, { color: "#e94560" }]}>🗑️</Text>
+                <Text style={[styles.actionBtnText, { color: C.danger }]}>🗑️</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -671,7 +658,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped }: Props) {
                         <View key={i} style={styles.photoPickItem}>
                           <Image source={{ uri: p.uri }} style={styles.photoPickThumb} resizeMode="cover" />
                           <TouchableOpacity
-                            style={[styles.photoPickRemove, { backgroundColor: "#e94560" }]}
+                            style={[styles.photoPickRemove, { backgroundColor: C.danger }]}
                             onPress={() => removePhoto(i)}
                           >
                             <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>✕</Text>
@@ -764,7 +751,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped }: Props) {
             <PinPad value={pinEntry} onChange={setPinEntry} theme={C} hasError={pinError} />
 
             {pinError && (
-              <Text style={[styles.pinErrorText, { color: "#e94560" }]}>
+              <Text style={[styles.pinErrorText, { color: C.danger }]}>
                 PIN incorrect.
               </Text>
             )}
@@ -781,7 +768,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped }: Props) {
                 disabled={pinEntry.length < 4}
                 style={[
                   styles.btnPrimary,
-                  { backgroundColor: pinModal?.action === "delete" ? "#e94560" : C.accent },
+                  { backgroundColor: pinModal?.action === "delete" ? C.danger : C.accent },
                   pinEntry.length < 4 && { opacity: 0.5 },
                 ]}
               >
@@ -793,6 +780,25 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped }: Props) {
           </View>
         </View>
       </Modal>
+
+      <ConfirmModal
+        visible={!!deleteConfirmTarget}
+        title="Supprimer cette nouvelle ?"
+        message={
+          deleteConfirmTarget
+            ? `"${deleteConfirmTarget.content.slice(0, 60)}${deleteConfirmTarget.content.length > 60 ? "…" : ""}"`
+            : undefined
+        }
+        confirmLabel="Supprimer"
+        onCancel={() => setDeleteConfirmTarget(null)}
+        onConfirm={() => {
+          if (!deleteConfirmTarget) return;
+          const entry = deleteConfirmTarget;
+          setDeleteConfirmTarget(null);
+          doDelete(entry);
+        }}
+        C={C}
+      />
 
       {/* ── LIGHTBOX ──────────────────────────────────────────────────────── */}
       <Modal visible={!!lightbox} transparent animationType="fade" onRequestClose={() => setLightbox(null)}>

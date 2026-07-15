@@ -59,7 +59,7 @@ const SECTION_META: Record<AccountSectionKey, { icon: string; label: string }> =
 // servent qu'à pré-remplir les futurs formulaires de réservation ; le PIN
 // reste toujours ressaisi à la main pour confirmer une action sensible.
 export default function VisitorAccountScreen() {
-  const { space, token, setSelectedDay, setPendingEditReservationId } = useVisitorSpace();
+  const { space, token, setSelectedDay } = useVisitorSpace();
   const router = useRouter();
   const { mode, theme: C, setMode } = useDisplayMode();
 
@@ -375,13 +375,11 @@ export default function VisitorAccountScreen() {
     }
   }
 
-  // Ouvre la réservation visée sur l'écran Créneaux (Visite) ou Nuitées
-  // (Nuit) avec la modale PIN/modification déjà ouverte — transmis via le
-  // contexte (pendingEditReservationId), pas un query param, pour la même
-  // raison que pendingBookingSlot : ça ne survit pas à la navigation Tabs >
-  // home Stack.
+  // Ouvre le créneau concerné sur l'écran Créneaux (Visite) ou Nuitées
+  // (Nuit) — simple navigation, jamais de modale PIN automatique : la
+  // modification/annulation reste une action volontaire (bouton "Modifier"),
+  // à faire depuis le créneau lui-même.
   function handleOpenReservation(r: Reservation) {
-    setPendingEditReservationId(r.id);
     if (r.type === "Nuit") {
       router.push("/(visitor)/home/nights" as any);
     } else {
@@ -879,8 +877,7 @@ export default function VisitorAccountScreen() {
               <TouchableOpacity
                 style={[
                   styles.logoutModalBtn,
-                  styles.logoutModalConfirmBtn,
-                  confirmModal === "switchSpace" && { backgroundColor: C.accent },
+                  { backgroundColor: confirmModal === "switchSpace" ? C.accent : C.danger },
                 ]}
                 onPress={confirmModalAction}
                 activeOpacity={0.8}
@@ -976,7 +973,6 @@ const styles = StyleSheet.create({
   logoutModalBtn: { flex: 1, borderRadius: 12, paddingVertical: 13, alignItems: "center", justifyContent: "center" },
   logoutModalCancelBtn: { borderWidth: 1 },
   logoutModalCancelText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
-  logoutModalConfirmBtn: { backgroundColor: "#e94560" },
   logoutModalConfirmText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: "#fff" },
 
   patientProfileBtn: {
