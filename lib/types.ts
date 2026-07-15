@@ -292,6 +292,7 @@ export interface VisitorProfile {
   prenom: string;
   nom: string;
   photo: string | null;
+  motto: string | null;
   updated_at: string;
 }
 

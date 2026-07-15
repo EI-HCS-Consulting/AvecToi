@@ -70,6 +70,7 @@ export default function VisitorAccountScreen() {
   const [pin, setPin] = useState("");
   const [pinRevealed, setPinRevealed] = useState(false);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [motto, setMotto] = useState("");
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
   const [patientProfileVisible, setPatientProfileVisible] = useState(false);
@@ -197,6 +198,7 @@ export default function VisitorAccountScreen() {
         setEmail(s.email);
         setPin(s.pin);
         setPhotoUri(s.localPhotoUri);
+        setMotto(s.motto);
         if (space) loadActivity(space.id, s.prenom, s.nom);
       }
       setLoading(false);
@@ -281,6 +283,25 @@ export default function VisitorAccountScreen() {
     }
   }
 
+  // Synchronise la phrase totem vers Supabase, sur le même principe que
+  // syncProfilePhoto — best-effort, rend le totem visible dans le bloc
+  // "Visiteurs" des Paramètres admin (components/VisitorsBlock.tsx). Un
+  // upsert distinct (colonnes différentes) ne clobber pas la photo déjà
+  // enregistrée par ailleurs : PostgREST ne met à jour que les colonnes
+  // fournies dans le payload.
+  async function syncProfileMotto(spaceId: string, p: string, n: string, mottoValue: string) {
+    if (!p || !n) return;
+    try {
+      const { error } = await supabase.from("visitor_profiles").upsert(
+        { space_id: spaceId, prenom: p, nom: n, motto: mottoValue.trim() || null, updated_at: new Date().toISOString() },
+        { onConflict: "space_id,prenom,nom" },
+      );
+      if (error) console.error("[syncProfileMotto] upsert failed:", error);
+    } catch (e) {
+      console.error("[syncProfileMotto] unexpected error:", e);
+    }
+  }
+
   async function handleSave() {
     if (!space) return;
     setSaving(true);
@@ -291,10 +312,12 @@ export default function VisitorAccountScreen() {
       nom: nom.trim(),
       email: email.trim(),
       localPhotoUri: photoUri,
+      motto,
     });
     setSaving(false);
     showToast("Enregistré ✓");
     if (photoUri) syncProfilePhoto(space.id, prenom.trim(), nom.trim(), photoUri);
+    if (prenom.trim() && nom.trim()) syncProfileMotto(space.id, prenom.trim(), nom.trim(), motto);
     loadActivity(space.id, prenom, nom);
   }
 
@@ -432,9 +455,12 @@ export default function VisitorAccountScreen() {
         </TouchableOpacity>
 
         {(prenom.trim() || nom.trim()) && (
-          <Text style={[styles.identityName, { color: C.text }]}>
+          <Text style={[styles.identityName, { color: C.text }, !!motto.trim() && { marginBottom: 2 }]}>
             {[prenom.trim(), nom.trim()].filter(Boolean).join(" ")}
           </Text>
+        )}
+        {!!motto.trim() && (
+          <Text style={styles.identityMotto} numberOfLines={2}>{motto.trim()}</Text>
         )}
 
         <Text style={[styles.sectionTitle, { color: C.gold, marginTop: 0 }]}>Mon affichage</Text>
@@ -505,6 +531,20 @@ export default function VisitorAccountScreen() {
                       autoCapitalize="none"
                       autoCorrect={false}
                     />
+                  </View>
+
+                  <Text style={[styles.sectionTitle, { color: C.gold, marginTop: 8 }]}>💬 Ma phrase totem (optionnel)</Text>
+                  <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
+                    <TextInput
+                      style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                      placeholder="Ex : Aimer c'est Agir !"
+                      placeholderTextColor={C.muted}
+                      value={motto}
+                      onChangeText={setMotto}
+                    />
+                    <Text style={[styles.cardDesc, { color: C.muted, marginBottom: 0 }]}>
+                      Une phrase qui te définit — affichée à côté de ton nom dans le bloc Visiteurs des Paramètres.
+                    </Text>
                   </View>
 
                   <TouchableOpacity
@@ -879,6 +919,7 @@ const styles = StyleSheet.create({
   photoPlaceholder: { width: 88, height: 88, borderRadius: 44, borderWidth: 1, alignItems: "center", justifyContent: "center", marginBottom: 8 },
   photoHint: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
   identityName: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 17, textAlign: "center", marginBottom: 22 },
+  identityMotto: { fontFamily: "Caveat_600SemiBold", fontSize: 18, color: "#7EC8E3", textAlign: "center", marginBottom: 22 },
 
   tileHint: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11.5, lineHeight: 15 },
   tileChevron: { fontFamily: "DM_Sans_700Bold", fontSize: 16 },

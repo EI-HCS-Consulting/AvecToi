@@ -54,11 +54,13 @@ export default function AdminAccountScreen() {
   const [adminLastname, setAdminLastname] = useState("");
   const [adminPin, setAdminPin] = useState("");
   const [adminPhotoUrl, setAdminPhotoUrl] = useState<string | null>(null);
+  const [adminMotto, setAdminMotto] = useState("");
   const [pinRevealed, setPinRevealed] = useState(false);
 
   const [editProfileModal, setEditProfileModal] = useState(false);
   const [tempFirstname, setTempFirstname] = useState("");
   const [tempLastname, setTempLastname] = useState("");
+  const [tempMotto, setTempMotto] = useState("");
   const [tempPin, setTempPin] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
@@ -99,6 +101,7 @@ export default function AdminAccountScreen() {
       setAdminLastname(user.user_metadata?.lastname ?? "");
       setAdminPin(user.user_metadata?.pin ?? "");
       setAdminPhotoUrl(user.user_metadata?.photo_url ?? null);
+      setAdminMotto(user.user_metadata?.motto ?? "");
     }
     setProfileLoading(false);
   }
@@ -107,6 +110,7 @@ export default function AdminAccountScreen() {
     setTempFirstname(adminFirstname);
     setTempLastname(adminLastname);
     setTempEmail(adminEmail);
+    setTempMotto(adminMotto);
     setTempPin(adminPin);
     setPinRevealed(false);
     setPinTileOpen(false);
@@ -121,6 +125,7 @@ export default function AdminAccountScreen() {
       data: {
         firstname: tempFirstname.trim(),
         lastname: tempLastname.trim(),
+        motto: tempMotto.trim() || null,
         pin: tempPin,
       },
     });
@@ -131,6 +136,7 @@ export default function AdminAccountScreen() {
     }
     setAdminFirstname(tempFirstname.trim());
     setAdminLastname(tempLastname.trim());
+    setAdminMotto(tempMotto.trim());
     setAdminPin(tempPin);
     showToast(emailChanged ? "Profil mis à jour ✓ Vérifie tes emails pour confirmer la nouvelle adresse." : "Profil mis à jour ✓");
     setEditProfileModal(false);
@@ -324,6 +330,9 @@ export default function AdminAccountScreen() {
                   <Text style={[styles.patientName, { color: C.text }]}>
                     {adminFirstname || adminLastname ? `${adminFirstname} ${adminLastname}`.trim() : "Complète ton profil"}
                   </Text>
+                  {!!adminMotto.trim() && (
+                    <Text style={styles.adminMotto} numberOfLines={2}>{adminMotto.trim()}</Text>
+                  )}
                   {!!adminEmail && (
                     <Text style={[styles.patientSub, { color: C.muted }]}>{adminEmail}</Text>
                   )}
@@ -596,6 +605,14 @@ export default function AdminAccountScreen() {
                   onChangeText={setTempLastname}
                   autoCapitalize="words"
                 />
+                <Text style={[styles.fieldLabel, { color: C.gold }]}>💬 Phrase totem (optionnel)</Text>
+                <TextInput
+                  style={[styles.sheetInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                  placeholder="Ex : Aimer c'est Agir !"
+                  placeholderTextColor={C.muted}
+                  value={tempMotto}
+                  onChangeText={setTempMotto}
+                />
                 <Text style={[styles.fieldLabel, { color: C.gold }]}>Adresse email</Text>
                 <TextInput
                   style={[styles.sheetInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
@@ -771,6 +788,7 @@ const styles = StyleSheet.create({
 
   patientRow: { flexDirection: "row", alignItems: "center", gap: 14 },
   patientName: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18 },
+  adminMotto: { fontFamily: "Caveat_600SemiBold", fontSize: 16, color: "#7EC8E3", marginTop: 1 },
   patientSub: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginTop: 2 },
 
   pinTile: {
