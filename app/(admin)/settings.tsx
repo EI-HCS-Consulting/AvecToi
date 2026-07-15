@@ -331,6 +331,7 @@ export default function SettingsScreen() {
 
   // Fiche patient (naissance / sexe / groupe sanguin / allergies)
   const patientMedicalInit = useRef(false);
+  const [patientMotto, setPatientMotto] = useState("");
   const [patientBirthdate, setPatientBirthdate] = useState<string | null>(null);
   const [patientSex, setPatientSex] = useState<"M" | "F" | null>(null);
   const [patientBloodType, setPatientBloodType] = useState<string | null>(null);
@@ -346,6 +347,7 @@ export default function SettingsScreen() {
   useEffect(() => {
     if (space && !patientMedicalInit.current) {
       patientMedicalInit.current = true;
+      setPatientMotto(space.patient_motto ?? "");
       setPatientBirthdate(space.patient_birthdate ?? null);
       setPatientSex(space.patient_sex ?? null);
       setPatientBloodType(space.patient_blood_type ?? null);
@@ -397,6 +399,7 @@ export default function SettingsScreen() {
     const { error } = await supabase
       .from("patient_spaces")
       .update({
+        patient_motto: patientMotto.trim() || null,
         patient_birthdate: patientBirthdate,
         patient_sex: patientSex,
         patient_blood_type: patientBloodType,
@@ -2469,6 +2472,18 @@ export default function SettingsScreen() {
                       )}
                     </View>
                   </View>
+
+                  <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 14 }]}>💬 Phrase totem (optionnel)</Text>
+                  <TextInput
+                    style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                    placeholder="Ex : Aimer c'est Agir !"
+                    placeholderTextColor={C.muted}
+                    value={patientMotto}
+                    onChangeText={setPatientMotto}
+                  />
+                  <Text style={[styles.cardDesc, { color: C.muted }]}>
+                    Un mantra qui définit le patient — affiché sous son nom dans la fiche patient et dans le bandeau de l'app.
+                  </Text>
 
                   <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
 

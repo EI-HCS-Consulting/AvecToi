@@ -15,6 +15,7 @@ interface VisitorRow {
   prenom: string;
   nom: string;
   photoUrl: string | null;
+  motto: string | null;
 }
 
 function visitorPhotoUrl(spaceId: string, filename: string) {
@@ -63,7 +64,7 @@ export default function VisitorsBlock({ spaceId, C, adminFirstname, adminLastnam
       supabase.from("tasks").select("transport_return_claimed_by_prenom,transport_return_claimed_by_nom").eq("space_id", spaceId),
       supabase.from("souvenirs").select("uploaded_by_prenom,uploaded_by_nom").eq("space_id", spaceId),
       supabase.from("support_messages").select("author_prenom,author_nom").eq("space_id", spaceId),
-      supabase.from("visitor_profiles").select("prenom,nom,photo").eq("space_id", spaceId),
+      supabase.from("visitor_profiles").select("prenom,nom,photo,motto").eq("space_id", spaceId),
       supabase.auth.getUser(),
     ]);
 
@@ -73,7 +74,7 @@ export default function VisitorsBlock({ spaceId, C, adminFirstname, adminLastnam
     function add(prenom?: string | null, nom?: string | null) {
       if (!prenom?.trim() || !nom?.trim()) return;
       const key = identityKey(prenom, nom);
-      if (!byKey.has(key)) byKey.set(key, { prenom: prenom.trim(), nom: nom.trim(), photoUrl: null });
+      if (!byKey.has(key)) byKey.set(key, { prenom: prenom.trim(), nom: nom.trim(), photoUrl: null, motto: null });
     }
     (resv.data || []).forEach((r) => add(r.prenom, r.nom));
     (resvGuestOf.data || []).forEach((r) => add(r.booked_by_prenom, r.booked_by_nom));
@@ -87,15 +88,20 @@ export default function VisitorsBlock({ spaceId, C, adminFirstname, adminLastnam
     add(adminFirstname, adminLastname);
 
     for (const p of profiles.data || []) {
-      if (!p.photo) continue;
       const row = byKey.get(identityKey(p.prenom, p.nom));
-      if (row) row.photoUrl = visitorPhotoUrl(spaceId, p.photo);
+      if (!row) continue;
+      if (p.photo) row.photoUrl = visitorPhotoUrl(spaceId, p.photo);
+      if (p.motto) row.motto = p.motto;
     }
 
     const adminPhotoUrl = authUser.data.user?.user_metadata?.photo_url as string | undefined;
-    if (adminPhotoUrl && adminFirstname && adminLastname) {
+    const adminMotto = authUser.data.user?.user_metadata?.motto as string | undefined;
+    if (adminFirstname && adminLastname) {
       const adminRow = byKey.get(identityKey(adminFirstname, adminLastname));
-      if (adminRow) adminRow.photoUrl = adminPhotoUrl;
+      if (adminRow) {
+        if (adminPhotoUrl) adminRow.photoUrl = adminPhotoUrl;
+        if (adminMotto) adminRow.motto = adminMotto;
+      }
     }
 
     setVisitors(
@@ -140,9 +146,14 @@ export default function VisitorsBlock({ spaceId, C, adminFirstname, adminLastnam
                   activeOpacity={0.7}
                 >
                   <PatientAvatar photoUrl={v.photoUrl} firstname={v.prenom} lastname={v.nom} size={36} C={C} />
-                  <Text style={[styles.name, { color: C.text }]} numberOfLines={1}>
-                    {v.prenom} {v.nom}
-                  </Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.name, { color: C.text }]} numberOfLines={1}>
+                      {v.prenom} {v.nom}
+                    </Text>
+                    {!!v.motto && (
+                      <Text style={styles.motto} numberOfLines={1}>{v.motto}</Text>
+                    )}
+                  </View>
                   <View style={[styles.openBtn, { borderColor: C.border }]}>
                     <Text style={[styles.openBtnText, { color: C.accent }]}>›</Text>
                   </View>
@@ -180,7 +191,8 @@ const styles = StyleSheet.create({
   toggleIcon: { fontSize: 14 },
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
   row: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10 },
-  name: { flex: 1, fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
+  name: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
+  motto: { fontFamily: "Caveat_600SemiBold", fontSize: 15, color: "#7EC8E3", marginTop: 1 },
   openBtn: { width: 30, height: 30, borderRadius: 15, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   openBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 16 },
 });

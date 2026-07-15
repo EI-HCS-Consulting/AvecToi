@@ -19,6 +19,7 @@ export interface VisitorSession {
   email: string;
   pin: string;
   localPhotoUri: string | null;
+  motto: string;
 }
 
 export async function getVisitorSession(): Promise<VisitorSession | null> {
@@ -40,6 +41,7 @@ export async function saveVisitorSession(
     email?: string;
     pin?: string;
     localPhotoUri?: string | null;
+    motto?: string;
   },
 ): Promise<void> {
   const existing = await getVisitorSession();
@@ -51,6 +53,7 @@ export async function saveVisitorSession(
     email: partial.email ?? existing?.email ?? "",
     pin: partial.pin ?? existing?.pin ?? "",
     localPhotoUri: partial.localPhotoUri ?? existing?.localPhotoUri ?? null,
+    motto: partial.motto ?? existing?.motto ?? "",
   };
   await AsyncStorage.setItem(KEY, JSON.stringify(merged));
 }

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   View, Text, TouchableOpacity, ScrollView,
   StyleSheet, ActivityIndicator, TextInput, Alert,
@@ -26,11 +26,13 @@ const CAT_ICONS: Record<Task["category"], string> = {
 };
 
 type ContribKey = "resv" | "news" | "soutien" | "besoins";
+// Libellés harmonisés avec SECTION_META côté visiteur (app/(visitor)/account.tsx)
+// — même vocabulaire des deux côtés de l'App.
 const CONTRIB_META: Record<ContribKey, { icon: string; label: string }> = {
-  resv: { icon: "📅", label: "Réservations" },
-  news: { icon: "📰", label: "Nouvelles" },
+  resv: { icon: "📅", label: "Mes réservations" },
+  news: { icon: "📰", label: "Mes nouvelles" },
   soutien: { icon: "💛", label: "Soutien" },
-  besoins: { icon: "🤝", label: "Besoins" },
+  besoins: { icon: "🤝", label: "Entraide" },
 };
 
 const SHEET_MAX_HEIGHT = Dimensions.get("window").height * 0.72;
@@ -54,11 +56,13 @@ export default function AdminAccountScreen() {
   const [adminLastname, setAdminLastname] = useState("");
   const [adminPin, setAdminPin] = useState("");
   const [adminPhotoUrl, setAdminPhotoUrl] = useState<string | null>(null);
+  const [adminMotto, setAdminMotto] = useState("");
   const [pinRevealed, setPinRevealed] = useState(false);
 
   const [editProfileModal, setEditProfileModal] = useState(false);
   const [tempFirstname, setTempFirstname] = useState("");
   const [tempLastname, setTempLastname] = useState("");
+  const [tempMotto, setTempMotto] = useState("");
   const [tempPin, setTempPin] = useState("");
   const [savingProfile, setSavingProfile] = useState(false);
   const [photoUploading, setPhotoUploading] = useState(false);
@@ -99,6 +103,7 @@ export default function AdminAccountScreen() {
       setAdminLastname(user.user_metadata?.lastname ?? "");
       setAdminPin(user.user_metadata?.pin ?? "");
       setAdminPhotoUrl(user.user_metadata?.photo_url ?? null);
+      setAdminMotto(user.user_metadata?.motto ?? "");
     }
     setProfileLoading(false);
   }
@@ -107,6 +112,7 @@ export default function AdminAccountScreen() {
     setTempFirstname(adminFirstname);
     setTempLastname(adminLastname);
     setTempEmail(adminEmail);
+    setTempMotto(adminMotto);
     setTempPin(adminPin);
     setPinRevealed(false);
     setPinTileOpen(false);
@@ -121,6 +127,7 @@ export default function AdminAccountScreen() {
       data: {
         firstname: tempFirstname.trim(),
         lastname: tempLastname.trim(),
+        motto: tempMotto.trim() || null,
         pin: tempPin,
       },
     });
@@ -131,6 +138,7 @@ export default function AdminAccountScreen() {
     }
     setAdminFirstname(tempFirstname.trim());
     setAdminLastname(tempLastname.trim());
+    setAdminMotto(tempMotto.trim());
     setAdminPin(tempPin);
     showToast(emailChanged ? "Profil mis à jour ✓ Vérifie tes emails pour confirmer la nouvelle adresse." : "Profil mis à jour ✓");
     setEditProfileModal(false);
@@ -252,6 +260,31 @@ export default function AdminAccountScreen() {
     setActivityLoading(false);
   }
 
+  // Une réservation faite avec un ou plusieurs accompagnants insère une ligne
+  // par personne, reliées par group_id (cf. BookingFlow.tsx / AdminAddReservation.tsx).
+  // Contrairement à la fiche visiteur (VisitorProfileModal), qui doit continuer
+  // à montrer la réservation de chacun individuellement, "Mes contributions"
+  // liste tout l'espace : on regroupe donc ici les lignes d'un même groupe en
+  // une seule entrée "Prénom Nom · Avec ...". La ligne "cheffe de file" est
+  // celle dont l'id a servi de group_id pour les autres.
+  const reservationGroups = useMemo(() => {
+    const byGroup = new Map<string, Reservation[]>();
+    const order: string[] = [];
+    for (const r of reservations) {
+      const key = r.group_id ?? r.id;
+      if (!byGroup.has(key)) {
+        byGroup.set(key, []);
+        order.push(key);
+      }
+      byGroup.get(key)!.push(r);
+    }
+    return order.map((key) => {
+      const rows = byGroup.get(key)!;
+      const leader = rows.find((r) => r.id === r.group_id) ?? rows[0];
+      return { leader, companions: rows.filter((r) => r.id !== leader.id) };
+    });
+  }, [reservations]);
+
   function handleLogout() {
     setConfirmModal("logout");
   }
@@ -324,6 +357,9 @@ export default function AdminAccountScreen() {
                   <Text style={[styles.patientName, { color: C.text }]}>
                     {adminFirstname || adminLastname ? `${adminFirstname} ${adminLastname}`.trim() : "Complète ton profil"}
                   </Text>
+                  {!!adminMotto.trim() && (
+                    <Text style={styles.adminMotto} numberOfLines={2}>{adminMotto.trim()}</Text>
+                  )}
                   {!!adminEmail && (
                     <Text style={[styles.patientSub, { color: C.muted }]}>{adminEmail}</Text>
                   )}
@@ -374,7 +410,7 @@ export default function AdminAccountScreen() {
             ) : (
               <>
                 {(["resv", "news", "soutien", "besoins"] as ContribKey[]).map((key) => {
-                  const count = key === "resv" ? reservations.length
+                  const count = key === "resv" ? reservationGroups.length
                     : key === "news" ? news.length
                     : key === "soutien" ? messages.length
                     : tasks.length;
@@ -394,19 +430,25 @@ export default function AdminAccountScreen() {
 
                       {isOpen && key === "resv" && (
                         <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
-                          {reservations.length === 0 ? (
+                          {reservationGroups.length === 0 ? (
                             <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucune réservation pour le moment.</Text>
-                          ) : reservations.map((r) => (
+                          ) : reservationGroups.map(({ leader, companions }) => (
                             <TouchableOpacity
-                              key={r.id}
+                              key={leader.id}
                               style={styles.activityRow}
-                              onPress={() => handleOpenReservation(r)}
+                              onPress={() => handleOpenReservation(leader)}
                               activeOpacity={0.7}
                             >
-                              <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]}>
-                                {r.type === "Nuit" ? "🌙" : "☀️"}{" "}
-                                {new Date(r.date).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} · {r.type === "Nuit" ? "Nuit" : r.creneau}
-                              </Text>
+                              <View style={{ flex: 1 }}>
+                                <Text style={[styles.activityRowText, { color: C.text }]}>
+                                  {leader.type === "Nuit" ? "🌙" : "☀️"}{" "}
+                                  {new Date(leader.date).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} · {leader.type === "Nuit" ? "Nuit" : leader.creneau}
+                                </Text>
+                                <Text style={[styles.activityRowSub, { color: C.muted }]} numberOfLines={1}>
+                                  {leader.prenom} {leader.nom}
+                                  {companions.length > 0 ? ` · Avec ${companions.map((c) => `${c.prenom} ${c.nom}`).join(", ")}` : ""}
+                                </Text>
+                              </View>
                               <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
                             </TouchableOpacity>
                           ))}
@@ -596,6 +638,14 @@ export default function AdminAccountScreen() {
                   onChangeText={setTempLastname}
                   autoCapitalize="words"
                 />
+                <Text style={[styles.fieldLabel, { color: C.gold }]}>💬 Phrase totem (optionnel)</Text>
+                <TextInput
+                  style={[styles.sheetInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                  placeholder="Ex : Aimer c'est Agir !"
+                  placeholderTextColor={C.muted}
+                  value={tempMotto}
+                  onChangeText={setTempMotto}
+                />
                 <Text style={[styles.fieldLabel, { color: C.gold }]}>Adresse email</Text>
                 <TextInput
                   style={[styles.sheetInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
@@ -771,6 +821,7 @@ const styles = StyleSheet.create({
 
   patientRow: { flexDirection: "row", alignItems: "center", gap: 14 },
   patientName: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18 },
+  adminMotto: { fontFamily: "Caveat_600SemiBold", fontSize: 16, color: "#7EC8E3", marginTop: 1 },
   patientSub: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginTop: 2 },
 
   pinTile: {
@@ -790,6 +841,7 @@ const styles = StyleSheet.create({
   activityEmpty: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
   activityRow: { paddingVertical: 6, flexDirection: "row", alignItems: "center", gap: 8 },
   activityRowText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 19 },
+  activityRowSub: { fontFamily: "DM_Sans_400Regular", fontSize: 11.5, lineHeight: 16, marginTop: 1 },
   activityStatusBadge: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3 },
   activityStatusText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 10 },
   activityChevron: { fontFamily: "DM_Sans_700Bold", fontSize: 16 },
