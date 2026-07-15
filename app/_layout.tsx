@@ -12,6 +12,7 @@ import {
   PlayfairDisplay_700Bold,
   PlayfairDisplay_400Regular,
 } from "@expo-google-fonts/playfair-display";
+import { Caveat_600SemiBold } from "@expo-google-fonts/caveat";
 import { DisplayModeProvider, useDisplayMode } from "@/lib/DisplayModeContext";
 
 function ThemedStatusBar() {
@@ -29,6 +30,10 @@ export default function RootLayout() {
     DM_Sans_700Bold: DMSans_700Bold,
     PlayfairDisplay_700Bold,
     PlayfairDisplay_400Regular,
+    // Police manuscrite dédiée à la phrase totem du patient (mantra) —
+    // distincte des deux polices "officielles" de l'app pour lui donner un
+    // ton personnel/manuscrit.
+    Caveat_600SemiBold,
   });
 
   if (!fontsLoaded && !fontError) {

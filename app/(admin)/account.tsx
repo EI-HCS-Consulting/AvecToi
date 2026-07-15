@@ -68,7 +68,10 @@ export default function AdminAccountScreen() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [savingPassword, setSavingPassword] = useState(false);
 
-  const [logoutModalVisible, setLogoutModalVisible] = useState(false);
+  // "Se déconnecter" et "Supprimer la photo" partagent la même modale
+  // stylée plutôt qu'une Alert native pour l'une et une modale custom pour
+  // l'autre (cf. handleLogout/handleRemoveAdminPhoto plus bas).
+  const [confirmModal, setConfirmModal] = useState<"logout" | "removePhoto" | null>(null);
 
   const [toast, setToast] = useState("");
   const [activeContrib, setActiveContrib] = useState<ContribKey | null>(null);
@@ -191,19 +194,16 @@ export default function AdminAccountScreen() {
 
   function handleRemoveAdminPhoto() {
     if (!adminPhotoUrl || !adminUserId) return;
-    Alert.alert("Supprimer la photo ?", "Ta photo de profil sera retirée de l'app.", [
-      { text: "Annuler", style: "cancel" },
-      {
-        text: "Supprimer",
-        style: "destructive",
-        onPress: async () => {
-          await supabase.storage.from("admin-photos").remove([`${adminUserId}/photo.jpg`]);
-          await supabase.auth.updateUser({ data: { photo_url: null } });
-          setAdminPhotoUrl(null);
-          showToast("Photo supprimée ✓");
-        },
-      },
-    ]);
+    setConfirmModal("removePhoto");
+  }
+
+  async function confirmRemoveAdminPhoto() {
+    setConfirmModal(null);
+    if (!adminUserId) return;
+    await supabase.storage.from("admin-photos").remove([`${adminUserId}/photo.jpg`]);
+    await supabase.auth.updateUser({ data: { photo_url: null } });
+    setAdminPhotoUrl(null);
+    showToast("Photo supprimée ✓");
   }
 
   function handleOpenChangePassword() {
@@ -253,11 +253,11 @@ export default function AdminAccountScreen() {
   }
 
   function handleLogout() {
-    setLogoutModalVisible(true);
+    setConfirmModal("logout");
   }
 
   async function confirmLogout() {
-    setLogoutModalVisible(false);
+    setConfirmModal(null);
     await supabase.auth.signOut();
     router.replace("/");
   }
@@ -706,30 +706,36 @@ export default function AdminAccountScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      <Modal visible={logoutModalVisible} transparent animationType="fade" onRequestClose={() => setLogoutModalVisible(false)}>
+      <Modal visible={!!confirmModal} transparent animationType="fade" onRequestClose={() => setConfirmModal(null)}>
         <View style={styles.logoutModalOverlay}>
           <View style={[styles.logoutModalCard, { backgroundColor: C.card, borderColor: C.border }]}>
             <View style={[styles.logoutModalIconWrap, { backgroundColor: "rgba(233,69,96,0.12)" }]}>
-              <Text style={styles.logoutModalIcon}>🚪</Text>
+              <Text style={styles.logoutModalIcon}>{confirmModal === "logout" ? "🚪" : "🗑️"}</Text>
             </View>
-            <Text style={[styles.logoutModalTitle, { color: C.text }]}>Se déconnecter ?</Text>
+            <Text style={[styles.logoutModalTitle, { color: C.text }]}>
+              {confirmModal === "logout" ? "Se déconnecter ?" : "Supprimer la photo ?"}
+            </Text>
             <Text style={[styles.logoutModalText, { color: C.muted }]}>
-              Tu devras ressaisir ton email et ton mot de passe pour revenir sur cet espace.
+              {confirmModal === "logout"
+                ? "Tu devras ressaisir ton email et ton mot de passe pour revenir sur cet espace."
+                : "Ta photo de profil sera retirée de l'app."}
             </Text>
             <View style={styles.logoutModalButtons}>
               <TouchableOpacity
                 style={[styles.logoutModalBtn, styles.logoutModalCancelBtn, { borderColor: C.border }]}
-                onPress={() => setLogoutModalVisible(false)}
+                onPress={() => setConfirmModal(null)}
                 activeOpacity={0.8}
               >
                 <Text style={[styles.logoutModalCancelText, { color: C.text }]}>Annuler</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.logoutModalBtn, styles.logoutModalConfirmBtn]}
-                onPress={confirmLogout}
+                onPress={confirmModal === "logout" ? confirmLogout : confirmRemoveAdminPhoto}
                 activeOpacity={0.8}
               >
-                <Text style={styles.logoutModalConfirmText}>Se déconnecter</Text>
+                <Text style={styles.logoutModalConfirmText}>
+                  {confirmModal === "logout" ? "Se déconnecter" : "Supprimer"}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>

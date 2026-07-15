@@ -38,13 +38,20 @@ export default function SpaceHeader({
   const [patientProfile, setPatientProfile] = useState(false);
   const isVisitor = basePath === "/(visitor)/home";
 
-  const serviceSector = [space.hospital_service, space.hospital_sector]
-    .filter((p): p is string => !!p && p.trim().length > 0)
-    .join(" | ");
+  // 2 lignes visées : nom de l'hôpital, puis "Service X · Chambre Y" — le
+  // secteur (déjà visible dans "Infos hospitalières" et redondant avec le
+  // complément d'adresse, cf. l'exclusion plus bas) n'est volontairement pas
+  // répété ici. Une 3e ligne apparaît naturellement (wrap RN) si le nom de
+  // l'hôpital est trop long pour tenir sur une seule ligne.
+  const serviceRoom = [
+    space.hospital_service ? `Service ${space.hospital_service}` : null,
+    space.hospital_room ? `Chambre ${space.hospital_room}` : null,
+  ]
+    .filter((p): p is string => !!p)
+    .join("  ·  ");
   const infoLines = space.home_care_mode
     ? []
-    : [space.hospital_name, serviceSector, space.hospital_room]
-        .filter((p): p is string => !!p && p.trim().length > 0);
+    : [space.hospital_name, serviceRoom].filter((p): p is string => !!p && p.trim().length > 0);
   const infoLine = infoLines.join("\n");
 
   const parts = activeAddressParts(space);
@@ -81,8 +88,14 @@ export default function SpaceHeader({
           <Image source={require("@/assets/icon-sans-512.png")} style={styles.logoFrame} resizeMode="contain" />
         </TouchableOpacity>
       ) : (
-        // No photo yet — plain (non-clickable) logo, nothing to enlarge.
-        <View style={styles.logoWrap}>
+        // No photo yet — plain (non-clickable) logo. icon.png (vs.
+        // icon-sans-512.png utilisé ci-dessus) inclut son propre fond blanc
+        // arrondi plein cadre : au même gabarit que la variante photo, il
+        // remplit visuellement toute la boîte et écrase le titre juste en
+        // dessous. Boîte plus petite et sans le chevauchement négatif
+        // (pensé pour l'anneau fin de la variante photo, pas pour ce logo
+        // plein).
+        <View style={[styles.logoWrap, styles.logoWrapNoPhoto]}>
           {/* eslint-disable-next-line @typescript-eslint/no-require-imports */}
           <Image source={require("@/assets/icon.png")} style={styles.logoFrame} resizeMode="contain" />
         </View>
@@ -91,6 +104,12 @@ export default function SpaceHeader({
       <Text style={[styles.title, { color: C.text }]}>
         Visites {space.patient_firstname}
       </Text>
+
+      {!!space.patient_motto && (
+        <Text style={styles.motto} numberOfLines={2}>
+          {space.patient_motto}
+        </Text>
+      )}
 
       {!!infoLine && (
         <Text style={[styles.infoLine, { color: C.gold }]}>{infoLine}</Text>
@@ -163,6 +182,12 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     marginBottom: -16,
   },
+  logoWrapNoPhoto: {
+    width: 96,
+    height: 96,
+    borderRadius: 48,
+    marginBottom: 6,
+  },
   logoPhoto: {
     position: "absolute",
     top: "22%",
@@ -183,6 +208,14 @@ const styles = StyleSheet.create({
     fontSize: 22,
     marginBottom: 2,
     textAlign: "center",
+  },
+  // Couleur fixe (pas de token de thème) : voulue identique en Light et Dark.
+  motto: {
+    fontFamily: "Caveat_600SemiBold",
+    fontSize: 19,
+    color: "#7EC8E3",
+    textAlign: "center",
+    marginBottom: 4,
   },
   infoLine: {
     fontFamily: "DM_Sans_600SemiBold",

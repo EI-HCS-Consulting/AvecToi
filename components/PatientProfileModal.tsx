@@ -73,6 +73,11 @@ export default function PatientProfileModal({ visible, onClose, space, C }: Prop
               <Text style={[styles.name, { color: C.text }]}>
                 {space.patient_firstname} {space.patient_lastname}
               </Text>
+              {!!space.patient_motto && (
+                <Text style={styles.motto} numberOfLines={2}>
+                  {space.patient_motto}
+                </Text>
+              )}
               <Text style={[styles.sub, { color: C.muted }]}>Fiche patient</Text>
             </View>
             <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { borderColor: C.border }]}>
@@ -149,6 +154,8 @@ const styles = StyleSheet.create({
   sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, padding: 20, paddingBottom: 40, marginBottom: 12 },
   headerRow: { flexDirection: "row", alignItems: "center", marginBottom: 12, paddingBottom: 16, borderBottomWidth: 1 },
   name: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18 },
+  // Couleur fixe (pas de token de thème) : voulue identique en Light et Dark.
+  motto: { fontFamily: "Caveat_600SemiBold", fontSize: 18, color: "#7EC8E3", marginTop: 1 },
   sub: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 2 },
   closeBtn: { width: 32, height: 32, borderRadius: 16, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   closeBtnText: { fontSize: 14, fontFamily: "DM_Sans_700Bold" },

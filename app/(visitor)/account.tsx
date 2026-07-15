@@ -78,7 +78,10 @@ export default function VisitorAccountScreen() {
   // PinPad : (1) vérifier l'ancien PIN, (2) saisir le nouveau, (3) le
   // confirmer. Le PIN d'un item déjà créé (réservation, nouvelle…) n'est
   // jamais retouché ici : seul celui stocké dans la session change.
-  const [logoutModalVisible, setLogoutModalVisible] = useState(false);
+  // "Se déconnecter" et "Suivre un autre espace" partagent la même modale
+  // stylée (cf. handleLogout/handleSwitchSpace plus bas) plutôt qu'une Alert
+  // native pour l'une et une modale custom pour l'autre.
+  const [confirmModal, setConfirmModal] = useState<"logout" | "switchSpace" | null>(null);
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pinPhase, setPinPhase] = useState<"verify" | "new" | "confirm">("verify");
   const [pinInput, setPinInput] = useState("");
@@ -264,13 +267,17 @@ export default function VisitorAccountScreen() {
       const { error: storageErr } = await supabase.storage
         .from("visitor-photos")
         .upload(`${spaceId}/${filename}`, fileData, { contentType: "image/jpeg", cacheControl: "3600", upsert: true });
-      if (storageErr) return;
-      await supabase.from("visitor_profiles").upsert(
+      if (storageErr) {
+        console.error("[syncProfilePhoto] storage upload failed:", storageErr);
+        return;
+      }
+      const { error: upsertErr } = await supabase.from("visitor_profiles").upsert(
         { space_id: spaceId, prenom: p, nom: n, photo: filename, updated_at: new Date().toISOString() },
         { onConflict: "space_id,prenom,nom" },
       );
-    } catch {
-      /* synchro photo profil en best-effort */
+      if (upsertErr) console.error("[syncProfilePhoto] upsert failed:", upsertErr);
+    } catch (e) {
+      console.error("[syncProfilePhoto] unexpected error:", e);
     }
   }
 
@@ -365,30 +372,17 @@ export default function VisitorAccountScreen() {
   // — un visiteur n'a pas de compte serveur, juste une identité liée à cet
   // appareil. Bouton distinct demandé pour un intitulé clair en bas de page.
   function handleLogout() {
-    setLogoutModalVisible(true);
-  }
-
-  async function confirmLogout() {
-    setLogoutModalVisible(false);
-    await clearVisitorSession();
-    router.replace("/");
+    setConfirmModal("logout");
   }
 
   function handleSwitchSpace() {
-    Alert.alert(
-      "Suivre un autre espace ?",
-      "Tu devras saisir un nouveau lien d'invitation.",
-      [
-        { text: "Annuler", style: "cancel" },
-        {
-          text: "Continuer",
-          onPress: async () => {
-            await clearVisitorSession();
-            router.replace("/");
-          },
-        },
-      ],
-    );
+    setConfirmModal("switchSpace");
+  }
+
+  async function confirmModalAction() {
+    setConfirmModal(null);
+    await clearVisitorSession();
+    router.replace("/");
   }
 
   if (loading || !space) {
@@ -815,30 +809,45 @@ export default function VisitorAccountScreen() {
         </View>
       </Modal>
 
-      <Modal visible={logoutModalVisible} transparent animationType="fade" onRequestClose={() => setLogoutModalVisible(false)}>
+      <Modal visible={!!confirmModal} transparent animationType="fade" onRequestClose={() => setConfirmModal(null)}>
         <View style={styles.pinModalOverlay}>
           <View style={[styles.logoutModalCard, { backgroundColor: C.card, borderColor: C.border }]}>
-            <View style={[styles.logoutModalIconWrap, { backgroundColor: "rgba(233,69,96,0.12)" }]}>
-              <Text style={styles.logoutModalIcon}>🚪</Text>
+            <View
+              style={[
+                styles.logoutModalIconWrap,
+                { backgroundColor: confirmModal === "logout" ? "rgba(233,69,96,0.12)" : `${C.accent}20` },
+              ]}
+            >
+              <Text style={styles.logoutModalIcon}>{confirmModal === "logout" ? "🚪" : "🔄"}</Text>
             </View>
-            <Text style={[styles.logoutModalTitle, { color: C.text }]}>Se déconnecter ?</Text>
+            <Text style={[styles.logoutModalTitle, { color: C.text }]}>
+              {confirmModal === "logout" ? "Se déconnecter ?" : "Suivre un autre espace ?"}
+            </Text>
             <Text style={[styles.logoutModalText, { color: C.muted }]}>
-              Tu devras ressaisir tes informations pour revenir sur cet espace.
+              {confirmModal === "logout"
+                ? "Tu devras ressaisir tes informations pour revenir sur cet espace."
+                : "Tu devras saisir un nouveau lien d'invitation."}
             </Text>
             <View style={styles.logoutModalButtons}>
               <TouchableOpacity
                 style={[styles.logoutModalBtn, styles.logoutModalCancelBtn, { borderColor: C.border }]}
-                onPress={() => setLogoutModalVisible(false)}
+                onPress={() => setConfirmModal(null)}
                 activeOpacity={0.8}
               >
                 <Text style={[styles.logoutModalCancelText, { color: C.text }]}>Annuler</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.logoutModalBtn, styles.logoutModalConfirmBtn]}
-                onPress={confirmLogout}
+                style={[
+                  styles.logoutModalBtn,
+                  styles.logoutModalConfirmBtn,
+                  confirmModal === "switchSpace" && { backgroundColor: C.accent },
+                ]}
+                onPress={confirmModalAction}
                 activeOpacity={0.8}
               >
-                <Text style={styles.logoutModalConfirmText}>Se déconnecter</Text>
+                <Text style={styles.logoutModalConfirmText}>
+                  {confirmModal === "logout" ? "Se déconnecter" : "Continuer"}
+                </Text>
               </TouchableOpacity>
             </View>
           </View>
