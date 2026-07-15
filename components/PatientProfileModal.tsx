@@ -37,6 +37,9 @@ export default function PatientProfileModal({ visible, onClose, space, C }: Prop
   const birthdateLabel = space.patient_birthdate
     ? new Date(space.patient_birthdate + "T00:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })
     : null;
+  const admissionDateLabel = space.patient_admission_date
+    ? new Date(space.patient_admission_date + "T00:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })
+    : null;
 
   async function downloadPhoto() {
     if (!space.patient_photo_url) return;
@@ -86,6 +89,13 @@ export default function PatientProfileModal({ visible, onClose, space, C }: Prop
           </View>
 
           <View style={styles.rows}>
+            {admissionDateLabel && (
+              <View style={styles.row}>
+                <Text style={[styles.rowLabel, { color: C.gold }]}>🏥 Date d'hospitalisation</Text>
+                <Text style={[styles.rowValue, { color: C.text }]}>{admissionDateLabel}</Text>
+              </View>
+            )}
+
             {birthdateLabel && (
               <View style={styles.row}>
                 <Text style={[styles.rowLabel, { color: C.gold }]}>🎂 Date de naissance</Text>
@@ -118,7 +128,7 @@ export default function PatientProfileModal({ visible, onClose, space, C }: Prop
               </View>
             )}
 
-            {!birthdateLabel && !space.patient_sex && !space.patient_blood_type && !space.patient_allergies && (
+            {!admissionDateLabel && !birthdateLabel && !space.patient_sex && !space.patient_blood_type && !space.patient_allergies && (
               <Text style={[styles.emptyText, { color: C.muted }]}>
                 Aucune information supplémentaire renseignée pour le moment.
               </Text>

@@ -25,7 +25,7 @@ import { generateSlots, formatHourMinute } from "@/lib/slotUtils";
 import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
 import type { Theme } from "@/lib/themes";
 import type { NewsEntry, Task, SupportMessage, SlotConfig, ReservationChangeHistoryEntry } from "@/lib/types";
-import { openAndroidTimePicker } from "@/lib/androidTimePicker";
+import { openAndroidTimePicker, openAndroidDatePicker } from "@/lib/androidTimePicker";
 
 // Résultat de la RPC apply_slot_rule_change (voir migration
 // 20260711_apply_slot_rule_change.sql) — ids des réservations recasées/
@@ -332,6 +332,8 @@ export default function SettingsScreen() {
   // Fiche patient (naissance / sexe / groupe sanguin / allergies)
   const patientMedicalInit = useRef(false);
   const [patientMotto, setPatientMotto] = useState("");
+  const [patientAdmissionDate, setPatientAdmissionDate] = useState<string | null>(null);
+  const [showAdmissionDatePicker, setShowAdmissionDatePicker] = useState(false);
   const [patientBirthdate, setPatientBirthdate] = useState<string | null>(null);
   const [patientSex, setPatientSex] = useState<"M" | "F" | null>(null);
   const [patientBloodType, setPatientBloodType] = useState<string | null>(null);
@@ -348,6 +350,7 @@ export default function SettingsScreen() {
     if (space && !patientMedicalInit.current) {
       patientMedicalInit.current = true;
       setPatientMotto(space.patient_motto ?? "");
+      setPatientAdmissionDate(space.patient_admission_date ?? null);
       setPatientBirthdate(space.patient_birthdate ?? null);
       setPatientSex(space.patient_sex ?? null);
       setPatientBloodType(space.patient_blood_type ?? null);
@@ -391,6 +394,23 @@ export default function SettingsScreen() {
     setBdPickerField(null);
   }
 
+  function isoDate(d: Date) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+
+  const admissionDateValue = patientAdmissionDate ? new Date(patientAdmissionDate + "T00:00:00") : new Date();
+  const admissionDateLabel = patientAdmissionDate
+    ? new Date(patientAdmissionDate + "T00:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })
+    : null;
+
+  function openAdmissionDatePicker() {
+    if (Platform.OS === "android") {
+      openAndroidDatePicker(admissionDateValue, (date) => setPatientAdmissionDate(isoDate(date)), new Date());
+    } else {
+      setShowAdmissionDatePicker(true);
+    }
+  }
+
   async function handleSavePatientMedical() {
     if (!space) return;
     setPatientMedicalSaving(true);
@@ -400,6 +420,7 @@ export default function SettingsScreen() {
       .from("patient_spaces")
       .update({
         patient_motto: patientMotto.trim() || null,
+        patient_admission_date: patientAdmissionDate,
         patient_birthdate: patientBirthdate,
         patient_sex: patientSex,
         patient_blood_type: patientBloodType,
@@ -2483,6 +2504,32 @@ export default function SettingsScreen() {
                   />
                   <Text style={[styles.cardDesc, { color: C.muted }]}>
                     Un mantra qui définit le patient — affiché sous son nom dans la fiche patient et dans le bandeau de l'app.
+                  </Text>
+
+                  <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 14 }]}>🏥 Date d'hospitalisation (optionnel)</Text>
+                  <TouchableOpacity
+                    style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border }]}
+                    onPress={openAdmissionDatePicker}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={{ fontFamily: "DM_Sans_400Regular", fontSize: 14, color: admissionDateLabel ? C.text : C.muted }}>
+                      {admissionDateLabel ?? "Sélectionner une date"}
+                    </Text>
+                  </TouchableOpacity>
+                  {showAdmissionDatePicker && (
+                    <DateTimePicker
+                      value={admissionDateValue}
+                      mode="date"
+                      display="spinner"
+                      maximumDate={new Date()}
+                      onChange={(_, date) => {
+                        setShowAdmissionDatePicker(false);
+                        if (date) setPatientAdmissionDate(isoDate(date));
+                      }}
+                    />
+                  )}
+                  <Text style={[styles.cardDesc, { color: C.muted }]}>
+                    Date d'entrée à l'hôpital — visible dans la fiche patient.
                   </Text>
 
                   <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />

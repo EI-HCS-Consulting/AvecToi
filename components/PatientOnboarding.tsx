@@ -11,7 +11,7 @@ import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { generateDossierCode } from "@/lib/dossierCode";
 import { FREE_VISIT_LIMIT } from "@/lib/freemiumCap";
 import { resolvePlaceFromMapsUrl } from "@/lib/address";
-import { openAndroidTimePicker } from "@/lib/androidTimePicker";
+import { openAndroidTimePicker, openAndroidDatePicker } from "@/lib/androidTimePicker";
 import { formatHourMinute } from "@/lib/slotUtils";
 import type { PatientSpace } from "@/lib/types";
 
@@ -74,6 +74,8 @@ export default function PatientOnboarding() {
   const [firstname, setFirstname] = useState("");
   const [lastname, setLastname] = useState("");
   const [patientMotto, setPatientMotto] = useState("");
+  const [admissionDate, setAdmissionDate] = useState<string | null>(null);
+  const [showAdmissionDatePicker, setShowAdmissionDatePicker] = useState(false);
 
   const [homeCareMode, setHomeCareMode] = useState(false);
   const homeCareModeRef = useRef(homeCareMode);
@@ -256,6 +258,7 @@ export default function PatientOnboarding() {
             patient_firstname: firstname.trim(),
             patient_lastname: lastname.trim(),
             patient_motto: patientMotto.trim() || null,
+            patient_admission_date: admissionDate,
             ...careFields,
             visit_rules: visitRules.trim(),
             // Colonne conservée pour compatibilité DB — le mode d'affichage est
@@ -313,6 +316,19 @@ export default function PatientOnboarding() {
 
   const formStepIndex = FORM_STEPS.indexOf(step);
 
+  const admissionDateValue = admissionDate ? new Date(admissionDate + "T00:00:00") : new Date();
+  const admissionDateLabel = admissionDate
+    ? new Date(admissionDate + "T00:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })
+    : null;
+
+  function openAdmissionDatePicker() {
+    if (Platform.OS === "android") {
+      openAndroidDatePicker(admissionDateValue, (date) => setAdmissionDate(isoDate(date)), new Date());
+    } else {
+      setShowAdmissionDatePicker(true);
+    }
+  }
+
   return (
     <KeyboardAvoidingView
       style={{ flex: 1, backgroundColor: C.bg }}
@@ -359,6 +375,29 @@ export default function PatientOnboarding() {
             <Text style={[styles.cardDesc, { color: C.muted }]}>
               Un mantra qui définit le patient — affiché sous son nom dans la fiche patient et dans le bandeau de l'app.
             </Text>
+
+            <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 14 }]}>🏥 Date d'hospitalisation (optionnel)</Text>
+            <TouchableOpacity
+              style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, justifyContent: "center" }]}
+              onPress={openAdmissionDatePicker}
+              activeOpacity={0.75}
+            >
+              <Text style={{ fontFamily: "DM_Sans_400Regular", fontSize: 14, color: admissionDateLabel ? C.text : C.muted }}>
+                {admissionDateLabel ?? "Sélectionner une date"}
+              </Text>
+            </TouchableOpacity>
+            {showAdmissionDatePicker && (
+              <DateTimePicker
+                value={admissionDateValue}
+                mode="date"
+                display="spinner"
+                maximumDate={new Date()}
+                onChange={(_, date) => {
+                  setShowAdmissionDatePicker(false);
+                  if (date) setAdmissionDate(isoDate(date));
+                }}
+              />
+            )}
           </View>
         )}
 
