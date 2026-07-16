@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   Modal, StyleSheet, Alert, ActivityIndicator, Image,
-  KeyboardAvoidingView, Platform, Linking,
+  KeyboardAvoidingView, Platform, Linking, Dimensions,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
@@ -66,6 +66,125 @@ const STATUS_COLORS = (C: Theme): Record<TaskStatus, string> => ({
   fait: C.muted,
   ferme: C.danger,
 });
+
+// Checklists administratives suggérées (MVP, voir openChecklistContext) —
+// bulk-ajout de besoins préremplis selon le contexte, aucun nouveau champ
+// en base : chaque item devient un tasks.category="administratif" ordinaire,
+// modifiable/supprimable ensuite comme n'importe quel autre besoin.
+type ChecklistContext = "adulte" | "enfant" | "domicile";
+interface ChecklistItem {
+  title: string;
+  description: string;
+  urgent?: boolean;
+  // Nombre de jours ajoutés à aujourd'hui pour préremplir date_limite —
+  // seulement sur les démarches à délai légal connu (ex. déclaration de
+  // sinistre : 5 jours ouvrés).
+  dateOffsetDays?: number;
+  // Un visiteur (non-admin) ne voit et ne peut ajouter que les items marqués
+  // true — les démarches légales/financières/employeur restent réservées à
+  // l'admin (généralement la personne qui centralise ces sujets). L'admin
+  // voit toujours la liste complète, partout. Voir openChecklistContext (outil
+  // dédié admin, jamais filtré) vs le sélecteur repliable dans "Nouveau besoin"
+  // (accessible aussi aux visiteurs, filtré par ce champ).
+  sharedWithVisitors: boolean;
+}
+interface ChecklistTemplate {
+  icon: string;
+  label: string;
+  colorKey: "accent" | "orange" | "gold";
+  groups: { phase: string; items: ChecklistItem[] }[];
+}
+
+const CHECKLIST_TEMPLATES: Record<ChecklistContext, ChecklistTemplate> = {
+  adulte: {
+    icon: "🏥",
+    label: "Hospitalisation d'un proche",
+    colorKey: "accent",
+    groups: [
+      {
+        phase: "À l'arrivée",
+        items: [
+          { title: "Directives anticipées", description: "Vérifier si le patient en a rédigé, et où elles se trouvent.", sharedWithVisitors: true },
+          { title: "Personne de confiance", description: "Faire signer le formulaire si pas déjà fait (2 témoins conseillés).", sharedWithVisitors: true },
+          { title: "Carte Vitale + attestation mutuelle", description: "À apporter dès que possible si admission en urgence.", sharedWithVisitors: true },
+          { title: "Liste des traitements en cours", description: "Ordonnances actives, à donner au service.", sharedWithVisitors: true },
+        ],
+      },
+      {
+        phase: "Pendant le séjour",
+        items: [
+          { title: "Attestation d'hospitalisation (employeur)", description: "À demander au service pour justifier une absence.", sharedWithVisitors: true },
+          { title: "Congé proche aidant / AJPA", description: "Démarche CAF ou MSA — délai à anticiper.", urgent: true, sharedWithVisitors: false },
+          { title: "Procuration bancaire", description: "Si le patient ne peut plus gérer ses comptes (factures, loyer).", sharedWithVisitors: false },
+          { title: "Déclaration de sinistre assurance", description: "Si accident — délai généralement de 5 jours ouvrés.", urgent: true, dateOffsetDays: 5, sharedWithVisitors: false },
+          { title: "Prévenir l'employeur du patient", description: "Si en poste.", sharedWithVisitors: true },
+        ],
+      },
+      {
+        phase: "Sortie",
+        items: [
+          { title: "Compte-rendu d'hospitalisation", description: "À transmettre au médecin traitant.", sharedWithVisitors: true },
+          { title: "Dossier MDPH", description: "Si perte d'autonomie durable.", sharedWithVisitors: false },
+          { title: "Déclaration d'impôts", description: "Vérifier un report de délai si la période chevauche la campagne déclarative.", sharedWithVisitors: false },
+          { title: "Organiser le retour à domicile", description: "Aide à la personne, matériel médical, RDV de suivi.", sharedWithVisitors: true },
+        ],
+      },
+    ],
+  },
+  enfant: {
+    icon: "🧸",
+    label: "Enfant hospitalisé",
+    colorKey: "orange",
+    groups: [
+      {
+        phase: "Documents",
+        items: [
+          { title: "Carnet de santé + carte Vitale de l'enfant", description: "", sharedWithVisitors: true },
+          { title: "Autorisation de soins", description: "Signée par le(s) titulaire(s) de l'autorité parentale.", sharedWithVisitors: false },
+          { title: "Attestation d'autorité parentale / jugement de garde", description: "Si parents séparés et service non informé.", sharedWithVisitors: false },
+          { title: "Certificat médical pour l'école", description: "Justificatif d'absence.", sharedWithVisitors: true },
+          { title: "PAI (Projet d'Accueil Individualisé)", description: "À établir ou réactiver avec l'école si suivi au long cours.", sharedWithVisitors: true },
+          { title: "Assurance scolaire / extra-scolaire", description: "Vérifier la couverture si accident.", sharedWithVisitors: true },
+        ],
+      },
+      {
+        phase: "Organisation famille",
+        items: [
+          { title: "Garde de la fratrie", description: "Qui s'en occupe pendant les visites.", sharedWithVisitors: true },
+          { title: "Doudou / objet familier", description: "Le premier réflexe anti-angoisse.", sharedWithVisitors: true },
+          { title: "Préparer l'enfant à l'avance", description: "Si l'admission n'est pas une urgence, en parler quelques jours avant.", sharedWithVisitors: true },
+          { title: "Prévenir l'école / la crèche", description: "", sharedWithVisitors: true },
+        ],
+      },
+    ],
+  },
+  domicile: {
+    icon: "🏠",
+    label: "Soin à domicile",
+    colorKey: "gold",
+    groups: [
+      {
+        phase: "Mise en place",
+        items: [
+          { title: "Déclaration à la mutuelle / CPAM", description: "Prise en charge des soins à domicile.", sharedWithVisitors: false },
+          { title: "Commande de matériel médical", description: "Lit, fauteuil, oxygène selon prescription.", sharedWithVisitors: true },
+          { title: "Aménagement du logement", description: "Barres d'appui, rampe, douche adaptée si besoin.", sharedWithVisitors: true },
+          { title: "Planning des intervenants", description: "Infirmier·ère, kiné, aide à domicile.", sharedWithVisitors: true },
+          { title: "Congé proche aidant / AJPA", description: "Même démarche qu'en hospitalisation si tu es l'aidant principal.", urgent: true, sharedWithVisitors: false },
+          { title: "Procuration bancaire", description: "Si la personne ne peut plus gérer ses comptes.", sharedWithVisitors: false },
+        ],
+      },
+    ],
+  },
+};
+
+function addDaysIso(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+const SHEET_MAX_HEIGHT = Dimensions.get("window").height * 0.85;
 
 interface Props {
   spaceId: string;
@@ -174,6 +293,28 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [fDLPickerOpen, setFDLPickerOpen] = useState(false);
   const [fDLCalMonth, setFDLCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
   const [fUrgent, setFUrgent] = useState(false);
+
+  // ── Checklists administratives suggérées (MVP) — voir CHECKLIST_TEMPLATES.
+  const [checklistPicker, setChecklistPicker] = useState(false);
+  const [checklistContext, setChecklistContext] = useState<ChecklistContext | null>(null);
+  const [checklistChecked, setChecklistChecked] = useState<Record<number, boolean>>({});
+  const [checklistSaving, setChecklistSaving] = useState(false);
+
+  // Sélecteur repliable dans "Nouveau besoin" (catégorie Administratif) —
+  // même contenu que CHECKLIST_TEMPLATES mais affiché en 3 accordéons plutôt
+  // qu'en écran dédié, accessible aux visiteurs (filtré par sharedWithVisitors)
+  // comme à l'admin (liste complète). Voir publishInlineChecklist.
+  const [inlineOpenCtx, setInlineOpenCtx] = useState<ChecklistContext | null>(null);
+  const [inlineChecked, setInlineChecked] = useState<Partial<Record<ChecklistContext, Record<number, boolean>>>>({});
+  const [inlinePublishing, setInlinePublishing] = useState<ChecklistContext | null>(null);
+
+  // Annulation d'un lot ajouté d'un coup (checklist admin dédiée ou sélecteur
+  // repliable ci-dessus) — capture les id insérés pour pouvoir tout supprimer
+  // d'un coup en cas d'erreur, fenêtre courte façon "undo" plutôt qu'un vrai
+  // historique (voir triggerBatchUndo/undoBatch).
+  const [batchUndo, setBatchUndo] = useState<{ ids: string[]; count: number } | null>(null);
+  const batchUndoTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (batchUndoTimer.current) clearTimeout(batchUndoTimer.current); }, []);
 
   // Champs spécifiques catégorie "transport" dans le formulaire de création.
   const [fTDate, setFTDate] = useState("");
@@ -462,7 +603,150 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setFDateLimite(""); setFDLPickerOpen(false); setFUrgent(false);
     setFDLCalMonth(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
     autoTransportTitleRef.current = "";
+    setInlineOpenCtx(null); setInlineChecked({});
     setTaskForm(true);
+  }
+
+  function openChecklistPicker() {
+    if (capped) {
+      Alert.alert(
+        "Limite atteinte",
+        "Vous avez atteint la limite de votre espace. Consultez l'email envoyé à votre adresse pour en savoir plus.",
+      );
+      return;
+    }
+    setChecklistPicker(true);
+  }
+
+  function openChecklistContext(ctx: ChecklistContext) {
+    const items = CHECKLIST_TEMPLATES[ctx].groups.flatMap((g) => g.items);
+    const initial: Record<number, boolean> = {};
+    items.forEach((_, i) => { initial[i] = true; });
+    setChecklistChecked(initial);
+    setChecklistContext(ctx);
+  }
+
+  function toggleChecklistItem(i: number) {
+    setChecklistChecked((prev) => ({ ...prev, [i]: !prev[i] }));
+  }
+
+  function toggleAllChecklist(on: boolean) {
+    if (!checklistContext) return;
+    const items = CHECKLIST_TEMPLATES[checklistContext].groups.flatMap((g) => g.items);
+    const next: Record<number, boolean> = {};
+    items.forEach((_, i) => { next[i] = on; });
+    setChecklistChecked(next);
+  }
+
+  async function addChecklistItems() {
+    if (!checklistContext) return;
+    const items = CHECKLIST_TEMPLATES[checklistContext].groups.flatMap((g) => g.items);
+    const selected = items.filter((_, i) => checklistChecked[i]);
+    if (!selected.length) return;
+    setChecklistSaving(true);
+    const { data: userData } = await supabase.auth.getUser();
+    const authorPrenom = (userData.user?.user_metadata?.firstname ?? "").trim();
+    const authorNom = (userData.user?.user_metadata?.lastname ?? "").trim();
+    const rows = selected.map((item) => ({
+      space_id: spaceId,
+      title: item.title,
+      description: item.description,
+      category: "administratif" as const,
+      status: "ouvert" as const,
+      created_by: "admin",
+      author_prenom: authorPrenom || null,
+      author_nom: authorNom || null,
+      author_pin: "ADMIN",
+      date_limite: item.dateOffsetDays ? addDaysIso(item.dateOffsetDays) : null,
+      urgent: !!item.urgent,
+    }));
+    const { data: inserted, error } = await supabase.from("tasks").insert(rows).select("id");
+    setChecklistSaving(false);
+    if (error) {
+      Alert.alert("Erreur", "Impossible d'ajouter la checklist : " + error.message);
+      return;
+    }
+    setChecklistContext(null);
+    setChecklistPicker(false);
+    setActiveCat("administratif");
+    triggerBatchUndo(inserted?.map((r) => r.id) ?? [], selected.length);
+    loadTasks();
+  }
+
+  // Affiche un bandeau "Annuler" temporaire portant sur exactement les id
+  // insérés d'un coup — partagé par la checklist admin dédiée (banner) et le
+  // sélecteur repliable dans "Nouveau besoin" (publishInlineChecklist), pour
+  // que l'admin comme le visiteur puissent rattraper une erreur de sélection.
+  function triggerBatchUndo(ids: string[], count: number) {
+    if (!ids.length) return;
+    if (batchUndoTimer.current) clearTimeout(batchUndoTimer.current);
+    setBatchUndo({ ids, count });
+    batchUndoTimer.current = setTimeout(() => setBatchUndo(null), 8000);
+  }
+
+  async function undoBatch() {
+    if (!batchUndo) return;
+    const ids = batchUndo.ids;
+    setBatchUndo(null);
+    if (batchUndoTimer.current) clearTimeout(batchUndoTimer.current);
+    const { error } = await supabase.from("tasks").delete().in("id", ids);
+    if (error) {
+      Alert.alert("Erreur", "Impossible d'annuler l'ajout : " + error.message);
+      return;
+    }
+    showToast("Ajout annulé");
+    loadTasks();
+  }
+
+  function toggleInlineItem(ctx: ChecklistContext, i: number) {
+    setInlineChecked((prev) => {
+      const current = prev[ctx]?.[i] ?? true;
+      return { ...prev, [ctx]: { ...(prev[ctx] || {}), [i]: !current } };
+    });
+  }
+
+  // Publie directement les items cochés d'un contexte comme autant de besoins
+  // "administratif" distincts, sans passer par les champs titre/description
+  // du formulaire (chaque item porte déjà les siens) — ferme le formulaire et
+  // déclenche le même bandeau "Annuler" que la checklist admin dédiée.
+  async function publishInlineChecklist(ctx: ChecklistContext, items: ChecklistItem[]) {
+    const checked = items.filter((_, i) => inlineChecked[ctx]?.[i] ?? true);
+    if (!checked.length) return;
+    setInlinePublishing(ctx);
+    let authorPrenom = "", authorNom = "", authorPin = "";
+    if (isAdmin) {
+      const { data } = await supabase.auth.getUser();
+      authorPrenom = (data.user?.user_metadata?.firstname ?? "").trim();
+      authorNom = (data.user?.user_metadata?.lastname ?? "").trim();
+      authorPin = "ADMIN";
+    } else if (mySession) {
+      authorPrenom = mySession.prenom;
+      authorNom = mySession.nom;
+      authorPin = mySession.pin;
+    }
+    const rows = checked.map((item) => ({
+      space_id: spaceId,
+      title: item.title,
+      description: item.description,
+      category: "administratif" as const,
+      status: "ouvert" as const,
+      created_by: isAdmin ? "admin" : "visiteur",
+      author_prenom: authorPrenom || null,
+      author_nom: authorNom || null,
+      author_pin: authorPin || null,
+      date_limite: item.dateOffsetDays ? addDaysIso(item.dateOffsetDays) : null,
+      urgent: !!item.urgent,
+    }));
+    const { data: inserted, error } = await supabase.from("tasks").insert(rows).select("id");
+    setInlinePublishing(null);
+    if (error) {
+      Alert.alert("Erreur", "Impossible d'ajouter : " + error.message);
+      return;
+    }
+    setTaskForm(false);
+    setActiveCat("administratif");
+    triggerBatchUndo(inserted?.map((r) => r.id) ?? [], checked.length);
+    loadTasks();
   }
 
   // Bascule "je m'en occupe déjà" à la création — reprend l'identité déjà
@@ -1363,6 +1647,18 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         </TouchableOpacity>
       </View>
 
+      {isAdmin && activeCat === "administratif" && (
+        <TouchableOpacity
+          style={[styles.checklistBanner, { backgroundColor: C.gold + "1c", borderColor: C.gold }]}
+          onPress={openChecklistPicker}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.checklistBannerIcon}>✨</Text>
+          <Text style={[styles.checklistBannerText, { color: C.text }]}>Ajoute une checklist toute prête</Text>
+          <Text style={[styles.checklistBannerArrow, { color: C.gold }]}>→</Text>
+        </TouchableOpacity>
+      )}
+
       <View style={[styles.sectionBar, { borderBottomColor: C.border, flexDirection: "row", flexWrap: "wrap", gap: 8 }]}>
         <TouchableOpacity
           style={[
@@ -1421,7 +1717,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               ? `Aucun besoin dans ${CATEGORY_LABELS[activeCat]} pour l'instant.`
               : "Aucun besoin pour l'instant."}
           </Text>
-          <Text style={[styles.emptyHint, { color: C.muted }]}>Crée un besoin si tu as besoin d'aide.</Text>
+          <Text style={[styles.emptyHint, { color: C.muted }]}>
+            {isAdmin && activeCat === "administratif"
+              ? "Ajoute une checklist toute prête juste au-dessus, ou crée un besoin."
+              : "Crée un besoin si tu as besoin d'aide."}
+          </Text>
         </View>
       ) : (
         <ScrollView ref={scrollRef} contentContainerStyle={styles.listPad}>
@@ -1481,6 +1781,86 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                       </TouchableOpacity>
                     ))}
                   </View>
+
+                  {fCat === "administratif" && !editTask && (
+                    <View style={{ marginBottom: 10 }}>
+                      <Text style={[styles.checklistIntro, { color: C.muted, marginBottom: 10 }]}>
+                        Choisis un ou plusieurs besoins dans la liste ci-dessous, ou décris le tien au-dessus.
+                      </Text>
+                      {(Object.keys(CHECKLIST_TEMPLATES) as ChecklistContext[]).map((ctx) => {
+                        const tpl = CHECKLIST_TEMPLATES[ctx];
+                        const color = C[tpl.colorKey];
+                        const items = tpl.groups.flatMap((g) => g.items).filter((it) => isAdmin || it.sharedWithVisitors);
+                        if (!items.length) return null;
+                        const isOpen = inlineOpenCtx === ctx;
+                        const checkedCount = items.filter((_, i) => inlineChecked[ctx]?.[i] ?? true).length;
+                        return (
+                          <View key={ctx} style={[styles.inlineAccordion, { borderColor: color }]}>
+                            <TouchableOpacity
+                              style={styles.inlineAccordionHead}
+                              onPress={() => setInlineOpenCtx(isOpen ? null : ctx)}
+                              activeOpacity={0.75}
+                            >
+                              <Text style={styles.inlineAccordionIcon}>{tpl.icon}</Text>
+                              <Text style={[styles.inlineAccordionTitle, { color: C.text }]}>{tpl.label}</Text>
+                              <Text style={[styles.inlineAccordionCount, { color }]}>
+                                {checkedCount > 0 ? `${checkedCount} sélectionné${checkedCount > 1 ? "s" : ""}` : `${items.length} besoins`}
+                              </Text>
+                              <Text style={[styles.inlineAccordionChevron, { color }]}>{isOpen ? "▲" : "▼"}</Text>
+                            </TouchableOpacity>
+                            {isOpen && (
+                              <View style={styles.inlineAccordionBody}>
+                                {items.map((item, i) => {
+                                  const checked = inlineChecked[ctx]?.[i] ?? true;
+                                  return (
+                                    <TouchableOpacity
+                                      key={i}
+                                      style={styles.checklistItemRow}
+                                      onPress={() => toggleInlineItem(ctx, i)}
+                                      activeOpacity={0.7}
+                                    >
+                                      <View
+                                        style={[
+                                          styles.checklistBox,
+                                          { borderColor: checked ? color : C.border, backgroundColor: checked ? color : "transparent" },
+                                        ]}
+                                      >
+                                        {checked && <Text style={styles.checklistBoxMark}>✓</Text>}
+                                      </View>
+                                      <View style={{ flex: 1 }}>
+                                        <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
+                                          <Text style={[styles.checklistItemTitle, { color: checked ? C.text : C.muted }]}>{item.title}</Text>
+                                          {item.urgent && (
+                                            <View style={[styles.checklistUrgentChip, { backgroundColor: C.danger + "22" }]}>
+                                              <Text style={[styles.checklistUrgentChipText, { color: C.danger }]}>urgent</Text>
+                                            </View>
+                                          )}
+                                        </View>
+                                        {!!item.description && (
+                                          <Text style={[styles.checklistItemDesc, { color: C.muted }]}>{item.description}</Text>
+                                        )}
+                                      </View>
+                                    </TouchableOpacity>
+                                  );
+                                })}
+                                <TouchableOpacity
+                                  style={[styles.btnPrimary, { backgroundColor: color, flex: undefined, alignSelf: "stretch", marginTop: 10, opacity: checkedCount === 0 ? 0.5 : 1 }]}
+                                  disabled={checkedCount === 0 || inlinePublishing === ctx}
+                                  onPress={() => publishInlineChecklist(ctx, items)}
+                                  activeOpacity={0.85}
+                                >
+                                  {inlinePublishing === ctx
+                                    ? <ActivityIndicator color="#fff" />
+                                    : <Text style={styles.btnPrimaryText}>Publier {checkedCount > 0 ? `(${checkedCount})` : ""}</Text>
+                                  }
+                                </TouchableOpacity>
+                              </View>
+                            )}
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
 
                   {fCat === "repas" && !!allergies && (
                     <View style={[styles.allergyBanner, { backgroundColor: "rgba(233,69,96,0.1)", borderColor: "rgba(233,69,96,0.35)" }]}>
@@ -1752,6 +2132,136 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             </ScrollView>
           </TouchableOpacity>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ── MODAL CHECKLIST : choix du contexte ─────────────────────────────
+          Overlay en frère du sheet (jamais en ancêtre d'une ScrollView), même
+          pattern que app/(admin)/settings.tsx MODAL CHRONOLOGIE : un
+          TouchableOpacity ancêtre casse le geste de scroll sur Android. */}
+      <Modal visible={checklistPicker} transparent animationType="slide" onRequestClose={() => setChecklistPicker(false)}>
+        <View style={styles.overlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setChecklistPicker(false)} />
+          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.gold }]}>
+            <Text style={[styles.sheetTitle, { color: C.text }]}>✨ Checklists suggérées</Text>
+            <Text style={[styles.checklistIntro, { color: C.muted }]}>
+              Choisis la situation qui correspond — tu pourras décocher ce qui ne s'applique pas avant d'ajouter.
+            </Text>
+            {(Object.keys(CHECKLIST_TEMPLATES) as ChecklistContext[]).map((ctx) => {
+              const tpl = CHECKLIST_TEMPLATES[ctx];
+              const count = tpl.groups.reduce((n, g) => n + g.items.length, 0);
+              const color = C[tpl.colorKey];
+              return (
+                <TouchableOpacity
+                  key={ctx}
+                  style={[styles.checklistCard, { borderColor: color, backgroundColor: color + "14" }]}
+                  onPress={() => openChecklistContext(ctx)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.checklistCardIcon}>{tpl.icon}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.checklistCardTitle, { color: C.text }]}>{tpl.label}</Text>
+                    <Text style={[styles.checklistCardCount, { color: C.muted }]}>{count} besoins suggérés</Text>
+                  </View>
+                  <Text style={[styles.checklistCardArrow, { color }]}>→</Text>
+                </TouchableOpacity>
+              );
+            })}
+            <TouchableOpacity
+              onPress={() => setChecklistPicker(false)}
+              style={[styles.btnSecondary, { borderColor: C.border, marginTop: 10, flex: undefined, alignSelf: "stretch" }]}
+            >
+              <Text style={[styles.btnSecondaryText, { color: C.muted, textAlign: "center" }]}>Annuler</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── MODAL CHECKLIST : sélection des besoins d'un contexte ──────────── */}
+      <Modal visible={!!checklistContext} transparent animationType="slide" onRequestClose={() => setChecklistContext(null)}>
+        <View style={styles.overlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !checklistSaving && setChecklistContext(null)} />
+          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: checklistContext ? C[CHECKLIST_TEMPLATES[checklistContext].colorKey] : C.accent, maxHeight: SHEET_MAX_HEIGHT }]}>
+            {checklistContext && (() => {
+              const tpl = CHECKLIST_TEMPLATES[checklistContext];
+              const color = C[tpl.colorKey];
+              const items = tpl.groups.flatMap((g) => g.items);
+              const checkedCount = items.filter((_, i) => checklistChecked[i]).length;
+              let runningIndex = -1;
+              return (
+                <>
+                  <Text style={[styles.sheetTitle, { color: C.text }]}>{tpl.icon} {tpl.label}</Text>
+                  <TouchableOpacity onPress={() => toggleAllChecklist(checkedCount < items.length)} activeOpacity={0.7}>
+                    <Text style={[styles.checklistToggleAll, { color }]}>
+                      {checkedCount === items.length ? "Tout décocher" : "Tout cocher"}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <ScrollView style={styles.checklistScroll} showsVerticalScrollIndicator nestedScrollEnabled>
+                    {tpl.groups.map((group) => (
+                      <View key={group.phase} style={{ marginBottom: 4 }}>
+                        <Text style={[styles.checklistPhase, { color: C.muted }]}>{group.phase}</Text>
+                        {group.items.map((item) => {
+                          runningIndex += 1;
+                          const i = runningIndex;
+                          const checked = !!checklistChecked[i];
+                          return (
+                            <TouchableOpacity
+                              key={i}
+                              style={styles.checklistItemRow}
+                              onPress={() => toggleChecklistItem(i)}
+                              activeOpacity={0.7}
+                            >
+                              <View
+                                style={[
+                                  styles.checklistBox,
+                                  { borderColor: checked ? color : C.border, backgroundColor: checked ? color : "transparent" },
+                                ]}
+                              >
+                                {checked && <Text style={styles.checklistBoxMark}>✓</Text>}
+                              </View>
+                              <View style={{ flex: 1 }}>
+                                <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
+                                  <Text style={[styles.checklistItemTitle, { color: checked ? C.text : C.muted }]}>{item.title}</Text>
+                                  {item.urgent && (
+                                    <View style={[styles.checklistUrgentChip, { backgroundColor: C.danger + "22" }]}>
+                                      <Text style={[styles.checklistUrgentChipText, { color: C.danger }]}>urgent</Text>
+                                    </View>
+                                  )}
+                                </View>
+                                {!!item.description && (
+                                  <Text style={[styles.checklistItemDesc, { color: C.muted }]}>{item.description}</Text>
+                                )}
+                              </View>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    ))}
+                  </ScrollView>
+
+                  <View style={styles.sheetBtns}>
+                    <TouchableOpacity
+                      style={[styles.btnSecondary, { borderColor: C.border }]}
+                      onPress={() => setChecklistContext(null)}
+                      disabled={checklistSaving}
+                    >
+                      <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Retour</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btnPrimary, { backgroundColor: color, opacity: checkedCount === 0 || checklistSaving ? 0.5 : 1 }]}
+                      onPress={addChecklistItems}
+                      disabled={checkedCount === 0 || checklistSaving}
+                    >
+                      {checklistSaving
+                        ? <ActivityIndicator color="#fff" />
+                        : <Text style={styles.btnPrimaryText}>Ajouter {checkedCount > 0 ? `(${checkedCount})` : ""}</Text>}
+                    </TouchableOpacity>
+                  </View>
+                </>
+              );
+            })()}
+          </View>
+        </View>
       </Modal>
 
       {/* ── MODAL CLAIM ───────────────────────────────────────────────────── */}
@@ -2238,7 +2748,16 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         C={C}
       />
 
-      {!!toast && (
+      {!!batchUndo ? (
+        <View style={[styles.undoBar, { backgroundColor: C.card, borderColor: C.border }]}>
+          <Text style={[styles.undoText, { color: C.text }]}>
+            {batchUndo.count} besoin{batchUndo.count > 1 ? "s" : ""} ajouté{batchUndo.count > 1 ? "s" : ""} ✓
+          </Text>
+          <TouchableOpacity onPress={undoBatch} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={[styles.undoBtn, { color: C.danger }]}>Annuler</Text>
+          </TouchableOpacity>
+        </View>
+      ) : !!toast && (
         <View style={[styles.toast, { backgroundColor: C.success }]}>
           <Text style={styles.toastText}>{toast}</Text>
         </View>
@@ -2350,4 +2869,47 @@ const styles = StyleSheet.create({
 
   toast: { position: "absolute", bottom: 24, alignSelf: "center", paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10 },
   toastText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13, color: "#fff" },
+
+  // Checklists administratives suggérées (MVP)
+  checklistBanner: { flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 14, marginTop: 10, borderWidth: 1, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14 },
+  checklistBannerIcon: { fontSize: 18 },
+  checklistBannerText: { flex: 1, fontFamily: "DM_Sans_600SemiBold", fontSize: 13.5 },
+  checklistBannerArrow: { fontFamily: "DM_Sans_700Bold", fontSize: 16 },
+  checklistIntro: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 18, marginBottom: 14 },
+  checklistCard: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1.5, borderRadius: 14, padding: 14, marginBottom: 10 },
+  checklistCardIcon: { fontSize: 26 },
+  checklistCardTitle: { fontFamily: "DM_Sans_700Bold", fontSize: 15 },
+  checklistCardCount: { fontFamily: "DM_Sans_400Regular", fontSize: 12.5, marginTop: 2 },
+  checklistCardArrow: { fontFamily: "DM_Sans_700Bold", fontSize: 18 },
+  checklistToggleAll: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12.5, marginBottom: 10 },
+  checklistScroll: { height: 340 },
+  checklistPhase: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", marginTop: 10, marginBottom: 6 },
+  checklistItemRow: { flexDirection: "row", gap: 10, paddingVertical: 8, alignItems: "flex-start" },
+  checklistBox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, alignItems: "center", justifyContent: "center", marginTop: 1 },
+  checklistBoxMark: { color: "#fff", fontSize: 13, fontFamily: "DM_Sans_700Bold" },
+  checklistItemTitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14, flexShrink: 1 },
+  checklistItemDesc: { fontFamily: "DM_Sans_400Regular", fontSize: 12.5, lineHeight: 17, marginTop: 2 },
+  checklistUrgentChip: { borderRadius: 5, paddingHorizontal: 6, paddingVertical: 1, marginLeft: 8 },
+  checklistUrgentChipText: { fontFamily: "DM_Sans_700Bold", fontSize: 9.5, letterSpacing: 0.4, textTransform: "uppercase" },
+
+  // Accordéons "Besoins suggérés" repliés dans le formulaire de création
+  // (catégorie Administratif) — même contenu que le sélecteur admin dédié
+  // ci-dessus, présenté en 3 sections indépendantes plutôt qu'un écran par
+  // contexte, pour rester repérable au visiteur comme à l'admin.
+  inlineAccordion: { borderWidth: 1.5, borderRadius: 12, marginBottom: 8, overflow: "hidden" },
+  inlineAccordionHead: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 12, paddingHorizontal: 12 },
+  inlineAccordionIcon: { fontSize: 18 },
+  inlineAccordionTitle: { flex: 1, fontFamily: "DM_Sans_700Bold", fontSize: 14 },
+  inlineAccordionCount: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11.5 },
+  inlineAccordionChevron: { fontFamily: "DM_Sans_700Bold", fontSize: 12, marginLeft: 6 },
+  inlineAccordionBody: { paddingHorizontal: 12, paddingBottom: 12 },
+
+  // Bandeau "Annuler" temporaire après un ajout groupé — remplace le toast
+  // le temps où l'annulation reste possible (voir triggerBatchUndo).
+  undoBar: {
+    position: "absolute", bottom: 24, alignSelf: "center", flexDirection: "row", alignItems: "center", gap: 14,
+    borderWidth: 1, paddingVertical: 10, paddingHorizontal: 18, borderRadius: 10,
+  },
+  undoText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
+  undoBtn: { fontFamily: "DM_Sans_700Bold", fontSize: 13 },
 });
