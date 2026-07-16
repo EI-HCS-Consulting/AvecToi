@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   Modal, StyleSheet, Alert, ActivityIndicator, Image,
-  KeyboardAvoidingView, Platform, Linking,
+  KeyboardAvoidingView, Platform, Linking, Dimensions,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
@@ -66,6 +66,118 @@ const STATUS_COLORS = (C: Theme): Record<TaskStatus, string> => ({
   fait: C.muted,
   ferme: C.danger,
 });
+
+// Checklists administratives suggérées (MVP, voir openChecklistContext) —
+// bulk-ajout de besoins préremplis selon le contexte, aucun nouveau champ
+// en base : chaque item devient un tasks.category="administratif" ordinaire,
+// modifiable/supprimable ensuite comme n'importe quel autre besoin.
+type ChecklistContext = "adulte" | "enfant" | "domicile";
+interface ChecklistItem {
+  title: string;
+  description: string;
+  urgent?: boolean;
+  // Nombre de jours ajoutés à aujourd'hui pour préremplir date_limite —
+  // seulement sur les démarches à délai légal connu (ex. déclaration de
+  // sinistre : 5 jours ouvrés).
+  dateOffsetDays?: number;
+}
+interface ChecklistTemplate {
+  icon: string;
+  label: string;
+  colorKey: "accent" | "orange" | "gold";
+  groups: { phase: string; items: ChecklistItem[] }[];
+}
+
+const CHECKLIST_TEMPLATES: Record<ChecklistContext, ChecklistTemplate> = {
+  adulte: {
+    icon: "🏥",
+    label: "Hospitalisation d'un proche",
+    colorKey: "accent",
+    groups: [
+      {
+        phase: "À l'arrivée",
+        items: [
+          { title: "Directives anticipées", description: "Vérifier si le patient en a rédigé, et où elles se trouvent." },
+          { title: "Personne de confiance", description: "Faire signer le formulaire si pas déjà fait (2 témoins conseillés)." },
+          { title: "Carte Vitale + attestation mutuelle", description: "À apporter dès que possible si admission en urgence." },
+          { title: "Liste des traitements en cours", description: "Ordonnances actives, à donner au service." },
+        ],
+      },
+      {
+        phase: "Pendant le séjour",
+        items: [
+          { title: "Attestation d'hospitalisation (employeur)", description: "À demander au service pour justifier une absence." },
+          { title: "Congé proche aidant / AJPA", description: "Démarche CAF ou MSA — délai à anticiper.", urgent: true },
+          { title: "Procuration bancaire", description: "Si le patient ne peut plus gérer ses comptes (factures, loyer)." },
+          { title: "Déclaration de sinistre assurance", description: "Si accident — délai généralement de 5 jours ouvrés.", urgent: true, dateOffsetDays: 5 },
+          { title: "Prévenir l'employeur du patient", description: "Si en poste." },
+        ],
+      },
+      {
+        phase: "Sortie",
+        items: [
+          { title: "Compte-rendu d'hospitalisation", description: "À transmettre au médecin traitant." },
+          { title: "Dossier MDPH", description: "Si perte d'autonomie durable." },
+          { title: "Déclaration d'impôts", description: "Vérifier un report de délai si la période chevauche la campagne déclarative." },
+          { title: "Organiser le retour à domicile", description: "Aide à la personne, matériel médical, RDV de suivi." },
+        ],
+      },
+    ],
+  },
+  enfant: {
+    icon: "🧸",
+    label: "Enfant hospitalisé",
+    colorKey: "orange",
+    groups: [
+      {
+        phase: "Documents",
+        items: [
+          { title: "Carnet de santé + carte Vitale de l'enfant", description: "" },
+          { title: "Autorisation de soins", description: "Signée par le(s) titulaire(s) de l'autorité parentale." },
+          { title: "Attestation d'autorité parentale / jugement de garde", description: "Si parents séparés et service non informé." },
+          { title: "Certificat médical pour l'école", description: "Justificatif d'absence." },
+          { title: "PAI (Projet d'Accueil Individualisé)", description: "À établir ou réactiver avec l'école si suivi au long cours." },
+          { title: "Assurance scolaire / extra-scolaire", description: "Vérifier la couverture si accident." },
+        ],
+      },
+      {
+        phase: "Organisation famille",
+        items: [
+          { title: "Garde de la fratrie", description: "Qui s'en occupe pendant les visites." },
+          { title: "Doudou / objet familier", description: "Le premier réflexe anti-angoisse." },
+          { title: "Préparer l'enfant à l'avance", description: "Si l'admission n'est pas une urgence, en parler quelques jours avant." },
+          { title: "Prévenir l'école / la crèche", description: "" },
+        ],
+      },
+    ],
+  },
+  domicile: {
+    icon: "🏠",
+    label: "Soin à domicile",
+    colorKey: "gold",
+    groups: [
+      {
+        phase: "Mise en place",
+        items: [
+          { title: "Déclaration à la mutuelle / CPAM", description: "Prise en charge des soins à domicile." },
+          { title: "Commande de matériel médical", description: "Lit, fauteuil, oxygène selon prescription." },
+          { title: "Aménagement du logement", description: "Barres d'appui, rampe, douche adaptée si besoin." },
+          { title: "Planning des intervenants", description: "Infirmier·ère, kiné, aide à domicile." },
+          { title: "Congé proche aidant / AJPA", description: "Même démarche qu'en hospitalisation si tu es l'aidant principal.", urgent: true },
+          { title: "Procuration bancaire", description: "Si la personne ne peut plus gérer ses comptes." },
+        ],
+      },
+    ],
+  },
+};
+
+function addDaysIso(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+const SHEET_MAX_HEIGHT = Dimensions.get("window").height * 0.85;
 
 interface Props {
   spaceId: string;
@@ -174,6 +286,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [fDLPickerOpen, setFDLPickerOpen] = useState(false);
   const [fDLCalMonth, setFDLCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
   const [fUrgent, setFUrgent] = useState(false);
+
+  // ── Checklists administratives suggérées (MVP) — voir CHECKLIST_TEMPLATES.
+  const [checklistPicker, setChecklistPicker] = useState(false);
+  const [checklistContext, setChecklistContext] = useState<ChecklistContext | null>(null);
+  const [checklistChecked, setChecklistChecked] = useState<Record<number, boolean>>({});
+  const [checklistSaving, setChecklistSaving] = useState(false);
 
   // Champs spécifiques catégorie "transport" dans le formulaire de création.
   const [fTDate, setFTDate] = useState("");
@@ -463,6 +581,72 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setFDLCalMonth(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
     autoTransportTitleRef.current = "";
     setTaskForm(true);
+  }
+
+  function openChecklistPicker() {
+    if (capped) {
+      Alert.alert(
+        "Limite atteinte",
+        "Vous avez atteint la limite de votre espace. Consultez l'email envoyé à votre adresse pour en savoir plus.",
+      );
+      return;
+    }
+    setChecklistPicker(true);
+  }
+
+  function openChecklistContext(ctx: ChecklistContext) {
+    const items = CHECKLIST_TEMPLATES[ctx].groups.flatMap((g) => g.items);
+    const initial: Record<number, boolean> = {};
+    items.forEach((_, i) => { initial[i] = true; });
+    setChecklistChecked(initial);
+    setChecklistContext(ctx);
+  }
+
+  function toggleChecklistItem(i: number) {
+    setChecklistChecked((prev) => ({ ...prev, [i]: !prev[i] }));
+  }
+
+  function toggleAllChecklist(on: boolean) {
+    if (!checklistContext) return;
+    const items = CHECKLIST_TEMPLATES[checklistContext].groups.flatMap((g) => g.items);
+    const next: Record<number, boolean> = {};
+    items.forEach((_, i) => { next[i] = on; });
+    setChecklistChecked(next);
+  }
+
+  async function addChecklistItems() {
+    if (!checklistContext) return;
+    const items = CHECKLIST_TEMPLATES[checklistContext].groups.flatMap((g) => g.items);
+    const selected = items.filter((_, i) => checklistChecked[i]);
+    if (!selected.length) return;
+    setChecklistSaving(true);
+    const { data: userData } = await supabase.auth.getUser();
+    const authorPrenom = (userData.user?.user_metadata?.firstname ?? "").trim();
+    const authorNom = (userData.user?.user_metadata?.lastname ?? "").trim();
+    const rows = selected.map((item) => ({
+      space_id: spaceId,
+      title: item.title,
+      description: item.description,
+      category: "administratif" as const,
+      status: "ouvert" as const,
+      created_by: "admin",
+      author_prenom: authorPrenom || null,
+      author_nom: authorNom || null,
+      author_pin: "ADMIN",
+      date_limite: item.dateOffsetDays ? addDaysIso(item.dateOffsetDays) : null,
+      urgent: !!item.urgent,
+    }));
+    const { error } = await supabase.from("tasks").insert(rows);
+    setChecklistSaving(false);
+    if (error) {
+      Alert.alert("Erreur", "Impossible d'ajouter la checklist : " + error.message);
+      return;
+    }
+    setChecklistContext(null);
+    setChecklistPicker(false);
+    setActiveCat("administratif");
+    showToast(`${selected.length} besoin${selected.length > 1 ? "s" : ""} ajouté${selected.length > 1 ? "s" : ""} ✓`);
+    loadTasks();
   }
 
   // Bascule "je m'en occupe déjà" à la création — reprend l'identité déjà
@@ -1363,6 +1547,18 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         </TouchableOpacity>
       </View>
 
+      {isAdmin && activeCat === "administratif" && (
+        <TouchableOpacity
+          style={[styles.checklistBanner, { backgroundColor: C.gold + "1c", borderColor: C.gold }]}
+          onPress={openChecklistPicker}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.checklistBannerIcon}>✨</Text>
+          <Text style={[styles.checklistBannerText, { color: C.text }]}>Ajoute une checklist toute prête</Text>
+          <Text style={[styles.checklistBannerArrow, { color: C.gold }]}>→</Text>
+        </TouchableOpacity>
+      )}
+
       <View style={[styles.sectionBar, { borderBottomColor: C.border, flexDirection: "row", flexWrap: "wrap", gap: 8 }]}>
         <TouchableOpacity
           style={[
@@ -1421,7 +1617,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               ? `Aucun besoin dans ${CATEGORY_LABELS[activeCat]} pour l'instant.`
               : "Aucun besoin pour l'instant."}
           </Text>
-          <Text style={[styles.emptyHint, { color: C.muted }]}>Crée un besoin si tu as besoin d'aide.</Text>
+          <Text style={[styles.emptyHint, { color: C.muted }]}>
+            {isAdmin && activeCat === "administratif"
+              ? "Ajoute une checklist toute prête juste au-dessus, ou crée un besoin."
+              : "Crée un besoin si tu as besoin d'aide."}
+          </Text>
         </View>
       ) : (
         <ScrollView ref={scrollRef} contentContainerStyle={styles.listPad}>
@@ -1752,6 +1952,136 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             </ScrollView>
           </TouchableOpacity>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ── MODAL CHECKLIST : choix du contexte ─────────────────────────────
+          Overlay en frère du sheet (jamais en ancêtre d'une ScrollView), même
+          pattern que app/(admin)/settings.tsx MODAL CHRONOLOGIE : un
+          TouchableOpacity ancêtre casse le geste de scroll sur Android. */}
+      <Modal visible={checklistPicker} transparent animationType="slide" onRequestClose={() => setChecklistPicker(false)}>
+        <View style={styles.overlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setChecklistPicker(false)} />
+          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.gold }]}>
+            <Text style={[styles.sheetTitle, { color: C.text }]}>✨ Checklists suggérées</Text>
+            <Text style={[styles.checklistIntro, { color: C.muted }]}>
+              Choisis la situation qui correspond — tu pourras décocher ce qui ne s'applique pas avant d'ajouter.
+            </Text>
+            {(Object.keys(CHECKLIST_TEMPLATES) as ChecklistContext[]).map((ctx) => {
+              const tpl = CHECKLIST_TEMPLATES[ctx];
+              const count = tpl.groups.reduce((n, g) => n + g.items.length, 0);
+              const color = C[tpl.colorKey];
+              return (
+                <TouchableOpacity
+                  key={ctx}
+                  style={[styles.checklistCard, { borderColor: color, backgroundColor: color + "14" }]}
+                  onPress={() => openChecklistContext(ctx)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.checklistCardIcon}>{tpl.icon}</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.checklistCardTitle, { color: C.text }]}>{tpl.label}</Text>
+                    <Text style={[styles.checklistCardCount, { color: C.muted }]}>{count} besoins suggérés</Text>
+                  </View>
+                  <Text style={[styles.checklistCardArrow, { color }]}>→</Text>
+                </TouchableOpacity>
+              );
+            })}
+            <TouchableOpacity
+              onPress={() => setChecklistPicker(false)}
+              style={[styles.btnSecondary, { borderColor: C.border, marginTop: 10, flex: undefined, alignSelf: "stretch" }]}
+            >
+              <Text style={[styles.btnSecondaryText, { color: C.muted, textAlign: "center" }]}>Annuler</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── MODAL CHECKLIST : sélection des besoins d'un contexte ──────────── */}
+      <Modal visible={!!checklistContext} transparent animationType="slide" onRequestClose={() => setChecklistContext(null)}>
+        <View style={styles.overlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !checklistSaving && setChecklistContext(null)} />
+          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: checklistContext ? C[CHECKLIST_TEMPLATES[checklistContext].colorKey] : C.accent, maxHeight: SHEET_MAX_HEIGHT }]}>
+            {checklistContext && (() => {
+              const tpl = CHECKLIST_TEMPLATES[checklistContext];
+              const color = C[tpl.colorKey];
+              const items = tpl.groups.flatMap((g) => g.items);
+              const checkedCount = items.filter((_, i) => checklistChecked[i]).length;
+              let runningIndex = -1;
+              return (
+                <>
+                  <Text style={[styles.sheetTitle, { color: C.text }]}>{tpl.icon} {tpl.label}</Text>
+                  <TouchableOpacity onPress={() => toggleAllChecklist(checkedCount < items.length)} activeOpacity={0.7}>
+                    <Text style={[styles.checklistToggleAll, { color }]}>
+                      {checkedCount === items.length ? "Tout décocher" : "Tout cocher"}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <ScrollView style={styles.checklistScroll} showsVerticalScrollIndicator nestedScrollEnabled>
+                    {tpl.groups.map((group) => (
+                      <View key={group.phase} style={{ marginBottom: 4 }}>
+                        <Text style={[styles.checklistPhase, { color: C.muted }]}>{group.phase}</Text>
+                        {group.items.map((item) => {
+                          runningIndex += 1;
+                          const i = runningIndex;
+                          const checked = !!checklistChecked[i];
+                          return (
+                            <TouchableOpacity
+                              key={i}
+                              style={styles.checklistItemRow}
+                              onPress={() => toggleChecklistItem(i)}
+                              activeOpacity={0.7}
+                            >
+                              <View
+                                style={[
+                                  styles.checklistBox,
+                                  { borderColor: checked ? color : C.border, backgroundColor: checked ? color : "transparent" },
+                                ]}
+                              >
+                                {checked && <Text style={styles.checklistBoxMark}>✓</Text>}
+                              </View>
+                              <View style={{ flex: 1 }}>
+                                <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
+                                  <Text style={[styles.checklistItemTitle, { color: checked ? C.text : C.muted }]}>{item.title}</Text>
+                                  {item.urgent && (
+                                    <View style={[styles.checklistUrgentChip, { backgroundColor: C.danger + "22" }]}>
+                                      <Text style={[styles.checklistUrgentChipText, { color: C.danger }]}>urgent</Text>
+                                    </View>
+                                  )}
+                                </View>
+                                {!!item.description && (
+                                  <Text style={[styles.checklistItemDesc, { color: C.muted }]}>{item.description}</Text>
+                                )}
+                              </View>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    ))}
+                  </ScrollView>
+
+                  <View style={styles.sheetBtns}>
+                    <TouchableOpacity
+                      style={[styles.btnSecondary, { borderColor: C.border }]}
+                      onPress={() => setChecklistContext(null)}
+                      disabled={checklistSaving}
+                    >
+                      <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Retour</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btnPrimary, { backgroundColor: color, opacity: checkedCount === 0 || checklistSaving ? 0.5 : 1 }]}
+                      onPress={addChecklistItems}
+                      disabled={checkedCount === 0 || checklistSaving}
+                    >
+                      {checklistSaving
+                        ? <ActivityIndicator color="#fff" />
+                        : <Text style={styles.btnPrimaryText}>Ajouter {checkedCount > 0 ? `(${checkedCount})` : ""}</Text>}
+                    </TouchableOpacity>
+                  </View>
+                </>
+              );
+            })()}
+          </View>
+        </View>
       </Modal>
 
       {/* ── MODAL CLAIM ───────────────────────────────────────────────────── */}
@@ -2350,4 +2680,26 @@ const styles = StyleSheet.create({
 
   toast: { position: "absolute", bottom: 24, alignSelf: "center", paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10 },
   toastText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13, color: "#fff" },
+
+  // Checklists administratives suggérées (MVP)
+  checklistBanner: { flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 14, marginTop: 10, borderWidth: 1, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14 },
+  checklistBannerIcon: { fontSize: 18 },
+  checklistBannerText: { flex: 1, fontFamily: "DM_Sans_600SemiBold", fontSize: 13.5 },
+  checklistBannerArrow: { fontFamily: "DM_Sans_700Bold", fontSize: 16 },
+  checklistIntro: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 18, marginBottom: 14 },
+  checklistCard: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1.5, borderRadius: 14, padding: 14, marginBottom: 10 },
+  checklistCardIcon: { fontSize: 26 },
+  checklistCardTitle: { fontFamily: "DM_Sans_700Bold", fontSize: 15 },
+  checklistCardCount: { fontFamily: "DM_Sans_400Regular", fontSize: 12.5, marginTop: 2 },
+  checklistCardArrow: { fontFamily: "DM_Sans_700Bold", fontSize: 18 },
+  checklistToggleAll: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12.5, marginBottom: 10 },
+  checklistScroll: { height: 340 },
+  checklistPhase: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", marginTop: 10, marginBottom: 6 },
+  checklistItemRow: { flexDirection: "row", gap: 10, paddingVertical: 8, alignItems: "flex-start" },
+  checklistBox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, alignItems: "center", justifyContent: "center", marginTop: 1 },
+  checklistBoxMark: { color: "#fff", fontSize: 13, fontFamily: "DM_Sans_700Bold" },
+  checklistItemTitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14, flexShrink: 1 },
+  checklistItemDesc: { fontFamily: "DM_Sans_400Regular", fontSize: 12.5, lineHeight: 17, marginTop: 2 },
+  checklistUrgentChip: { borderRadius: 5, paddingHorizontal: 6, paddingVertical: 1, marginLeft: 8 },
+  checklistUrgentChipText: { fontFamily: "DM_Sans_700Bold", fontSize: 9.5, letterSpacing: 0.4, textTransform: "uppercase" },
 });
