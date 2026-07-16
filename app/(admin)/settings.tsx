@@ -2970,9 +2970,9 @@ export default function SettingsScreen() {
 
               <TouchableOpacity
                 onPress={() => setChronoModal(false)}
-                style={[styles.btnSecondary, { borderColor: C.border, marginTop: 14 }]}
+                style={[styles.saveNotesBtn, { backgroundColor: C.accent, marginTop: 14 }]}
               >
-                <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Fermer</Text>
+                <Text style={styles.saveNotesBtnText}>Fermer</Text>
               </TouchableOpacity>
             </View>
           </TouchableOpacity>
