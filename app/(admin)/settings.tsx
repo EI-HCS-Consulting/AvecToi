@@ -2932,7 +2932,11 @@ export default function SettingsScreen() {
       {/* ── MODAL CHRONOLOGIE (frise) ──────────────────────────────────── */}
       <Modal visible={chronoModal} transparent animationType="slide" onRequestClose={() => setChronoModal(false)}>
         <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setChronoModal(false)}>
-          <TouchableOpacity activeOpacity={1}>
+          {/* View simple (pas TouchableOpacity) : un Touchable ici entre en
+              conflit avec le geste de scroll de la ScrollView ci-dessous
+              (scroll saccadé, impossible de remonter) — onStartShouldSetResponder
+              suffit à absorber les taps sur les zones vides sans intercepter le pan. */}
+          <View onStartShouldSetResponder={() => true}>
             <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: SHEET_MAX_HEIGHT }]}>
               <Text style={[styles.sheetTitle, { color: C.text }]}>🕐 Chronologie</Text>
               <Text style={[styles.cardDesc, { color: C.muted, marginBottom: 10 }]}>
@@ -2944,7 +2948,7 @@ export default function SettingsScreen() {
               ) : chronoEvents.length === 0 ? (
                 <Text style={[styles.historyEmpty, { color: C.muted }]}>Aucun événement pour l'instant.</Text>
               ) : (
-                <ScrollView style={styles.chronoScroll} showsVerticalScrollIndicator>
+                <ScrollView style={styles.chronoScroll} showsVerticalScrollIndicator nestedScrollEnabled>
                   {chronoEvents.map((ev, i) => {
                     const isLast = i === chronoEvents.length - 1;
                     const dotColor = C[CHRONO_KIND_COLOR[ev.kind]];
@@ -2984,7 +2988,7 @@ export default function SettingsScreen() {
                 <Text style={styles.saveNotesBtnText}>Fermer</Text>
               </TouchableOpacity>
             </View>
-          </TouchableOpacity>
+          </View>
         </TouchableOpacity>
       </Modal>
 
@@ -3096,13 +3100,10 @@ const styles = StyleSheet.create({
 
   // Chronologie (popup frise) — cadre borné : seule cette zone scrolle,
   // le reste de la popup (titre, légende, bouton Fermer) reste fixe.
-  // flexShrink: 1 est indispensable ici — sans lui, React Native (Yoga) ne
-  // réduit jamais un enfant par défaut (contrairement au flex-shrink:1 du
-  // CSS web) : sur un écran plus petit que title+desc+420+bouton, la
-  // ScrollView débordait du cadre du sheet (maxHeight) au lieu de se
-  // réduire, ce qui coupait la frise avant la fin ET cassait le scroll
-  // (la zone tactile dépassait la zone visible/cliquable réelle).
-  chronoScroll: { maxHeight: 420, flexShrink: 1, flexGrow: 0 },
+  // Hauteur fixe (pas maxHeight+flexShrink) : évite toute renégociation de
+  // layout à chaque render qui rendait le scroll saccadé / bloqué dans un
+  // seul sens sur appareil réel.
+  chronoScroll: { height: 340 },
   chronoRow: { flexDirection: "row" },
   chronoRail: { width: 30, alignItems: "center" },
   chronoDot: {
