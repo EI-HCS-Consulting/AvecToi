@@ -2931,65 +2931,70 @@ export default function SettingsScreen() {
 
       {/* ── MODAL CHRONOLOGIE (frise) ──────────────────────────────────── */}
       <Modal visible={chronoModal} transparent animationType="slide" onRequestClose={() => setChronoModal(false)}>
-        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setChronoModal(false)}>
-          {/* View simple (pas TouchableOpacity) : un Touchable ici entre en
-              conflit avec le geste de scroll de la ScrollView ci-dessous
-              (scroll saccadé, impossible de remonter) — onStartShouldSetResponder
-              suffit à absorber les taps sur les zones vides sans intercepter le pan. */}
-          <View onStartShouldSetResponder={() => true}>
-            <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: SHEET_MAX_HEIGHT }]}>
-              <Text style={[styles.sheetTitle, { color: C.text }]}>🕐 Chronologie</Text>
-              <Text style={[styles.cardDesc, { color: C.muted, marginBottom: 10 }]}>
-                Du plus récent (en haut) à {space?.home_care_mode ? "l'entrée en soin" : "l'hospitalisation"} (en bas) — fais défiler la frise pour naviguer.
-              </Text>
+        <View style={styles.overlay}>
+          {/* TouchableOpacity en frère (absoluteFill), pas en ancêtre du sheet :
+              même pattern que MODAL PROFIL PATIENT. Un Touchable ANCÊTRE de la
+              ScrollView ci-dessous entre en conflit avec son geste de pan (scroll
+              saccadé, impossible de remonter) — en sibling positionné derrière,
+              il capte les taps sur le fond sans jamais entrer dans la chaîne de
+              responder de la ScrollView. */}
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setChronoModal(false)}
+          />
+          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: SHEET_MAX_HEIGHT }]}>
+            <Text style={[styles.sheetTitle, { color: C.text }]}>🕐 Chronologie</Text>
+            <Text style={[styles.cardDesc, { color: C.muted, marginBottom: 10 }]}>
+              Du plus récent (en haut) à {space?.home_care_mode ? "l'entrée en soin" : "l'hospitalisation"} (en bas) — fais défiler la frise pour naviguer.
+            </Text>
 
-              {chronoLoading ? (
-                <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
-              ) : chronoEvents.length === 0 ? (
-                <Text style={[styles.historyEmpty, { color: C.muted }]}>Aucun événement pour l'instant.</Text>
-              ) : (
-                <ScrollView style={styles.chronoScroll} showsVerticalScrollIndicator nestedScrollEnabled>
-                  {chronoEvents.map((ev, i) => {
-                    const isLast = i === chronoEvents.length - 1;
-                    const dotColor = C[CHRONO_KIND_COLOR[ev.kind]];
-                    return (
-                      <View key={ev.id} style={styles.chronoRow}>
-                        <View style={styles.chronoRail}>
-                          <View style={[styles.chronoDot, { backgroundColor: dotColor, borderColor: C.card }]}>
-                            <Text style={styles.chronoDotIcon}>{ev.icon}</Text>
-                          </View>
-                          {!isLast && <View style={[styles.chronoLine, { backgroundColor: C.border }]} />}
+            {chronoLoading ? (
+              <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
+            ) : chronoEvents.length === 0 ? (
+              <Text style={[styles.historyEmpty, { color: C.muted }]}>Aucun événement pour l'instant.</Text>
+            ) : (
+              <ScrollView style={styles.chronoScroll} showsVerticalScrollIndicator nestedScrollEnabled>
+                {chronoEvents.map((ev, i) => {
+                  const isLast = i === chronoEvents.length - 1;
+                  const dotColor = C[CHRONO_KIND_COLOR[ev.kind]];
+                  return (
+                    <View key={ev.id} style={styles.chronoRow}>
+                      <View style={styles.chronoRail}>
+                        <View style={[styles.chronoDot, { backgroundColor: dotColor, borderColor: C.card }]}>
+                          <Text style={styles.chronoDotIcon}>{ev.icon}</Text>
                         </View>
-                        <View style={styles.chronoContent}>
-                          <Text style={[styles.historyDate, { color: C.muted }]}>
-                            {ev.date.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
-                          </Text>
-                          <Text style={[styles.chronoTitle, { color: ev.kind === "hospitalisation" ? C.danger : C.text }]}>
-                            {ev.title}
-                          </Text>
-                          {ev.detail && <Text style={[styles.historyOld, { color: C.muted }]}>{ev.detail}</Text>}
-                        </View>
+                        {!isLast && <View style={[styles.chronoLine, { backgroundColor: C.border }]} />}
                       </View>
-                    );
-                  })}
-                </ScrollView>
-              )}
+                      <View style={styles.chronoContent}>
+                        <Text style={[styles.historyDate, { color: C.muted }]}>
+                          {ev.date.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
+                        </Text>
+                        <Text style={[styles.chronoTitle, { color: ev.kind === "hospitalisation" ? C.danger : C.text }]}>
+                          {ev.title}
+                        </Text>
+                        {ev.detail && <Text style={[styles.historyOld, { color: C.muted }]}>{ev.detail}</Text>}
+                      </View>
+                    </View>
+                  );
+                })}
+              </ScrollView>
+            )}
 
-              {!chronoLoading && !space?.patient_admission_date && (
-                <Text style={[styles.historyEmpty, { color: C.muted, marginTop: 8 }]}>
-                  🏥 {space?.home_care_mode ? "La date de début du soin à domicile n'est" : "La date d'hospitalisation n'est"} pas renseignée — ajoute-la dans la fiche patient ci-dessus pour l'afficher tout en bas de la frise.
-                </Text>
-              )}
+            {!chronoLoading && !space?.patient_admission_date && (
+              <Text style={[styles.historyEmpty, { color: C.muted, marginTop: 8 }]}>
+                🏥 {space?.home_care_mode ? "La date de début du soin à domicile n'est" : "La date d'hospitalisation n'est"} pas renseignée — ajoute-la dans la fiche patient ci-dessus pour l'afficher tout en bas de la frise.
+              </Text>
+            )}
 
-              <TouchableOpacity
-                onPress={() => setChronoModal(false)}
-                style={[styles.saveNotesBtn, { backgroundColor: C.accent, marginTop: 14 }]}
-              >
-                <Text style={styles.saveNotesBtnText}>Fermer</Text>
-              </TouchableOpacity>
-            </View>
+            <TouchableOpacity
+              onPress={() => setChronoModal(false)}
+              style={[styles.saveNotesBtn, { backgroundColor: C.accent, marginTop: 14 }]}
+            >
+              <Text style={styles.saveNotesBtnText}>Fermer</Text>
+            </TouchableOpacity>
           </View>
-        </TouchableOpacity>
+        </View>
       </Modal>
 
       {/* Toast */}
