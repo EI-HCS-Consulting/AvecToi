@@ -321,7 +321,7 @@ const sliderStyles = StyleSheet.create({
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { space, slotConfig, loading, hasSpace, refreshSlotConfig } = useSpace();
+  const { space, slotConfig, loading, hasSpace, refreshSlotConfig, refreshSpace } = useSpace();
   const { theme: C } = useDisplayMode();
 
   const [photoUploading, setPhotoUploading] = useState(false);
@@ -447,7 +447,10 @@ export default function SettingsScreen() {
       .eq("id", space.id);
     setPatientMedicalSaving(false);
     if (error) showToast("Erreur lors de la sauvegarde.");
-    else showToast("Fiche patient enregistrée ✓");
+    else {
+      await refreshSpace();
+      showToast("Fiche patient enregistrée ✓");
+    }
   }
 
   // Infos hospitalières (room / service / secteur)
