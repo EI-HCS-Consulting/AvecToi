@@ -2968,6 +2968,12 @@ export default function SettingsScreen() {
                 </ScrollView>
               )}
 
+              {!chronoLoading && !space?.patient_admission_date && (
+                <Text style={[styles.historyEmpty, { color: C.muted, marginTop: 8 }]}>
+                  🏥 {space?.home_care_mode ? "La date de début du soin à domicile n'est" : "La date d'hospitalisation n'est"} pas renseignée — ajoute-la dans la fiche patient ci-dessus pour l'afficher tout en bas de la frise.
+                </Text>
+              )}
+
               <TouchableOpacity
                 onPress={() => setChronoModal(false)}
                 style={[styles.saveNotesBtn, { backgroundColor: C.accent, marginTop: 14 }]}
