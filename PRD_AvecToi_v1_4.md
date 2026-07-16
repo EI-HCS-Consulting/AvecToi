@@ -446,6 +446,16 @@ Logique Supabase (requêtes, realtime, storage) : 100 % réutilisable.
 - Paiement in-app (par conception : modèle reader app, §3.1)
 - Prescription mutuelles / assureurs (phase 2 commerciale)
 - Codes couleurs définitifs des thèmes autres que `blue` (à intégrer en V1 avant publication)
+- **Export PDF "livret"** (V2) : bouton "Chronologie" côté admin (Paramètres →
+  Historique) déjà livré en V1 — ouvre une frise chronologique (popup, zone de
+  scroll bornée) combinant Infos hospitalières + Consignes de visite + Règles
+  de visite + Visites (créneaux/nuitées réservés), triée du plus récent (haut)
+  à la date d'hospitalisation (bas). Reste à construire : export de cette même
+  matière en **livret PDF** regroupant l'ensemble des infos remplies par les
+  visiteurs et l'admin, comme trace du passage à l'hôpital (ou des soins à
+  domicile). Dans le PDF, la frise s'affiche verticale, en partant de la date
+  d'hospitalisation (ordre chronologique croissant, inverse du popup),
+  affichant dates + infos importantes. Modèle de mise en page non défini.
 
 ---
 

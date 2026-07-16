@@ -68,6 +68,19 @@ App.jsx            → MVP web de référence (logique à porter en RN)
 13. EAS Build → APK signé
 14. Fiche Play Store + soumission
 
+## Backlog V2 (post-V1, scope capté mais pas encore construit)
+15. **Export PDF "livret"** — Admin / Paramètres / Historique propose déjà un bouton
+    "Chronologie" (bleu, comme "Profil Patient") qui ouvre une frise chronologique
+    (popup, scroll borné) combinant Infos hospitalières + Consignes de visite +
+    Règles de visite + Visites (créneaux/nuitées réservés), triée du plus récent
+    (haut) à la date d'hospitalisation (bas). Prochaine étape : permettre à l'admin
+    d'exporter cette même matière sous forme de **livret PDF** regroupant l'ensemble
+    des infos remplies par les visiteurs et l'admin (trace du passage à l'hôpital ou
+    des soins à domicile). Dans le PDF, la frise s'affiche **verticale, en partant de
+    l'hospitalisation** (ordre chronologique croissant — inverse du popup in-app),
+    avec dates + infos importantes. Modèle de mise en page du livret à définir
+    ultérieurement (pas encore commencé).
+
 ## Commande handoff
 Fichier unique : `Handoff/handoff.md`.
 

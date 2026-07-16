@@ -24,7 +24,7 @@ import { resolvePlaceFromMapsUrl } from "@/lib/address";
 import { generateSlots, formatHourMinute } from "@/lib/slotUtils";
 import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
 import type { Theme } from "@/lib/themes";
-import type { NewsEntry, Task, SupportMessage, SlotConfig, ReservationChangeHistoryEntry } from "@/lib/types";
+import type { NewsEntry, Task, SupportMessage, SlotConfig, ReservationChangeHistoryEntry, Reservation } from "@/lib/types";
 import { openAndroidTimePicker, openAndroidDatePicker } from "@/lib/androidTimePicker";
 
 // Résultat de la RPC apply_slot_rule_change (voir migration
@@ -44,6 +44,24 @@ interface FieldHistoryEntry {
   new_value: string | null;
   changed_at: string;
 }
+
+// ─── Chronologie (popup frise) ─────────────────────────────────────────────
+type ChronoEventKind = "hosp" | "regles" | "consignes" | "resa" | "hospitalisation";
+interface ChronoEvent {
+  id: string;
+  kind: ChronoEventKind;
+  date: Date;
+  icon: string;
+  title: string;
+  detail?: string;
+}
+const CHRONO_KIND_COLOR: Record<ChronoEventKind, keyof Theme> = {
+  hosp: "accent",
+  regles: "gold",
+  consignes: "accent",
+  resa: "success",
+  hospitalisation: "danger",
+};
 
 const BLOOD_GROUPS = [["A+", "A-"], ["B+", "B-"], ["AB+", "AB-"], ["O+", "O-"]];
 
@@ -303,7 +321,7 @@ const sliderStyles = StyleSheet.create({
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { space, slotConfig, loading, hasSpace, refreshSlotConfig } = useSpace();
+  const { space, slotConfig, loading, hasSpace, refreshSlotConfig, refreshSpace } = useSpace();
   const { theme: C } = useDisplayMode();
 
   const [photoUploading, setPhotoUploading] = useState(false);
@@ -429,7 +447,10 @@ export default function SettingsScreen() {
       .eq("id", space.id);
     setPatientMedicalSaving(false);
     if (error) showToast("Erreur lors de la sauvegarde.");
-    else showToast("Fiche patient enregistrée ✓");
+    else {
+      await refreshSpace();
+      showToast("Fiche patient enregistrée ✓");
+    }
   }
 
   // Infos hospitalières (room / service / secteur)
@@ -534,6 +555,25 @@ export default function SettingsScreen() {
   });
   function toggleHistoryBlock(key: keyof typeof historyBlocksOpen) {
     setHistoryBlocksOpen((prev) => ({ ...prev, [key]: !prev[key] }));
+  }
+
+  // Chronologie — popup frise verticale (infos hospitalières + consignes +
+  // règles de visite + visites/nuitées réservées). Réutilise fieldHistory
+  // (chargé par loadHistory) et charge les réservations à part, ce bloc
+  // pouvant être ouvert sans être jamais passé par la section "Historique".
+  const [chronoModal, setChronoModal] = useState(false);
+  const [chronoLoading, setChronoLoading] = useState(false);
+  const [chronoReservations, setChronoReservations] = useState<Reservation[]>([]);
+
+  async function openChronoModal() {
+    setChronoModal(true);
+    setChronoLoading(true);
+    const [, resaData] = await Promise.all([
+      loadHistory(),
+      supabase.from("reservations").select("*").eq("space_id", space!.id).order("date", { ascending: false }),
+    ]);
+    setChronoReservations(resaData.data || []);
+    setChronoLoading(false);
   }
 
   // Soin à domicile toggle
@@ -728,6 +768,44 @@ export default function SettingsScreen() {
   const filteredPubNews = pubNews.filter((n) => matchesHistoryQuery(n.content, n.author_prenom, n.author_nom));
   const filteredPubTasks = pubTasks.filter((t) => matchesHistoryQuery(t.title, t.description, t.category));
   const filteredPubMessages = pubMessages.filter((m) => matchesHistoryQuery(m.message, m.author_prenom, m.author_nom));
+
+  // Frise "Chronologie" — combine infos hospitalières + consignes + règles de
+  // visite (fieldHistory, chargé par loadHistory) et visites/nuitées
+  // réservées (chronoReservations, chargé par openChronoModal), plus un
+  // repère fixe sur la date d'hospitalisation. Tri du plus récent (haut) au
+  // plus ancien (bas) — voir styles.chronoList pour le rendu inversé qui
+  // place la date d'hospitalisation en bas de la frise.
+  const chronoEvents: ChronoEvent[] = [
+    ...fieldHistory.map((h): ChronoEvent => {
+      if (h.field_name === "visit_rules") {
+        return {
+          id: `fh-${h.id}`, kind: "consignes", date: new Date(h.changed_at),
+          icon: "📝", title: "Consignes de visite modifiées",
+          detail: h.new_value ? `→ "${h.new_value}"` : "→ (vide)",
+        };
+      }
+      const isRegle = VISIT_RULE_FIELD_NAMES.has(h.field_name);
+      return {
+        id: `fh-${h.id}`, kind: isRegle ? "regles" : "hosp", date: new Date(h.changed_at),
+        icon: FIELD_ICONS[h.field_name] ?? "✏️",
+        title: FIELD_LABELS[h.field_name] ?? h.field_name,
+        detail: h.new_value ? `→ ${h.new_value}` : "→ (vide)",
+      };
+    }),
+    ...chronoReservations.map((r): ChronoEvent => ({
+      id: `resa-${r.id}`, kind: "resa", date: new Date(r.date + "T12:00:00"),
+      icon: r.type === "Nuit" ? "🌙" : "☀️",
+      title: `${r.prenom} ${r.nom}`,
+      detail: `${r.type === "Nuit" ? "Nuitée" : "Visite"} · ${r.creneau}`,
+    })),
+    ...(space?.patient_admission_date ? [{
+      id: "hospitalisation",
+      kind: "hospitalisation" as const,
+      date: new Date(space.patient_admission_date + "T00:00:00"),
+      icon: "🏥",
+      title: space.home_care_mode ? "Début du soin à domicile" : "Hospitalisation",
+    }] : []),
+  ].sort((a, b) => b.date.getTime() - a.date.getTime());
 
   useEffect(() => { if (space) loadHistory(); }, [space?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2228,6 +2306,21 @@ export default function SettingsScreen() {
               )}
             </View>
 
+            {/* ── Bloc : Chronologie ───────────────────────────────────────── */}
+            <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 16 }]}>
+              <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 0 }]}>🕐 Chronologie</Text>
+              <Text style={[styles.cardDesc, { color: C.muted }]}>
+                Frise chronologique du passage {space.home_care_mode ? "en soin à domicile" : "à l'hôpital"} : infos hospitalières,
+                consignes et règles de visite, visites et nuitées réservées.
+              </Text>
+              <TouchableOpacity
+                style={[styles.saveNotesBtn, { backgroundColor: C.accent, borderWidth: 1, borderColor: C.accent }]}
+                onPress={openChronoModal}
+              >
+                <Text style={[styles.saveNotesBtnText, { color: "#fff" }]}>Chronologie</Text>
+              </TouchableOpacity>
+            </View>
+
             {/* ── Bloc : Conservation des données ─────────────────────────── */}
             {(() => {
               const purgeDate = new Date(space.purge_scheduled_at);
@@ -2836,6 +2929,65 @@ export default function SettingsScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
+      {/* ── MODAL CHRONOLOGIE (frise) ──────────────────────────────────── */}
+      <Modal visible={chronoModal} transparent animationType="slide" onRequestClose={() => setChronoModal(false)}>
+        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setChronoModal(false)}>
+          <TouchableOpacity activeOpacity={1}>
+            <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: SHEET_MAX_HEIGHT }]}>
+              <Text style={[styles.sheetTitle, { color: C.text }]}>🕐 Chronologie</Text>
+              <Text style={[styles.cardDesc, { color: C.muted, marginBottom: 10 }]}>
+                Du plus récent (en haut) à {space?.home_care_mode ? "l'entrée en soin" : "l'hospitalisation"} (en bas) — fais défiler la frise pour naviguer.
+              </Text>
+
+              {chronoLoading ? (
+                <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
+              ) : chronoEvents.length === 0 ? (
+                <Text style={[styles.historyEmpty, { color: C.muted }]}>Aucun événement pour l'instant.</Text>
+              ) : (
+                <ScrollView style={styles.chronoScroll} showsVerticalScrollIndicator>
+                  {chronoEvents.map((ev, i) => {
+                    const isLast = i === chronoEvents.length - 1;
+                    const dotColor = C[CHRONO_KIND_COLOR[ev.kind]];
+                    return (
+                      <View key={ev.id} style={styles.chronoRow}>
+                        <View style={styles.chronoRail}>
+                          <View style={[styles.chronoDot, { backgroundColor: dotColor, borderColor: C.card }]}>
+                            <Text style={styles.chronoDotIcon}>{ev.icon}</Text>
+                          </View>
+                          {!isLast && <View style={[styles.chronoLine, { backgroundColor: C.border }]} />}
+                        </View>
+                        <View style={styles.chronoContent}>
+                          <Text style={[styles.historyDate, { color: C.muted }]}>
+                            {ev.date.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
+                          </Text>
+                          <Text style={[styles.chronoTitle, { color: ev.kind === "hospitalisation" ? C.danger : C.text }]}>
+                            {ev.title}
+                          </Text>
+                          {ev.detail && <Text style={[styles.historyOld, { color: C.muted }]}>{ev.detail}</Text>}
+                        </View>
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+              )}
+
+              {!chronoLoading && !space?.patient_admission_date && (
+                <Text style={[styles.historyEmpty, { color: C.muted, marginTop: 8 }]}>
+                  🏥 {space?.home_care_mode ? "La date de début du soin à domicile n'est" : "La date d'hospitalisation n'est"} pas renseignée — ajoute-la dans la fiche patient ci-dessus pour l'afficher tout en bas de la frise.
+                </Text>
+              )}
+
+              <TouchableOpacity
+                onPress={() => setChronoModal(false)}
+                style={[styles.saveNotesBtn, { backgroundColor: C.accent, marginTop: 14 }]}
+              >
+                <Text style={styles.saveNotesBtnText}>Fermer</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       {/* Toast */}
       {!!toast && (
         <View style={[styles.toast, { backgroundColor: C.success }]}>
@@ -2941,6 +3093,26 @@ const styles = StyleSheet.create({
   historyMsg: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginBottom: 2 },
   historyDate: { fontFamily: "DM_Sans_400Regular", fontSize: 11 },
   historySubGroup: { fontFamily: "DM_Sans_700Bold", fontSize: 12, marginBottom: 8 },
+
+  // Chronologie (popup frise) — cadre borné : seule cette zone scrolle,
+  // le reste de la popup (titre, légende, bouton Fermer) reste fixe.
+  // flexShrink: 1 est indispensable ici — sans lui, React Native (Yoga) ne
+  // réduit jamais un enfant par défaut (contrairement au flex-shrink:1 du
+  // CSS web) : sur un écran plus petit que title+desc+420+bouton, la
+  // ScrollView débordait du cadre du sheet (maxHeight) au lieu de se
+  // réduire, ce qui coupait la frise avant la fin ET cassait le scroll
+  // (la zone tactile dépassait la zone visible/cliquable réelle).
+  chronoScroll: { maxHeight: 420, flexShrink: 1, flexGrow: 0 },
+  chronoRow: { flexDirection: "row" },
+  chronoRail: { width: 30, alignItems: "center" },
+  chronoDot: {
+    width: 26, height: 26, borderRadius: 13, borderWidth: 2,
+    alignItems: "center", justifyContent: "center", marginBottom: 2,
+  },
+  chronoDotIcon: { fontSize: 12 },
+  chronoLine: { flex: 1, width: 2, marginBottom: 2 },
+  chronoContent: { flex: 1, paddingLeft: 10, paddingBottom: 18 },
+  chronoTitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13.5, marginTop: 2, marginBottom: 2 },
 
   // Admin notes
   warningText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, marginBottom: 10 },

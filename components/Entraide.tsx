@@ -168,6 +168,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [fExistingPhoto, setFExistingPhoto] = useState<string | null>(null);
   const [pickingPhoto, setPickingPhoto] = useState(false);
   const [taskSaving, setTaskSaving] = useState(false);
+  // Échéance optionnelle + urgent — catégories hors Transport (qui a déjà
+  // ses propres champs date/heure, voir fTDate plus bas).
+  const [fDateLimite, setFDateLimite] = useState("");
+  const [fDLPickerOpen, setFDLPickerOpen] = useState(false);
+  const [fDLCalMonth, setFDLCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
+  const [fUrgent, setFUrgent] = useState(false);
 
   // Champs spécifiques catégorie "transport" dans le formulaire de création.
   const [fTDate, setFTDate] = useState("");
@@ -395,7 +401,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     focusedRef.current = true;
     if (activeCat && activeCat !== target.category) setActiveCat(null);
     if (openOnlyFilter && (target.status === "fait" || target.status === "ferme")) setOpenOnlyFilter(false);
-    if (closedOnlyFilter && target.status !== "ferme") setClosedOnlyFilter(false);
+    if (closedOnlyFilter && target.status !== "ferme" && target.status !== "fait") setClosedOnlyFilter(false);
     setHighlightId(focusTaskId);
     setTimeout(() => {
       const y = taskOffsets.current[focusTaskId];
@@ -453,6 +459,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setFTHomePostalCode(""); setFTHomeCity(""); setFTHomeCountry("");
     setFTForSomeoneElse(false); setFTForPrenom(""); setFTForNom("");
     setFTCalMonth(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
+    setFDateLimite(""); setFDLPickerOpen(false); setFUrgent(false);
+    setFDLCalMonth(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
     autoTransportTitleRef.current = "";
     setTaskForm(true);
   }
@@ -481,6 +489,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setEditTask(t);
     setFTitle(t.title); setFDesc(t.description); setFCat(t.category);
     setFPhotoUri(null); setFExistingPhoto(t.photo);
+    setFDateLimite(t.date_limite ?? ""); setFDLPickerOpen(!!t.date_limite); setFUrgent(t.urgent);
+    if (t.date_limite) {
+      const d = new Date(t.date_limite + "T12:00:00");
+      setFDLCalMonth({ year: d.getFullYear(), month: d.getMonth() });
+    }
     setTaskForm(true);
   }
 
@@ -536,6 +549,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       const removedFilename = editTask.photo && editTask.photo !== photoFilename ? editTask.photo : null;
       await supabase.from("tasks").update({
         title: fTitle.trim(), description: fDesc.trim(), category: fCat, photo: photoFilename,
+        date_limite: fCat !== "transport" && fDateLimite ? fDateLimite : null,
+        urgent: fUrgent,
       }).eq("id", editTask.id);
       if (removedFilename) {
         await supabase.storage.from(PHOTO_BUCKET).remove([`${spaceId}/${removedFilename}`]);
@@ -587,6 +602,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         author_prenom: authorPrenom || null,
         author_nom: authorNom || null,
         author_pin: authorPin || null,
+        date_limite: fCat !== "transport" && fDateLimite ? fDateLimite : null,
+        urgent: fUrgent,
         ...transportFields,
         ...(claimOnCreate ? {
           claimed_by_prenom: claimPrenom.trim(),
@@ -891,16 +908,20 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // Besoin jamais pris en charge (status toujours "ouvert") et dont la date
   // demandée est déjà passée — fermé automatiquement (voir l'effet plus
   // haut) pour ne pas rester affiché indéfiniment comme "en attente de
-  // réponse". Seule la catégorie Transport porte une date structurée
-  // aujourd'hui ; les autres catégories n'ont pas ce champ et ne matchent
-  // donc jamais ici pour l'instant.
+  // réponse". Transport a sa propre date/heure structurée ; les autres
+  // catégories utilisent l'échéance générique optionnelle (date_limite) —
+  // absente = jamais fermé automatiquement pour ce besoin.
   function taskOverdueUnclaimed(t: Task): boolean {
-    if (t.category !== "transport" || t.status !== "ouvert") return false;
-    const date = t.transport_confirmed_date || t.transport_date;
-    if (!date) return false;
-    const time = t.transport_confirmed_return_time || t.transport_return_time
-      || t.transport_confirmed_out_time || t.transport_out_time || "23:59";
-    return new Date(`${date}T${time}:00`) < new Date();
+    if (t.status !== "ouvert") return false;
+    if (t.category === "transport") {
+      const date = t.transport_confirmed_date || t.transport_date;
+      if (!date) return false;
+      const time = t.transport_confirmed_return_time || t.transport_return_time
+        || t.transport_confirmed_out_time || t.transport_out_time || "23:59";
+      return new Date(`${date}T${time}:00`) < new Date();
+    }
+    if (!t.date_limite) return false;
+    return new Date(`${t.date_limite}T23:59:59`) < new Date();
   }
 
   async function openTransportPropose(t: Task) {
@@ -1057,6 +1078,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             <Text style={styles.catIcon}>{CATEGORY_ICONS[t.category]}</Text>
             <Text style={[styles.catLabel, { color: C.accent }]}>{CATEGORY_LABELS[t.category]}</Text>
           </View>
+          {t.urgent && (
+            <View style={[styles.catBadge, { backgroundColor: `${C.danger}22` }]}>
+              <Text style={[styles.catLabel, { color: C.danger }]}>🔴 Urgent</Text>
+            </View>
+          )}
           <View style={[styles.statusBadge, { borderColor: transportOverdue(t) ? statusColors.fait : statusColors[t.status] }]}>
             <Text style={[styles.statusLabel, { color: transportOverdue(t) ? statusColors.fait : statusColors[t.status] }]}>
               {transportOverdue(t) ? STATUS_LABELS.fait : STATUS_LABELS[t.status]}
@@ -1080,6 +1106,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         {t.description ? (
           <Text style={[styles.taskDesc, { color: C.muted }]}>{t.description}</Text>
         ) : null}
+        {t.category !== "transport" && t.date_limite && (
+          <Text style={[styles.taskDesc, { color: C.muted }]}>
+            📅 Échéance : {toFrShort(new Date(t.date_limite + "T12:00:00"))}
+          </Text>
+        )}
         {t.photo && (
           <Image source={{ uri: taskPhotoUrl(spaceId, t.photo) }} style={styles.taskPhoto} resizeMode="cover" />
         )}
@@ -1274,10 +1305,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     (t) =>
       (!activeCat || t.category === activeCat) &&
       (!openOnlyFilter || (t.status !== "fait" && t.status !== "ferme")) &&
-      (!closedOnlyFilter || t.status === "ferme")
+      (!closedOnlyFilter || t.status === "ferme" || t.status === "fait")
   );
   const openCount = tasks.filter((t) => t.status !== "fait" && t.status !== "ferme").length;
-  const closedCount = tasks.filter((t) => t.status === "ferme").length;
+  const closedCount = tasks.filter((t) => t.status === "ferme" || t.status === "fait").length;
 
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
@@ -1586,8 +1617,54 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                           }
                         </TouchableOpacity>
                       )}
+
+                      <TouchableOpacity
+                        style={[
+                          styles.claimOnCreateBtn,
+                          { backgroundColor: fDLPickerOpen ? `${C.accent}22` : C.bg, borderColor: fDLPickerOpen ? C.accent : C.border, marginTop: 10 },
+                        ]}
+                        onPress={() => {
+                          if (fDLPickerOpen) setFDateLimite("");
+                          setFDLPickerOpen((v) => !v);
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.claimOnCreateText, { color: fDLPickerOpen ? C.accent : C.text }]}>
+                          {fDLPickerOpen ? "📅 Retirer la date" : "📅 Ajouter une échéance (optionnel)"}
+                        </Text>
+                      </TouchableOpacity>
+
+                      {fDLPickerOpen && (
+                        <>
+                          <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 12 }]}>
+                            Le besoin se fermera automatiquement passé cette date s'il n'est pas pris en charge
+                          </Text>
+                          <MiniCalendar
+                            selDate={fDateLimite}
+                            onSelect={setFDateLimite}
+                            calMonth={fDLCalMonth}
+                            onMonthChange={setFDLCalMonth}
+                            startDate={new Date()}
+                            C={C}
+                            size="lg"
+                          />
+                        </>
+                      )}
                     </>
                   )}
+
+                  <TouchableOpacity
+                    style={[
+                      styles.claimOnCreateBtn,
+                      { backgroundColor: fUrgent ? C.danger : C.bg, borderColor: fUrgent ? C.danger : C.border, marginTop: 14 },
+                    ]}
+                    onPress={() => setFUrgent((v) => !v)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.claimOnCreateText, { color: fUrgent ? "#fff" : C.text }]}>
+                      {fUrgent ? "🔴 Besoin urgent" : "⚪ Marquer comme urgent"}
+                    </Text>
+                  </TouchableOpacity>
 
                   {!editTask && (
                     <>
@@ -2253,6 +2330,7 @@ const styles = StyleSheet.create({
   claimOnCreateBtn: { borderWidth: 1, borderRadius: 10, paddingVertical: 12, alignItems: "center", marginTop: 10 },
   claimOnCreateText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
   claimOnCreateHint: { fontFamily: "DM_Sans_400Regular", fontSize: 12, lineHeight: 17, marginTop: 8, marginBottom: 10, textAlign: "center" },
+
 
   pinContext: { borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 16 },
   pinContextText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
