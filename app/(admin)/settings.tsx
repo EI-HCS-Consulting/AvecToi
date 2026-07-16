@@ -3096,7 +3096,13 @@ const styles = StyleSheet.create({
 
   // Chronologie (popup frise) — cadre borné : seule cette zone scrolle,
   // le reste de la popup (titre, légende, bouton Fermer) reste fixe.
-  chronoScroll: { maxHeight: 420 },
+  // flexShrink: 1 est indispensable ici — sans lui, React Native (Yoga) ne
+  // réduit jamais un enfant par défaut (contrairement au flex-shrink:1 du
+  // CSS web) : sur un écran plus petit que title+desc+420+bouton, la
+  // ScrollView débordait du cadre du sheet (maxHeight) au lieu de se
+  // réduire, ce qui coupait la frise avant la fin ET cassait le scroll
+  // (la zone tactile dépassait la zone visible/cliquable réelle).
+  chronoScroll: { maxHeight: 420, flexShrink: 1, flexGrow: 0 },
   chronoRow: { flexDirection: "row" },
   chronoRail: { width: 30, alignItems: "center" },
   chronoDot: {
