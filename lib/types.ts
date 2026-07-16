@@ -234,6 +234,11 @@ export interface Task {
   created_by: string;
   photo: string | null;
   created_at: string;
+  // Échéance optionnelle (hors Transport, qui a ses propres champs date/heure
+  // plus bas) — permet la même fermeture auto que Transport une fois la date
+  // dépassée sans prise en charge. Urgent : toutes catégories.
+  date_limite: string | null;
+  urgent: boolean;
   // Identité de qui a créé le besoin — manquait jusqu'ici (contrairement à
   // NewsEntry/SupportMessage) ; nécessaire pour savoir qui a le droit de
   // valider une proposition d'horaire Transport (même mécanisme que
