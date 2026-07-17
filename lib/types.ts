@@ -239,6 +239,10 @@ export interface Task {
   // dépassée sans prise en charge. Urgent : toutes catégories.
   date_limite: string | null;
   urgent: boolean;
+  // Rempli uniquement pour les besoins créés en groupe via une checklist
+  // suggérée (voir CHECKLIST_TEMPLATES dans Entraide.tsx) — permet de
+  // retrouver et proposer la suppression des autres items de la même liste.
+  checklist_batch_id: string | null;
   // Identité de qui a créé le besoin — manquait jusqu'ici (contrairement à
   // NewsEntry/SupportMessage) ; nécessaire pour savoir qui a le droit de
   // valider une proposition d'horaire Transport (même mécanisme que

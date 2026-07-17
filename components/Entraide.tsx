@@ -7,6 +7,7 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
+import * as Crypto from "expo-crypto";
 import { File } from "expo-file-system";
 import { supabase } from "@/lib/supabase";
 import { getVisitorSession, rememberAuthorPin, sessionPinMatches } from "@/lib/visitorSession";
@@ -511,6 +512,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [deleteTaskTarget, setDeleteTaskTarget] = useState<Task | null>(null);
   const [deleteTaskSaving, setDeleteTaskSaving] = useState(false);
   const [unclaimConfirm, setUnclaimConfirm] = useState<{ task: Task; leg: "out" | "return" } | null>(null);
+  // Popup proposée après suppression d'un besoin issu d'une checklist
+  // groupée, tant que d'autres items de la même liste sont encore ouverts —
+  // complète le bandeau "Annuler" (8s seulement) pour un ménage fait plus tard.
+  const [deleteBatchTarget, setDeleteBatchTarget] = useState<{ batchId: string; siblings: Task[] } | null>(null);
+  const [deleteBatchSaving, setDeleteBatchSaving] = useState(false);
 
   const [toast, setToast] = useState("");
   function showToast(msg: string) {
@@ -647,6 +653,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     const { data: userData } = await supabase.auth.getUser();
     const authorPrenom = (userData.user?.user_metadata?.firstname ?? "").trim();
     const authorNom = (userData.user?.user_metadata?.lastname ?? "").trim();
+    const batchId = Crypto.randomUUID();
     const rows = selected.map((item) => ({
       space_id: spaceId,
       title: item.title,
@@ -659,6 +666,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       author_pin: "ADMIN",
       date_limite: item.dateOffsetDays ? addDaysIso(item.dateOffsetDays) : null,
       urgent: !!item.urgent,
+      checklist_batch_id: batchId,
     }));
     const { data: inserted, error } = await supabase.from("tasks").insert(rows).select("id");
     setChecklistSaving(false);
@@ -724,6 +732,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       authorNom = mySession.nom;
       authorPin = mySession.pin;
     }
+    const batchId = Crypto.randomUUID();
     const rows = checked.map((item) => ({
       space_id: spaceId,
       title: item.title,
@@ -736,6 +745,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       author_pin: authorPin || null,
       date_limite: item.dateOffsetDays ? addDaysIso(item.dateOffsetDays) : null,
       urgent: !!item.urgent,
+      checklist_batch_id: batchId,
     }));
     const { data: inserted, error } = await supabase.from("tasks").insert(rows).select("id");
     setInlinePublishing(null);
@@ -928,6 +938,28 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setDeleteTaskSaving(false);
     setDeleteTaskTarget(null);
     showToast("Besoin supprimé");
+    // S'il reste d'autres items ouverts de la même checklist groupée,
+    // proposer de les supprimer aussi (voir triggerBatchUndo : le bandeau
+    // "Annuler" ne dure que 8s, insuffisant pour un ménage fait plus tard).
+    if (t.checklist_batch_id) {
+      const siblings = tasks.filter(
+        (x) => x.checklist_batch_id === t.checklist_batch_id && x.id !== t.id && x.status !== "fait",
+      );
+      if (siblings.length) setDeleteBatchTarget({ batchId: t.checklist_batch_id, siblings });
+    }
+    loadTasks();
+  }
+
+  async function confirmDeleteBatch() {
+    if (!deleteBatchTarget) return;
+    const siblings = deleteBatchTarget.siblings;
+    setDeleteBatchSaving(true);
+    const toRemove = siblings.flatMap((s) => [s.photo, s.claimed_photo].filter((f): f is string => !!f));
+    if (toRemove.length) await supabase.storage.from(PHOTO_BUCKET).remove(toRemove.map((f) => `${spaceId}/${f}`));
+    await supabase.from("tasks").delete().in("id", siblings.map((s) => s.id));
+    setDeleteBatchSaving(false);
+    setDeleteBatchTarget(null);
+    showToast("Liste supprimée");
     loadTasks();
   }
 
@@ -2734,6 +2766,19 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         saving={deleteTaskSaving}
         onCancel={() => setDeleteTaskTarget(null)}
         onConfirm={confirmDeleteTask}
+        C={C}
+      />
+
+      <ConfirmModal
+        visible={!!deleteBatchTarget}
+        icon="🗂️"
+        title="Supprimer aussi le reste de la liste ?"
+        message={`Ce besoin faisait partie d'une checklist. ${deleteBatchTarget?.siblings.length} autre${deleteBatchTarget && deleteBatchTarget.siblings.length > 1 ? "s" : ""} item${deleteBatchTarget && deleteBatchTarget.siblings.length > 1 ? "s" : ""} de cette liste ${deleteBatchTarget && deleteBatchTarget.siblings.length > 1 ? "sont encore ouverts" : "est encore ouvert"} : les supprimer aussi ?`}
+        cancelLabel="Non, garder"
+        confirmLabel={deleteBatchTarget ? `Supprimer les ${deleteBatchTarget.siblings.length}` : "Supprimer"}
+        saving={deleteBatchSaving}
+        onCancel={() => setDeleteBatchTarget(null)}
+        onConfirm={confirmDeleteBatch}
         C={C}
       />
 
