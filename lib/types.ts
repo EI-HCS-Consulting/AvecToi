@@ -243,6 +243,12 @@ export interface Task {
   // suggérée (voir CHECKLIST_TEMPLATES dans Entraide.tsx) — permet de
   // retrouver et proposer la suppression des autres items de la même liste.
   checklist_batch_id: string | null;
+  // Trace de modification visible par tous (ex : quelqu'un choisit
+  // "Modifier" plutôt que republier un doublon détecté par
+  // findDuplicateAdminTask).
+  modified_at: string | null;
+  modified_by_prenom: string | null;
+  modified_by_nom: string | null;
   // Identité de qui a créé le besoin — manquait jusqu'ici (contrairement à
   // NewsEntry/SupportMessage) ; nécessaire pour savoir qui a le droit de
   // valider une proposition d'horaire Transport (même mécanisme que

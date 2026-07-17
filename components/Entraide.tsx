@@ -490,6 +490,15 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [claimText, setClaimText] = useState("");
   const [claimSaving, setClaimSaving] = useState(false);
 
+  // Doublon détecté à la publication d'un besoin administratif (voir
+  // findDuplicateAdminTask) : propose de rejoindre ("Je m'en occupe", flux
+  // claim ci-dessus) ou de modifier le besoin déjà existant plutôt que d'en
+  // recréer un second.
+  const [duplicateTarget, setDuplicateTarget] = useState<Task | null>(null);
+  const [modifyTarget, setModifyTarget] = useState<Task | null>(null);
+  const [modifyDesc, setModifyDesc] = useState("");
+  const [modifySaving, setModifySaving] = useState(false);
+
   const [pinModal, setPinModal] = useState<{ task: Task; action: "unclaim"; leg: "out" | "return" } | null>(null);
   const [pinEntry, setPinEntry] = useState("");
   const [pinError, setPinError] = useState(false);
@@ -655,7 +664,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   async function addChecklistItems() {
     if (!checklistContext) return;
     const items = CHECKLIST_TEMPLATES[checklistContext].groups.flatMap((g) => g.items);
-    const selected = items.filter((_, i) => checklistChecked[i]);
+    const selected = items.filter((item, i) => checklistChecked[i] && !findDuplicateAdminTask(item.title));
     if (!selected.length) return;
     setChecklistSaving(true);
     const { data: userData } = await supabase.auth.getUser();
@@ -726,7 +735,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // du formulaire (chaque item porte déjà les siens) — ferme le formulaire et
   // déclenche le même bandeau "Annuler" que la checklist admin dédiée.
   async function publishInlineChecklist(ctx: ChecklistContext, items: ChecklistItem[]) {
-    const checked = items.filter((_, i) => inlineChecked[ctx]?.[i] ?? true);
+    const checked = items.filter((item, i) => (inlineChecked[ctx]?.[i] ?? true) && !findDuplicateAdminTask(item.title));
     if (!checked.length) return;
     setInlinePublishing(ctx);
     let authorPrenom = "", authorNom = "", authorPin = "";
@@ -822,9 +831,78 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const claimOnCreateReady = !claimOnCreate
     || (claimPrenom.trim() && claimNom.trim() && (isAdmin || claimPin.length >= 4));
 
+  // Un besoin administratif ne doit jamais être publié en double (titre
+  // identique, encore ouvert) — que ce soit via le formulaire classique ou
+  // une checklist suggérée. "fait" est exclu du champ, même règle que la
+  // suppression (voir deleteTask).
+  function findDuplicateAdminTask(title: string, excludeId?: string): Task | undefined {
+    const norm = title.trim().toLowerCase();
+    if (!norm) return undefined;
+    return tasks.find(
+      (t) => t.category === "administratif" && t.status !== "fait" && t.id !== excludeId
+        && t.title.trim().toLowerCase() === norm,
+    );
+  }
+
+  // Actions proposées dans la popup de doublon (voir duplicateTarget) : soit
+  // rejoindre le besoin existant (même flux que le bouton "Je m'en occupe"
+  // habituel), soit en modifier la description plutôt que d'en recréer un
+  // second — dans les deux cas on referme le formulaire de création en cours.
+  function claimDuplicate() {
+    if (!duplicateTarget) return;
+    const t = duplicateTarget;
+    setDuplicateTarget(null);
+    setTaskForm(false);
+    openClaim(t);
+  }
+
+  function openDuplicateModify() {
+    if (!duplicateTarget) return;
+    setModifyTarget(duplicateTarget);
+    setModifyDesc(duplicateTarget.description ?? "");
+    setDuplicateTarget(null);
+    setTaskForm(false);
+  }
+
+  // Modification de description ouverte à n'importe qui (visiteur ou admin),
+  // contrairement à l'édition classique (openEditTask, admin uniquement) —
+  // pose modified_at/modified_by_* pour l'affichage "Modifié le... par...,
+  // visible par tous" sur le bloc du besoin (voir renderTask).
+  async function saveModifyDesc() {
+    if (!modifyTarget) return;
+    setModifySaving(true);
+    let editorPrenom = "", editorNom = "";
+    if (isAdmin) {
+      const { data } = await supabase.auth.getUser();
+      editorPrenom = (data.user?.user_metadata?.firstname ?? "").trim();
+      editorNom = (data.user?.user_metadata?.lastname ?? "").trim();
+    } else if (mySession) {
+      editorPrenom = mySession.prenom;
+      editorNom = mySession.nom;
+    }
+    const { error } = await supabase.from("tasks").update({
+      description: modifyDesc.trim(),
+      modified_at: new Date().toISOString(),
+      modified_by_prenom: editorPrenom || null,
+      modified_by_nom: editorNom || null,
+    }).eq("id", modifyTarget.id);
+    setModifySaving(false);
+    if (error) {
+      Alert.alert("Erreur", "Impossible de modifier ce besoin : " + error.message);
+      return;
+    }
+    setModifyTarget(null);
+    showToast("Besoin modifié ✓");
+    loadTasks();
+  }
+
   async function saveTask() {
     if (!fTitle.trim() || (!editTask && !claimOnCreateReady)) return;
     if (!editTask && fCat === "transport" && !transportFormReady) return;
+    if (!editTask && fCat === "administratif") {
+      const dup = findDuplicateAdminTask(fTitle);
+      if (dup) { setDuplicateTarget(dup); return; }
+    }
     setTaskSaving(true);
 
     let photoFilename = fExistingPhoto;
@@ -1433,6 +1511,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     // (même règle que la suppression simple, voir deleteTask).
     const selectable = isAdmin && t.status !== "fait";
     const selected = selectedTaskIds.has(t.id);
+    const modifiedByLabel = [t.modified_by_prenom, t.modified_by_nom].filter(Boolean).join(" ");
     return (
       <Pressable
         key={t.id}
@@ -1488,6 +1567,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         {t.category !== "transport" && t.date_limite && (
           <Text style={[styles.taskDesc, { color: C.muted }]}>
             📅 Échéance : {toFrShort(new Date(t.date_limite + "T12:00:00"))}
+          </Text>
+        )}
+        {!!t.modified_at && (
+          <Text style={[styles.taskModified, { color: C.muted }]}>
+            ✏️ Modifié le {toFrShort(new Date(t.modified_at))}{modifiedByLabel ? ` par ${modifiedByLabel}` : ""}, visible par tous
           </Text>
         )}
         {t.photo && (
@@ -1888,7 +1972,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                         const items = tpl.groups.flatMap((g) => g.items).filter((it) => isAdmin || it.sharedWithVisitors);
                         if (!items.length) return null;
                         const isOpen = inlineOpenCtx === ctx;
-                        const checkedCount = items.filter((_, i) => inlineChecked[ctx]?.[i] ?? true).length;
+                        const checkedCount = items.filter((item, i) => (inlineChecked[ctx]?.[i] ?? true) && !findDuplicateAdminTask(item.title)).length;
                         return (
                           <View key={ctx} style={[styles.inlineAccordion, { borderColor: color }]}>
                             <TouchableOpacity
@@ -1907,27 +1991,33 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                               <View style={styles.inlineAccordionBody}>
                                 {items.map((item, i) => {
                                   const checked = inlineChecked[ctx]?.[i] ?? true;
+                                  const dup = findDuplicateAdminTask(item.title);
                                   return (
                                     <TouchableOpacity
                                       key={i}
-                                      style={styles.checklistItemRow}
-                                      onPress={() => toggleInlineItem(ctx, i)}
+                                      style={[styles.checklistItemRow, !!dup && { opacity: 0.55 }]}
+                                      onPress={() => { if (dup) { setDuplicateTarget(dup); return; } toggleInlineItem(ctx, i); }}
                                       activeOpacity={0.7}
                                     >
                                       <View
                                         style={[
                                           styles.checklistBox,
-                                          { borderColor: checked ? color : C.border, backgroundColor: checked ? color : "transparent" },
+                                          { borderColor: checked && !dup ? color : C.border, backgroundColor: checked && !dup ? color : "transparent" },
                                         ]}
                                       >
-                                        {checked && <Text style={styles.checklistBoxMark}>✓</Text>}
+                                        {checked && !dup && <Text style={styles.checklistBoxMark}>✓</Text>}
                                       </View>
                                       <View style={{ flex: 1 }}>
                                         <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
-                                          <Text style={[styles.checklistItemTitle, { color: checked ? C.text : C.muted }]}>{item.title}</Text>
-                                          {item.urgent && (
+                                          <Text style={[styles.checklistItemTitle, { color: checked && !dup ? C.text : C.muted }]}>{item.title}</Text>
+                                          {item.urgent && !dup && (
                                             <View style={[styles.checklistUrgentChip, { backgroundColor: C.danger + "22" }]}>
                                               <Text style={[styles.checklistUrgentChipText, { color: C.danger }]}>urgent</Text>
+                                            </View>
+                                          )}
+                                          {!!dup && (
+                                            <View style={[styles.checklistUrgentChip, { backgroundColor: C.muted + "22" }]}>
+                                              <Text style={[styles.checklistUrgentChipText, { color: C.muted }]}>déjà ajouté</Text>
                                             </View>
                                           )}
                                         </View>
@@ -2280,7 +2370,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               const tpl = CHECKLIST_TEMPLATES[checklistContext];
               const color = C[tpl.colorKey];
               const items = tpl.groups.flatMap((g) => g.items);
-              const checkedCount = items.filter((_, i) => checklistChecked[i]).length;
+              const checkedCount = items.filter((item, i) => checklistChecked[i] && !findDuplicateAdminTask(item.title)).length;
               let runningIndex = -1;
               return (
                 <>
@@ -2299,27 +2389,33 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                           runningIndex += 1;
                           const i = runningIndex;
                           const checked = !!checklistChecked[i];
+                          const dup = findDuplicateAdminTask(item.title);
                           return (
                             <TouchableOpacity
                               key={i}
-                              style={styles.checklistItemRow}
-                              onPress={() => toggleChecklistItem(i)}
+                              style={[styles.checklistItemRow, !!dup && { opacity: 0.55 }]}
+                              onPress={() => { if (dup) { setDuplicateTarget(dup); return; } toggleChecklistItem(i); }}
                               activeOpacity={0.7}
                             >
                               <View
                                 style={[
                                   styles.checklistBox,
-                                  { borderColor: checked ? color : C.border, backgroundColor: checked ? color : "transparent" },
+                                  { borderColor: checked && !dup ? color : C.border, backgroundColor: checked && !dup ? color : "transparent" },
                                 ]}
                               >
-                                {checked && <Text style={styles.checklistBoxMark}>✓</Text>}
+                                {checked && !dup && <Text style={styles.checklistBoxMark}>✓</Text>}
                               </View>
                               <View style={{ flex: 1 }}>
                                 <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
-                                  <Text style={[styles.checklistItemTitle, { color: checked ? C.text : C.muted }]}>{item.title}</Text>
-                                  {item.urgent && (
+                                  <Text style={[styles.checklistItemTitle, { color: checked && !dup ? C.text : C.muted }]}>{item.title}</Text>
+                                  {item.urgent && !dup && (
                                     <View style={[styles.checklistUrgentChip, { backgroundColor: C.danger + "22" }]}>
                                       <Text style={[styles.checklistUrgentChipText, { color: C.danger }]}>urgent</Text>
+                                    </View>
+                                  )}
+                                  {!!dup && (
+                                    <View style={[styles.checklistUrgentChip, { backgroundColor: C.muted + "22" }]}>
+                                      <Text style={[styles.checklistUrgentChipText, { color: C.muted }]}>déjà ajouté</Text>
                                     </View>
                                   )}
                                 </View>
@@ -2866,6 +2962,114 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         C={C}
       />
 
+      {/* ── MODAL DOUBLON (besoin administratif déjà publié) ─────────────── */}
+      <Modal visible={!!duplicateTarget} transparent animationType="fade" onRequestClose={() => setDuplicateTarget(null)}>
+        <View style={styles.overlay}>
+          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.gold }]}>
+            {duplicateTarget && (
+              <>
+                <Text style={{ fontSize: 32, textAlign: "center", marginBottom: 8 }}>⚠️</Text>
+                <Text style={[styles.sheetTitle, { color: C.text, textAlign: "center" }]}>Ce besoin existe déjà</Text>
+                <Text style={[styles.sheetSub, { color: C.muted, textAlign: "center", marginTop: 4 }]}>
+                  Créé le {toFrShort(new Date(duplicateTarget.created_at))}
+                  {[duplicateTarget.author_prenom, duplicateTarget.author_nom].filter(Boolean).length
+                    ? ` par ${[duplicateTarget.author_prenom, duplicateTarget.author_nom].filter(Boolean).join(" ")}`
+                    : ""}
+                </Text>
+
+                <View style={[styles.taskCard, { backgroundColor: C.bg, borderColor: C.border, marginTop: 14, marginBottom: 4 }]}>
+                  <View style={styles.taskHeader}>
+                    <View style={[styles.catBadge, { backgroundColor: `${C.accent}22` }]}>
+                      <Text style={styles.catIcon}>{CATEGORY_ICONS[duplicateTarget.category]}</Text>
+                      <Text style={[styles.catLabel, { color: C.accent }]}>{CATEGORY_LABELS[duplicateTarget.category]}</Text>
+                    </View>
+                  </View>
+                  <Text style={[styles.taskTitle, { color: C.text }]}>{duplicateTarget.title}</Text>
+                  {!!duplicateTarget.description && (
+                    <Text style={[styles.taskDesc, { color: C.muted }]}>{duplicateTarget.description}</Text>
+                  )}
+                </View>
+
+                <View style={{ gap: 8, marginTop: 12, width: "100%" }}>
+                  <TouchableOpacity
+                    style={[styles.btnPrimary, { backgroundColor: C.accent, flex: undefined, alignSelf: "stretch" }]}
+                    onPress={claimDuplicate}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.btnPrimaryText}>🙋 Je m'en occupe</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.btnPrimary, { backgroundColor: C.gold, flex: undefined, alignSelf: "stretch" }]}
+                    onPress={openDuplicateModify}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={[styles.btnPrimaryText, { color: "#0D1B2E" }]}>✏️ Modifier</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.btnSecondary, { borderColor: C.border, alignSelf: "stretch" }]}
+                    onPress={() => setDuplicateTarget(null)}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── MODAL MODIFIER LA DESCRIPTION (depuis le doublon) ─────────────── */}
+      <Modal visible={!!modifyTarget} transparent animationType="slide" onRequestClose={() => setModifyTarget(null)}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+          <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => !modifySaving && setModifyTarget(null)}>
+            <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
+              <TouchableOpacity activeOpacity={1}>
+                <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
+                  <View style={{ alignItems: "center", marginBottom: 14 }}>
+                    <Text style={{ fontSize: 32, marginBottom: 6 }}>✏️</Text>
+                    <Text style={[styles.sheetTitle, { color: C.text }]}>Modifier la description</Text>
+                    {modifyTarget && (
+                      <Text style={[styles.sheetSub, { color: C.muted }]}>
+                        {CATEGORY_ICONS[modifyTarget.category]} {modifyTarget.title}
+                      </Text>
+                    )}
+                  </View>
+                  <TextInput
+                    style={[styles.input, styles.descArea, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                    value={modifyDesc}
+                    onChangeText={setModifyDesc}
+                    placeholder="Description du besoin"
+                    placeholderTextColor={C.muted}
+                    multiline
+                    numberOfLines={4}
+                    textAlignVertical="top"
+                  />
+                  <View style={styles.sheetBtns}>
+                    <TouchableOpacity
+                      style={[styles.btnSecondary, { borderColor: C.border }]}
+                      onPress={() => setModifyTarget(null)}
+                      disabled={modifySaving}
+                    >
+                      <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btnPrimary, { backgroundColor: C.accent, opacity: modifySaving ? 0.6 : 1 }]}
+                      onPress={saveModifyDesc}
+                      disabled={modifySaving}
+                    >
+                      {modifySaving
+                        ? <ActivityIndicator color="#fff" />
+                        : <Text style={styles.btnPrimaryText}>Enregistrer</Text>}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            </ScrollView>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
+      </Modal>
+
       {selectionMode ? (
         <View style={[styles.selectionBar, { backgroundColor: C.card, borderColor: C.border }]}>
           <TouchableOpacity onPress={exitSelection} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -2938,6 +3142,7 @@ const styles = StyleSheet.create({
   iconBtn: { width: 30, height: 30, borderWidth: 1, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   taskTitle: { fontFamily: "DM_Sans_700Bold", fontSize: 15, marginBottom: 4 },
   taskDesc: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 20, marginBottom: 6 },
+  taskModified: { fontFamily: "DM_Sans_400Regular", fontSize: 11.5, fontStyle: "italic", marginBottom: 6 },
   taskPhoto: { width: "100%", height: 140, borderRadius: 10, marginBottom: 6 },
   claimerRow: { borderWidth: 1, borderRadius: 8, padding: 8, marginVertical: 8 },
   claimerText: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
