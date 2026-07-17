@@ -14,6 +14,7 @@ export interface PatientSpace {
   patient_allergies: string | null;
   patient_motto: string | null;
   patient_admission_date: string | null;
+  patient_discharge_date: string | null;
   hospital_name: string;
   hospital_service: string;
   hospital_sector: string | null;
