@@ -14,6 +14,7 @@ import { supabase } from "@/lib/supabase";
 import PatientAvatar from "@/components/PatientAvatar";
 import PinPad from "@/components/PinPad";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
+import MyChecklist from "@/components/MyChecklist";
 import type { Reservation, NewsEntry, SupportMessage, Task } from "@/lib/types";
 
 const CAT_ICONS: Record<Task["category"], string> = {
@@ -541,6 +542,15 @@ export default function AdminAccountScreen() {
                     </View>
                   );
                 })}
+
+                <MyChecklist
+                  spaceId={space.id}
+                  isAdmin
+                  ownerPrenom={adminFirstname}
+                  ownerNom={adminLastname}
+                  ownerPin="ADMIN"
+                  C={C}
+                />
 
                 <TouchableOpacity
                   style={[styles.logoutBtn, { borderColor: "rgba(233,69,96,0.4)" }]}

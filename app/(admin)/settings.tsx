@@ -46,7 +46,7 @@ interface FieldHistoryEntry {
 }
 
 // ─── Chronologie (popup frise) ─────────────────────────────────────────────
-type ChronoEventKind = "hosp" | "regles" | "consignes" | "resa" | "hospitalisation";
+type ChronoEventKind = "hosp" | "regles" | "consignes" | "resa" | "hospitalisation" | "sortie" | "besoin";
 interface ChronoEvent {
   id: string;
   kind: ChronoEventKind;
@@ -61,6 +61,18 @@ const CHRONO_KIND_COLOR: Record<ChronoEventKind, keyof Theme> = {
   consignes: "accent",
   resa: "success",
   hospitalisation: "danger",
+  sortie: "success",
+  besoin: "orange",
+};
+
+// Libellés des catégories de besoins réaffichés dans la frise Chronologie
+// (les icônes réutilisent TASK_CAT_ICONS, déjà défini plus bas pour le bloc
+// Historique / Publications).
+const TASK_CAT_LABELS: Record<Task["category"], string> = {
+  repas: "Repas", affaires: "Affaires", courses: "Courses", transport: "Transport", administratif: "Administratif", autre: "Autre",
+};
+const TASK_STATUS_LABELS: Record<Task["status"], string> = {
+  ouvert: "Ouvert", pris_en_charge: "Pris en charge", fait: "Terminé", ferme: "Clôturé",
 };
 
 const BLOOD_GROUPS = [["A+", "A-"], ["B+", "B-"], ["AB+", "AB-"], ["O+", "O-"]];
@@ -352,6 +364,8 @@ export default function SettingsScreen() {
   const [patientMotto, setPatientMotto] = useState("");
   const [patientAdmissionDate, setPatientAdmissionDate] = useState<string | null>(null);
   const [showAdmissionDatePicker, setShowAdmissionDatePicker] = useState(false);
+  const [patientDischargeDate, setPatientDischargeDate] = useState<string | null>(null);
+  const [showDischargeDatePicker, setShowDischargeDatePicker] = useState(false);
   const [patientBirthdate, setPatientBirthdate] = useState<string | null>(null);
   const [patientSex, setPatientSex] = useState<"M" | "F" | null>(null);
   const [patientBloodType, setPatientBloodType] = useState<string | null>(null);
@@ -369,6 +383,7 @@ export default function SettingsScreen() {
       patientMedicalInit.current = true;
       setPatientMotto(space.patient_motto ?? "");
       setPatientAdmissionDate(space.patient_admission_date ?? null);
+      setPatientDischargeDate(space.patient_discharge_date ?? null);
       setPatientBirthdate(space.patient_birthdate ?? null);
       setPatientSex(space.patient_sex ?? null);
       setPatientBloodType(space.patient_blood_type ?? null);
@@ -429,6 +444,19 @@ export default function SettingsScreen() {
     }
   }
 
+  const dischargeDateValue = patientDischargeDate ? new Date(patientDischargeDate + "T00:00:00") : new Date();
+  const dischargeDateLabel = patientDischargeDate
+    ? new Date(patientDischargeDate + "T00:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })
+    : null;
+
+  function openDischargeDatePicker() {
+    if (Platform.OS === "android") {
+      openAndroidDatePicker(dischargeDateValue, (date) => setPatientDischargeDate(isoDate(date)), new Date());
+    } else {
+      setShowDischargeDatePicker(true);
+    }
+  }
+
   async function handleSavePatientMedical() {
     if (!space) return;
     setPatientMedicalSaving(true);
@@ -439,6 +467,7 @@ export default function SettingsScreen() {
       .update({
         patient_motto: patientMotto.trim() || null,
         patient_admission_date: patientAdmissionDate,
+        patient_discharge_date: patientDischargeDate,
         patient_birthdate: patientBirthdate,
         patient_sex: patientSex,
         patient_blood_type: patientBloodType,
@@ -564,15 +593,18 @@ export default function SettingsScreen() {
   const [chronoModal, setChronoModal] = useState(false);
   const [chronoLoading, setChronoLoading] = useState(false);
   const [chronoReservations, setChronoReservations] = useState<Reservation[]>([]);
+  const [chronoTasks, setChronoTasks] = useState<Task[]>([]);
 
   async function openChronoModal() {
     setChronoModal(true);
     setChronoLoading(true);
-    const [, resaData] = await Promise.all([
+    const [, resaData, tasksData] = await Promise.all([
       loadHistory(),
       supabase.from("reservations").select("*").eq("space_id", space!.id).order("date", { ascending: false }),
+      supabase.from("tasks").select("*").eq("space_id", space!.id).neq("category", "transport").order("created_at", { ascending: false }),
     ]);
     setChronoReservations(resaData.data || []);
+    setChronoTasks(tasksData.data || []);
     setChronoLoading(false);
   }
 
@@ -770,11 +802,12 @@ export default function SettingsScreen() {
   const filteredPubMessages = pubMessages.filter((m) => matchesHistoryQuery(m.message, m.author_prenom, m.author_nom));
 
   // Frise "Chronologie" — combine infos hospitalières + consignes + règles de
-  // visite (fieldHistory, chargé par loadHistory) et visites/nuitées
-  // réservées (chronoReservations, chargé par openChronoModal), plus un
-  // repère fixe sur la date d'hospitalisation. Tri du plus récent (haut) au
-  // plus ancien (bas) — voir styles.chronoList pour le rendu inversé qui
-  // place la date d'hospitalisation en bas de la frise.
+  // visite (fieldHistory, chargé par loadHistory), visites/nuitées réservées
+  // et besoins publiés hors Transport (chronoReservations/chronoTasks,
+  // chargés par openChronoModal), plus des repères fixes sur les dates
+  // d'hospitalisation et de sortie. Tri du plus récent (haut) au plus ancien
+  // (bas) — voir styles.chronoList pour le rendu inversé qui place la date
+  // d'hospitalisation en bas de la frise.
   const chronoEvents: ChronoEvent[] = [
     ...fieldHistory.map((h): ChronoEvent => {
       if (h.field_name === "visit_rules") {
@@ -798,12 +831,25 @@ export default function SettingsScreen() {
       title: `${r.prenom} ${r.nom}`,
       detail: `${r.type === "Nuit" ? "Nuitée" : "Visite"} · ${r.creneau}`,
     })),
+    ...chronoTasks.map((t): ChronoEvent => ({
+      id: `task-${t.id}`, kind: "besoin", date: new Date(t.created_at),
+      icon: TASK_CAT_ICONS[t.category],
+      title: t.title,
+      detail: `${TASK_CAT_LABELS[t.category]} · ${TASK_STATUS_LABELS[t.status]}`,
+    })),
     ...(space?.patient_admission_date ? [{
       id: "hospitalisation",
       kind: "hospitalisation" as const,
       date: new Date(space.patient_admission_date + "T00:00:00"),
       icon: "🏥",
       title: space.home_care_mode ? "Début du soin à domicile" : "Hospitalisation",
+    }] : []),
+    ...(space?.patient_discharge_date ? [{
+      id: "sortie",
+      kind: "sortie" as const,
+      date: new Date(space.patient_discharge_date + "T00:00:00"),
+      icon: "🚪",
+      title: space.home_care_mode ? "Fin du soin à domicile" : "Sortie d'hospitalisation",
     }] : []),
   ].sort((a, b) => b.date.getTime() - a.date.getTime());
 
@@ -2311,7 +2357,7 @@ export default function SettingsScreen() {
               <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 0 }]}>🕐 Chronologie</Text>
               <Text style={[styles.cardDesc, { color: C.muted }]}>
                 Frise chronologique du passage {space.home_care_mode ? "en soin à domicile" : "à l'hôpital"} : infos hospitalières,
-                consignes et règles de visite, visites et nuitées réservées.
+                consignes et règles de visite, visites et nuitées réservées, besoins publiés (hors Transport).
               </Text>
               <TouchableOpacity
                 style={[styles.saveNotesBtn, { backgroundColor: C.accent, borderWidth: 1, borderColor: C.accent }]}
@@ -2623,6 +2669,32 @@ export default function SettingsScreen() {
                   )}
                   <Text style={[styles.cardDesc, { color: C.muted }]}>
                     Date d'entrée à l'hôpital — visible dans la fiche patient.
+                  </Text>
+
+                  <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 14 }]}>🚪 Date de sortie d'hospitalisation (optionnel)</Text>
+                  <TouchableOpacity
+                    style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border }]}
+                    onPress={openDischargeDatePicker}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={{ fontFamily: "DM_Sans_400Regular", fontSize: 14, color: dischargeDateLabel ? C.text : C.muted }}>
+                      {dischargeDateLabel ?? "Sélectionner une date"}
+                    </Text>
+                  </TouchableOpacity>
+                  {showDischargeDatePicker && (
+                    <DateTimePicker
+                      value={dischargeDateValue}
+                      mode="date"
+                      display="spinner"
+                      maximumDate={new Date()}
+                      onChange={(_, date) => {
+                        setShowDischargeDatePicker(false);
+                        if (date) setPatientDischargeDate(isoDate(date));
+                      }}
+                    />
+                  )}
+                  <Text style={[styles.cardDesc, { color: C.muted }]}>
+                    Date de fin de séjour — apparaît dans la Chronologie une fois renseignée.
                   </Text>
 
                   <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
