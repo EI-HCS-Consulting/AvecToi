@@ -28,13 +28,21 @@ export async function unlinkCalendarEvent(reservationId: string): Promise<void> 
 // admin (components/AdminAddReservation.tsx) — même logique d'ajout au
 // calendrier natif des deux côtés.
 
-export function eventWindow(iso: string, slot: string, type: "Visite" | "Nuit", config: SlotConfig) {
+export function eventWindow(
+  iso: string,
+  slot: string,
+  type: "Visite" | "Nuit" | "Intervention",
+  config: SlotConfig,
+  durationMinutes?: number,
+) {
   const startDate = new Date(`${iso}T${slot}:00`);
   let endDate: Date;
   if (type === "Nuit") {
     endDate = new Date(`${iso}T${slot}:00`);
     endDate.setDate(endDate.getDate() + 1);
     endDate.setHours(config.night_end_hour ?? 8, config.night_end_minute ?? 0, 0, 0);
+  } else if (type === "Intervention") {
+    endDate = new Date(startDate.getTime() + (durationMinutes ?? config.slot_duration_minutes) * 60 * 1000);
   } else {
     endDate = new Date(startDate.getTime() + config.slot_duration_minutes * 60 * 1000);
   }
@@ -67,9 +75,11 @@ export async function addToNativeCalendar(
   config: SlotConfig,
   iso: string,
   slot: string,
-  type: "Visite" | "Nuit",
+  type: "Visite" | "Nuit" | "Intervention",
   preferredEmail: string | null,
   companions?: string[],
+  interventionLabel?: string,
+  durationMinutes?: number,
 ): Promise<{ ok: true; eventId: string } | { ok: false; reason: string }> {
   try {
     const { status } = await ExpoCalendar.requestCalendarPermissionsAsync();
@@ -78,9 +88,13 @@ export async function addToNativeCalendar(
     const target = await findTargetCalendar(preferredEmail);
     if (!target) return { ok: false, reason: "Aucun calendrier modifiable trouvé sur l'appareil." };
 
-    const { startDate, endDate } = eventWindow(iso, slot, type, config);
+    const { startDate, endDate } = eventWindow(iso, slot, type, config, durationMinutes);
 
-    const baseTitle = `${type === "Nuit" ? "Nuitée" : "Visite"} ${space.patient_firstname} ${space.patient_lastname}`;
+    const baseTitle = type === "Nuit"
+      ? `Nuitée ${space.patient_firstname} ${space.patient_lastname}`
+      : type === "Intervention"
+        ? `${interventionLabel ?? "Intervention"} ${space.patient_firstname} ${space.patient_lastname}`
+        : `Visite ${space.patient_firstname} ${space.patient_lastname}`;
     const companionNames = (companions ?? []).map((c) => c.trim()).filter(Boolean);
     const title = companionNames.length > 0 ? `${baseTitle} - Avec ${companionNames.join(", ")}` : baseTitle;
 
@@ -134,14 +148,15 @@ export async function addGenericEventToNativeCalendar(
 }
 
 export async function updateLinkedCalendarEvent(
-  reservationId: string, iso: string, slot: string, type: "Visite" | "Nuit", config: SlotConfig,
+  reservationId: string, iso: string, slot: string, type: "Visite" | "Nuit" | "Intervention", config: SlotConfig,
+  durationMinutes?: number,
 ): Promise<void> {
   try {
     const eventId = await getLinkedCalendarEvent(reservationId);
     if (!eventId) return;
     const { status } = await ExpoCalendar.requestCalendarPermissionsAsync();
     if (status !== "granted") return;
-    const { startDate, endDate } = eventWindow(iso, slot, type, config);
+    const { startDate, endDate } = eventWindow(iso, slot, type, config, durationMinutes);
     await ExpoCalendar.updateEventAsync(eventId, { startDate, endDate });
   } catch {
     // Non-fatal — the reservation itself is already saved either way.

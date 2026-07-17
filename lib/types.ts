@@ -46,6 +46,10 @@ export interface PatientSpace {
   last_activity_at: string;
   purge_scheduled_at: string;
   created_at: string;
+  // Active le Planning des intervenants (infirmier·ère, kiné, aide à
+  // domicile…) pour cet espace — voir components/IntervenantFicheModal.tsx
+  // et app/(admin)/intervenants.tsx. Désactivé par défaut.
+  intervenants_enabled: boolean;
 }
 
 export interface SlotConfig {
@@ -104,7 +108,7 @@ export interface Reservation {
   prenom: string;
   nom: string;
   telephone: string;
-  type: "Visite" | "Nuit";
+  type: "Visite" | "Nuit" | "Intervention";
   pin: string;
   push_token: string | null;
   timestamp: string;
@@ -137,6 +141,38 @@ export interface Reservation {
   // (voir notify-guest-confirmation). Null si non renseigné ou réservation
   // pour soi-même.
   email: string | null;
+  // Renseignés uniquement pour type="Intervention" (voir book_intervention
+  // RPC) — duration_minutes/intervention_label sont copiés depuis
+  // intervention_types au moment de la réservation (pas de FK, l'historique
+  // ne doit jamais bouger si le type est modifié/supprimé ensuite).
+  duration_minutes: number | null;
+  intervention_label: string | null;
+  intervenant_profile_id: string | null;
+}
+
+// Fiche d'un intervenant (infirmier·ère, kiné, aide à domicile…) — même
+// mécanique d'identité device-local + PIN que les visiteurs, voir
+// lib/visitorSession.ts. Créée à la première connexion via
+// components/IntervenantFicheModal.tsx.
+export interface IntervenantProfile {
+  id: string;
+  space_id: string;
+  prenom: string;
+  nom: string;
+  pin: string;
+  created_at: string;
+}
+
+// Type d'intervention défini par l'intervenant (ex. "Toilette" 30min,
+// "Kiné" 45min) — un intervenant peut en avoir plusieurs, de durées
+// différentes. Choisi au moment de réserver un créneau (voir
+// components/InterventionBookingFlow.tsx).
+export interface InterventionType {
+  id: string;
+  intervenant_profile_id: string;
+  label: string;
+  duration_minutes: number;
+  created_at: string;
 }
 
 // Trace permanente d'un recasage/annulation automatique posé par

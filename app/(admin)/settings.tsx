@@ -113,6 +113,7 @@ const FIELD_LABELS: Record<string, string> = {
   night_enabled: "Nuitées",
   night_start_hour: "Heure de début des nuitées",
   night_end_hour: "Heure de fin des nuitées",
+  intervenants_enabled: "Planning des intervenants",
 };
 const FIELD_ICONS: Record<string, string> = {
   hospital_room: "🛏️",
@@ -133,6 +134,7 @@ const FIELD_ICONS: Record<string, string> = {
   night_enabled: "🌙",
   night_start_hour: "🌙",
   night_end_hour: "🌙",
+  intervenants_enabled: "🩺",
 };
 
 // Champs journalisés dans space_field_history qui appartiennent à la
@@ -140,7 +142,7 @@ const FIELD_ICONS: Record<string, string> = {
 const VISIT_RULE_FIELD_NAMES = new Set([
   "visit_start_hour", "visit_end_hour", "slot_duration_minutes", "min_gap_minutes",
   "gap_includes_duration", "max_visitors_per_slot", "allowed_weekdays", "blocked_dates",
-  "night_enabled", "night_start_hour", "night_end_hour",
+  "night_enabled", "night_start_hour", "night_end_hour", "intervenants_enabled",
 ]);
 
 const WEEKDAY_HISTORY_LABELS: Record<number, string> = {
@@ -662,6 +664,7 @@ export default function SettingsScreen() {
 
   // Nuitées toggle + heures
   const [nightToggling, setNightToggling] = useState(false);
+  const [intervenantsToggling, setIntervenantsToggling] = useState(false);
   const nightHoursInit = useRef(false);
   const [nightStartHour, setNightStartHour] = useState(19);
   const [nightStartMinute, setNightStartMinute] = useState(0);
@@ -1080,6 +1083,27 @@ export default function SettingsScreen() {
     await logFieldChange("night_enabled", wasEnabled ? "Activées" : "Suspendues", nextEnabled ? "Activées" : "Suspendues");
     loadHistory();
     showToast(rebookingSummary(res.result) ?? (wasEnabled ? "Nuitées suspendues ✓" : "Nuitées activées ✓"));
+  }
+
+  // ── Intervenants toggle ──────────────────────────────────────────────────────
+  async function handleToggleIntervenants() {
+    if (!space) return;
+    setIntervenantsToggling(true);
+    const nextEnabled = !space.intervenants_enabled;
+    const wasEnabled = space.intervenants_enabled;
+    const { error } = await supabase
+      .from("patient_spaces")
+      .update({ intervenants_enabled: nextEnabled })
+      .eq("id", space.id);
+    setIntervenantsToggling(false);
+    if (error) {
+      showToast("Erreur lors de la mise à jour.");
+      return;
+    }
+    await refreshSpace();
+    await logFieldChange("intervenants_enabled", wasEnabled ? "Activé" : "Désactivé", nextEnabled ? "Activé" : "Désactivé");
+    loadHistory();
+    showToast(wasEnabled ? "Planning des intervenants désactivé ✓" : "Planning des intervenants activé ✓");
   }
 
   async function handleSaveNightHours() {
@@ -2084,6 +2108,46 @@ export default function SettingsScreen() {
                     }
                   </TouchableOpacity>
                 </View>
+
+                {/* ── Bloc : Intervenants ───────────────────────────────────── */}
+                {space && (
+                  <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 16 }]}>
+                    <Text style={[styles.fieldLabel, { color: C.orange, marginTop: 0 }]}>🩺 Planning des intervenants</Text>
+                    <View style={styles.nightRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.nightLabel, { color: C.text }]}>
+                          {space.intervenants_enabled ? "Planning des intervenants activé" : "Planning des intervenants désactivé"}
+                        </Text>
+                        <Text style={[styles.nightDesc, { color: C.muted }]}>
+                          {space.intervenants_enabled
+                            ? "Les infirmier·ères, kinés et aides à domicile peuvent réserver leurs interventions, prioritaires sur les visites."
+                            : "Active cette option pour permettre à des intervenants (infirmier·ère, kiné, aide à domicile…) de gérer leur propre planning."}
+                        </Text>
+                      </View>
+                      {intervenantsToggling
+                        ? <ActivityIndicator color={C.orange} />
+                        : <Switch
+                            value={space.intervenants_enabled}
+                            onValueChange={handleToggleIntervenants}
+                            trackColor={{ false: C.border, true: C.orange }}
+                            thumbColor="#fff"
+                          />
+                      }
+                    </View>
+
+                    {space.intervenants_enabled && (
+                      <>
+                        <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
+                        <TouchableOpacity
+                          style={[styles.saveNotesBtn, { backgroundColor: C.orange }]}
+                          onPress={() => router.push("/(admin)/intervenants")}
+                        >
+                          <Text style={styles.saveNotesBtnText}>🩺 Planning des intervenants →</Text>
+                        </TouchableOpacity>
+                      </>
+                    )}
+                  </View>
+                )}
               </>
             )}
           </>

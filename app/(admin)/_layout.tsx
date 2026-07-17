@@ -116,6 +116,10 @@ export default function AdminLayout() {
             name="settings"
             options={{ href: null }}
           />
+          <Tabs.Screen
+            name="intervenants"
+            options={{ href: null }}
+          />
         </Tabs>
       </AdminGate>
     </AdminSpaceProvider>

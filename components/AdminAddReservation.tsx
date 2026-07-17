@@ -119,6 +119,11 @@ function AdminAddReservation({ spaceId, space, slotConfig, reservations, onAdded
         );
       } else if (error.message.includes("SLOT_FULL")) {
         Alert.alert("Créneau complet", "Ce créneau est déjà complet. Choisis-en un autre.");
+      } else if (error.message.includes("SLOT_BLOCKED_BY_INTERVENTION")) {
+        Alert.alert(
+          "Créneau indisponible",
+          "Ce créneau est réservé à une intervention prioritaire (infirmier·ère, kiné…). Choisis-en un autre.",
+        );
       } else {
         Alert.alert("Erreur", "Erreur lors de l'ajout : " + error.message);
       }

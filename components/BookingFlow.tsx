@@ -261,6 +261,11 @@ function BookingFlow(
           "Créneau complet",
           "Ce créneau vient d'être complété par quelqu'un d'autre. Choisis-en un autre.",
         );
+      } else if (error.message.includes("SLOT_BLOCKED_BY_INTERVENTION")) {
+        Alert.alert(
+          "Créneau indisponible",
+          "Ce créneau est réservé à une intervention (infirmier·ère, kiné…) prioritaire. Choisis-en un autre.",
+        );
       } else {
         Alert.alert("Erreur lors de la réservation", error.message);
       }
@@ -398,6 +403,8 @@ function BookingFlow(
       showToast(
         error?.message.includes("SLOT_FULL")
           ? "Ce créneau vient d'être complété par quelqu'un d'autre — choisis-en un autre."
+          : error?.message.includes("SLOT_BLOCKED_BY_INTERVENTION")
+          ? "Ce créneau est réservé à une intervention prioritaire — choisis-en un autre."
           : "Erreur lors de la modification.",
       );
       return;

@@ -65,6 +65,14 @@ export default function WelcomeScreen() {
 
         <TouchableOpacity
           style={styles.btnSecondary}
+          onPress={() => router.push("/auth/intervenant-entry")}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.btnSecondaryText}>🩺 Je suis intervenant</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.btnSecondary}
           onPress={() => router.push("/auth/login")}
           activeOpacity={0.85}
         >
