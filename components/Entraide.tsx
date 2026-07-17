@@ -858,20 +858,27 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // rejoindre le besoin existant (même flux que le bouton "Je m'en occupe"
   // habituel), soit en modifier la description plutôt que d'en recréer un
   // second — dans les deux cas on referme le formulaire de création en cours.
+  // Le délai laisse le temps à la popup doublon (et au formulaire de
+  // création) de se refermer avant d'en ouvrir une autre — les enchaîner dans
+  // le même batch fait se chevaucher deux <Modal> natives sur Android, ce qui
+  // rend tout illisible (même cause que le délai dans handleClaim).
   function claimDuplicate() {
     if (!duplicateTarget) return;
     const t = duplicateTarget;
     setDuplicateTarget(null);
     setTaskForm(false);
-    openClaim(t);
+    setTimeout(() => openClaim(t), 300);
   }
 
   function openDuplicateModify() {
     if (!duplicateTarget) return;
-    setModifyTarget(duplicateTarget);
-    setModifyDesc(duplicateTarget.description ?? "");
+    const t = duplicateTarget;
     setDuplicateTarget(null);
     setTaskForm(false);
+    setTimeout(() => {
+      setModifyTarget(t);
+      setModifyDesc(t.description ?? "");
+    }, 300);
   }
 
   // Modification de description ouverte à n'importe qui (visiteur ou admin),
@@ -1264,7 +1271,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       // masquerait "C'est fait"/"Ajouter au calendrier".
       setMySession({ prenom: claimPrenom.trim(), nom: claimNom.trim(), pin: claimPin });
     }
-    setThanksModal(true);
+    // Décalé au tick suivant : ouvrir la popup "Merci" dans le même batch que
+    // la fermeture de la popup Claim fait se chevaucher les deux <Modal>
+    // natives sur Android (l'ancienne pas encore démontée) — résultat, tout
+    // devient illisible (voir aussi setTimeout côté claimDuplicate/openDuplicateModify
+    // pour la même raison sur les popups doublon).
+    setTimeout(() => setThanksModal(true), 300);
     loadTasks();
   }
 
