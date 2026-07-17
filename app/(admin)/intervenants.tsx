@@ -170,13 +170,17 @@ export default function AdminIntervenantsScreen() {
         ) : (
           dayInterventions.map((r) => (
             <View key={r.id} style={[styles.interventionCard, { backgroundColor: C.card, borderColor: C.orange }]}>
-              <View style={{ flex: 1 }}>
+              <TouchableOpacity
+                style={{ flex: 1 }}
+                activeOpacity={0.7}
+                onPress={() => router.push({ pathname: "/(admin)/home/slots", params: { focusDate: r.date } } as any)}
+              >
                 <Text style={[styles.interventionTime, { color: C.orange }]}>
                   {r.creneau} · {r.duration_minutes} min
                 </Text>
                 <Text style={[styles.interventionLabel, { color: C.text }]}>{r.intervention_label}</Text>
                 <Text style={[styles.interventionBy, { color: C.muted }]}>{r.prenom} {r.nom}</Text>
-              </View>
+              </TouchableOpacity>
               <TouchableOpacity style={[styles.editResaBtn, { borderColor: C.border }]} onPress={() => editRef.current?.open(r)}>
                 <Text style={[styles.editResaBtnText, { color: C.muted }]}>Modifier</Text>
               </TouchableOpacity>

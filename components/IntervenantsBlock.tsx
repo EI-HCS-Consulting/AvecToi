@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from "react-native";
+import { useRouter } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { toFrShort } from "@/lib/slotUtils";
 import type { Theme } from "@/lib/themes";
@@ -25,6 +26,7 @@ interface Props {
 }
 
 export default function IntervenantsBlock({ spaceId, C }: Props) {
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState<InterventionRow[]>([]);
   // Replié par défaut, comme VisitorsBlock juste au-dessus.
@@ -72,9 +74,11 @@ export default function IntervenantsBlock({ spaceId, C }: Props) {
               <Text style={[styles.emptyText, { color: C.muted }]}>Aucune intervention programmée pour l'instant.</Text>
             ) : (
               rows.map((r, i) => (
-                <View
+                <TouchableOpacity
                   key={r.id}
                   style={[styles.row, i < rows.length - 1 && { borderBottomWidth: 1, borderBottomColor: C.border }]}
+                  activeOpacity={0.7}
+                  onPress={() => router.push({ pathname: "/(admin)/home/slots", params: { focusDate: r.date } } as any)}
                 >
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.name, { color: C.text }]} numberOfLines={1}>
@@ -85,7 +89,8 @@ export default function IntervenantsBlock({ spaceId, C }: Props) {
                       {r.duration_minutes ? ` · ${r.duration_minutes} min` : ""}
                     </Text>
                   </View>
-                </View>
+                  <Text style={[styles.openIcon, { color: C.orange }]}>›</Text>
+                </TouchableOpacity>
               ))
             )}
           </View>
@@ -106,7 +111,8 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   toggleIcon: { fontSize: 14 },
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
-  row: { paddingVertical: 10 },
+  row: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10 },
   name: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
   dateText: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 2 },
+  openIcon: { fontFamily: "DM_Sans_700Bold", fontSize: 18 },
 });
