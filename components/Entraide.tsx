@@ -21,6 +21,7 @@ import { googleMapsSearchUrl, joinAddress } from "@/lib/address";
 import { addGenericEventToNativeCalendar } from "@/lib/calendarSync";
 import type { Task, TransportProposal } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
+import { CHECKLIST_TEMPLATES, addDaysIso, findTemplateContextForTitle, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
 
 const PHOTO_BUCKET = "entraide-photos";
 
@@ -67,123 +68,6 @@ const STATUS_COLORS = (C: Theme): Record<TaskStatus, string> => ({
   fait: C.muted,
   ferme: C.danger,
 });
-
-// Checklists administratives suggérées (MVP, voir openChecklistContext) —
-// bulk-ajout de besoins préremplis selon le contexte, aucun nouveau champ
-// en base : chaque item devient un tasks.category="administratif" ordinaire,
-// modifiable/supprimable ensuite comme n'importe quel autre besoin.
-type ChecklistContext = "adulte" | "enfant" | "domicile";
-interface ChecklistItem {
-  title: string;
-  description: string;
-  urgent?: boolean;
-  // Nombre de jours ajoutés à aujourd'hui pour préremplir date_limite —
-  // seulement sur les démarches à délai légal connu (ex. déclaration de
-  // sinistre : 5 jours ouvrés).
-  dateOffsetDays?: number;
-  // Un visiteur (non-admin) ne voit et ne peut ajouter que les items marqués
-  // true — les démarches légales/financières/employeur restent réservées à
-  // l'admin (généralement la personne qui centralise ces sujets). L'admin
-  // voit toujours la liste complète, partout. Voir openChecklistContext (outil
-  // dédié admin, jamais filtré) vs le sélecteur repliable dans "Nouveau besoin"
-  // (accessible aussi aux visiteurs, filtré par ce champ).
-  sharedWithVisitors: boolean;
-}
-interface ChecklistTemplate {
-  icon: string;
-  label: string;
-  colorKey: "accent" | "orange" | "gold";
-  groups: { phase: string; items: ChecklistItem[] }[];
-}
-
-const CHECKLIST_TEMPLATES: Record<ChecklistContext, ChecklistTemplate> = {
-  adulte: {
-    icon: "🏥",
-    label: "Hospitalisation d'un proche",
-    colorKey: "accent",
-    groups: [
-      {
-        phase: "À l'arrivée",
-        items: [
-          { title: "Directives anticipées", description: "Vérifier si le patient en a rédigé, et où elles se trouvent.", sharedWithVisitors: true },
-          { title: "Personne de confiance", description: "Faire signer le formulaire si pas déjà fait (2 témoins conseillés).", sharedWithVisitors: true },
-          { title: "Carte Vitale + attestation mutuelle", description: "À apporter dès que possible si admission en urgence.", sharedWithVisitors: true },
-          { title: "Liste des traitements en cours", description: "Ordonnances actives, à donner au service.", sharedWithVisitors: true },
-        ],
-      },
-      {
-        phase: "Pendant le séjour",
-        items: [
-          { title: "Attestation d'hospitalisation (employeur)", description: "À demander au service pour justifier une absence.", sharedWithVisitors: true },
-          { title: "Congé proche aidant / AJPA", description: "Démarche CAF ou MSA — délai à anticiper.", urgent: true, sharedWithVisitors: false },
-          { title: "Procuration bancaire", description: "Si le patient ne peut plus gérer ses comptes (factures, loyer).", sharedWithVisitors: false },
-          { title: "Déclaration de sinistre assurance", description: "Si accident — délai généralement de 5 jours ouvrés.", urgent: true, dateOffsetDays: 5, sharedWithVisitors: false },
-          { title: "Prévenir l'employeur du patient", description: "Si en poste.", sharedWithVisitors: true },
-        ],
-      },
-      {
-        phase: "Sortie",
-        items: [
-          { title: "Compte-rendu d'hospitalisation", description: "À transmettre au médecin traitant.", sharedWithVisitors: true },
-          { title: "Dossier MDPH", description: "Si perte d'autonomie durable.", sharedWithVisitors: false },
-          { title: "Déclaration d'impôts", description: "Vérifier un report de délai si la période chevauche la campagne déclarative.", sharedWithVisitors: false },
-          { title: "Organiser le retour à domicile", description: "Aide à la personne, matériel médical, RDV de suivi.", sharedWithVisitors: true },
-        ],
-      },
-    ],
-  },
-  enfant: {
-    icon: "🧸",
-    label: "Enfant hospitalisé",
-    colorKey: "orange",
-    groups: [
-      {
-        phase: "Documents",
-        items: [
-          { title: "Carnet de santé + carte Vitale de l'enfant", description: "", sharedWithVisitors: true },
-          { title: "Autorisation de soins", description: "Signée par le(s) titulaire(s) de l'autorité parentale.", sharedWithVisitors: false },
-          { title: "Attestation d'autorité parentale / jugement de garde", description: "Si parents séparés et service non informé.", sharedWithVisitors: false },
-          { title: "Certificat médical pour l'école", description: "Justificatif d'absence.", sharedWithVisitors: true },
-          { title: "PAI (Projet d'Accueil Individualisé)", description: "À établir ou réactiver avec l'école si suivi au long cours.", sharedWithVisitors: true },
-          { title: "Assurance scolaire / extra-scolaire", description: "Vérifier la couverture si accident.", sharedWithVisitors: true },
-        ],
-      },
-      {
-        phase: "Organisation famille",
-        items: [
-          { title: "Garde de la fratrie", description: "Qui s'en occupe pendant les visites.", sharedWithVisitors: true },
-          { title: "Doudou / objet familier", description: "Le premier réflexe anti-angoisse.", sharedWithVisitors: true },
-          { title: "Préparer l'enfant à l'avance", description: "Si l'admission n'est pas une urgence, en parler quelques jours avant.", sharedWithVisitors: true },
-          { title: "Prévenir l'école / la crèche", description: "", sharedWithVisitors: true },
-        ],
-      },
-    ],
-  },
-  domicile: {
-    icon: "🏠",
-    label: "Soin à domicile",
-    colorKey: "gold",
-    groups: [
-      {
-        phase: "Mise en place",
-        items: [
-          { title: "Déclaration à la mutuelle / CPAM", description: "Prise en charge des soins à domicile.", sharedWithVisitors: false },
-          { title: "Commande de matériel médical", description: "Lit, fauteuil, oxygène selon prescription.", sharedWithVisitors: true },
-          { title: "Aménagement du logement", description: "Barres d'appui, rampe, douche adaptée si besoin.", sharedWithVisitors: true },
-          { title: "Planning des intervenants", description: "Infirmier·ère, kiné, aide à domicile.", sharedWithVisitors: true },
-          { title: "Congé proche aidant / AJPA", description: "Même démarche qu'en hospitalisation si tu es l'aidant principal.", urgent: true, sharedWithVisitors: false },
-          { title: "Procuration bancaire", description: "Si la personne ne peut plus gérer ses comptes.", sharedWithVisitors: false },
-        ],
-      },
-    ],
-  },
-};
-
-function addDaysIso(days: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() + days);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
 
 const SHEET_MAX_HEIGHT = Dimensions.get("window").height * 0.85;
 
@@ -300,6 +184,9 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [checklistContext, setChecklistContext] = useState<ChecklistContext | null>(null);
   const [checklistChecked, setChecklistChecked] = useState<Record<number, boolean>>({});
   const [checklistSaving, setChecklistSaving] = useState(false);
+  // Champ texte libre pour ajouter un item perso (hors template) directement
+  // dans le même lot publié — un item par ligne.
+  const [checklistCustomText, setChecklistCustomText] = useState("");
 
   // Sélecteur repliable dans "Nouveau besoin" (catégorie Administratif) —
   // même contenu que CHECKLIST_TEMPLATES mais affiché en 3 accordéons plutôt
@@ -308,6 +195,15 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [inlineOpenCtx, setInlineOpenCtx] = useState<ChecklistContext | null>(null);
   const [inlineChecked, setInlineChecked] = useState<Partial<Record<ChecklistContext, Record<number, boolean>>>>({});
   const [inlinePublishing, setInlinePublishing] = useState<ChecklistContext | null>(null);
+  const [inlineCustomText, setInlineCustomText] = useState<Partial<Record<ChecklistContext, string>>>({});
+
+  // Découpe un texte libre multi-lignes en items distincts (une ligne = un
+  // item), utilisé pour ajouter des items perso au même lot qu'une checklist
+  // suggérée (dédiée admin ou sélecteur repliable).
+  function customLinesToItems(text: string): ChecklistItem[] {
+    return text.split("\n").map((l) => l.trim()).filter(Boolean)
+      .map((title) => ({ title, description: "", sharedWithVisitors: true }));
+  }
 
   // Annulation d'un lot ajouté d'un coup (checklist admin dédiée ou sélecteur
   // repliable ci-dessus) — capture les id insérés pour pouvoir tout supprimer
@@ -646,6 +542,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     const initial: Record<number, boolean> = {};
     items.forEach((_, i) => { initial[i] = true; });
     setChecklistChecked(initial);
+    setChecklistCustomText("");
     setChecklistContext(ctx);
   }
 
@@ -664,7 +561,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   async function addChecklistItems() {
     if (!checklistContext) return;
     const items = CHECKLIST_TEMPLATES[checklistContext].groups.flatMap((g) => g.items);
-    const selected = items.filter((item, i) => checklistChecked[i] && !findDuplicateAdminTask(item.title));
+    const selected = [
+      ...items.filter((item, i) => checklistChecked[i] && !findDuplicateAdminTask(item.title)),
+      ...customLinesToItems(checklistCustomText).filter((item) => !findDuplicateAdminTask(item.title)),
+    ];
     if (!selected.length) return;
     setChecklistSaving(true);
     const { data: userData } = await supabase.auth.getUser();
@@ -745,7 +645,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // du formulaire (chaque item porte déjà les siens) — ferme le formulaire et
   // déclenche le même bandeau "Annuler" que la checklist admin dédiée.
   async function publishInlineChecklist(ctx: ChecklistContext, items: ChecklistItem[]) {
-    const checked = items.filter((item, i) => (inlineChecked[ctx]?.[i] ?? true) && !findDuplicateAdminTask(item.title));
+    const checked = [
+      ...items.filter((item, i) => (inlineChecked[ctx]?.[i] ?? true) && !findDuplicateAdminTask(item.title)),
+      ...customLinesToItems(inlineCustomText[ctx] ?? "").filter((item) => !findDuplicateAdminTask(item.title)),
+    ];
     if (!checked.length) return;
     setInlinePublishing(ctx);
     let authorPrenom = "", authorNom = "", authorPin = "";
@@ -780,6 +683,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       Alert.alert("Erreur", "Impossible d'ajouter : " + error.message);
       return;
     }
+    setInlineCustomText((prev) => ({ ...prev, [ctx]: "" }));
     setTaskForm(false);
     setActiveCat("administratif");
     triggerBatchUndo(inserted?.map((r) => r.id) ?? [], checked.length);
@@ -852,6 +756,15 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       (t) => t.category === "administratif" && t.status !== "fait" && t.id !== excludeId
         && t.title.trim().toLowerCase() === norm,
     );
+  }
+
+  // Garde "Ma Checklist" (components/MyChecklist.tsx) synchronisée quand le
+  // statut d'un besoin lié change ailleurs que depuis Ma Checklist elle-même
+  // (prise en charge, marquage "fait", réouverture admin) — tasks.status fait
+  // foi, personal_checklist_items n'en est qu'un miroir pour les items
+  // importés. No-op si personne n'a ce besoin dans sa checklist.
+  async function syncPersonalChecklistStatus(taskId: string, status: "a_faire" | "fait") {
+    await supabase.from("personal_checklist_items").update({ status }).eq("task_id", taskId);
   }
 
   // Actions proposées dans la popup de doublon (voir duplicateTarget) : soit
@@ -1116,6 +1029,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       status,
       ...(status === "ouvert" ? { done_photo: null } : {}),
     }).eq("id", t.id);
+    if (status === "ouvert") await syncPersonalChecklistStatus(t.id, "a_faire");
     loadTasks();
   }
 
@@ -1184,6 +1098,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       setDoneSaving(false);
       return;
     }
+    await syncPersonalChecklistStatus(doneTarget.id, "fait");
     setDoneSaving(false);
     setDoneTarget(null);
     showToast("Marqué comme fait ✓");
@@ -1262,6 +1177,20 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         transport_confirmed_return_time: claimTarget.transport_return_time,
       } : {}),
     }).eq("id", claimTarget.id);
+    // "Je m'en occupe" sur un besoin administratif l'ajoute aussi à "Ma
+    // Checklist" du preneur — même objet, visible des deux côtés.
+    if (claimTarget.category === "administratif") {
+      await supabase.from("personal_checklist_items").insert({
+        space_id: spaceId,
+        owner_prenom: claimPrenom.trim(),
+        owner_nom: claimNom.trim(),
+        owner_pin: claimPin,
+        title: claimTarget.title,
+        status: "a_faire",
+        task_id: claimTarget.id,
+        checklist_context: findTemplateContextForTitle(claimTarget.title),
+      });
+    }
     setClaimSaving(false);
     if (!isAdmin) {
       await rememberAuthorPin(claimPrenom.trim(), claimNom.trim(), claimPin);
@@ -1323,6 +1252,16 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           transport_confirmed_return_time: null,
         } : {}),
       }).eq("id", task.id);
+      // Se désinscrire retire aussi le besoin de "Ma Checklist" du preneur —
+      // il n'est plus le sien, un autre item (créé par un autre propriétaire)
+      // reste intact si jamais il en existe un pour ce même task_id.
+      if (task.category === "administratif" && task.claimed_by_pin) {
+        await supabase.from("personal_checklist_items").delete()
+          .eq("task_id", task.id)
+          .eq("owner_pin", task.claimed_by_pin)
+          .eq("owner_prenom", task.claimed_by_prenom ?? "")
+          .eq("owner_nom", task.claimed_by_nom ?? "");
+      }
     }
     showToast("Tu t'es désinscrit ✓");
     loadTasks();
@@ -1993,7 +1932,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                         if (!items.length) return null;
                         const isOpen = inlineOpenCtx === ctx;
                         const availableCount = items.filter((item) => !findDuplicateAdminTask(item.title)).length;
-                        const checkedCount = items.filter((item, i) => (inlineChecked[ctx]?.[i] ?? true) && !findDuplicateAdminTask(item.title)).length;
+                        const customCount = customLinesToItems(inlineCustomText[ctx] ?? "").filter((item) => !findDuplicateAdminTask(item.title)).length;
+                        const checkedCount = items.filter((item, i) => (inlineChecked[ctx]?.[i] ?? true) && !findDuplicateAdminTask(item.title)).length + customCount;
                         return (
                           <View key={ctx} style={[styles.inlineAccordion, { borderColor: color }]}>
                             <TouchableOpacity
@@ -2059,6 +1999,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                                     </TouchableOpacity>
                                   );
                                 })}
+                                <TextInput
+                                  style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 8 }]}
+                                  placeholder="+ Ajouter un item perso (un par ligne)"
+                                  placeholderTextColor={C.muted}
+                                  value={inlineCustomText[ctx] ?? ""}
+                                  onChangeText={(v) => setInlineCustomText((prev) => ({ ...prev, [ctx]: v }))}
+                                  multiline
+                                />
                                 <TouchableOpacity
                                   style={[styles.btnPrimary, { backgroundColor: color, flex: undefined, alignSelf: "stretch", marginTop: 10, opacity: checkedCount === 0 ? 0.5 : 1 }]}
                                   disabled={checkedCount === 0 || inlinePublishing === ctx}
@@ -2401,7 +2349,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               const tpl = CHECKLIST_TEMPLATES[checklistContext];
               const color = C[tpl.colorKey];
               const items = tpl.groups.flatMap((g) => g.items);
-              const checkedCount = items.filter((item, i) => checklistChecked[i] && !findDuplicateAdminTask(item.title)).length;
+              const customCount = customLinesToItems(checklistCustomText).filter((item) => !findDuplicateAdminTask(item.title)).length;
+              const checkedCount = items.filter((item, i) => checklistChecked[i] && !findDuplicateAdminTask(item.title)).length + customCount;
               let runningIndex = -1;
               return (
                 <>
@@ -2460,6 +2409,15 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                       </View>
                     ))}
                   </ScrollView>
+
+                  <TextInput
+                    style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 8 }]}
+                    placeholder="+ Ajouter un item perso (un par ligne)"
+                    placeholderTextColor={C.muted}
+                    value={checklistCustomText}
+                    onChangeText={setChecklistCustomText}
+                    multiline
+                  />
 
                   <View style={styles.sheetBtns}>
                     <TouchableOpacity

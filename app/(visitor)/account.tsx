@@ -15,6 +15,7 @@ import { getVisitorSession, saveVisitorSession, clearVisitorSession } from "@/li
 import PinPad from "@/components/PinPad";
 import PatientProfileModal from "@/components/PatientProfileModal";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
+import MyChecklist from "@/components/MyChecklist";
 import type { Reservation, ReservationChangeHistoryEntry, SouvenirPhoto, NewsEntry, SupportMessage, Task } from "@/lib/types";
 
 function souvenirUrl(spaceId: string, filename: string) {
@@ -756,6 +757,15 @@ export default function VisitorAccountScreen() {
             </View>
           );
         })}
+
+        <MyChecklist
+          spaceId={space.id}
+          isAdmin={false}
+          ownerPrenom={prenom}
+          ownerNom={nom}
+          ownerPin={pin}
+          C={C}
+        />
 
         <TouchableOpacity
           style={styles.patientProfileBtn}

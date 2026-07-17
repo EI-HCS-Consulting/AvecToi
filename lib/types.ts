@@ -286,6 +286,33 @@ export interface Task {
   transport_proposals: TransportProposal[];
 }
 
+// Item de "Ma Checklist" (bloc dédié dans Mon Compte, admin + visiteur) —
+// voir components/MyChecklist.tsx. task_id renseigné uniquement pour les
+// items importés depuis une checklist suggérée (voir lib/checklistTemplates.ts) :
+// ce sont alors aussi de vrais besoins dans le Mur d'Entraide, et status doit
+// rester synchronisé avec tasks.status dans les deux sens. Un item tapé
+// librement (texte libre) n'a jamais de task_id : purement personnel.
+export interface PersonalChecklistItem {
+  id: string;
+  space_id: string;
+  owner_prenom: string;
+  owner_nom: string;
+  owner_pin: string;
+  title: string;
+  status: "a_faire" | "fait";
+  task_id: string | null;
+  // Checklist suggérée d'origine (voir lib/checklistTemplates.ts), pour
+  // regrouper l'affichage en sous-blocs comme "Mes contributions" — null pour
+  // un item purement personnel ou un item rejoint dont le titre ne
+  // correspond à aucune checklist suggérée connue.
+  checklist_context: "adulte" | "enfant" | "domicile" | null;
+  // Nom d'une checklist personnelle créée via "+ Créer une checklist" (voir
+  // components/MyChecklist.tsx) — regroupe ces items sous ce nom, en plus des
+  // 3 checklists suggérées et de "Mes items personnels" (items sans nom).
+  custom_checklist_name: string | null;
+  created_at: string;
+}
+
 export interface SupportMessage {
   id: string;
   space_id: string;
