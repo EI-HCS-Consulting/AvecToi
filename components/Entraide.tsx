@@ -934,9 +934,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setDeleteTaskSaving(true);
     const toRemove = [t.photo, t.claimed_photo].filter((f): f is string => !!f);
     if (toRemove.length) await supabase.storage.from(PHOTO_BUCKET).remove(toRemove.map((f) => `${spaceId}/${f}`));
-    await supabase.from("tasks").delete().eq("id", t.id);
+    const { error } = await supabase.from("tasks").delete().eq("id", t.id);
     setDeleteTaskSaving(false);
     setDeleteTaskTarget(null);
+    if (error) {
+      Alert.alert("Erreur", "Impossible de supprimer ce besoin : " + error.message);
+      return;
+    }
     showToast("Besoin supprimé");
     // S'il reste d'autres items ouverts de la même checklist groupée,
     // proposer de les supprimer aussi (voir triggerBatchUndo : le bandeau
@@ -956,9 +960,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setDeleteBatchSaving(true);
     const toRemove = siblings.flatMap((s) => [s.photo, s.claimed_photo].filter((f): f is string => !!f));
     if (toRemove.length) await supabase.storage.from(PHOTO_BUCKET).remove(toRemove.map((f) => `${spaceId}/${f}`));
-    await supabase.from("tasks").delete().in("id", siblings.map((s) => s.id));
+    const { error } = await supabase.from("tasks").delete().in("id", siblings.map((s) => s.id));
     setDeleteBatchSaving(false);
     setDeleteBatchTarget(null);
+    if (error) {
+      Alert.alert("Erreur", "Impossible de supprimer la liste : " + error.message);
+      return;
+    }
     showToast("Liste supprimée");
     loadTasks();
   }
