@@ -730,6 +730,16 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     });
   }
 
+  // Tout coché par défaut à l'ouverture de chaque accordéon (voir
+  // inlineChecked) — utile pour publier la liste entière, mais oblige à
+  // décocher un par un pour n'en garder qu'un seul : ce bouton vide/remplit
+  // la sélection d'un coup, comme "Tout cocher/décocher" dans l'outil admin.
+  function toggleAllInline(ctx: ChecklistContext, items: ChecklistItem[], on: boolean) {
+    const next: Record<number, boolean> = {};
+    items.forEach((_, i) => { next[i] = on; });
+    setInlineChecked((prev) => ({ ...prev, [ctx]: next }));
+  }
+
   // Publie directement les items cochés d'un contexte comme autant de besoins
   // "administratif" distincts, sans passer par les champs titre/description
   // du formulaire (chaque item porte déjà les siens) — ferme le formulaire et
@@ -1571,7 +1581,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         )}
         {!!t.modified_at && (
           <Text style={[styles.taskModified, { color: C.muted }]}>
-            ✏️ Modifié le {toFrShort(new Date(t.modified_at))}{modifiedByLabel ? ` par ${modifiedByLabel}` : ""}, visible par tous
+            ✏️ Modifié le {toFrShort(new Date(t.modified_at))}{modifiedByLabel ? ` par ${modifiedByLabel}` : ""}
           </Text>
         )}
         {t.photo && (
@@ -1972,6 +1982,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                         const items = tpl.groups.flatMap((g) => g.items).filter((it) => isAdmin || it.sharedWithVisitors);
                         if (!items.length) return null;
                         const isOpen = inlineOpenCtx === ctx;
+                        const availableCount = items.filter((item) => !findDuplicateAdminTask(item.title)).length;
                         const checkedCount = items.filter((item, i) => (inlineChecked[ctx]?.[i] ?? true) && !findDuplicateAdminTask(item.title)).length;
                         return (
                           <View key={ctx} style={[styles.inlineAccordion, { borderColor: color }]}>
@@ -1989,6 +2000,16 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                             </TouchableOpacity>
                             {isOpen && (
                               <View style={styles.inlineAccordionBody}>
+                                {availableCount > 0 && (
+                                  <TouchableOpacity
+                                    onPress={() => toggleAllInline(ctx, items, checkedCount < availableCount)}
+                                    activeOpacity={0.7}
+                                  >
+                                    <Text style={[styles.checklistToggleAll, { color }]}>
+                                      {checkedCount === availableCount ? "Tout décocher" : "Tout cocher"}
+                                    </Text>
+                                  </TouchableOpacity>
+                                )}
                                 {items.map((item, i) => {
                                   const checked = inlineChecked[ctx]?.[i] ?? true;
                                   const dup = findDuplicateAdminTask(item.title);
