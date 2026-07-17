@@ -20,6 +20,7 @@ import { useSpace } from "@/lib/SpaceContext";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import PatientAvatar from "@/components/PatientAvatar";
 import VisitorsBlock from "@/components/VisitorsBlock";
+import IntervenantsBlock from "@/components/IntervenantsBlock";
 import { resolvePlaceFromMapsUrl } from "@/lib/address";
 import { generateSlots, formatHourMinute } from "@/lib/slotUtils";
 import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
@@ -2159,9 +2160,12 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        {/* ── Section : Historique (sous-bloc Visiteurs, puis Historique) ── */}
+        {/* ── Section : Historique (sous-blocs Visiteurs, Intervenants, puis Historique) ── */}
         {hasSpace && space && activeSection === "hist" && (
           <VisitorsBlock spaceId={space.id} C={C} adminFirstname={space.admin_firstname} adminLastname={space.admin_lastname} />
+        )}
+        {hasSpace && space && activeSection === "hist" && (
+          <IntervenantsBlock spaceId={space.id} C={C} />
         )}
         {hasSpace && space && activeSection === "hist" && (
           <>
