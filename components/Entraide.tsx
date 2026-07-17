@@ -1263,7 +1263,6 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       } : {}),
     }).eq("id", claimTarget.id);
     setClaimSaving(false);
-    setClaimTarget(null);
     if (!isAdmin) {
       await rememberAuthorPin(claimPrenom.trim(), claimNom.trim(), claimPin);
       // mySession n'est lu qu'au montage — sans ça, isMine() resterait faux
@@ -1271,12 +1270,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       // masquerait "C'est fait"/"Ajouter au calendrier".
       setMySession({ prenom: claimPrenom.trim(), nom: claimNom.trim(), pin: claimPin });
     }
-    // Décalé au tick suivant : ouvrir la popup "Merci" dans le même batch que
-    // la fermeture de la popup Claim fait se chevaucher les deux <Modal>
-    // natives sur Android (l'ancienne pas encore démontée) — résultat, tout
-    // devient illisible (voir aussi setTimeout côté claimDuplicate/openDuplicateModify
-    // pour la même raison sur les popups doublon).
-    setTimeout(() => setThanksModal(true), 300);
+    // claimTarget et thanksModal pilotent la même <Modal> fusionnée (voir plus
+    // bas) : passer de l'un à l'autre dans le même batch ne rouvre jamais de
+    // fenêtre native, donc pas de setTimeout nécessaire ici.
+    setClaimTarget(null);
+    setThanksModal(true);
     loadTasks();
   }
 
@@ -2489,110 +2487,147 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       </Modal>
 
       {/* ── MODAL CLAIM ───────────────────────────────────────────────────── */}
-      <Modal visible={!!claimTarget} transparent animationType="slide" onRequestClose={() => setClaimTarget(null)}>
+      {/* Le "Merci, tu t'en occupes" est fusionné dans cette même <Modal>
+          (bascule interne via thanksModal) plutôt que d'être une seconde
+          <Modal> ouverte juste après avoir fermé celle-ci : sur Android,
+          fermer une Modal native et en ouvrir une autre dans la foulée fait
+          se chevaucher les deux fenêtres et rend tout illisible par-dessus —
+          un simple délai (setTimeout) ne suffisait pas à l'éviter de façon
+          fiable, d'où la fusion en un seul <Modal> qui ne se ferme jamais
+          entre les deux étapes. */}
+      <Modal
+        visible={!!claimTarget || thanksModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => (thanksModal ? setThanksModal(false) : setClaimTarget(null))}
+      >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-          <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => !claimSaving && setClaimTarget(null)}>
+          <TouchableOpacity
+            style={styles.overlay}
+            activeOpacity={1}
+            onPress={() => { if (thanksModal) setThanksModal(false); else if (!claimSaving) setClaimTarget(null); }}
+          >
             <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
               <TouchableOpacity activeOpacity={1}>
-                <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
-                  <View style={{ alignItems: "center", marginBottom: 14 }}>
-                    <Text style={{ fontSize: 32, marginBottom: 6 }}>🙋</Text>
-                    <Text style={[styles.sheetTitle, { color: C.text }]}>Je m'en occupe</Text>
-                    {claimTarget && (
-                      <Text style={[styles.sheetSub, { color: C.muted }]}>
-                        {CATEGORY_ICONS[claimTarget.category]} {claimTarget.title}
-                      </Text>
-                    )}
-                  </View>
-
-                  <View style={{ flexDirection: "row", gap: 8 }}>
-                    <TextInput
-                      style={[styles.input, { flex: 1, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                      placeholder="Prénom *"
-                      placeholderTextColor={C.muted}
-                      value={claimPrenom}
-                      onChangeText={setClaimPrenom}
-                      autoCapitalize="words"
-                      autoFocus
-                    />
-                    <TextInput
-                      style={[styles.input, { flex: 1, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                      placeholder="Nom *"
-                      placeholderTextColor={C.muted}
-                      value={claimNom}
-                      onChangeText={setClaimNom}
-                      autoCapitalize="words"
-                    />
-                  </View>
-
-                  {claimTarget?.category === "repas" && !!allergies && (
-                    <View style={[styles.allergyBanner, { backgroundColor: "rgba(233,69,96,0.1)", borderColor: "rgba(233,69,96,0.35)" }]}>
-                      <Text style={[styles.allergyBannerText, { color: C.danger }]}>
-                        ⚠️ Allergies du patient : {allergies}
-                      </Text>
-                    </View>
-                  )}
-
-                  {claimTarget?.category !== "transport" && (
+                <View style={[styles.sheet, { backgroundColor: C.card, borderColor: thanksModal ? C.gold : C.accent }]}>
+                  {thanksModal ? (
                     <>
-                      <Text style={[styles.fieldLabel, { color: C.gold }]}>Photo (optionnelle)</Text>
-                      {claimPhotoUri ? (
-                        <View style={styles.photoPreviewRow}>
-                          <Image source={{ uri: claimPhotoUri }} style={styles.photoPreviewImg} resizeMode="cover" />
-                          <TouchableOpacity
-                            style={[styles.photoPickRemove, { backgroundColor: C.danger }]}
-                            onPress={removeClaimPhoto}
-                          >
-                            <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>✕</Text>
-                          </TouchableOpacity>
+                      <View style={{ alignItems: "center", marginBottom: 16 }}>
+                        <Text style={{ fontSize: 32, marginBottom: 6 }}>💛</Text>
+                        <Text style={[styles.sheetTitle, { color: C.text }]}>Merci, tu t'en occupes</Text>
+                        <Text style={[styles.sheetSub, { color: C.muted }]}>
+                          Pense bien à revenir sur cette page et à cliquer sur "Fait" une fois que ce sera fait, pour que les autres le sachent.
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        onPress={() => setThanksModal(false)}
+                        style={[styles.btnPrimary, { backgroundColor: C.gold, alignSelf: "stretch", paddingVertical: 18 }]}
+                      >
+                        <Text style={[styles.btnPrimaryText, { color: "#0D1B2E" }]}>J'ai compris</Text>
+                      </TouchableOpacity>
+                    </>
+                  ) : (
+                    <>
+                      <View style={{ alignItems: "center", marginBottom: 14 }}>
+                        <Text style={{ fontSize: 32, marginBottom: 6 }}>🙋</Text>
+                        <Text style={[styles.sheetTitle, { color: C.text }]}>Je m'en occupe</Text>
+                        {claimTarget && (
+                          <Text style={[styles.sheetSub, { color: C.muted }]}>
+                            {CATEGORY_ICONS[claimTarget.category]} {claimTarget.title}
+                          </Text>
+                        )}
+                      </View>
+
+                      <View style={{ flexDirection: "row", gap: 8 }}>
+                        <TextInput
+                          style={[styles.input, { flex: 1, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                          placeholder="Prénom *"
+                          placeholderTextColor={C.muted}
+                          value={claimPrenom}
+                          onChangeText={setClaimPrenom}
+                          autoCapitalize="words"
+                          autoFocus
+                        />
+                        <TextInput
+                          style={[styles.input, { flex: 1, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                          placeholder="Nom *"
+                          placeholderTextColor={C.muted}
+                          value={claimNom}
+                          onChangeText={setClaimNom}
+                          autoCapitalize="words"
+                        />
+                      </View>
+
+                      {claimTarget?.category === "repas" && !!allergies && (
+                        <View style={[styles.allergyBanner, { backgroundColor: "rgba(233,69,96,0.1)", borderColor: "rgba(233,69,96,0.35)" }]}>
+                          <Text style={[styles.allergyBannerText, { color: C.danger }]}>
+                            ⚠️ Allergies du patient : {allergies}
+                          </Text>
                         </View>
-                      ) : (
+                      )}
+
+                      {claimTarget?.category !== "transport" && (
+                        <>
+                          <Text style={[styles.fieldLabel, { color: C.gold }]}>Photo (optionnelle)</Text>
+                          {claimPhotoUri ? (
+                            <View style={styles.photoPreviewRow}>
+                              <Image source={{ uri: claimPhotoUri }} style={styles.photoPreviewImg} resizeMode="cover" />
+                              <TouchableOpacity
+                                style={[styles.photoPickRemove, { backgroundColor: C.danger }]}
+                                onPress={removeClaimPhoto}
+                              >
+                                <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>✕</Text>
+                              </TouchableOpacity>
+                            </View>
+                          ) : (
+                            <TouchableOpacity
+                              style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
+                              onPress={pickClaimPhoto}
+                              disabled={claimPickingPhoto}
+                            >
+                              {claimPickingPhoto
+                                ? <ActivityIndicator color={C.accent} size="small" />
+                                : <Text style={[styles.photoPickAddText, { color: C.muted }]}>📷 Ajouter une photo (ex : le plat préparé)</Text>
+                              }
+                            </TouchableOpacity>
+                          )}
+                        </>
+                      )}
+
+                      <TextInput
+                        style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 8 }]}
+                        placeholder="Une précision (ou non)..."
+                        placeholderTextColor={C.muted}
+                        value={claimText}
+                        onChangeText={setClaimText}
+                        multiline
+                      />
+
+                      <View style={styles.sheetBtns}>
                         <TouchableOpacity
-                          style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
-                          onPress={pickClaimPhoto}
-                          disabled={claimPickingPhoto}
+                          onPress={() => setClaimTarget(null)}
+                          disabled={claimSaving}
+                          style={[styles.btnSecondary, { borderColor: C.border }]}
                         >
-                          {claimPickingPhoto
-                            ? <ActivityIndicator color={C.accent} size="small" />
-                            : <Text style={[styles.photoPickAddText, { color: C.muted }]}>📷 Ajouter une photo (ex : le plat préparé)</Text>
+                          <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={handleClaim}
+                          disabled={!claimPrenom.trim() || !claimNom.trim() || claimPin.length < 4 || claimSaving}
+                          style={[
+                            styles.btnPrimary,
+                            { backgroundColor: C.accent },
+                            (!claimPrenom.trim() || !claimNom.trim() || claimPin.length < 4 || claimSaving) && { opacity: 0.5 },
+                          ]}
+                        >
+                          {claimSaving
+                            ? <ActivityIndicator color="#fff" size="small" />
+                            : <Text style={styles.btnPrimaryText}>Confirmer</Text>
                           }
                         </TouchableOpacity>
-                      )}
+                      </View>
                     </>
                   )}
-
-                  <TextInput
-                    style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 8 }]}
-                    placeholder="Une précision (ou non)..."
-                    placeholderTextColor={C.muted}
-                    value={claimText}
-                    onChangeText={setClaimText}
-                    multiline
-                  />
-
-                  <View style={styles.sheetBtns}>
-                    <TouchableOpacity
-                      onPress={() => setClaimTarget(null)}
-                      disabled={claimSaving}
-                      style={[styles.btnSecondary, { borderColor: C.border }]}
-                    >
-                      <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={handleClaim}
-                      disabled={!claimPrenom.trim() || !claimNom.trim() || claimPin.length < 4 || claimSaving}
-                      style={[
-                        styles.btnPrimary,
-                        { backgroundColor: C.accent },
-                        (!claimPrenom.trim() || !claimNom.trim() || claimPin.length < 4 || claimSaving) && { opacity: 0.5 },
-                      ]}
-                    >
-                      {claimSaving
-                        ? <ActivityIndicator color="#fff" size="small" />
-                        : <Text style={styles.btnPrimaryText}>Confirmer</Text>
-                      }
-                    </TouchableOpacity>
-                  </View>
                 </View>
               </TouchableOpacity>
             </ScrollView>
@@ -2928,24 +2963,6 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                 }
               </TouchableOpacity>
             </View>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={thanksModal} transparent animationType="fade" onRequestClose={() => setThanksModal(false)}>
-        <View style={styles.overlay}>
-          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.gold }]}>
-            <View style={{ alignItems: "center", marginBottom: 16 }}>
-              <Text style={{ fontSize: 32, marginBottom: 6 }}>💛</Text>
-              <Text style={[styles.sheetTitle, { color: C.text }]}>Merci, tu t'en occupes</Text>
-              <Text style={[styles.sheetSub, { color: C.muted }]}>
-                Pense bien à revenir sur cette page et à cliquer sur "Fait" une fois que ce sera fait, pour que les autres le sachent.
-              </Text>
-            </View>
-
-            <TouchableOpacity onPress={() => setThanksModal(false)} style={[styles.btnPrimary, { backgroundColor: C.gold }]}>
-              <Text style={[styles.btnPrimaryText, { color: "#0D1B2E" }]}>J'ai compris</Text>
-            </TouchableOpacity>
           </View>
         </View>
       </Modal>
