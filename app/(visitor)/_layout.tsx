@@ -9,6 +9,7 @@ import { setupNotifications } from "@/lib/notifications";
 import { getVisitorSession, saveVisitorSession } from "@/lib/visitorSession";
 import PinPad from "@/components/PinPad";
 import RebookingAlertModal from "@/components/RebookingAlertModal";
+import IntervenantFicheModal from "@/components/IntervenantFicheModal";
 
 function VisitorTabs() {
   const { space, token, loading } = useVisitorSpace();
@@ -32,6 +33,13 @@ function VisitorTabs() {
   const [identityPin, setIdentityPin] = useState("");
   const [savingIdentity, setSavingIdentity] = useState(false);
 
+  // Rôle de la session (visiteur par défaut) — un intervenant doit créer sa
+  // fiche (types d'intervention + durée) avant de pouvoir continuer, voir
+  // IntervenantFicheModal.tsx. La fiche n'est jamais redemandée une fois
+  // intervenantProfileId connu.
+  const [role, setRole] = useState<"visiteur" | "intervenant">("visiteur");
+  const [intervenantProfileId, setIntervenantProfileId] = useState<string | null>(null);
+
   useEffect(() => {
     setupNotifications();
   }, []);
@@ -46,6 +54,8 @@ function VisitorTabs() {
     if (!space) return;
     getVisitorSession().then((s) => {
       setIdentityKnown(!!(s?.prenom.trim() && s?.nom.trim()));
+      setRole(s?.role ?? "visiteur");
+      setIntervenantProfileId(s?.intervenantProfileId ?? null);
     });
   }, [space?.id]);
 
@@ -118,7 +128,26 @@ function VisitorTabs() {
         </KeyboardAvoidingView>
       </Modal>
 
-      <Modal visible={identityKnown === true && consentGiven === false} transparent animationType="fade" statusBarTranslucent>
+      {identityKnown === true && role === "intervenant" && !intervenantProfileId && space && (
+        <IntervenantFicheModal
+          visible
+          mode="create"
+          spaceId={space.id}
+          prenom={identityPrenom}
+          nom={identityNom}
+          pin={identityPin}
+          theme={C}
+          onSaved={async (profileId) => {
+            await saveVisitorSession({ token, spaceId: space.id, intervenantProfileId: profileId });
+            setIntervenantProfileId(profileId);
+          }}
+        />
+      )}
+
+      <Modal
+        visible={identityKnown === true && (role !== "intervenant" || !!intervenantProfileId) && consentGiven === false}
+        transparent animationType="fade" statusBarTranslucent
+      >
         <View style={consentStyles.overlay}>
           <View style={[consentStyles.card, { backgroundColor: C.card, borderColor: C.border }]}>
             <Text style={consentStyles.emoji}>👥</Text>
@@ -137,7 +166,7 @@ function VisitorTabs() {
         </View>
       </Modal>
 
-      {identityKnown === true && consentGiven === true && <RebookingAlertModal />}
+      {identityKnown === true && (role !== "intervenant" || !!intervenantProfileId) && consentGiven === true && <RebookingAlertModal />}
 
     <Tabs
       screenOptions={{

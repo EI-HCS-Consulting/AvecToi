@@ -20,6 +20,15 @@ export interface VisitorSession {
   pin: string;
   localPhotoUri: string | null;
   motto: string;
+  // "intervenant" pour un professionnel (infirmier·ère, kiné, aide à
+  // domicile…) entré via "🩺 Je suis intervenant" — sessions déjà
+  // persistées sans ce champ sont traitées comme "visiteur" (voir fallback
+  // dans saveVisitorSession), aucune migration de données locale requise.
+  role: "visiteur" | "intervenant";
+  // Non-null une fois la fiche intervenant créée (voir
+  // components/IntervenantFicheModal.tsx) — tant qu'il est null, l'écran
+  // (visitor)/_layout.tsx affiche le modal de création bloquant.
+  intervenantProfileId: string | null;
 }
 
 export async function getVisitorSession(): Promise<VisitorSession | null> {
@@ -42,6 +51,8 @@ export async function saveVisitorSession(
     pin?: string;
     localPhotoUri?: string | null;
     motto?: string;
+    role?: "visiteur" | "intervenant";
+    intervenantProfileId?: string | null;
   },
 ): Promise<void> {
   const existing = await getVisitorSession();
@@ -54,6 +65,8 @@ export async function saveVisitorSession(
     pin: partial.pin ?? existing?.pin ?? "",
     localPhotoUri: partial.localPhotoUri ?? existing?.localPhotoUri ?? null,
     motto: partial.motto ?? existing?.motto ?? "",
+    role: partial.role ?? existing?.role ?? "visiteur",
+    intervenantProfileId: partial.intervenantProfileId ?? existing?.intervenantProfileId ?? null,
   };
   await AsyncStorage.setItem(KEY, JSON.stringify(merged));
 }

@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from "react-nati
 import { useLocalSearchParams } from "expo-router";
 import { useSpace } from "@/lib/SpaceContext";
 import { supabase } from "@/lib/supabase";
-import { getSlotOccupancy, getNightReservation, isSlotPast, toISO, toFrLong, toFrShort, addDays, nightStartSlot, nightRangeLabel } from "@/lib/slotUtils";
+import { getSlotOccupancy, getNightReservation, getInterventionOverlap, isSlotPast, toISO, toFrLong, toFrShort, addDays, nightStartSlot, nightRangeLabel } from "@/lib/slotUtils";
 import { deleteLinkedCalendarEvent } from "@/lib/calendarSync";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import SpaceHeader from "@/components/SpaceHeader";
@@ -214,16 +214,17 @@ function SlotsList({
       {slots.map((slot) => {
         const occ = getSlotOccupancy(reservations, iso, slot);
         const full = occ.length >= slotConfig.max_visitors_per_slot;
+        const intervention = getInterventionOverlap(reservations, iso, slot, slotConfig.slot_duration_minutes);
         // Un créneau du jour même dont l'heure de début est déjà passée ne
         // peut plus être réservé (dayIsPast couvre les jours antérieurs).
         const slotPast = !dayIsPast && isSlotPast(iso, slot);
 
         return (
-          <View key={slot} style={[styles.slotCard, { backgroundColor: C.card, borderColor: full ? "rgba(233,69,96,0.3)" : C.border }]}>
+          <View key={slot} style={[styles.slotCard, { backgroundColor: C.card, borderColor: intervention ? C.orange : full ? "rgba(233,69,96,0.3)" : C.border }]}>
             <View style={styles.slotHeader}>
               <Text style={[styles.slotTime, { color: C.gold }]}>{slot}</Text>
               <Text style={[styles.slotCount, { color: C.muted }]}>{occ.length}/{slotConfig.max_visitors_per_slot}</Text>
-              {!full && !dayIsPast && !slotPast && !capped && (
+              {!full && !intervention && !dayIsPast && !slotPast && !capped && (
                 <TouchableOpacity
                   style={[styles.addResaBtn, { backgroundColor: C.accent }]}
                   onPress={() => onAdd(slot, slotConfig.max_visitors_per_slot - occ.length)}
@@ -231,10 +232,19 @@ function SlotsList({
                   <Text style={styles.addResaBtnText}>Réserver</Text>
                 </TouchableOpacity>
               )}
-              {full && <Text style={[styles.fullTag, { color: C.danger }]}>Complet</Text>}
-              {!full && slotPast && <Text style={[styles.fullTag, { color: C.muted }]}>Terminé</Text>}
-              {!full && !slotPast && !dayIsPast && capped && <Text style={[styles.fullTag, { color: C.muted }]}>Limite atteinte</Text>}
+              {intervention && <Text style={[styles.fullTag, { color: C.orange }]}>Bloqué</Text>}
+              {!intervention && full && <Text style={[styles.fullTag, { color: C.danger }]}>Complet</Text>}
+              {!intervention && !full && slotPast && <Text style={[styles.fullTag, { color: C.muted }]}>Terminé</Text>}
+              {!intervention && !full && !slotPast && !dayIsPast && capped && <Text style={[styles.fullTag, { color: C.muted }]}>Limite atteinte</Text>}
             </View>
+
+            {intervention && (
+              <View style={[styles.interventionBanner, { borderColor: C.orange, backgroundColor: "rgba(249,115,22,0.1)" }]}>
+                <Text style={[styles.interventionText, { color: C.text }]}>
+                  🩺 {intervention.intervention_label} ({intervention.duration_minutes} min) — {intervention.prenom} {intervention.nom} · prioritaire sur les visites
+                </Text>
+              </View>
+            )}
 
             {occ.length === 0
               ? <Text style={[styles.slotEmpty, { color: C.muted }]}>Aucun visiteur inscrit</Text>
@@ -313,6 +323,9 @@ const styles = StyleSheet.create({
   deleteResaBtn: { width: 28, height: 28, borderWidth: 1, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   editResaBtn: { borderWidth: 1, borderRadius: 7, paddingVertical: 6, paddingHorizontal: 10 },
   editResaBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
+
+  interventionBanner: { borderWidth: 1, borderRadius: 8, padding: 8, marginBottom: 8 },
+  interventionText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11.5, lineHeight: 15 },
 
   alertBanner: { borderWidth: 1, borderRadius: 8, padding: 8, marginTop: 6 },
   alertNames: { fontFamily: "DM_Sans_700Bold", fontSize: 12, marginBottom: 2 },

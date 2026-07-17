@@ -140,6 +140,33 @@ export function getSlotOccupancy(
   );
 }
 
+export function toMinutes(slot: string): number {
+  const [h, m] = slot.split(":").map(Number);
+  return h * 60 + m;
+}
+
+// Intervention (infirmier·ère, kiné, aide à domicile…) dont la fenêtre
+// [creneau, creneau + duration_minutes) chevauche le créneau visite
+// [slot, slot + slotDurationMinutes) — prioritaire sur les visites (voir
+// book_intervention RPC). Utilisé pour le bandeau coloré et pour désactiver
+// la réservation visiteur sur ce créneau ; le trigger SQL
+// check_slot_capacity applique la même règle côté serveur.
+export function getInterventionOverlap(
+  reservations: Reservation[],
+  iso: string,
+  slot: string,
+  slotDurationMinutes: number,
+): Reservation | undefined {
+  const slotStart = toMinutes(slot);
+  const slotEnd = slotStart + slotDurationMinutes;
+  return reservations.find((r) => {
+    if (r.date !== iso || r.type !== "Intervention") return false;
+    const start = toMinutes(r.creneau);
+    const end = start + (r.duration_minutes ?? 0);
+    return start < slotEnd && end > slotStart;
+  });
+}
+
 export function getNightReservation(
   reservations: Reservation[],
   iso: string,
@@ -177,6 +204,7 @@ export function findNextAvailableSlot(
       // ever filters out today's already-gone slots — kept in sync with the
       // exact same check used when rendering the slots list.
       if (isSlotPast(iso, slot)) continue;
+      if (getInterventionOverlap(reservations, iso, slot, config.slot_duration_minutes)) continue;
 
       const occ = getSlotOccupancy(reservations, iso, slot);
       if (occ.length < config.max_visitors_per_slot) {

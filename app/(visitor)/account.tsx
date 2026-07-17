@@ -14,6 +14,7 @@ import { supabase } from "@/lib/supabase";
 import { getVisitorSession, saveVisitorSession, clearVisitorSession } from "@/lib/visitorSession";
 import PinPad from "@/components/PinPad";
 import PatientProfileModal from "@/components/PatientProfileModal";
+import IntervenantFicheModal from "@/components/IntervenantFicheModal";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import MyChecklist from "@/components/MyChecklist";
 import type { Reservation, ReservationChangeHistoryEntry, SouvenirPhoto, NewsEntry, SupportMessage, Task } from "@/lib/types";
@@ -75,6 +76,9 @@ export default function VisitorAccountScreen() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
   const [patientProfileVisible, setPatientProfileVisible] = useState(false);
+  const [role, setRole] = useState<"visiteur" | "intervenant">("visiteur");
+  const [intervenantProfileId, setIntervenantProfileId] = useState<string | null>(null);
+  const [ficheModalVisible, setFicheModalVisible] = useState(false);
 
   // Changement de PIN — 3 phases dans une même modale, réutilisant le même
   // PinPad : (1) vérifier l'ancien PIN, (2) saisir le nouveau, (3) le
@@ -200,6 +204,8 @@ export default function VisitorAccountScreen() {
         setPin(s.pin);
         setPhotoUri(s.localPhotoUri);
         setMotto(s.motto);
+        setRole(s.role ?? "visiteur");
+        setIntervenantProfileId(s.intervenantProfileId ?? null);
         if (space) loadActivity(space.id, s.prenom, s.nom);
       }
       setLoading(false);
@@ -775,6 +781,16 @@ export default function VisitorAccountScreen() {
           <Text style={styles.patientProfileBtnText}>🩺 Fiche patient</Text>
         </TouchableOpacity>
 
+        {role === "intervenant" && (
+          <TouchableOpacity
+            style={[styles.patientProfileBtn, { backgroundColor: C.orange, marginTop: 10 }]}
+            onPress={() => setFicheModalVisible(true)}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.patientProfileBtnText}>🩺 Ma fiche intervenant</Text>
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity style={styles.switchLink} onPress={handleSwitchSpace}>
           <Text style={[styles.switchLinkText, { color: C.muted }]}>Suivre un autre espace</Text>
         </TouchableOpacity>
@@ -907,6 +923,24 @@ export default function VisitorAccountScreen() {
           onClose={() => setPatientProfileVisible(false)}
           space={space}
           C={C}
+        />
+      )}
+
+      {space && role === "intervenant" && intervenantProfileId && (
+        <IntervenantFicheModal
+          visible={ficheModalVisible}
+          mode="edit"
+          spaceId={space.id}
+          prenom={prenom}
+          nom={nom}
+          pin={pin}
+          intervenantProfileId={intervenantProfileId}
+          theme={C}
+          onClose={() => setFicheModalVisible(false)}
+          onSaved={() => {
+            setFicheModalVisible(false);
+            showToast("Fiche intervenant enregistrée ✓");
+          }}
         />
       )}
     </View>

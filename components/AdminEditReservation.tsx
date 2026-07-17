@@ -64,7 +64,7 @@ function AdminEditReservation({ onSaved, onDelete, C }: Props, ref: React.Ref<Ad
 
   async function handleSave() {
     if (!target || !prenom.trim() || !nom.trim() || !slotConfig) return;
-    if (target.type === "Visite" && !editSlot) return;
+    if (target.type !== "Nuit" && !editSlot) return;
 
     setSaving(true);
     const { error, count } = await supabase
@@ -95,6 +95,8 @@ function AdminEditReservation({ onSaved, onDelete, C }: Props, ref: React.Ref<Ad
         "Erreur",
         error?.message.includes("SLOT_FULL")
           ? "Ce créneau est déjà complet. Choisis-en un autre."
+          : error?.message.includes("SLOT_BLOCKED_BY_INTERVENTION")
+          ? "Ce créneau est réservé à une intervention prioritaire. Choisis-en un autre."
           : error ? "Erreur lors de la modification : " + error.message : "La modification n'a pas été enregistrée en base.",
       );
       return;
@@ -125,6 +127,7 @@ function AdminEditReservation({ onSaved, onDelete, C }: Props, ref: React.Ref<Ad
       target.type === "Nuit" ? nightStartSlot(slotConfig) : (editSlot ?? target.creneau),
       target.type,
       slotConfig,
+      target.duration_minutes ?? undefined,
     );
 
     setTarget(null);
@@ -166,13 +169,13 @@ function AdminEditReservation({ onSaved, onDelete, C }: Props, ref: React.Ref<Ad
                   reservations={reservations}
                 />
 
-                {target?.type === "Visite" && (
+                {target && target.type !== "Nuit" && (
                   <>
                     <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 0, marginBottom: 0 }]}>Nouveau créneau</Text>
                     <View style={styles.slotGrid}>
                       {slots.map((slot) => {
                         const occ = getSlotOccupancy(reservations, editDate, slot, target.id);
-                        const full = slotConfig ? occ.length >= slotConfig.max_visitors_per_slot : false;
+                        const full = target.type === "Visite" && slotConfig ? occ.length >= slotConfig.max_visitors_per_slot : false;
                         if (full || isSlotPast(editDate, slot)) return null;
                         const isPartial = occ.length > 0;
                         const selected = editSlot === slot;
