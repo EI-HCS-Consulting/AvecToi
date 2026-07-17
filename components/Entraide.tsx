@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
-  View, Text, TextInput, TouchableOpacity, ScrollView,
+  View, Text, TextInput, TouchableOpacity, Pressable, ScrollView,
   Modal, StyleSheet, Alert, ActivityIndicator, Image,
   KeyboardAvoidingView, Platform, Linking, Dimensions,
 } from "react-native";
@@ -518,6 +518,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [deleteBatchTarget, setDeleteBatchTarget] = useState<{ batchId: string; siblings: Task[] } | null>(null);
   const [deleteBatchSaving, setDeleteBatchSaving] = useState(false);
 
+  // Sélection multiple (admin) : rester appuyé sur un bloc besoin l'entre en
+  // mode sélection, un tap simple sur un autre bloc l'ajoute/l'enlève —
+  // permet une suppression groupée sans repasser par le picker checklist.
+  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+  const selectionMode = selectedTaskIds.size > 0;
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
+  const [bulkDeleteSaving, setBulkDeleteSaving] = useState(false);
+
   const [toast, setToast] = useState("");
   function showToast(msg: string) {
     setToast(msg);
@@ -971,6 +979,40 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     loadTasks();
   }
 
+  function enterSelection(id: string) {
+    setSelectedTaskIds(new Set([id]));
+  }
+
+  function toggleTaskSelected(id: string) {
+    setSelectedTaskIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function exitSelection() {
+    setSelectedTaskIds(new Set());
+  }
+
+  async function confirmBulkDelete() {
+    const selected = tasks.filter((t) => selectedTaskIds.has(t.id));
+    if (!selected.length) return;
+    setBulkDeleteSaving(true);
+    const toRemove = selected.flatMap((t) => [t.photo, t.claimed_photo].filter((f): f is string => !!f));
+    if (toRemove.length) await supabase.storage.from(PHOTO_BUCKET).remove(toRemove.map((f) => `${spaceId}/${f}`));
+    const { error } = await supabase.from("tasks").delete().in("id", selected.map((t) => t.id));
+    setBulkDeleteSaving(false);
+    setBulkDeleteConfirm(false);
+    if (error) {
+      Alert.alert("Erreur", "Impossible de supprimer la sélection : " + error.message);
+      return;
+    }
+    showToast(`${selected.length} besoin${selected.length > 1 ? "s" : ""} supprimé${selected.length > 1 ? "s" : ""}`);
+    exitSelection();
+    loadTasks();
+  }
+
   async function adminSetStatus(t: Task, status: TaskStatus) {
     if (status === "ouvert" && t.done_photo) {
       await supabase.storage.from(PHOTO_BUCKET).remove([`${spaceId}/${t.done_photo}`]);
@@ -1387,17 +1429,30 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   function renderTask(t: Task) {
     const statusColors = STATUS_COLORS(C);
     const highlighted = highlightId === t.id;
+    // Sélection multiple admin : les besoins "fait" restent hors du champ
+    // (même règle que la suppression simple, voir deleteTask).
+    const selectable = isAdmin && t.status !== "fait";
+    const selected = selectedTaskIds.has(t.id);
     return (
-      <View
+      <Pressable
         key={t.id}
         onLayout={(e) => { taskOffsets.current[t.id] = e.nativeEvent.layout.y; }}
+        onLongPress={() => { if (selectable && !selectionMode) enterSelection(t.id); }}
+        onPress={() => { if (selectable && selectionMode) toggleTaskSelected(t.id); }}
+        pointerEvents={selectable && selectionMode ? "box-only" : "auto"}
         style={[
           styles.taskCard,
           { backgroundColor: C.card, borderColor: highlighted ? C.gold : (t.status === "fait" ? "rgba(122,143,166,0.2)" : C.border) },
           highlighted && { borderWidth: 2 },
+          selected && { borderColor: C.accent, borderWidth: 2, backgroundColor: `${C.accent}11` },
         ]}
       >
         <View style={styles.taskHeader}>
+          {selectable && selectionMode && (
+            <View style={[styles.selectDot, { borderColor: C.accent, backgroundColor: selected ? C.accent : "transparent" }]}>
+              {selected && <Text style={styles.selectDotCheck}>✓</Text>}
+            </View>
+          )}
           <View style={[styles.catBadge, { backgroundColor: `${C.accent}22` }]}>
             <Text style={styles.catIcon}>{CATEGORY_ICONS[t.category]}</Text>
             <Text style={[styles.catLabel, { color: C.accent }]}>{CATEGORY_LABELS[t.category]}</Text>
@@ -1621,7 +1676,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             <Text style={[styles.actionSmallText, { color: C.muted }]}>↩ Réouvrir</Text>
           </TouchableOpacity>
         )}
-      </View>
+      </Pressable>
     );
   }
 
@@ -2801,7 +2856,29 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         C={C}
       />
 
-      {!!batchUndo ? (
+      <ConfirmModal
+        visible={bulkDeleteConfirm}
+        title={`Supprimer ${selectedTaskIds.size} besoin${selectedTaskIds.size > 1 ? "s" : ""} ?`}
+        confirmLabel="Supprimer"
+        saving={bulkDeleteSaving}
+        onCancel={() => setBulkDeleteConfirm(false)}
+        onConfirm={confirmBulkDelete}
+        C={C}
+      />
+
+      {selectionMode ? (
+        <View style={[styles.selectionBar, { backgroundColor: C.card, borderColor: C.border }]}>
+          <TouchableOpacity onPress={exitSelection} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={[styles.undoBtn, { color: C.muted }]}>Annuler</Text>
+          </TouchableOpacity>
+          <Text style={[styles.undoText, { color: C.text }]}>
+            {selectedTaskIds.size} sélectionné{selectedTaskIds.size > 1 ? "s" : ""}
+          </Text>
+          <TouchableOpacity onPress={() => setBulkDeleteConfirm(true)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={[styles.undoBtn, { color: C.danger }]}>🗑️ Supprimer</Text>
+          </TouchableOpacity>
+        </View>
+      ) : !!batchUndo ? (
         <View style={[styles.undoBar, { backgroundColor: C.card, borderColor: C.border }]}>
           <Text style={[styles.undoText, { color: C.text }]}>
             {batchUndo.count} besoin{batchUndo.count > 1 ? "s" : ""} ajouté{batchUndo.count > 1 ? "s" : ""} ✓
@@ -2851,6 +2928,8 @@ const styles = StyleSheet.create({
 
   taskCard: { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 },
   taskHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" },
+  selectDot: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: "center", justifyContent: "center" },
+  selectDotCheck: { color: "#fff", fontSize: 13, fontFamily: "DM_Sans_700Bold" },
   catBadge: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
   catIcon: { fontSize: 14 },
   catLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11 },
@@ -2965,4 +3044,11 @@ const styles = StyleSheet.create({
   },
   undoText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
   undoBtn: { fontFamily: "DM_Sans_700Bold", fontSize: 13 },
+
+  // Barre de sélection multiple (admin) — même gabarit que undoBar mais
+  // étalée sur la largeur (3 éléments : Annuler / compteur / Supprimer).
+  selectionBar: {
+    position: "absolute", bottom: 24, left: 16, right: 16, flexDirection: "row", alignItems: "center",
+    justifyContent: "space-between", borderWidth: 1, paddingVertical: 12, paddingHorizontal: 18, borderRadius: 10,
+  },
 });
