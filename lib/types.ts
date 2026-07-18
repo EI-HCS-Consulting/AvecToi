@@ -72,6 +72,11 @@ export interface SlotConfig {
   allowed_weekdays: number[];
   blocked_dates: string[];
   blocked_date_reasons: Record<string, string>;
+  // Mode "1 visite / jour" (Règles de visite) : une fois un créneau "Visite"
+  // pris un jour donné, les autres créneaux de ce jour deviennent
+  // indisponibles pour tout le monde sauf pour l'auteur de la réservation
+  // (voir check_slot_capacity() côté serveur et (visitor)/home/slots.tsx).
+  one_visit_per_day: boolean;
 }
 
 // Snapshot versionné de SlotConfig — une ligne fait foi de son valid_from
@@ -98,6 +103,7 @@ export interface SlotConfigHistoryEntry {
   allowed_weekdays: number[];
   blocked_dates: string[];
   blocked_date_reasons: Record<string, string>;
+  one_visit_per_day: boolean;
 }
 
 export interface Reservation {

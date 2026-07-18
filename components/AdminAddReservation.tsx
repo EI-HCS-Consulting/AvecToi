@@ -124,6 +124,11 @@ function AdminAddReservation({ spaceId, space, slotConfig, reservations, onAdded
           "Créneau indisponible",
           "Ce créneau est réservé à une intervention prioritaire (infirmier·ère, kiné…). Choisis-en un autre.",
         );
+      } else if (error.message.includes("DAY_ALREADY_BOOKED")) {
+        Alert.alert(
+          "Un seul créneau par jour",
+          "Le mode \"1 visite par jour\" est activé et une visite est déjà prévue ce jour-là. Choisis un autre jour.",
+        );
       } else {
         Alert.alert("Erreur", "Erreur lors de l'ajout : " + error.message);
       }

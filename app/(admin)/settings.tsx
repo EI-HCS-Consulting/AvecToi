@@ -692,6 +692,7 @@ export default function SettingsScreen() {
   const [slotGap, setSlotGap] = useState(5);
   const [gapIncludesDuration, setGapIncludesDuration] = useState(false);
   const [maxVisitors, setMaxVisitors] = useState(2);
+  const [oneVisitPerDay, setOneVisitPerDay] = useState(false);
   // Pickers "horloge Android" (visibilité des popovers natifs)
   const [showVisitStartPicker, setShowVisitStartPicker] = useState(false);
   const [showVisitEndPicker, setShowVisitEndPicker] = useState(false);
@@ -714,6 +715,7 @@ export default function SettingsScreen() {
       setSlotGap(Math.max(5, slotConfig.min_gap_minutes || 0));
       setGapIncludesDuration(slotConfig.gap_includes_duration ?? false);
       setMaxVisitors(slotConfig.max_visitors_per_slot);
+      setOneVisitPerDay(slotConfig.one_visit_per_day ?? false);
       setAllowedWeekdays(slotConfig.allowed_weekdays ?? [0,1,2,3,4,5,6]);
       setBlockedDates(slotConfig.blocked_dates ?? []);
       setBlockedDateReasons(slotConfig.blocked_date_reasons ?? {});
@@ -1197,6 +1199,10 @@ export default function SettingsScreen() {
     if (maxVisitors !== slotConfig.max_visitors_per_slot) {
       logs.push(logFieldChange("max_visitors_per_slot", String(slotConfig.max_visitors_per_slot), String(maxVisitors)));
     }
+    const prevOneVisitPerDay = slotConfig.one_visit_per_day ?? false;
+    if (oneVisitPerDay !== prevOneVisitPerDay) {
+      logs.push(logFieldChange("one_visit_per_day", prevOneVisitPerDay ? "Activé" : "Désactivé", oneVisitPerDay ? "Activé" : "Désactivé"));
+    }
     const prevGapIncludes = slotConfig.gap_includes_duration ?? false;
     if (gapIncludesDuration !== prevGapIncludes) {
       logs.push(logFieldChange("gap_includes_duration", prevGapIncludes ? "Oui" : "Non", gapIncludesDuration ? "Oui" : "Non"));
@@ -1219,6 +1225,7 @@ export default function SettingsScreen() {
       slot_duration_minutes: slotDuration,
       min_gap_minutes: slotGap,
       max_visitors_per_slot: maxVisitors,
+      one_visit_per_day: oneVisitPerDay,
       allowed_weekdays: allowedWeekdays,
       blocked_dates: blockedDates,
       blocked_date_reasons: blockedDateReasons,
@@ -1905,6 +1912,26 @@ export default function SettingsScreen() {
                       }).join(" · ") || "Aucun — vérifiez les horaires."
                     }`}
                   </Text>
+
+                  <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
+
+                  {/* Choisir 1 visite par jour */}
+                  <View style={styles.nightRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.nightLabel, { color: C.text }]}>🔒 Choisir 1 visite par jour</Text>
+                      <Text style={[styles.nightDesc, { color: C.muted }]}>
+                        {oneVisitPerDay
+                          ? "Activé : dès qu'un créneau est réservé un jour donné, les autres créneaux de ce jour disparaissent de l'onglet Créneaux pour tout le monde. Seul l'auteur de la réservation peut encore la déplacer vers un autre créneau du même jour."
+                          : "Une fois activé, un seul créneau \"Visite\" pourra être réservé par jour. Les créneaux restent visibles tant qu'aucun n'est choisi ce jour-là."}
+                      </Text>
+                    </View>
+                    <Switch
+                      value={oneVisitPerDay}
+                      onValueChange={setOneVisitPerDay}
+                      trackColor={{ false: C.border, true: C.accent }}
+                      thumbColor="#fff"
+                    />
+                  </View>
 
                   <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
 

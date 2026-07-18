@@ -266,6 +266,11 @@ function BookingFlow(
           "Créneau indisponible",
           "Ce créneau est réservé à une intervention (infirmier·ère, kiné…) prioritaire. Choisis-en un autre.",
         );
+      } else if (error.message.includes("DAY_ALREADY_BOOKED")) {
+        Alert.alert(
+          "Un seul créneau par jour",
+          "Une visite est déjà prévue ce jour-là. Choisis un autre jour, ou modifie la réservation existante.",
+        );
       } else {
         Alert.alert("Erreur lors de la réservation", error.message);
       }
@@ -405,6 +410,8 @@ function BookingFlow(
           ? "Ce créneau vient d'être complété par quelqu'un d'autre — choisis-en un autre."
           : error?.message.includes("SLOT_BLOCKED_BY_INTERVENTION")
           ? "Ce créneau est réservé à une intervention prioritaire — choisis-en un autre."
+          : error?.message.includes("DAY_ALREADY_BOOKED")
+          ? "Une visite est déjà prévue ce jour-là — choisis un autre jour."
           : "Erreur lors de la modification.",
       );
       return;
