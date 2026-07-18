@@ -937,7 +937,10 @@ export default function VisitorAccountScreen() {
           intervenantProfileId={intervenantProfileId}
           theme={C}
           onClose={() => setFicheModalVisible(false)}
-          onSaved={() => {
+          onSaved={async (_profileId, savedPrenom, savedNom) => {
+            await saveVisitorSession({ token, spaceId: space.id, prenom: savedPrenom, nom: savedNom });
+            setPrenom(savedPrenom);
+            setNom(savedNom);
             setFicheModalVisible(false);
             showToast("Fiche intervenant enregistrée ✓");
           }}
