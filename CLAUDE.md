@@ -92,6 +92,7 @@ Quand je dis "génère un handoff" :
 3. Compresser l'ancien contenu en "## Historique cumulé" (5-8 lignes max). Si première génération, cette section reste vide ou minimale.
 4. Rédiger l'état détaillé de la session en cours (template habituel).
 5. Écrire/écraser `Handoff/handoff.md` avec les 3 sections.
+5bis. Mettre à jour `Documentation/Documentation Fonctionnalités.docx` : ajouter/ajuster les sections concernées si des fonctionnalités ont été livrées, modifiées ou supprimées depuis la dernière génération de handoff (nouveaux écrans, nouveaux boutons/menus, changements de comportement par rôle). Ne pas régénérer tout le document — éditer uniquement les sections impactées.
 6. Confirmer que le fichier est écrit et prêt.
 
 ### Template handoff
@@ -123,6 +124,7 @@ Hypothèses à tester, par ordre de priorité.
 ```
 
 ## Références
+- Documentation fonctionnelle complète : Documentation/Documentation Fonctionnalités.docx
 - PRD complet : PRD_AvecToi_v1_4.md (dans ce dossier)
 - Code source MVP : App.jsx (dans ce dossier)
 - App web de référence : https://planning-visites-maman.vercel.app

@@ -1,6 +1,18 @@
 # PRD — AvecToi
-## Product Requirements Document v1.4
-*Préparé pour Claude Code — Juin 2026*
+## Product Requirements Document v1.5
+*Préparé pour Claude Code — Juin 2026, synchronisé avec l'application livrée en Juillet 2026*
+
+> **Changelog v1.4 → v1.5**
+> - **Synchronisation avec l'application effectivement livrée** (juillet 2026). Ajouts/changements majeurs non anticipés en v1.4 :
+>   - Nouveau **rôle Intervenant** (professionnel de soin, sous-mode du Visiteur, réservations prioritaires avec recasage automatique) — voir §2 et §3.9
+>   - **Mode de soin** par espace : Suivi hospitalier **ou** Soin à domicile (le PRD ne prévoyait que l'hospitalier) — voir §3.1
+>   - **Mode d'affichage Clair/Sombre** (préférence locale par appareil) en remplacement du système de 6 thèmes de couleur par espace prévu en §6 — voir §6
+>   - **Fiche médicale patient** (date de naissance, sexe, groupe sanguin, allergies), en lecture seule pour les visiteurs — voir §3.10 ; ⚠️ impact RGPD/HDS, voir §10bis
+>   - Entraide étendue à **6 catégories** (dont Transport) au lieu de 4 — voir §3.8
+>   - Fenêtre de **purge RGPD ramenée à 30 jours** (renouvelable gratuitement) au lieu de 90 — voir §10bis
+>   - **Recasage automatique** des réservations en conflit (changement de règles ou réservation d'intervention prioritaire) — voir §3.11
+>   - Ce qui **n'a pas changé** et reste non construit reste listé tel quel en §8 (Hors scope) — non retiré de ce document.
+>   - Détail exhaustif écran par écran : `Documentation/Documentation Fonctionnalités.docx` (généré depuis le code, mis à jour à chaque handoff)
 
 > **Changelog v1.3 → v1.4**
 > - **Nom définitif : AvecToi** (remplace le nom de travail « Relais Visites »). Domaine principal **`avectoi.care`**. Voir §0 Identité de marque.
@@ -59,40 +71,54 @@ Le nom **AvecToi** porte la promesse : la **présence auprès d'un proche** — 
 
 ### Admin (client payant)
 - **Crée son compte et son espace patient sur le web, et paie 5,99 € via Stripe** (le paiement ne se fait jamais dans l'app — voir §3.1)
-- Se connecte ensuite indifféremment sur le web (responsive) ou dans l'app mobile pour gérer
-- Renseigne : nom du patient, hôpital, service, numéro de chambre, adresse, lien Google Maps
+- Se connecte ensuite indifféremment sur le web (responsive) ou dans l'app mobile pour gérer, via Supabase Auth (email + mot de passe) **plus un PIN secondaire de reconfirmation** pour les actions sensibles côté app
+- **Choisit un mode de soin à la création de l'espace : Suivi hospitalier ou Soin à domicile** — conditionne les champs d'adresse demandés ensuite (§3.1)
+- Renseigne : nom du patient, hôpital, service, numéro de chambre, adresse, lien Google Maps (mode hospitalier) ou adresse domicile (mode Soin à domicile)
 - Renseigne son email (obligatoire) pour notifications d'annulation + alertes de purge
 - **Configure les créneaux** : heures début/fin, durée, temps min entre visites, nb max de visiteurs/créneau
 - Configure les règles de visite (texte libre)
 - **Rédige des notes libres / infos visiteurs** (texte libre affiché aux visiteurs). ⚠️ *Garde-fou données sensibles, §10bis*
-- **Choisit un thème de couleur** (6 thèmes)
+- **Choisit son mode d'affichage Clair/Sombre** (préférence locale par appareil — remplace le système de 6 thèmes de couleur par espace initialement prévu, voir §6)
 - **Upload une photo du patient** (optionnel — logo générique par défaut)
-- Invite des visiteurs via lien unique, QR code, SMS, WhatsApp
+- **Renseigne la fiche médicale du patient** (optionnelle) : date de naissance, sexe, groupe sanguin, allergies — consultée en lecture seule par les visiteurs (§3.10). ⚠️ *Donnée de santé structurée, impact RGPD/HDS — voir §10bis*
+- Invite des visiteurs (et, si activé, des intervenants) via lien unique, QR code, code dossier, SMS, WhatsApp
 - Voit le planning complet avec noms et coordonnées
-- Ajoute/modifie/supprime n'importe quelle réservation
-- Suspend les nuitées, modifie les règles en cours
+- Ajoute/modifie/supprime n'importe quelle réservation (visite, nuitée, intervention)
+- Suspend les nuitées, modifie les règles en cours (déclenche un **recasage automatique** des réservations en conflit, §3.11)
 - Accède à l'historique complet
 - Télécharge/upload des photos souvenirs ; **supprime n'importe quelle photo** (droits étendus)
 - **Publie et modère les Nouvelles du jour** (peut supprimer toute nouvelle)
 - **Crée des besoins d'entraide et modère le mur de soutien**
+- **Peut activer le rôle Intervenant pour son espace** et gérer les fiches des professionnels de soin (§2 Intervenant, §3.9)
 - Reçoit un email automatique à chaque annulation
-- **Prolonge ou déclenche la purge** de l'espace (§10bis)
+- **Prolonge ou déclenche la purge** de l'espace (§10bis — fenêtre 30 jours, renouvelable)
 
 ### Visiteur (accès gratuit via lien d'invitation)
-- Accède via lien unique (pas de compte requis)
+- Accède via lien unique, QR code ou code dossier (pas de compte requis)
 - **Voit le planning complet** : qui vient à quel créneau
-- Réserve un créneau disponible
+- Réserve un créneau disponible (dans la limite du **cap freemium** de 8 réservations de type Visite tant que l'espace n'est pas premium — §3.12)
 - Saisit : **Prénom (obligatoire), Nom (obligatoire)**, Téléphone (optionnel)
   - *Nom obligatoire : permet aux autres visiteurs de savoir précisément qui vient.*
 - Choisit un PIN 4 chiffres (modif/annulation, photos, nouvelles, entraide)
 - Modifie/annule sa réservation avec son PIN
-- Consulte infos patient + hôpital
+- Consulte infos patient + hôpital (ou domicile) et la **fiche médicale du patient en lecture seule** (§3.10)
 - Upload/télécharge des photos souvenirs ; **supprime ses propres photos** (PIN)
 - **Publie une Nouvelle du jour** (texte + photos) ; modifie/supprime les siennes (PIN)
 - **S'attribue un besoin d'entraide** (« Je m'en occupe ») ; **poste un message de soutien**
 - **"Sélectionner tout" / "Télécharger tout"** dans la galerie
 - Reçoit un rappel push 1h avant sa visite (si notifications acceptées)
-- **Ajoute son créneau à son calendrier** (Google/Apple/natif)
+- **Ajoute son créneau à son calendrier** (natif Android)
+- Peut recevoir une **alerte de recasage** si sa réservation a été automatiquement déplacée ou annulée suite à un changement de règles ou à une intervention prioritaire (§3.11)
+
+### Intervenant (accès gratuit, sous-mode du Visiteur) *(NOUVEAU depuis v1.4)*
+- Professionnel de soin (infirmier·ère, kiné, aide à domicile…) — distinct d'un visiteur qui rend une visite personnelle
+- Fonctionnalité **désactivée par défaut** ; l'admin l'active pour son espace (§2 Admin, §3.9)
+- Rejoint l'espace via le **même lien/QR/code dossier** que les visiteurs, par une entrée dédiée « Je suis intervenant »
+- Même identité locale que le visiteur (prénom, nom, PIN 4 chiffres), sans création de compte
+- À sa première connexion, doit renseigner une **fiche intervenant** (au moins un type d'intervention + durée habituelle) avant de pouvoir continuer
+- Réserve des **interventions**, un 3ᵉ type de réservation aux côtés de Visite et Nuit, toujours **prioritaires** : une intervention réservée sur un créneau déjà occupé par une visite déclenche le **recasage automatique** de cette visite (§3.11)
+- Accède aux mêmes Nouvelles, Souvenirs, Entraide et Soutien qu'un visiteur, sans restriction supplémentaire
+- Peut modifier sa propre fiche intervenant à tout moment depuis Mon compte
 
 ---
 
@@ -123,14 +149,17 @@ L'app est **"consumption-only" (reader app)** : elle ne vend **aucun** bien ou s
 
 **Formulaire de création d'espace (web)**
 
+Étape 0 — Mode de soin : **Suivi hospitalier** ou **Soin à domicile** *(NOUVEAU depuis v1.4)* — conditionne les champs de l'étape 2
 Étape 1 — Patient : Prénom, Nom ; upload photo (optionnel, compression auto ; sinon logo générique)
-Étape 2 — Hôpital : établissement, service/pavillon, chambre, adresse, lien Google Maps (auto si adresse)
+Étape 2 — Lieu : établissement, service/pavillon, chambre, adresse, lien Google Maps auto (mode hospitalier) **ou** adresse domicile sans nom d'établissement (mode Soin à domicile)
 Étape 3 — Créneaux : heure début, heure fin, durée (min), écart min entre visites, max visiteurs/créneau ; nuitées on/off + max/nuit
 Étape 4 — Règles & notes :
 - Règles de visite (texte libre, exemples pré-remplis optionnels)
 - **Notes libres / infos visiteurs** (2ᵉ champ libre) — avec avertissement *« N'indiquez pas d'informations médicales sensibles »* (§10bis)
-Étape 5 — Thème couleur (6 options, prévisualisation)
+Étape 5 — Mode d'affichage : implémenté en Clair/Sombre (préférence par appareil, pas par espace — voir §6 pour le système de thèmes initialement prévu à cette étape)
 Étape 6 — Dates : début, fin estimée (modifiable ; alimente le calcul de purge §10bis)
+
+> Le rôle **Intervenant** (§2, §3.9) et la **fiche médicale du patient** (§3.10) ne font pas partie de cet assistant de création : ils se configurent ensuite depuis Paramètres.
 
 ### 3.2 Interface Admin — Dashboard
 
@@ -138,26 +167,28 @@ L'app est **"consumption-only" (reader app)** : elle ne vend **aucun** bien ou s
 
 **Vue Jour** : créneaux du jour (heure, inscrits/max, noms) ; ajouter/modifier/supprimer une résa ; bloc nuitée si activée ; **bouton "📰 Nouvelles du jour"** pour cette date.
 
-**Gestion des invitations** : lien unique, WhatsApp, SMS, copier, QR code.
+**Gestion des invitations** : lien unique, QR code, code dossier (lisible à voix haute), WhatsApp, SMS, copier.
 
 **Galerie Souvenirs (admin)** : upload (galerie/caméra), compression auto, grille anté-chronologique, lightbox, **"Sélectionner tout" / "Télécharger tout"**, légende optionnelle, **suppression de n'importe quelle photo** (sans PIN).
 
 **Entraide & Soutien (admin)** : crée/édite/supprime des besoins ; voit qui s'est attribué quoi ; modère le mur de soutien (voir §3.8).
 
-**Paramètres** : config espace, suspendre/réactiver nuitées, créneaux, thème, photo patient, règles & notes, **gestion de la purge** (date prévue, prolonger, fermer/purger), support.
+**Planning des intervenants (admin)** *(NOUVEAU depuis v1.4)* : écran dédié, non visible dans la barre d'onglets tant que le rôle Intervenant n'est pas activé — fiches des intervenants, planning journalier des interventions, ajout d'une intervention au nom d'un intervenant (voir §3.9).
 
-### 3.3 Interface Visiteur
+**Paramètres** : config espace, mode de soin (hospitalier/domicile), suspendre/réactiver nuitées, créneaux, mode d'affichage, photo patient, fiche médicale du patient, règles & notes, activation du rôle Intervenant, **gestion de la purge** (date prévue, prolonger, fermer/purger), support.
 
-**Accès** : lien unique (WhatsApp/SMS) ; pas de compte ; **au 1er accès, consentement** (prénom + nom visibles des autres visiteurs).
+### 3.3 Interface Visiteur (et Intervenant, sous-mode — voir §3.9)
+
+**Accès** : lien unique, QR code ou code dossier ; pas de compte ; **au 1er accès, consentement** (prénom + nom visibles des autres visiteurs). Entrée dédiée « Je suis intervenant », distincte de « Je rends visite », si le rôle Intervenant est activé sur l'espace.
 
 **Onglets** :
 - **Calendrier** : vue partagée ; "⚡ Prochaine disponibilité" ; clic jour → créneaux + accès Nouvelles du jour
-- **Créneaux** : liste du jour ; **noms (prénom + nom) visibles** (transparence assumée) ; "+ Réserver" ; "✏️ Modifier" (PIN) ; "📰 Nouvelles du jour"
+- **Créneaux** : liste du jour ; **noms (prénom + nom) visibles** (transparence assumée) ; "+ Réserver" ; "✏️ Modifier" (PIN) ; "📰 Nouvelles du jour" ; créneaux bloqués par une intervention signalés par un bandeau dédié
 - **Nouvelles du jour** (§3.7)
-- **Entraide** (§3.8)
+- **Entraide** (§3.8, 6 catégories)
 - **Souvenirs** : voir/ uploader ; "Sélectionner tout" / "Télécharger tout" ; lightbox ; **suppression de ses propres photos** (PIN ; PIN de session si pas de résa)
-- **Infos** : photo patient, nom, hôpital, Google Maps, règles + notes libres
-- **Partager** : QR code, copier le lien, WhatsApp/SMS
+- **Infos** : photo patient, nom, hôpital ou domicile, Google Maps, règles + notes libres, **fiche médicale du patient en lecture seule** (§3.10)
+- **Partager** : QR code, code dossier, copier le lien, WhatsApp/SMS
 
 ### 3.4 Réservation (flux visiteur)
 1. Sélection créneau
@@ -185,15 +216,47 @@ Compte-rendu court après le passage d'un visiteur, pour rassurer les proches ab
 ### 3.8 Entraide & Mur de soutien
 
 **Entraide — besoins & coups de main (care calendar)**
-- L'admin (ou un visiteur) crée un **besoin** : ex. apporter un repas maison, du linge propre, des affaires de toilette, un livre, faire une course
-- Chaque besoin : **catégorie** (repas / affaires / courses / autre) + **statut** (ouvert → pris en charge → fait)
+- L'admin (ou un visiteur) crée un **besoin** : ex. apporter un repas maison, du linge propre, des affaires de toilette, un livre, faire une course, un trajet
+- Chaque besoin : **catégorie** — **6 catégories depuis v1.5** : 🍽️ Repas / 👕 Affaires / 🛒 Courses / 🚗 Transport / 🗂️ Administratif / 💡 Autre (le PRD v1.4 n'en prévoyait que 4, sans Transport ni Administratif) — + **statut** (ouvert → pris en charge → fait, avec fermeture automatique si non pris en charge après sa date)
 - Un visiteur clique **« Je m'en occupe »** (identifié prénom + nom, PIN pour se désinscrire)
-- ❌ **Pas de covoiturage / trajets entre visiteurs** (exclu du produit)
+- Catégorie **Administratif** : checklists suggérées prêtes à publier en bloc (bibliothèque complète pour l'admin, sous-ensemble partageable pour les visiteurs/intervenants)
+- Catégorie **Transport** *(NOUVEAU depuis v1.4 — revient sur l'exclusion initiale)* : dates/heures aller-retour, adresses, proposition d'horaire par la personne qui prend en charge
+- L'admin dispose d'opérations groupées (sélection multiple, suppression en masse) réservées à son rôle
 
 **Mur de soutien**
 - Messages courts d'encouragement pour le patient / la famille
 - Affichage anté-chronologique
 - Distinct des Nouvelles du jour (qui sont des comptes-rendus de visite)
+
+### 3.9 Rôle Intervenant *(NOUVEAU depuis v1.4)*
+
+Réservé aux professionnels de soin (infirmier·ère, kiné, aide à domicile…), désactivé par défaut sur chaque espace.
+
+- **Activation** : l'admin bascule « Planning des intervenants » dans Paramètres → Règles ; tant que non activé, aucune entrée « Je suis intervenant » n'apparaît côté visiteurs
+- **Accès** : même lien d'invitation, QR code ou code dossier que les visiteurs — pas d'invitation nominative distincte
+- **Fiche intervenant obligatoire** à la première connexion : au moins un type d'intervention (libellé + durée habituelle) avant de pouvoir continuer ; modifiable ensuite depuis Mon compte
+- **Réservation d'intervention** : 3ᵉ type de réservation (aux côtés de Visite et Nuit), toujours **prioritaire** — une intervention réservée sur un créneau déjà occupé déclenche le recasage automatique de la/les visite(s) en conflit (§3.11), au créneau valide le plus proche ou annulation avec message explicatif si aucun recasage n'est possible
+- **Écran dédié admin « Planning des intervenants »** : fiches des intervenants ayant rejoint l'espace, planning journalier des interventions, ajout d'une intervention au nom d'un intervenant ; pas de fonction de suppression de fiche exposée dans l'UI
+- Accès identique au visiteur pour Nouvelles, Souvenirs, Entraide, Soutien
+
+### 3.10 Fiche médicale du patient *(NOUVEAU depuis v1.4)*
+
+- Renseignée par l'admin dans Paramètres → Profil Patient : date de naissance (âge calculé), sexe, groupe sanguin, allergies
+- Consultée par les visiteurs et intervenants en **lecture seule**, via Mon compte ou en touchant la photo du patient dans l'en-tête
+- ⚠️ **Donnée de santé structurée non prévue par le PRD v1.4**, qui reposait sur l'absence de données de santé pour écarter l'obligation d'hébergement HDS (§10bis) — à réévaluer
+
+### 3.11 Recasage automatique des réservations *(NOUVEAU depuis v1.4)*
+
+- Déclenché par un changement des règles de visite (horaires, jours autorisés, dates bloquées…) ou par une réservation d'intervention prioritaire (§3.9)
+- Recalcul automatique des réservations en conflit : recasage au créneau valide le plus proche (le même jour si possible, sinon jusqu'à 60 jours plus tard pour une intervention), ou annulation avec message explicatif si aucun recasage n'est possible
+- L'admin voit un résumé du nombre de réservations recasées/annulées ; le visiteur ou l'intervenant concerné reçoit une alerte dédiée à sa prochaine connexion, avec accusé de lecture
+- Tracé dans l'historique (Paramètres → Histo, §3.2)
+
+### 3.12 Cap freemium *(NOUVEAU depuis v1.4 — mécanisme de conversion non détaillé au niveau produit dans le PRD initial)*
+
+- Un espace non payant est limité à **8 réservations de type Visite**
+- Au-delà, toute nouvelle réservation ou tout nouvel ajout de photo est bloqué avec un message d'information — jamais de bouton d'achat affiché dans l'app (conformité reader app, §3.1)
+- Le passage en espace premium reste un flux **web** (avectoi.care), hors du périmètre de l'app mobile
 
 ---
 
@@ -205,6 +268,7 @@ Compte-rendu court après le passage d'un visiteur, pour rassurer les proches ab
 - **Styles** : StyleSheet
 - **Icônes** : @expo/vector-icons
 - **Calendrier natif** : expo-calendar
+- **Notifications** : expo-notifications (rappel local 1h avant visite)
 - **Galerie / Caméra** : expo-image-picker
 - **Compression** : expo-image-manipulator
 - **QR Code** : react-native-qrcode-svg
@@ -273,6 +337,7 @@ admin_id (uuid, FK → admin_accounts)
 patient_firstname (text)
 patient_lastname (text)
 patient_photo_url (text)      ← nullable
+home_care_mode (boolean)       ← NOUVEAU depuis v1.4, true = mode Soin à domicile (§3.1)
 hospital_name (text)
 hospital_service (text)
 hospital_room (text)
@@ -280,14 +345,21 @@ hospital_address (text)
 hospital_maps_url (text)
 visit_rules (text)
 admin_notes (text)            ← notes libres (⚠️ pas d'info médicale sensible)
-theme (text)                  ← "blue"|"red"|"pink"|"green"|"yellow"|"orange"
+theme (text)                  ← "blue"|"red"|"pink"|"green"|"yellow"|"orange" — colonne conservée pour compatibilité, plus lue par l'UI actuelle (voir §6)
+patient_birthdate (date)       ← NOUVEAU depuis v1.4, fiche médicale (§3.10)
+patient_sex (text)             ← NOUVEAU depuis v1.4, "M" | "F"
+patient_blood_type (text)      ← NOUVEAU depuis v1.4
+patient_allergies (text)       ← NOUVEAU depuis v1.4
+intervenants_enabled (boolean) ← NOUVEAU depuis v1.4, active le rôle Intervenant (§3.9)
+premium (boolean)              ← NOUVEAU depuis v1.4, désactive le cap freemium de 8 réservations Visite (§3.12)
 start_date (date)
 end_date (date)
 is_active (boolean)           ← activé après paiement Stripe confirmé
 invite_token (text, unique)
+dossier_code (text, unique)    ← NOUVEAU depuis v1.4, code alternatif lisible à voix haute
 stripe_payment_id (text)      ← référence du paiement (webhook)
 last_activity_at (timestamp)  ← rafraîchi à chaque résa/nouvelle/upload
-purge_scheduled_at (date)     ← date de purge auto calculée
+purge_scheduled_at (date)     ← date de purge auto calculée (fenêtre 30 jours depuis v1.4, voir §10bis)
 created_at (timestamp)
 ```
 
@@ -313,10 +385,56 @@ creneau (text)
 prenom (text)
 nom (text)                    ← obligatoire
 telephone (text)
-type (text)                   ← "Visite" | "Nuit"
-pin (text)
+type (text)                   ← "Visite" | "Nuit" | "Intervention" — 3ᵉ valeur ajoutée depuis v1.4 (§3.9)
+pin (text)                    ← valeur sentinelle "ADMIN" pour les réservations créées par l'admin
+group_id (uuid, nullable)      ← NOUVEAU depuis v1.4, regroupe une réservation et ses accompagnants
+duration_minutes (integer, nullable)   ← NOUVEAU depuis v1.4, copié depuis intervention_types au moment de la résa (type="Intervention")
+intervention_label (text, nullable)    ← NOUVEAU depuis v1.4, idem — copié pour ne jamais changer si le type est modifié/supprimé ensuite
+intervenant_profile_id (uuid, FK → intervenant_profiles, nullable, on delete set null) ← NOUVEAU depuis v1.4, référence la fiche intervenant pour type="Intervention"
+previous_date (date, nullable)         ← NOUVEAU depuis v1.4, alerte de recasage (§3.11) : date avant déplacement
+previous_creneau (text, nullable)      ← NOUVEAU depuis v1.4, idem : créneau avant déplacement
+alert_message (text, nullable)         ← NOUVEAU depuis v1.4, message affiché au visiteur/intervenant concerné
+alert_type (text, nullable)            ← NOUVEAU depuis v1.4, "rebooked" | "night_cancelled" | "rebooking_failed"
+alert_seen (boolean)                   ← NOUVEAU depuis v1.4, accusé de lecture ; colonnes alert_* effacées une fois vues/résolues
 push_token (text)
 timestamp (timestamp)
+```
+
+### Table `intervenant_profiles` — fiches des professionnels de soin *(NOUVEAU depuis v1.4, §3.9)*
+```
+id (uuid, PK)
+space_id (uuid, FK → patient_spaces)
+prenom (text)
+nom (text)
+pin (text)
+created_at (timestamp)
+```
+
+### Table `intervention_types` — types d'intervention par fiche *(NOUVEAU depuis v1.4, §3.9)*
+```
+id (uuid, PK)
+intervenant_profile_id (uuid, FK → intervenant_profiles, on delete cascade)
+label (text)
+duration_minutes (integer)
+created_at (timestamp)
+```
+
+### Table `reservation_change_history` — trace permanente des recasages/annulations auto *(NOUVEAU depuis v1.4, §3.11)*
+Contrairement aux colonnes `alert_*` de `reservations` (effacées une fois la réservation vue/modifiée), ces lignes ne sont jamais supprimées : c'est la source affichée dans "Mes réservations" (visiteur) et le sous-menu admin "Modification de réservations".
+```
+id (uuid, PK)
+space_id (uuid)
+reservation_id (uuid)
+prenom (text)
+nom (text)
+type (text)
+change_type (text)            ← "rebooked" | "night_cancelled" | "rebooking_failed"
+previous_date (date, nullable)
+previous_creneau (text, nullable)
+new_date (date, nullable)
+new_creneau (text, nullable)
+message (text)
+changed_at (timestamp)
 ```
 
 ### Table `souvenirs`
@@ -350,8 +468,8 @@ id (uuid, PK)
 space_id (uuid, FK)
 title (text)
 description (text)
-category (text)               ← "repas" | "affaires" | "courses" | "autre"
-status (text)                 ← "ouvert" | "pris_en_charge" | "fait"
+category (text)               ← "repas" | "affaires" | "courses" | "transport" | "administratif" | "autre" — 6 valeurs depuis v1.4 (transport et administratif ajoutés, §3.8)
+status (text)                 ← "ouvert" | "pris_en_charge" | "fait" | "fermé" — "fermé" ajouté depuis v1.4 (fermeture auto si non pris en charge après la date, §3.8)
 claimed_by_prenom (text, nullable)
 claimed_by_nom (text, nullable)
 claimed_by_pin (text, nullable)
@@ -375,10 +493,10 @@ created_at (timestamp)
 
 ## 6. Charte graphique & Thèmes
 
-### Principe
-L'admin choisit un thème à la création, modifiable ensuite. Tous les visiteurs voient ce thème. Couleurs de police adaptées automatiquement (contraste WCAG AA min).
+### Principe (implémenté, depuis v1.4)
+L'application utilise un **mode d'affichage Clair / Sombre**, choisi individuellement par chaque utilisateur (préférence locale par appareil, bascule dans Compte → Mon affichage). Ce mécanisme **remplace** le système de 6 thèmes de couleur par espace décrit ci-dessous, qui n'a pas été retenu tel quel : la colonne `patient_spaces.theme` existe toujours en base pour compatibilité mais n'est plus lue par l'interface actuelle.
 
-### 6 thèmes
+### Système de thèmes initialement prévu *(non retenu en l'état — conservé ici à titre de référence historique)*
 > ⚠️ Codes couleurs exacts à définir. Noms = identifiants logiques.
 
 | Identifiant | Nom affiché | Ambiance |
@@ -440,12 +558,12 @@ Logique Supabase (requêtes, realtime, storage) : 100 % réutilisable.
 - Application iOS (V2 selon traction Android)
 - Mode multi-patients simultanés pour un même admin (V2)
 - Intégration calendrier hôpital
-- **Covoiturage / coordination de trajets (exclu du produit)**
+- ~~Covoiturage / coordination de trajets (exclu du produit)~~ — **obsolète depuis v1.5** : couvert par la catégorie Entraide **Transport** (§3.8)
 - Messagerie interne bidirectionnelle (le mur de soutien n'en est pas une)
 - Traduction multilingue
 - Paiement in-app (par conception : modèle reader app, §3.1)
 - Prescription mutuelles / assureurs (phase 2 commerciale)
-- Codes couleurs définitifs des thèmes autres que `blue` (à intégrer en V1 avant publication)
+- ~~Codes couleurs définitifs des thèmes autres que `blue`~~ — **obsolète depuis v1.5** : le système de 6 thèmes par espace a été remplacé par un mode d'affichage Clair/Sombre par appareil (§6)
 - **Export PDF "livret"** (V2) : bouton "Chronologie" côté admin (Paramètres →
   Historique) déjà livré en V1 — ouvre une frise chronologique (popup, zone de
   scroll bornée) combinant Infos hospitalières + Consignes de visite + Règles
@@ -465,14 +583,17 @@ Logique Supabase (requêtes, realtime, storage) : 100 % réutilisable.
 - Site web opérationnel : création compte + espace + **paiement Stripe 5,99 €** + activation par webhook
 - Flux complet : admin crée espace + paie (web) → invite → visiteur réserve (app/web)
 - Connexion admin dans l'app à un espace créé sur le web
-- Thèmes (6, switch temps réel) ; photo patient au centre du logo
+- Mode d'affichage Clair/Sombre (switch temps réel, préférence par appareil) ; photo patient au centre du logo
 - "Prochaine disponibilité" (admin + visiteur) ; ajout calendrier natif Android
 - Galerie : upload, download groupé, "Sélectionner tout", suppression par PIN
 - **Nouvelles du jour** : publication (texte + photos), flux anté-chronologique, accès par jour, droits PIN/admin
-- **Entraide** : création de besoins, statut, « Je m'en occupe » (PIN) ; **Mur de soutien** : post + affichage anté-chronologique
+- **Entraide** (6 catégories, dont Transport) : création de besoins, statut, « Je m'en occupe » (PIN) ; **Mur de soutien** : post + affichage anté-chronologique
 - Notes libres admin affichées (avec avertissement données sensibles)
-- Email admin à chaque annulation ; **purge auto + alerte J-7 + prolongation**
+- Email admin à chaque annulation ; **purge auto (30 jours, renouvelable) + alerte J-7 + prolongation**
 - Push rappel 1h avant visite ; planning + nouvelles en temps réel (Realtime)
+- **Rôle Intervenant** : fiche, réservation prioritaire d'intervention, recasage automatique des visites en conflit *(depuis v1.5)*
+- **Fiche médicale du patient** (lecture seule visiteurs/intervenants) *(depuis v1.5)*
+- Mode de soin Suivi hospitalier / Soin à domicile, au choix de l'admin *(depuis v1.5)*
 
 ---
 
@@ -494,18 +615,19 @@ Logique Supabase (requêtes, realtime, storage) : 100 % réutilisable.
 ## 10bis. RGPD & Cycle de vie des données
 
 ### Données collectées
-- Visiteurs : prénom, nom, téléphone (optionnel), PIN, photos volontaires, textes (nouvelles, soutien)
-- Admin : email, notes libres
-- **Aucune donnée de santé structurée.** Seul vecteur potentiel de données sensibles : le champ libre `admin_notes` → avertissement UI explicite *« N'indiquez pas d'informations médicales sensibles. »*
+- Visiteurs/Intervenants : prénom, nom, téléphone (optionnel), email (optionnel, depuis v1.4), PIN, photos volontaires, textes (nouvelles, soutien), et pour les intervenants leurs types d'intervention (§3.9)
+- Admin : email, notes libres, PIN secondaire de reconfirmation
+- ⚠️ **Donnée de santé structurée depuis v1.4** : la **fiche médicale du patient** (date de naissance, sexe, groupe sanguin, allergies — §3.10), renseignée par l'admin et consultable en lecture seule par les visiteurs/intervenants. Le PRD v1.4 partait du principe d'une absence de donnée de santé structurée pour écarter l'hébergement HDS (voir Hébergement ci-dessous) — **ce principe ne tient plus en l'état et doit être réévalué**.
+- Seul autre vecteur potentiel de données sensibles : le champ libre `admin_notes` → avertissement UI explicite *« N'indiquez pas d'informations médicales sensibles. »*
 
 ### Hébergement
-- Supabase **région UE**. Pas d'obligation HDS tant qu'aucune donnée de santé n'est traitée à titre médical (réévaluer si évolution B2B hospitalière).
+- Supabase **région UE**. Le PRD v1.4 excluait l'obligation d'hébergement HDS tant qu'aucune donnée de santé n'était traitée à titre médical ; **la fiche médicale patient (§3.10) introduit une donnée de santé structurée** — à faire trancher par un conseil juridique/CPI avant toute communication commerciale sur ce point, indépendamment d'une évolution B2B hospitalière.
 
 ### Purge automatique
-- **Règle** : `purge_scheduled_at = max(end_date, last_activity_at) + 90 jours`
+- **Règle actuelle : `purge_scheduled_at = max(end_date, last_activity_at) + 30 jours`** (ramenée de 90 à 30 jours depuis v1.4)
 - `last_activity_at` rafraîchi à chaque réservation/nouvelle/upload/modification
-- **Job quotidien** (Edge Function) : si `purge_scheduled_at` dépassée → suppression en cascade (`reservations`, `souvenirs` + fichiers Storage, `news` + photos, `tasks`, `support_messages`, photo patient, puis l'espace)
-- **Alerte email J-7** à l'admin avec lien pour **prolonger** (réinitialise l'échéance) ou **purger immédiatement**
+- **Job quotidien** (Edge Function) : si `purge_scheduled_at` dépassée → suppression en cascade (`reservations`, `souvenirs` + fichiers Storage, `news` + photos, `tasks`, `support_messages`, fiches `intervenants`, photo patient et fiche médicale, puis l'espace)
+- **Alerte email J-7** à l'admin avec lien pour **prolonger de 30 jours (renouvelable gratuitement)** ou **purger immédiatement**
 - L'admin peut **fermer/purger manuellement** depuis les paramètres
 
 ### Bénéfices
