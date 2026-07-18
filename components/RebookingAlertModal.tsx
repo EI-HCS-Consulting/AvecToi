@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, Modal, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import { useVisitorSpace } from "@/lib/VisitorContext";
-import { getVisitorSession } from "@/lib/visitorSession";
+import { getVisitorSession, VisitorSession } from "@/lib/visitorSession";
 import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
 import { supabase } from "@/lib/supabase";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
@@ -13,18 +13,33 @@ import type { Reservation } from "@/lib/types";
 // modale de consentement dans _layout.tsx) ont été recasées ou annulées par
 // un changement de règles de visite admin (voir apply_slot_rule_change).
 // Une alerte à la fois — la suivante apparaît une fois celle-ci traitée.
+//
+// Le PIN seul ne suffit pas à identifier "mes" réservations : deux identités
+// différentes dans le même espace (ex. un visiteur et un intervenant testés
+// par la même personne) peuvent choisir le même PIN à 4 chiffres, sans lien
+// entre elles. On matche donc aussi prénom + nom (même convention que
+// Soutien.tsx pour les droits de suppression), pour éviter qu'une vieille
+// alerte non lue d'une autre identité ne resurgisse sous un nouveau profil.
+function matchesSession(r: Reservation, s: VisitorSession): boolean {
+  return (
+    r.pin === s.pin
+    && r.prenom.trim().toLowerCase() === s.prenom.trim().toLowerCase()
+    && r.nom.trim().toLowerCase() === s.nom.trim().toLowerCase()
+  );
+}
+
 export default function RebookingAlertModal() {
   const { space, slotConfig, reservations, setSelectedDay, setPendingEditReservationId, refreshReservations } = useVisitorSpace();
   const router = useRouter();
   const { theme: C } = useDisplayMode();
-  const [myPin, setMyPin] = useState<string | null>(null);
+  const [mySession, setMySession] = useState<VisitorSession | null>(null);
 
   useEffect(() => {
-    getVisitorSession().then((s) => setMyPin(s?.pin ?? null));
+    getVisitorSession().then(setMySession);
   }, []);
 
-  const alerts = myPin
-    ? reservations.filter((r) => r.pin === myPin && r.alert_message && !r.alert_seen)
+  const alerts = mySession
+    ? reservations.filter((r) => matchesSession(r, mySession) && r.alert_message && !r.alert_seen)
     : [];
   const current: Reservation | undefined = alerts[0];
 
