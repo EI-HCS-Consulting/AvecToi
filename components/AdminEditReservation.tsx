@@ -97,6 +97,8 @@ function AdminEditReservation({ onSaved, onDelete, C }: Props, ref: React.Ref<Ad
           ? "Ce créneau est déjà complet. Choisis-en un autre."
           : error?.message.includes("SLOT_BLOCKED_BY_INTERVENTION")
           ? "Ce créneau est réservé à une intervention prioritaire. Choisis-en un autre."
+          : error?.message.includes("DAY_ALREADY_BOOKED")
+          ? "Le mode \"1 visite par jour\" est activé et une visite est déjà prévue ce jour-là. Choisis un autre jour."
           : error ? "Erreur lors de la modification : " + error.message : "La modification n'a pas été enregistrée en base.",
       );
       return;

@@ -35,6 +35,7 @@ interface RuleChangeResult {
   rebooked: string[];
   night_cancelled: string[];
   failed: string[];
+  day_cap_suspended: string[];
 }
 
 // ─── Historique des champs hospitaliers ───────────────────────────────────────
@@ -666,6 +667,7 @@ export default function SettingsScreen() {
   // Nuitées toggle + heures
   const [nightToggling, setNightToggling] = useState(false);
   const [intervenantsToggling, setIntervenantsToggling] = useState(false);
+  const [oneVisitPerDayToggling, setOneVisitPerDayToggling] = useState(false);
   const nightHoursInit = useRef(false);
   const [nightStartHour, setNightStartHour] = useState(19);
   const [nightStartMinute, setNightStartMinute] = useState(0);
@@ -692,6 +694,7 @@ export default function SettingsScreen() {
   const [slotGap, setSlotGap] = useState(5);
   const [gapIncludesDuration, setGapIncludesDuration] = useState(false);
   const [maxVisitors, setMaxVisitors] = useState(2);
+  const [oneVisitPerDay, setOneVisitPerDay] = useState(false);
   // Pickers "horloge Android" (visibilité des popovers natifs)
   const [showVisitStartPicker, setShowVisitStartPicker] = useState(false);
   const [showVisitEndPicker, setShowVisitEndPicker] = useState(false);
@@ -714,6 +717,7 @@ export default function SettingsScreen() {
       setSlotGap(Math.max(5, slotConfig.min_gap_minutes || 0));
       setGapIncludesDuration(slotConfig.gap_includes_duration ?? false);
       setMaxVisitors(slotConfig.max_visitors_per_slot);
+      setOneVisitPerDay(slotConfig.one_visit_per_day ?? false);
       setAllowedWeekdays(slotConfig.allowed_weekdays ?? [0,1,2,3,4,5,6]);
       setBlockedDates(slotConfig.blocked_dates ?? []);
       setBlockedDateReasons(slotConfig.blocked_date_reasons ?? {});
@@ -1065,6 +1069,7 @@ export default function SettingsScreen() {
     if (result.rebooked.length) parts.push(`${result.rebooked.length} réservation(s) recasée(s)`);
     if (result.night_cancelled.length) parts.push(`${result.night_cancelled.length} nuitée(s) annulée(s)`);
     if (result.failed.length) parts.push(`${result.failed.length} réservation(s) à recaser manuellement`);
+    if (result.day_cap_suspended?.length) parts.push(`${result.day_cap_suspended.length} réservation(s) suspendue(s) (1 visite/jour)`);
     return parts.length ? parts.join(", ") + " — visiteurs alertés." : null;
   }
 
@@ -1105,6 +1110,30 @@ export default function SettingsScreen() {
     await logFieldChange("intervenants_enabled", wasEnabled ? "Activé" : "Désactivé", nextEnabled ? "Activé" : "Désactivé");
     loadHistory();
     showToast(wasEnabled ? "Planning des intervenants désactivé ✓" : "Planning des intervenants activé ✓");
+  }
+
+  // ── "1 visite par jour" toggle ───────────────────────────────────────────
+  // Applique immédiatement (comme handleToggleNight) plutôt que d'attendre
+  // le bouton "Enregistrer" des règles de créneaux : le mode ne doit jamais
+  // rester activé côté écran sans être réellement persisté en base, sinon
+  // check_slot_capacity() continue d'autoriser plusieurs créneaux le même
+  // jour alors que l'admin croit l'avoir activé.
+  async function handleToggleOneVisitPerDay() {
+    if (!slotConfig) return;
+    setOneVisitPerDayToggling(true);
+    const next = !oneVisitPerDay;
+    const prev = oneVisitPerDay;
+    const res = await applyRuleChange({ one_visit_per_day: next });
+    setOneVisitPerDayToggling(false);
+    if (!res.ok) {
+      showToast("Erreur lors de la mise à jour.");
+      return;
+    }
+    setOneVisitPerDay(next);
+    refreshSlotConfig();
+    await logFieldChange("one_visit_per_day", prev ? "Activé" : "Désactivé", next ? "Activé" : "Désactivé");
+    loadHistory();
+    showToast(rebookingSummary(res.result) ?? (next ? "Mode 1 visite/jour activé ✓" : "Mode 1 visite/jour désactivé ✓"));
   }
 
   async function handleSaveNightHours() {
@@ -1905,6 +1934,27 @@ export default function SettingsScreen() {
                       }).join(" · ") || "Aucun — vérifiez les horaires."
                     }`}
                   </Text>
+
+                  <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
+
+                  {/* Choisir 1 visite par jour */}
+                  <View style={styles.nightRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.nightLabel, { color: C.text }]}>🔒 Choisir 1 visite par jour</Text>
+                      <Text style={[styles.nightDesc, { color: C.muted }]}>
+                        {oneVisitPerDay
+                          ? "Activé : dès qu'un créneau \"Visite\" est réservé un jour donné, les autres créneaux de ce jour disparaissent de l'onglet Créneaux pour tout le monde. Seul l'auteur de la réservation peut encore la déplacer vers un autre créneau."
+                          : "Prend effet immédiatement à l'activation, à partir d'aujourd'hui : les réservations déjà passées ne sont pas effacées, mais si plusieurs sont déjà prises le même jour (à venir), seule la première enregistrée reste active — les autres sont suspendues et leurs auteurs sont prévenus pour choisir un autre jour."}
+                      </Text>
+                    </View>
+                    <Switch
+                      value={oneVisitPerDay}
+                      onValueChange={handleToggleOneVisitPerDay}
+                      disabled={oneVisitPerDayToggling}
+                      trackColor={{ false: C.border, true: C.accent }}
+                      thumbColor="#fff"
+                    />
+                  </View>
 
                   <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
 

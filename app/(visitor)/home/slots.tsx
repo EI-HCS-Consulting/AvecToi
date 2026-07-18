@@ -70,7 +70,17 @@ export default function SlotsScreen() {
 
   const iso = toISO(selectedDay);
   const dayConfig = getConfigForDate(iso) ?? slotConfig;
-  const daySlots = getSlotsForDate(iso);
+  const allDaySlots = getSlotsForDate(iso);
+  // Mode "1 visite / jour" : une fois qu'un créneau "Visite" est réservé ce
+  // jour-là, tous les autres disparaissent de la liste — pour tout le monde,
+  // y compris l'auteur de la réservation (qui garde la main pour la déplacer
+  // via "Modifier", dont le sélecteur interne à BookingFlow.tsx n'est pas
+  // concerné par ce filtrage). Les "Nuit"/"Intervention" ne sont pas soumis
+  // à ce mode (voir check_slot_capacity côté serveur).
+  const dayVisitBooking = dayConfig.one_visit_per_day
+    ? reservations.find((r) => r.type === "Visite" && r.date === iso && r.alert_type !== "day_cap_suspended")
+    : undefined;
+  const daySlots = dayVisitBooking ? allDaySlots.filter((s) => s === dayVisitBooking.creneau) : allDaySlots;
 
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
