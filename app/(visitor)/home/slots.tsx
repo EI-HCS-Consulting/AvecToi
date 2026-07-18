@@ -78,7 +78,7 @@ export default function SlotsScreen() {
   // concerné par ce filtrage). Les "Nuit"/"Intervention" ne sont pas soumis
   // à ce mode (voir check_slot_capacity côté serveur).
   const dayVisitBooking = dayConfig.one_visit_per_day
-    ? reservations.find((r) => r.type === "Visite" && r.date === iso)
+    ? reservations.find((r) => r.type === "Visite" && r.date === iso && r.alert_type !== "day_cap_suspended")
     : undefined;
   const daySlots = dayVisitBooking ? allDaySlots.filter((s) => s === dayVisitBooking.creneau) : allDaySlots;
 

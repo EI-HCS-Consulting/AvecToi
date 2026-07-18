@@ -126,7 +126,7 @@ export interface Reservation {
   previous_date: string | null;
   previous_creneau: string | null;
   alert_message: string | null;
-  alert_type: "rebooked" | "night_cancelled" | "rebooking_failed" | null;
+  alert_type: "rebooked" | "night_cancelled" | "rebooking_failed" | "day_cap_suspended" | null;
   alert_seen: boolean;
   // Prénoms des personnes accompagnant le réservataire, séparés par des
   // virgules — affiché dans l'événement calendrier natif ("Avec ..."),
