@@ -27,7 +27,11 @@ interface Props {
   // Uniquement en mode "edit" — le mode "create" est bloquant (première
   // connexion d'un intervenant, voir app/(visitor)/_layout.tsx).
   onClose?: () => void;
-  onSaved: (profileId: string) => void;
+  // prenom/nom renvoyés tels qu'enregistrés dans intervenant_profiles —
+  // l'appelant doit les répercuter sur la session locale (saveVisitorSession)
+  // pour rester la source affichée ailleurs dans l'app (Mes informations,
+  // matching des alertes RebookingAlertModal…).
+  onSaved: (profileId: string, prenom: string, nom: string) => void;
 }
 
 // Fiche intervenant : liste ajoutable/supprimable de types d'intervention
@@ -40,6 +44,8 @@ interface Props {
 export default function IntervenantFicheModal({
   visible, mode, spaceId, prenom, nom, pin, intervenantProfileId, theme: C, onClose, onSaved,
 }: Props) {
+  const [ficheePrenom, setFichePrenom] = useState(prenom);
+  const [ficheNom, setFicheNom] = useState(nom);
   const [rows, setRows] = useState<TypeRow[]>([{ label: "", duration_minutes: "" }]);
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(mode === "edit");
@@ -47,6 +53,8 @@ export default function IntervenantFicheModal({
 
   useEffect(() => {
     if (!visible) return;
+    setFichePrenom(prenom);
+    setFicheNom(nom);
     if (mode === "create") {
       setRows([{ label: "", duration_minutes: "" }]);
       setRemovedIds([]);
@@ -90,22 +98,30 @@ export default function IntervenantFicheModal({
   const validRows = rows
     .map((r) => ({ label: r.label.trim(), duration_minutes: parseInt(r.duration_minutes, 10) }))
     .filter((r) => r.label.length > 0 && Number.isFinite(r.duration_minutes) && r.duration_minutes > 0);
-  const canSave = validRows.length > 0 && !saving;
+  const canSave = validRows.length > 0 && !!ficheePrenom.trim() && !!ficheNom.trim() && !saving;
 
   async function handleSave() {
     if (!canSave) return;
     setSaving(true);
     try {
+      const trimmedPrenom = ficheePrenom.trim();
+      const trimmedNom = ficheNom.trim();
       let profileId = intervenantProfileId ?? null;
 
       if (!profileId) {
         const { data, error } = await supabase
           .from("intervenant_profiles")
-          .insert({ space_id: spaceId, prenom, nom, pin })
+          .insert({ space_id: spaceId, prenom: trimmedPrenom, nom: trimmedNom, pin })
           .select("id")
           .single();
         if (error || !data) throw error ?? new Error("Création de la fiche impossible.");
         profileId = data.id;
+      } else if (trimmedPrenom !== prenom || trimmedNom !== nom) {
+        const { error } = await supabase
+          .from("intervenant_profiles")
+          .update({ prenom: trimmedPrenom, nom: trimmedNom })
+          .eq("id", profileId);
+        if (error) throw error;
       }
 
       if (removedIds.length > 0) {
@@ -131,7 +147,7 @@ export default function IntervenantFicheModal({
           .eq("id", r.id);
       }
 
-      onSaved(profileId!);
+      onSaved(profileId!, trimmedPrenom, trimmedNom);
     } catch (e: any) {
       Alert.alert("Erreur", e?.message ?? "Impossible d'enregistrer la fiche intervenant.");
     } finally {
@@ -151,14 +167,33 @@ export default function IntervenantFicheModal({
             <Text style={[styles.title, { color: C.text }]}>🩺 Fiche intervenant</Text>
             <Text style={[styles.subtitle, { color: C.muted }]}>
               {mode === "create"
-                ? "Indique les types d'intervention que tu peux réaliser, et leur durée habituelle. Tu pourras en ajouter d'autres plus tard."
-                : "Modifie tes types d'intervention et leur durée."}
+                ? "Confirme ton prénom et ton nom, puis indique les types d'intervention que tu peux réaliser, et leur durée habituelle. Tu pourras tout modifier plus tard."
+                : "Modifie ton prénom, ton nom, ou tes types d'intervention et leur durée."}
             </Text>
 
             {loading ? (
               <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
             ) : (
               <>
+                <View style={styles.row}>
+                  <TextInput
+                    style={[styles.input, styles.labelInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                    placeholder="Prénom"
+                    placeholderTextColor={C.muted}
+                    value={ficheePrenom}
+                    onChangeText={setFichePrenom}
+                    autoCapitalize="words"
+                  />
+                  <TextInput
+                    style={[styles.input, styles.labelInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                    placeholder="Nom"
+                    placeholderTextColor={C.muted}
+                    value={ficheNom}
+                    onChangeText={setFicheNom}
+                    autoCapitalize="words"
+                  />
+                </View>
+
                 {rows.map((row, i) => (
                   <View key={row.id ?? `new-${i}`} style={styles.row}>
                     <TextInput
