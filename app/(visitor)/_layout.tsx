@@ -137,8 +137,13 @@ function VisitorTabs() {
           nom={identityNom}
           pin={identityPin}
           theme={C}
-          onSaved={async (profileId) => {
-            await saveVisitorSession({ token, spaceId: space.id, intervenantProfileId: profileId });
+          onSaved={async (profileId, savedPrenom, savedNom) => {
+            await saveVisitorSession({
+              token, spaceId: space.id, intervenantProfileId: profileId,
+              prenom: savedPrenom, nom: savedNom,
+            });
+            setIdentityPrenom(savedPrenom);
+            setIdentityNom(savedNom);
             setIntervenantProfileId(profileId);
           }}
         />
