@@ -275,8 +275,8 @@ export default function AdminIntervenantsScreen() {
           visible={!!editingProfileId}
           mode="edit"
           spaceId={space.id}
-          prenom=""
-          nom=""
+          prenom={profiles.find((p) => p.id === editingProfileId)?.prenom ?? ""}
+          nom={profiles.find((p) => p.id === editingProfileId)?.nom ?? ""}
           pin=""
           intervenantProfileId={editingProfileId}
           theme={C}

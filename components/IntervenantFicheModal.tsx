@@ -59,6 +59,13 @@ export default function IntervenantFicheModal({
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(mode === "edit");
   const [saving, setSaving] = useState(false);
+  // Nom "source de vérité" pour la comparaison avant/après à l'enregistrement
+  // (voir handleSave) — ne peut pas se fier aux props prenom/nom : l'appelant
+  // admin (app/(admin)/intervenants.tsx) ne les connaît pas forcément à jour
+  // et passe des chaînes vides, d'où le rechargement systématique depuis
+  // intervenant_profiles ci-dessous en mode edit.
+  const [loadedPrenom, setLoadedPrenom] = useState(prenom);
+  const [loadedNom, setLoadedNom] = useState(nom);
   // existingPhoto : nom de fichier déjà enregistré (mode edit). pickedPhotoUri :
   // uri locale fraîchement choisie, pas encore uploadée (aperçu immédiat,
   // upload effectif seulement au clic sur "Enregistrer" — voir handleSave).
@@ -69,6 +76,8 @@ export default function IntervenantFicheModal({
     if (!visible) return;
     setFichePrenom(prenom);
     setFicheNom(nom);
+    setLoadedPrenom(prenom);
+    setLoadedNom(nom);
     setPickedPhotoUri(null);
     if (mode === "create") {
       setRows([{ label: "", duration_minutes: "" }]);
@@ -87,7 +96,7 @@ export default function IntervenantFicheModal({
         .order("created_at", { ascending: true }),
       supabase
         .from("intervenant_profiles")
-        .select("photo")
+        .select("prenom, nom, photo")
         .eq("id", intervenantProfileId)
         .maybeSingle(),
     ]).then(([{ data }, { data: profileData }]) => {
@@ -98,6 +107,14 @@ export default function IntervenantFicheModal({
       );
       setRemovedIds([]);
       setExistingPhoto(profileData?.photo ?? null);
+      if (profileData?.prenom) {
+        setFichePrenom(profileData.prenom);
+        setLoadedPrenom(profileData.prenom);
+      }
+      if (profileData?.nom) {
+        setFicheNom(profileData.nom);
+        setLoadedNom(profileData.nom);
+      }
       setLoading(false);
     });
   }, [visible, mode, intervenantProfileId]);
@@ -169,7 +186,7 @@ export default function IntervenantFicheModal({
           .single();
         if (error || !data) throw error ?? new Error("Création de la fiche impossible.");
         profileId = data.id;
-      } else if (trimmedPrenom !== prenom || trimmedNom !== nom) {
+      } else if (trimmedPrenom !== loadedPrenom || trimmedNom !== loadedNom) {
         const { error } = await supabase
           .from("intervenant_profiles")
           .update({ prenom: trimmedPrenom, nom: trimmedNom })
