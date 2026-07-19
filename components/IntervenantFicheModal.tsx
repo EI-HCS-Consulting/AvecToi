@@ -147,10 +147,12 @@ export default function IntervenantFicheModal({
     // Copie dans le dossier document (persistant) — le fichier renvoyé par le
     // picker vit dans le cache de l'app, non garanti de survivre jusqu'au clic
     // sur "Enregistrer" sinon (même précaution que account.tsx handlePickPhoto).
+    // Nom de fichier horodaté (et non fixe) : <Image> met en cache par URI, un
+    // nom constant faisait qu'un second choix de photo dans la même session
+    // ne se réaffichait pas (l'app montrait encore l'aperçu précédent).
     let persistedUri = result.assets[0].uri;
     try {
-      const dest = new File(Paths.document, "intervenant_fiche_photo.jpg");
-      if (dest.exists) dest.delete();
+      const dest = new File(Paths.document, `intervenant_fiche_photo_${Date.now()}.jpg`);
       new File(result.assets[0].uri).copy(dest);
       persistedUri = dest.uri;
     } catch {

@@ -256,10 +256,12 @@ export default function VisitorAccountScreen() {
     // copie dans le dossier document (persistant) avant de l'enregistrer,
     // et on sauvegarde tout de suite : sinon la photo ne survit que si le
     // visiteur pense ensuite à cliquer sur "Enregistrer".
+    // Nom de fichier horodaté (et non fixe) : <Image> met en cache par URI,
+    // un nom constant faisait qu'un second choix de photo dans la même
+    // session ne se réaffichait pas (l'app montrait encore l'aperçu précédent).
     let persistedUri = result.assets[0].uri;
     try {
-      const dest = new File(Paths.document, "visitor_profile_photo.jpg");
-      if (dest.exists) dest.delete();
+      const dest = new File(Paths.document, `visitor_profile_photo_${Date.now()}.jpg`);
       new File(result.assets[0].uri).copy(dest);
       persistedUri = dest.uri;
     } catch {
