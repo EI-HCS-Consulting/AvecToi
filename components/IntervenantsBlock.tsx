@@ -1,21 +1,21 @@
 import { useState, useCallback, useEffect } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from "react-native";
-import { useRouter } from "expo-router";
 import { supabase } from "@/lib/supabase";
-import { toFrShort } from "@/lib/slotUtils";
+import PatientAvatar from "@/components/PatientAvatar";
+import IntervenantProfileModal from "@/components/IntervenantProfileModal";
 import type { Theme } from "@/lib/themes";
 
 // Bloc "Intervenants" des Paramètres admin — juste après le bloc "Visiteurs"
-// (voir components/VisitorsBlock.tsx, même pattern de carte repliable).
-// Résumé en lecture seule de tout ce qui a été programmé par les intervenants
-// (infirmier·ère, kiné, aide à domicile…) ; l'édition/suppression complète
-// reste réservée à l'écran dédié (app/(admin)/intervenants.tsx).
-interface InterventionRow {
+// (voir components/VisitorsBlock.tsx, même pattern de carte repliable et de
+// liste de personnes cliquables ouvrant une fiche). Liste les intervenants
+// enregistrés (infirmier·ère, kiné, aide à domicile…) via intervenant_profiles
+// — une vraie table de profils (PIN, pas de compte visiteur approximé par
+// prénom+nom) — plutôt que les interventions elles-mêmes : un intervenant
+// n'apparaît qu'une fois même s'il a plusieurs soins programmés. Un clic ouvre
+// sa fiche (IntervenantProfileModal), qui liste ses soins planifiés/faits et
+// permet de rebondir vers le créneau du jour.
+interface IntervenantRow {
   id: string;
-  date: string;
-  creneau: string;
-  duration_minutes: number | null;
-  intervention_label: string | null;
   prenom: string;
   nom: string;
 }
@@ -26,24 +26,22 @@ interface Props {
 }
 
 export default function IntervenantsBlock({ spaceId, C }: Props) {
-  const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [rows, setRows] = useState<InterventionRow[]>([]);
+  const [intervenants, setIntervenants] = useState<IntervenantRow[]>([]);
+  const [profileTarget, setProfileTarget] = useState<IntervenantRow | null>(null);
   // Replié par défaut, comme VisitorsBlock juste au-dessus.
   const [expanded, setExpanded] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     const { data, error } = await supabase
-      .from("reservations")
-      .select("id, date, creneau, duration_minutes, intervention_label, prenom, nom")
+      .from("intervenant_profiles")
+      .select("id, prenom, nom")
       .eq("space_id", spaceId)
-      .eq("type", "Intervention")
-      .order("date", { ascending: false })
-      .order("creneau", { ascending: false });
+      .order("prenom", { ascending: true });
 
-    if (error) console.error("[IntervenantsBlock] reservations select failed:", error);
-    setRows(data || []);
+    if (error) console.error("[IntervenantsBlock] intervenant_profiles select failed:", error);
+    setIntervenants(data || []);
     setLoading(false);
   }, [spaceId]);
 
@@ -61,7 +59,7 @@ export default function IntervenantsBlock({ spaceId, C }: Props) {
           style={styles.headerRow}
         >
           <Text style={[styles.cardDesc, { color: C.muted, marginBottom: 0, flex: 1 }]}>
-            Interventions programmées par les intervenants (infirmier·ère, kiné, aide à domicile…).
+            Les intervenants (infirmier·ère, kiné, aide à domicile…) qui se sont enregistrés sur l'espace.
           </Text>
           <Text style={[styles.toggleIcon, { color: C.muted }]}>{expanded ? "▾" : "▸"}</Text>
         </TouchableOpacity>
@@ -70,32 +68,43 @@ export default function IntervenantsBlock({ spaceId, C }: Props) {
           <View style={{ marginTop: 10 }}>
             {loading ? (
               <ActivityIndicator color={C.accent} style={{ marginVertical: 8 }} />
-            ) : rows.length === 0 ? (
-              <Text style={[styles.emptyText, { color: C.muted }]}>Aucune intervention programmée pour l'instant.</Text>
+            ) : intervenants.length === 0 ? (
+              <Text style={[styles.emptyText, { color: C.muted }]}>Aucun intervenant enregistré pour l'instant.</Text>
             ) : (
-              rows.map((r, i) => (
+              intervenants.map((it, i) => (
                 <TouchableOpacity
-                  key={r.id}
-                  style={[styles.row, i < rows.length - 1 && { borderBottomWidth: 1, borderBottomColor: C.border }]}
+                  key={it.id}
+                  style={[styles.row, i < intervenants.length - 1 && { borderBottomWidth: 1, borderBottomColor: C.border }]}
+                  onPress={() => setProfileTarget(it)}
                   activeOpacity={0.7}
-                  onPress={() => router.push({ pathname: "/(admin)/home/slots", params: { focusDate: r.date } } as any)}
                 >
+                  <PatientAvatar photoUrl={null} firstname={it.prenom} lastname={it.nom} size={36} C={C} />
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.name, { color: C.text }]} numberOfLines={1}>
-                      {r.intervention_label || "Intervention"} · {r.prenom} {r.nom}
-                    </Text>
-                    <Text style={[styles.dateText, { color: C.muted }]}>
-                      {toFrShort(new Date(`${r.date}T00:00:00`))} à {r.creneau}
-                      {r.duration_minutes ? ` · ${r.duration_minutes} min` : ""}
+                      {it.prenom} {it.nom}
                     </Text>
                   </View>
-                  <Text style={[styles.openIcon, { color: C.orange }]}>›</Text>
+                  <View style={[styles.openBtn, { borderColor: C.border }]}>
+                    <Text style={[styles.openBtnText, { color: C.accent }]}>›</Text>
+                  </View>
                 </TouchableOpacity>
               ))
             )}
           </View>
         )}
       </View>
+
+      {profileTarget && (
+        <IntervenantProfileModal
+          visible={!!profileTarget}
+          onClose={() => setProfileTarget(null)}
+          spaceId={spaceId}
+          intervenantProfileId={profileTarget.id}
+          prenom={profileTarget.prenom}
+          nom={profileTarget.nom}
+          C={C}
+        />
+      )}
     </>
   );
 }
@@ -111,8 +120,8 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   toggleIcon: { fontSize: 14 },
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
-  row: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10 },
+  row: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10 },
   name: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
-  dateText: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 2 },
-  openIcon: { fontFamily: "DM_Sans_700Bold", fontSize: 18 },
+  openBtn: { width: 30, height: 30, borderRadius: 15, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  openBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 16 },
 });
