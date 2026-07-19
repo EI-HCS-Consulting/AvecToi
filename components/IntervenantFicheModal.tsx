@@ -58,6 +58,10 @@ export default function IntervenantFicheModal({
 }: Props) {
   const [ficheePrenom, setFichePrenom] = useState(prenom);
   const [ficheNom, setFicheNom] = useState(nom);
+  // Téléphone et phrase totem : facultatifs, comme visitor_profiles.motto
+  // côté visiteur — vides tant que l'intervenant ne les a pas remplis.
+  const [ficheTelephone, setFicheTelephone] = useState("");
+  const [fichePhraseTotem, setFichePhraseTotem] = useState("");
   const [rows, setRows] = useState<TypeRow[]>([{ label: "", duration_minutes: "" }]);
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(mode === "edit");
@@ -69,6 +73,8 @@ export default function IntervenantFicheModal({
   // intervenant_profiles ci-dessous en mode edit.
   const [loadedPrenom, setLoadedPrenom] = useState(prenom);
   const [loadedNom, setLoadedNom] = useState(nom);
+  const [loadedTelephone, setLoadedTelephone] = useState("");
+  const [loadedPhraseTotem, setLoadedPhraseTotem] = useState("");
   // existingPhoto : nom de fichier déjà enregistré (mode edit). pickedPhotoUri :
   // uri locale fraîchement choisie, pas encore uploadée (aperçu immédiat,
   // upload effectif seulement au clic sur "Enregistrer" — voir handleSave).
@@ -93,6 +99,10 @@ export default function IntervenantFicheModal({
       setRows([{ label: "", duration_minutes: "" }]);
       setRemovedIds([]);
       setExistingPhoto(null);
+      setFicheTelephone("");
+      setFichePhraseTotem("");
+      setLoadedTelephone("");
+      setLoadedPhraseTotem("");
       setLoading(false);
       return;
     }
@@ -106,7 +116,7 @@ export default function IntervenantFicheModal({
         .order("created_at", { ascending: true }),
       supabase
         .from("intervenant_profiles")
-        .select("prenom, nom, photo, photo_updated_at")
+        .select("prenom, nom, photo, photo_updated_at, telephone, phrase_totem")
         .eq("id", intervenantProfileId)
         .maybeSingle(),
     ]).then(([{ data }, { data: profileData }]) => {
@@ -131,6 +141,10 @@ export default function IntervenantFicheModal({
         setFicheNom(profileData.nom);
         setLoadedNom(profileData.nom);
       }
+      setFicheTelephone(profileData?.telephone ?? "");
+      setLoadedTelephone(profileData?.telephone ?? "");
+      setFichePhraseTotem(profileData?.phrase_totem ?? "");
+      setLoadedPhraseTotem(profileData?.phrase_totem ?? "");
       setLoading(false);
     });
   }, [visible, mode, intervenantProfileId]);
@@ -194,12 +208,21 @@ export default function IntervenantFicheModal({
     try {
       const trimmedPrenom = ficheePrenom.trim();
       const trimmedNom = ficheNom.trim();
+      const trimmedTelephone = ficheTelephone.trim();
+      const trimmedPhraseTotem = fichePhraseTotem.trim();
       let profileId = intervenantProfileId ?? null;
 
       if (!profileId) {
         const { data, error } = await supabase
           .from("intervenant_profiles")
-          .insert({ space_id: spaceId, prenom: trimmedPrenom, nom: trimmedNom, pin })
+          .insert({
+            space_id: spaceId,
+            prenom: trimmedPrenom,
+            nom: trimmedNom,
+            pin,
+            telephone: trimmedTelephone || null,
+            phrase_totem: trimmedPhraseTotem || null,
+          })
           .select("id")
           .single();
         if (error && error.code === "23505") {
@@ -227,12 +250,19 @@ export default function IntervenantFicheModal({
         } else {
           profileId = data.id;
         }
-      } else if (trimmedPrenom !== loadedPrenom || trimmedNom !== loadedNom) {
-        const { error } = await supabase
-          .from("intervenant_profiles")
-          .update({ prenom: trimmedPrenom, nom: trimmedNom })
-          .eq("id", profileId);
-        if (error) throw error;
+      } else {
+        const updatePayload: Record<string, string | null> = {};
+        if (trimmedPrenom !== loadedPrenom) updatePayload.prenom = trimmedPrenom;
+        if (trimmedNom !== loadedNom) updatePayload.nom = trimmedNom;
+        if (trimmedTelephone !== loadedTelephone) updatePayload.telephone = trimmedTelephone || null;
+        if (trimmedPhraseTotem !== loadedPhraseTotem) updatePayload.phrase_totem = trimmedPhraseTotem || null;
+        if (Object.keys(updatePayload).length > 0) {
+          const { error } = await supabase
+            .from("intervenant_profiles")
+            .update(updatePayload)
+            .eq("id", profileId);
+          if (error) throw error;
+        }
       }
 
       // Upload la photo seulement si une nouvelle a été choisie — best-effort,
@@ -362,6 +392,22 @@ export default function IntervenantFicheModal({
                   />
                 </View>
 
+                <TextInput
+                  style={[styles.input, styles.fullInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                  placeholder="Téléphone (optionnel)"
+                  placeholderTextColor={C.muted}
+                  value={ficheTelephone}
+                  onChangeText={setFicheTelephone}
+                  keyboardType="phone-pad"
+                />
+                <TextInput
+                  style={[styles.input, styles.fullInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                  placeholder="Phrase totem (optionnel)"
+                  placeholderTextColor={C.muted}
+                  value={fichePhraseTotem}
+                  onChangeText={setFichePhraseTotem}
+                />
+
                 {rows.map((row, i) => (
                   <View key={row.id ?? `new-${i}`} style={styles.row}>
                     <TextInput
@@ -468,6 +514,7 @@ const styles = StyleSheet.create({
   },
   labelInput: { flex: 2 },
   durationInput: { flex: 1, textAlign: "center" },
+  fullInput: { marginBottom: 10 },
   removeBtn: {
     width: 32,
     height: 32,
