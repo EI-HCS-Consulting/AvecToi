@@ -215,20 +215,21 @@ export default function VisitorAccountScreen() {
         setIntervenantProfileId(s.intervenantProfileId ?? null);
         if (space) {
           loadActivity(space.id, s.prenom, s.nom);
-          // Photo de secours : si cet appareil/session n'a plus de copie
+          // Photo/motto de secours : si cet appareil/session n'a plus de copie
           // locale (réinstallation, cache vidé, nouvel appareil) mais qu'une
-          // photo a déjà été synchronisée (visible côté admin dans ce cas,
-          // voir components/VisitorsBlock.tsx), on l'affiche quand même au
-          // lieu de proposer d'en ajouter une comme si elle n'existait pas.
-          if (!s.localPhotoUri) {
+          // photo/phrase a déjà été synchronisée (visible côté admin dans ce
+          // cas, voir components/VisitorsBlock.tsx), on l'affiche quand même
+          // au lieu de proposer d'en ajouter une comme si elle n'existait pas.
+          if (!s.localPhotoUri || !s.motto) {
             const { data } = await supabase
               .from("visitor_profiles")
-              .select("photo")
+              .select("photo, motto")
               .eq("space_id", space.id)
               .ilike("prenom", s.prenom)
               .ilike("nom", s.nom)
               .maybeSingle();
-            if (data?.photo) setPhotoUri(visitorPhotoUrl(space.id, data.photo));
+            if (!s.localPhotoUri && data?.photo) setPhotoUri(visitorPhotoUrl(space.id, data.photo));
+            if (!s.motto && data?.motto) setMotto(data.motto);
           }
         }
       }
