@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, Modal, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, Modal, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Alert } from "react-native";
 import { Tabs, useGlobalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { supabase } from "@/lib/supabase";
 import { VisitorSpaceProvider, useVisitorSpace } from "@/lib/VisitorContext";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { setupNotifications } from "@/lib/notifications";
@@ -69,7 +70,45 @@ function VisitorTabs() {
   async function handleSaveIdentity() {
     if (!space || !identityPrenom.trim() || !identityNom.trim() || identityPin.length < 4) return;
     setSavingIdentity(true);
-    await saveVisitorSession({ token, spaceId: space.id, prenom: identityPrenom.trim(), nom: identityNom.trim(), pin: identityPin });
+    const trimmedPrenom = identityPrenom.trim();
+    const trimmedNom = identityNom.trim();
+
+    // Un intervenant qui se connecte depuis un nouvel appareil (ou après
+    // réinstallation/vidage du cache) n'a plus intervenantProfileId en
+    // session locale — sans ce contrôle, la fiche "create" plus bas
+    // recréerait systématiquement un doublon pour le même prénom/nom au
+    // lieu de rattacher l'appareil à la fiche existante. Le code à 4
+    // chiffres saisi ci-dessus sert de vérification avant rattachement.
+    if (role === "intervenant") {
+      const { data: existing } = await supabase
+        .from("intervenant_profiles")
+        .select("id, pin")
+        .eq("space_id", space.id)
+        .ilike("prenom", trimmedPrenom)
+        .ilike("nom", trimmedNom)
+        .maybeSingle();
+
+      if (existing) {
+        if (existing.pin !== identityPin) {
+          setSavingIdentity(false);
+          Alert.alert(
+            "Code différent",
+            "Un intervenant du même prénom et nom existe déjà pour cet espace, avec un autre code. Demande-lui son code à 4 chiffres, ou contacte l'administrateur.",
+          );
+          return;
+        }
+        await saveVisitorSession({
+          token, spaceId: space.id, prenom: trimmedPrenom, nom: trimmedNom,
+          pin: identityPin, intervenantProfileId: existing.id,
+        });
+        setSavingIdentity(false);
+        setIntervenantProfileId(existing.id);
+        setIdentityKnown(true);
+        return;
+      }
+    }
+
+    await saveVisitorSession({ token, spaceId: space.id, prenom: trimmedPrenom, nom: trimmedNom, pin: identityPin });
     setSavingIdentity(false);
     setIdentityKnown(true);
   }
