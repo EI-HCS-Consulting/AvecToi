@@ -10,6 +10,7 @@ import AdminAddIntervention, { type AdminAddInterventionHandle } from "@/compone
 import AdminEditReservation, { type AdminEditReservationHandle } from "@/components/AdminEditReservation";
 import DeleteReservationConfirm, { type DeleteReservationConfirmHandle } from "@/components/DeleteReservationConfirm";
 import IntervenantFicheModal from "@/components/IntervenantFicheModal";
+import IntervenantProfileModal from "@/components/IntervenantProfileModal";
 import type { Reservation, IntervenantProfile, InterventionType } from "@/lib/types";
 
 // Écran admin dédié "Planning des intervenants" — n'affiche que les
@@ -35,6 +36,7 @@ export default function AdminIntervenantsScreen() {
   });
   const [slotPicker, setSlotPicker] = useState(false);
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
+  const [viewingProfile, setViewingProfile] = useState<IntervenantProfile | null>(null);
 
   const [profiles, setProfiles] = useState<IntervenantProfile[]>([]);
   const [typesByProfile, setTypesByProfile] = useState<Record<string, InterventionType[]>>({});
@@ -120,7 +122,9 @@ export default function AdminIntervenantsScreen() {
           profiles.map((p) => (
             <View key={p.id} style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
               <View style={styles.profileRow}>
-                <Text style={[styles.profileName, { color: C.text }]}>{p.prenom} {p.nom}</Text>
+                <TouchableOpacity style={{ flex: 1 }} activeOpacity={0.7} onPress={() => setViewingProfile(p)}>
+                  <Text style={[styles.profileName, { color: C.text }]}>{p.prenom} {p.nom}</Text>
+                </TouchableOpacity>
                 <TouchableOpacity style={[styles.editBtn, { borderColor: C.orange }]} onPress={() => setEditingProfileId(p.id)}>
                   <Text style={[styles.editBtnText, { color: C.orange }]}>Modifier</Text>
                 </TouchableOpacity>
@@ -252,6 +256,18 @@ export default function AdminIntervenantsScreen() {
         onConfirm={handleConfirmDelete}
         C={C}
       />
+
+      {space && viewingProfile && (
+        <IntervenantProfileModal
+          visible={!!viewingProfile}
+          onClose={() => setViewingProfile(null)}
+          spaceId={space.id}
+          intervenantProfileId={viewingProfile.id}
+          prenom={viewingProfile.prenom}
+          nom={viewingProfile.nom}
+          C={C}
+        />
+      )}
 
       {space && (
         <IntervenantFicheModal
