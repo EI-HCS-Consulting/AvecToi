@@ -3,8 +3,17 @@ import {
   View, Text, TextInput, TouchableOpacity, Modal, StyleSheet,
   ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Alert,
 } from "react-native";
+import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
+import { File, Paths } from "expo-file-system";
 import { supabase } from "@/lib/supabase";
+import PatientAvatar from "@/components/PatientAvatar";
 import type { Theme } from "@/lib/themes";
+
+function intervenantPhotoUrl(filename: string) {
+  const { data } = supabase.storage.from("intervenant-photos").getPublicUrl(filename);
+  return data.publicUrl;
+}
 
 interface TypeRow {
   // undefined tant que la ligne n'a jamais été sauvegardée (mode edit,
@@ -50,34 +59,78 @@ export default function IntervenantFicheModal({
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(mode === "edit");
   const [saving, setSaving] = useState(false);
+  // existingPhoto : nom de fichier déjà enregistré (mode edit). pickedPhotoUri :
+  // uri locale fraîchement choisie, pas encore uploadée (aperçu immédiat,
+  // upload effectif seulement au clic sur "Enregistrer" — voir handleSave).
+  const [existingPhoto, setExistingPhoto] = useState<string | null>(null);
+  const [pickedPhotoUri, setPickedPhotoUri] = useState<string | null>(null);
 
   useEffect(() => {
     if (!visible) return;
     setFichePrenom(prenom);
     setFicheNom(nom);
+    setPickedPhotoUri(null);
     if (mode === "create") {
       setRows([{ label: "", duration_minutes: "" }]);
       setRemovedIds([]);
+      setExistingPhoto(null);
       setLoading(false);
       return;
     }
     if (!intervenantProfileId) return;
     setLoading(true);
-    supabase
-      .from("intervention_types")
-      .select("*")
-      .eq("intervenant_profile_id", intervenantProfileId)
-      .order("created_at", { ascending: true })
-      .then(({ data }) => {
-        setRows(
-          (data && data.length > 0)
-            ? data.map((t) => ({ id: t.id, label: t.label, duration_minutes: String(t.duration_minutes) }))
-            : [{ label: "", duration_minutes: "" }],
-        );
-        setRemovedIds([]);
-        setLoading(false);
-      });
+    Promise.all([
+      supabase
+        .from("intervention_types")
+        .select("*")
+        .eq("intervenant_profile_id", intervenantProfileId)
+        .order("created_at", { ascending: true }),
+      supabase
+        .from("intervenant_profiles")
+        .select("photo")
+        .eq("id", intervenantProfileId)
+        .maybeSingle(),
+    ]).then(([{ data }, { data: profileData }]) => {
+      setRows(
+        (data && data.length > 0)
+          ? data.map((t) => ({ id: t.id, label: t.label, duration_minutes: String(t.duration_minutes) }))
+          : [{ label: "", duration_minutes: "" }],
+      );
+      setRemovedIds([]);
+      setExistingPhoto(profileData?.photo ?? null);
+      setLoading(false);
+    });
   }, [visible, mode, intervenantProfileId]);
+
+  async function pickPhoto() {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert("Permission refusée", "Autorise l'accès à la galerie dans les paramètres.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 0.8,
+      allowsEditing: true,
+      aspect: [1, 1],
+    });
+    if (result.canceled || !result.assets[0]) return;
+
+    // Copie dans le dossier document (persistant) — le fichier renvoyé par le
+    // picker vit dans le cache de l'app, non garanti de survivre jusqu'au clic
+    // sur "Enregistrer" sinon (même précaution que account.tsx handlePickPhoto).
+    let persistedUri = result.assets[0].uri;
+    try {
+      const dest = new File(Paths.document, "intervenant_fiche_photo.jpg");
+      if (dest.exists) dest.delete();
+      new File(result.assets[0].uri).copy(dest);
+      persistedUri = dest.uri;
+    } catch {
+      // Copie échouée : on garde l'uri d'origine, aperçu immédiat quand même
+      // fonctionnel.
+    }
+    setPickedPhotoUri(persistedUri);
+  }
 
   function updateRow(index: number, patch: Partial<TypeRow>) {
     setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
@@ -122,6 +175,35 @@ export default function IntervenantFicheModal({
           .update({ prenom: trimmedPrenom, nom: trimmedNom })
           .eq("id", profileId);
         if (error) throw error;
+      }
+
+      // Upload la photo seulement si une nouvelle a été choisie — best-effort,
+      // un échec ne doit pas bloquer l'enregistrement des types d'intervention
+      // qui, eux, ont déjà réussi ou vont suivre.
+      if (pickedPhotoUri && profileId) {
+        try {
+          const compressed = await ImageManipulator.manipulateAsync(
+            pickedPhotoUri,
+            [{ resize: { width: 300 } }],
+            { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
+          );
+          const fileData = await new File(compressed.uri).arrayBuffer();
+          const filename = `${profileId}.jpg`;
+          const { error: storageErr } = await supabase.storage
+            .from("intervenant-photos")
+            .upload(filename, fileData, { contentType: "image/jpeg", cacheControl: "3600", upsert: true });
+          if (storageErr) {
+            console.error("[IntervenantFicheModal] photo upload failed:", storageErr);
+          } else {
+            const { error: photoErr } = await supabase
+              .from("intervenant_profiles")
+              .update({ photo: filename })
+              .eq("id", profileId);
+            if (photoErr) console.error("[IntervenantFicheModal] photo column update failed:", photoErr);
+          }
+        } catch (e) {
+          console.error("[IntervenantFicheModal] unexpected photo error:", e);
+        }
       }
 
       if (removedIds.length > 0) {
@@ -175,6 +257,17 @@ export default function IntervenantFicheModal({
               <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
             ) : (
               <>
+                <TouchableOpacity style={styles.photoPicker} onPress={pickPhoto} activeOpacity={0.8}>
+                  <PatientAvatar
+                    photoUrl={pickedPhotoUri ?? (existingPhoto ? intervenantPhotoUrl(existingPhoto) : null)}
+                    firstname={ficheePrenom || prenom}
+                    lastname={ficheNom || nom}
+                    size={72}
+                    C={C}
+                  />
+                  <Text style={[styles.photoPickerText, { color: C.accent }]}>Changer la photo</Text>
+                </TouchableOpacity>
+
                 <View style={styles.row}>
                   <TextInput
                     style={[styles.input, styles.labelInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
@@ -275,6 +368,15 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     textAlign: "center",
     marginBottom: 20,
+  },
+  photoPicker: {
+    alignItems: "center",
+    marginBottom: 18,
+    gap: 8,
+  },
+  photoPickerText: {
+    fontFamily: "DM_Sans_600SemiBold",
+    fontSize: 13,
   },
   row: {
     flexDirection: "row",

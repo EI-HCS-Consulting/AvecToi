@@ -18,6 +18,12 @@ interface IntervenantRow {
   id: string;
   prenom: string;
   nom: string;
+  photo: string | null;
+}
+
+function intervenantPhotoUrl(filename: string) {
+  const { data } = supabase.storage.from("intervenant-photos").getPublicUrl(filename);
+  return data.publicUrl;
 }
 
 interface Props {
@@ -36,7 +42,7 @@ export default function IntervenantsBlock({ spaceId, C }: Props) {
     setLoading(true);
     const { data, error } = await supabase
       .from("intervenant_profiles")
-      .select("id, prenom, nom")
+      .select("id, prenom, nom, photo")
       .eq("space_id", spaceId)
       .order("prenom", { ascending: true });
 
@@ -78,7 +84,13 @@ export default function IntervenantsBlock({ spaceId, C }: Props) {
                   onPress={() => setProfileTarget(it)}
                   activeOpacity={0.7}
                 >
-                  <PatientAvatar photoUrl={null} firstname={it.prenom} lastname={it.nom} size={36} C={C} />
+                  <PatientAvatar
+                    photoUrl={it.photo ? intervenantPhotoUrl(it.photo) : null}
+                    firstname={it.prenom}
+                    lastname={it.nom}
+                    size={36}
+                    C={C}
+                  />
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.name, { color: C.text }]} numberOfLines={1}>
                       {it.prenom} {it.nom}
@@ -103,6 +115,7 @@ export default function IntervenantsBlock({ spaceId, C }: Props) {
           prenom={profileTarget.prenom}
           nom={profileTarget.nom}
           C={C}
+          isAdmin
         />
       )}
     </>

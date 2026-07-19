@@ -11,10 +11,17 @@ import type { Reservation } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
 // Fiche intervenant en lecture seule — ouverte en cliquant un intervenant
-// dans la liste "Fiches intervenants" de (admin)/intervenants.tsx. Contrairement
-// à VisitorProfileModal (rapprochement par prénom+nom, pas de compte visiteur),
-// intervenant_profile_id est une vraie FK sur reservations : le rapprochement
-// est donc exact, pas approximatif.
+// dans la liste "Fiches intervenants" de (admin)/intervenants.tsx, le bloc
+// "Intervenants" des Paramètres admin, ou la liste "Intervenants" côté
+// visiteur (Mon compte). Contrairement à VisitorProfileModal (rapprochement
+// par prénom+nom, pas de compte visiteur), intervenant_profile_id est une
+// vraie FK sur reservations : le rapprochement est donc exact, pas
+// approximatif.
+
+function intervenantPhotoUrl(filename: string) {
+  const { data } = supabase.storage.from("intervenant-photos").getPublicUrl(filename);
+  return data.publicUrl;
+}
 
 interface Props {
   visible: boolean;
@@ -24,31 +31,47 @@ interface Props {
   prenom: string;
   nom: string;
   C: Theme;
+  isAdmin: boolean;
+  // Côté visiteur, permet au parent de positionner le bon jour avant de
+  // naviguer (voir app/(visitor)/account.tsx handleOpenReservation, même
+  // pattern) — le paramètre focusDate n'existe que sur la route admin des
+  // créneaux (app/(admin)/home/slots.tsx), pas sur celle du visiteur.
+  onGoToSlot?: (date: string) => void;
 }
 
 export default function IntervenantProfileModal({
-  visible, onClose, spaceId, intervenantProfileId, prenom, nom, C,
+  visible, onClose, spaceId, intervenantProfileId, prenom, nom, C, isAdmin, onGoToSlot,
 }: Props) {
   const router = useRouter();
+  const basePath = isAdmin ? "/(admin)" : "/(visitor)";
 
   const [loading, setLoading] = useState(true);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [planifies, setPlanifies] = useState<Reservation[]>([]);
   const [faits, setFaits] = useState<Reservation[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase
-      .from("reservations")
-      .select("*")
-      .eq("space_id", spaceId)
-      .eq("intervenant_profile_id", intervenantProfileId)
-      .eq("type", "Intervention")
-      .order("date", { ascending: true })
-      .order("creneau", { ascending: true });
+    const [{ data }, { data: profileData }] = await Promise.all([
+      supabase
+        .from("reservations")
+        .select("*")
+        .eq("space_id", spaceId)
+        .eq("intervenant_profile_id", intervenantProfileId)
+        .eq("type", "Intervention")
+        .order("date", { ascending: true })
+        .order("creneau", { ascending: true }),
+      supabase
+        .from("intervenant_profiles")
+        .select("photo")
+        .eq("id", intervenantProfileId)
+        .maybeSingle(),
+    ]);
 
     const soins: Reservation[] = data || [];
     setPlanifies(soins.filter((r) => !isSlotFullyPast(r.date, r.creneau)));
     setFaits(soins.filter((r) => isSlotFullyPast(r.date, r.creneau)).reverse());
+    setPhotoUrl(profileData?.photo ? intervenantPhotoUrl(profileData.photo) : null);
     setLoading(false);
   }, [spaceId, intervenantProfileId]);
 
@@ -58,7 +81,11 @@ export default function IntervenantProfileModal({
 
   function goToSlot(date: string) {
     onClose();
-    router.push({ pathname: "/(admin)/home/slots", params: { focusDate: date } } as any);
+    if (onGoToSlot) {
+      onGoToSlot(date);
+      return;
+    }
+    router.push({ pathname: `${basePath}/home/slots`, params: { focusDate: date } } as any);
   }
 
   return (
@@ -66,7 +93,7 @@ export default function IntervenantProfileModal({
       <View style={styles.overlay}>
         <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
           <View style={[styles.headerRow, { borderBottomColor: C.border }]}>
-            <PatientAvatar photoUrl={null} firstname={prenom} lastname={nom} size={64} C={C} />
+            <PatientAvatar photoUrl={photoUrl} firstname={prenom} lastname={nom} size={64} C={C} />
             <View style={{ flex: 1, marginLeft: 14 }}>
               <Text style={[styles.name, { color: C.text }]}>{prenom} {nom}</Text>
               <Text style={[styles.sub, { color: C.muted }]}>Fiche intervenant</Text>

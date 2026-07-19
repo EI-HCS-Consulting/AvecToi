@@ -266,6 +266,7 @@ export default function AdminIntervenantsScreen() {
           prenom={viewingProfile.prenom}
           nom={viewingProfile.nom}
           C={C}
+          isAdmin
         />
       )}
 
