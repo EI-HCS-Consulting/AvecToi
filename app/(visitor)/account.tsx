@@ -25,6 +25,11 @@ function souvenirUrl(spaceId: string, filename: string) {
   return data.publicUrl;
 }
 
+function visitorPhotoUrl(spaceId: string, filename: string) {
+  const { data } = supabase.storage.from("visitor-photos").getPublicUrl(`${spaceId}/${filename}`);
+  return data.publicUrl;
+}
+
 function supportPhotoUrl(spaceId: string, filename: string) {
   const { data } = supabase.storage.from("support-photos").getPublicUrl(`${spaceId}/${filename}`);
   return data.publicUrl;
@@ -198,7 +203,7 @@ export default function VisitorAccountScreen() {
   }, []);
 
   useEffect(() => {
-    getVisitorSession().then((s) => {
+    getVisitorSession().then(async (s) => {
       if (s) {
         setPrenom(s.prenom);
         setNom(s.nom);
@@ -208,7 +213,24 @@ export default function VisitorAccountScreen() {
         setMotto(s.motto);
         setRole(s.role ?? "visiteur");
         setIntervenantProfileId(s.intervenantProfileId ?? null);
-        if (space) loadActivity(space.id, s.prenom, s.nom);
+        if (space) {
+          loadActivity(space.id, s.prenom, s.nom);
+          // Photo de secours : si cet appareil/session n'a plus de copie
+          // locale (réinstallation, cache vidé, nouvel appareil) mais qu'une
+          // photo a déjà été synchronisée (visible côté admin dans ce cas,
+          // voir components/VisitorsBlock.tsx), on l'affiche quand même au
+          // lieu de proposer d'en ajouter une comme si elle n'existait pas.
+          if (!s.localPhotoUri) {
+            const { data } = await supabase
+              .from("visitor_profiles")
+              .select("photo")
+              .eq("space_id", space.id)
+              .ilike("prenom", s.prenom)
+              .ilike("nom", s.nom)
+              .maybeSingle();
+            if (data?.photo) setPhotoUri(visitorPhotoUrl(space.id, data.photo));
+          }
+        }
       }
       setLoading(false);
     });
