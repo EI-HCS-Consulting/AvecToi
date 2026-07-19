@@ -22,7 +22,7 @@ import PatientAvatar from "@/components/PatientAvatar";
 import VisitorsBlock from "@/components/VisitorsBlock";
 import IntervenantsBlock from "@/components/IntervenantsBlock";
 import { resolvePlaceFromMapsUrl } from "@/lib/address";
-import { generateSlots, formatHourMinute } from "@/lib/slotUtils";
+import { generateSlots, formatHourMinute, isSlotFullyPast } from "@/lib/slotUtils";
 import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
 import type { Theme } from "@/lib/themes";
 import type { NewsEntry, Task, SupportMessage, SlotConfig, ReservationChangeHistoryEntry, Reservation } from "@/lib/types";
@@ -580,11 +580,13 @@ export default function SettingsScreen() {
   const [pubMessages, setPubMessages] = useState<SupportMessage[]>([]);
   const [reservationChangeHistory, setReservationChangeHistory] = useState<ReservationChangeHistoryEntry[]>([]);
   const [resaHistoryLoading, setResaHistoryLoading] = useState(false);
+  const [soinsPlanifies, setSoinsPlanifies] = useState<Reservation[]>([]);
+  const [soinsLoading, setSoinsLoading] = useState(false);
 
   // Sous-rubriques de l'historique en accordéon (repliées par défaut — trop
   // long à scroller sinon une fois l'espace utilisé depuis un moment).
   const [historyBlocksOpen, setHistoryBlocksOpen] = useState({
-    hosp: false, regles: false, consignes: false, resa: false, pub: false,
+    hosp: false, regles: false, consignes: false, soins: false, resa: false, pub: false,
   });
   function toggleHistoryBlock(key: keyof typeof historyBlocksOpen) {
     setHistoryBlocksOpen((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -776,12 +778,31 @@ export default function SettingsScreen() {
     setResaHistoryLoading(false);
   }
 
+  // Soins planifiés (tous intervenants confondus) — même donnée que la
+  // section "Soins planifiés" de IntervenantProfileModal, mais sans filtre
+  // sur un intervenant particulier. Tri du plus tardif (haut) au plus proche
+  // (bas du scroll), à l'inverse de la fiche intervenant.
+  async function loadSoinsPlanifies() {
+    if (!space) return;
+    setSoinsLoading(true);
+    const { data } = await supabase
+      .from("reservations")
+      .select("*")
+      .eq("space_id", space.id)
+      .eq("type", "Intervention")
+      .order("date", { ascending: false })
+      .order("creneau", { ascending: false });
+    setSoinsPlanifies((data || []).filter((r) => !isSlotFullyPast(r.date, r.creneau)));
+    setSoinsLoading(false);
+  }
+
   function openSection(key: SectionKey) {
     if (key === "hist") {
       setHistorySearch("");
       loadHistory();
       loadPublicationsHistory();
       loadReservationChangeHistory();
+      loadSoinsPlanifies();
     }
     setActiveSection(key);
   }
@@ -804,6 +825,9 @@ export default function SettingsScreen() {
   );
   const filteredReservationChangeHistory = reservationChangeHistory.filter((h) =>
     matchesHistoryQuery(h.prenom, h.nom, h.message)
+  );
+  const filteredSoinsPlanifies = soinsPlanifies.filter((r) =>
+    matchesHistoryQuery(r.prenom, r.nom, r.intervention_label)
   );
   const filteredPubNews = pubNews.filter((n) => matchesHistoryQuery(n.content, n.author_prenom, n.author_nom));
   const filteredPubTasks = pubTasks.filter((t) => matchesHistoryQuery(t.title, t.description, t.category));
@@ -2327,6 +2351,46 @@ export default function SettingsScreen() {
                         })}
                       </Text>
                     </View>
+                  ))
+                )
+              )}
+
+              <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
+
+              {/* Bloc 3bis : Soins planifiés — même donnée que la section
+                  "Soins planifiés" de IntervenantProfileModal (tous
+                  intervenants confondus, hors soins déjà passés), mais
+                  triée à l'inverse : le plus tardif en haut, le plus proche
+                  tout en bas du scroll. */}
+              <TouchableOpacity style={styles.historyBlockHeader} onPress={() => toggleHistoryBlock("soins")} activeOpacity={0.7}>
+                <Text style={[styles.fieldLabel, { color: C.gold }]}>
+                  🩺 Soins planifiés{filteredSoinsPlanifies.length > 0 ? ` (${filteredSoinsPlanifies.length})` : ""}
+                </Text>
+                <Text style={[styles.historyToggleIcon, { color: C.muted }]}>{historyBlocksOpen.soins ? "▾" : "▸"}</Text>
+              </TouchableOpacity>
+              {historyBlocksOpen.soins && (
+                soinsLoading ? (
+                  <ActivityIndicator color={C.accent} style={{ marginVertical: 8 }} />
+                ) : filteredSoinsPlanifies.length === 0 ? (
+                  <Text style={[styles.historyEmpty, { color: C.muted }]}>Aucun soin planifié.</Text>
+                ) : (
+                  filteredSoinsPlanifies.map((r) => (
+                    <TouchableOpacity
+                      key={r.id}
+                      style={[styles.historyRow, styles.historyRowPressable, { borderLeftColor: C.accent }]}
+                      onPress={() => router.push({ pathname: "/(admin)/home/slots", params: { focusDate: r.date } } as any)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.historyField, { color: C.text }]}>
+                          {r.prenom} {r.nom}{r.intervention_label ? ` — ${r.intervention_label}` : ""}
+                        </Text>
+                        <Text style={[styles.historyDate, { color: C.muted }]}>
+                          {new Date(r.date + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })} · {r.creneau}
+                        </Text>
+                      </View>
+                      <Text style={[styles.historyRowChevron, { color: C.muted }]}>›</Text>
+                    </TouchableOpacity>
                   ))
                 )
               )}
