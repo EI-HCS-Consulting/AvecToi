@@ -167,6 +167,7 @@ export interface IntervenantProfile {
   nom: string;
   pin: string;
   photo: string | null;
+  photo_updated_at: string | null;
   created_at: string;
 }
 

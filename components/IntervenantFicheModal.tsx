@@ -10,9 +10,12 @@ import { supabase } from "@/lib/supabase";
 import PatientAvatar from "@/components/PatientAvatar";
 import type { Theme } from "@/lib/themes";
 
-function intervenantPhotoUrl(filename: string) {
+// updatedAt bust le cache CDN/<Image> — le fichier est uploadé sous un nom
+// fixe (upsert), donc sans ce paramètre un ré-upload continuerait d'afficher
+// l'ancienne photo (cacheControl 1h côté storage + cache par URI côté RN).
+function intervenantPhotoUrl(filename: string, updatedAt?: string | null) {
   const { data } = supabase.storage.from("intervenant-photos").getPublicUrl(filename);
-  return data.publicUrl;
+  return updatedAt ? `${data.publicUrl}?v=${new Date(updatedAt).getTime()}` : data.publicUrl;
 }
 
 interface TypeRow {
@@ -70,6 +73,7 @@ export default function IntervenantFicheModal({
   // uri locale fraîchement choisie, pas encore uploadée (aperçu immédiat,
   // upload effectif seulement au clic sur "Enregistrer" — voir handleSave).
   const [existingPhoto, setExistingPhoto] = useState<string | null>(null);
+  const [existingPhotoUpdatedAt, setExistingPhotoUpdatedAt] = useState<string | null>(null);
   const [pickedPhotoUri, setPickedPhotoUri] = useState<string | null>(null);
   // true si intervenantProfileId a été fourni (mode edit) mais ne correspond
   // à aucune ligne intervenant_profiles — session locale orpheline (profil
@@ -102,7 +106,7 @@ export default function IntervenantFicheModal({
         .order("created_at", { ascending: true }),
       supabase
         .from("intervenant_profiles")
-        .select("prenom, nom, photo")
+        .select("prenom, nom, photo, photo_updated_at")
         .eq("id", intervenantProfileId)
         .maybeSingle(),
     ]).then(([{ data }, { data: profileData }]) => {
@@ -118,6 +122,7 @@ export default function IntervenantFicheModal({
       );
       setRemovedIds([]);
       setExistingPhoto(profileData?.photo ?? null);
+      setExistingPhotoUpdatedAt(profileData?.photo_updated_at ?? null);
       if (profileData?.prenom) {
         setFichePrenom(profileData.prenom);
         setLoadedPrenom(profileData.prenom);
@@ -250,7 +255,7 @@ export default function IntervenantFicheModal({
           } else {
             const { error: photoErr } = await supabase
               .from("intervenant_profiles")
-              .update({ photo: filename })
+              .update({ photo: filename, photo_updated_at: new Date().toISOString() })
               .eq("id", profileId);
             if (photoErr) console.error("[IntervenantFicheModal] photo column update failed:", photoErr);
           }
@@ -329,7 +334,7 @@ export default function IntervenantFicheModal({
               <>
                 <TouchableOpacity style={styles.photoPicker} onPress={pickPhoto} activeOpacity={0.8}>
                   <PatientAvatar
-                    photoUrl={pickedPhotoUri ?? (existingPhoto ? intervenantPhotoUrl(existingPhoto) : null)}
+                    photoUrl={pickedPhotoUri ?? (existingPhoto ? intervenantPhotoUrl(existingPhoto, existingPhotoUpdatedAt) : null)}
                     firstname={ficheePrenom || prenom}
                     lastname={ficheNom || nom}
                     size={72}

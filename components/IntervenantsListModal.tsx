@@ -17,11 +17,15 @@ interface IntervenantRow {
   prenom: string;
   nom: string;
   photo: string | null;
+  photo_updated_at: string | null;
 }
 
-function intervenantPhotoUrl(filename: string) {
+// updatedAt bust le cache CDN/<Image> — voir IntervenantFicheModal.tsx pour
+// le détail (nom de fichier fixe + upsert, sans ça un ré-upload continuerait
+// d'afficher l'ancienne photo).
+function intervenantPhotoUrl(filename: string, updatedAt?: string | null) {
   const { data } = supabase.storage.from("intervenant-photos").getPublicUrl(filename);
-  return data.publicUrl;
+  return updatedAt ? `${data.publicUrl}?v=${new Date(updatedAt).getTime()}` : data.publicUrl;
 }
 
 interface Props {
@@ -42,7 +46,7 @@ export default function IntervenantsListModal({ visible, onClose, spaceId, C }: 
     setLoading(true);
     const { data, error } = await supabase
       .from("intervenant_profiles")
-      .select("id, prenom, nom, photo")
+      .select("id, prenom, nom, photo, photo_updated_at")
       .eq("space_id", spaceId)
       .order("prenom", { ascending: true });
 
@@ -87,7 +91,7 @@ export default function IntervenantsListModal({ visible, onClose, spaceId, C }: 
                       activeOpacity={0.7}
                     >
                       <PatientAvatar
-                        photoUrl={it.photo ? intervenantPhotoUrl(it.photo) : null}
+                        photoUrl={it.photo ? intervenantPhotoUrl(it.photo, it.photo_updated_at) : null}
                         firstname={it.prenom}
                         lastname={it.nom}
                         size={44}
