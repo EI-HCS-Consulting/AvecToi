@@ -15,6 +15,7 @@ import { getVisitorSession, saveVisitorSession, clearVisitorSession } from "@/li
 import PinPad from "@/components/PinPad";
 import PatientProfileModal from "@/components/PatientProfileModal";
 import IntervenantFicheModal from "@/components/IntervenantFicheModal";
+import IntervenantsListModal from "@/components/IntervenantsListModal";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import MyChecklist from "@/components/MyChecklist";
 import type { Reservation, ReservationChangeHistoryEntry, SouvenirPhoto, NewsEntry, SupportMessage, Task } from "@/lib/types";
@@ -76,6 +77,7 @@ export default function VisitorAccountScreen() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
   const [patientProfileVisible, setPatientProfileVisible] = useState(false);
+  const [intervenantsListVisible, setIntervenantsListVisible] = useState(false);
   const [role, setRole] = useState<"visiteur" | "intervenant">("visiteur");
   const [intervenantProfileId, setIntervenantProfileId] = useState<string | null>(null);
   const [ficheModalVisible, setFicheModalVisible] = useState(false);
@@ -781,6 +783,16 @@ export default function VisitorAccountScreen() {
           <Text style={styles.patientProfileBtnText}>🩺 Fiche patient</Text>
         </TouchableOpacity>
 
+        {space?.intervenants_enabled && (
+          <TouchableOpacity
+            style={[styles.patientProfileBtn, { marginTop: 10 }]}
+            onPress={() => setIntervenantsListVisible(true)}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.patientProfileBtnText}>🩺 Intervenants</Text>
+          </TouchableOpacity>
+        )}
+
         {role === "intervenant" && (
           <TouchableOpacity
             style={[styles.patientProfileBtn, { backgroundColor: C.orange, marginTop: 10 }]}
@@ -922,6 +934,15 @@ export default function VisitorAccountScreen() {
           visible={patientProfileVisible}
           onClose={() => setPatientProfileVisible(false)}
           space={space}
+          C={C}
+        />
+      )}
+
+      {space && (
+        <IntervenantsListModal
+          visible={intervenantsListVisible}
+          onClose={() => setIntervenantsListVisible(false)}
+          spaceId={space.id}
           C={C}
         />
       )}

@@ -166,6 +166,7 @@ export interface IntervenantProfile {
   prenom: string;
   nom: string;
   pin: string;
+  photo: string | null;
   created_at: string;
 }
 
