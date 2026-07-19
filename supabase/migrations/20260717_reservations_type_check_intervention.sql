@@ -1,4 +1,4 @@
--- Corrige 20260722_reservations_intervention_columns.sql : contrairement à ce
+-- Corrige 20260717_reservations_intervention_columns.sql : contrairement à ce
 -- qui était supposé, une contrainte CHECK existait bel et bien sur
 -- reservations.type (reservations_type_check, limitée à 'Visite'/'Nuit'),
 -- posée lors de la création initiale de la table (hors migrations suivies).

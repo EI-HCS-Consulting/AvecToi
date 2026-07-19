@@ -1,5 +1,5 @@
 -- Colonnes portant les réservations de type 'Intervention' (voir
--- 20260722_intervenant_tables.sql). Aucune contrainte CHECK n'existe sur
+-- 20260717_intervenant_tables.sql). Aucune contrainte CHECK n'existe sur
 -- reservations.type — 'Intervention' est une simple nouvelle valeur
 -- acceptée sans migration de contrainte.
 --
