@@ -168,6 +168,8 @@ export interface IntervenantProfile {
   pin: string;
   photo: string | null;
   photo_updated_at: string | null;
+  telephone: string | null;
+  phrase_totem: string | null;
   created_at: string;
 }
 
