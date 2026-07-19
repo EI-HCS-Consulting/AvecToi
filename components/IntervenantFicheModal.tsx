@@ -224,7 +224,8 @@ export default function IntervenantFicheModal({
       }
 
       if (removedIds.length > 0) {
-        await supabase.from("intervention_types").delete().in("id", removedIds);
+        const { error: delErr } = await supabase.from("intervention_types").delete().in("id", removedIds);
+        if (delErr) throw delErr;
       }
 
       const toInsert = rows.filter((r) => !r.id).map((r) => ({
@@ -233,17 +234,19 @@ export default function IntervenantFicheModal({
         duration_minutes: parseInt(r.duration_minutes, 10),
       })).filter((r) => r.label.length > 0 && Number.isFinite(r.duration_minutes) && r.duration_minutes > 0);
       if (toInsert.length > 0) {
-        await supabase.from("intervention_types").insert(toInsert);
+        const { error: insErr } = await supabase.from("intervention_types").insert(toInsert);
+        if (insErr) throw insErr;
       }
 
       const toUpdate = rows.filter((r) => r.id);
       for (const r of toUpdate) {
         const duration = parseInt(r.duration_minutes, 10);
         if (!r.label.trim() || !Number.isFinite(duration) || duration <= 0) continue;
-        await supabase
+        const { error: updErr } = await supabase
           .from("intervention_types")
           .update({ label: r.label.trim(), duration_minutes: duration })
           .eq("id", r.id);
+        if (updErr) throw updErr;
       }
 
       onSaved(profileId!, trimmedPrenom, trimmedNom);
