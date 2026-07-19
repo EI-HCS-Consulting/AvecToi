@@ -10,9 +10,12 @@ import { supabase } from "@/lib/supabase";
 import PatientAvatar from "@/components/PatientAvatar";
 import type { Theme } from "@/lib/themes";
 
-function intervenantPhotoUrl(filename: string) {
+// updatedAt bust le cache CDN/<Image> — le fichier est uploadé sous un nom
+// fixe (upsert), donc sans ce paramètre un ré-upload continuerait d'afficher
+// l'ancienne photo (cacheControl 1h côté storage + cache par URI côté RN).
+function intervenantPhotoUrl(filename: string, updatedAt?: string | null) {
   const { data } = supabase.storage.from("intervenant-photos").getPublicUrl(filename);
-  return data.publicUrl;
+  return updatedAt ? `${data.publicUrl}?v=${new Date(updatedAt).getTime()}` : data.publicUrl;
 }
 
 interface TypeRow {
@@ -70,7 +73,13 @@ export default function IntervenantFicheModal({
   // uri locale fraîchement choisie, pas encore uploadée (aperçu immédiat,
   // upload effectif seulement au clic sur "Enregistrer" — voir handleSave).
   const [existingPhoto, setExistingPhoto] = useState<string | null>(null);
+  const [existingPhotoUpdatedAt, setExistingPhotoUpdatedAt] = useState<string | null>(null);
   const [pickedPhotoUri, setPickedPhotoUri] = useState<string | null>(null);
+  // true si intervenantProfileId a été fourni (mode edit) mais ne correspond
+  // à aucune ligne intervenant_profiles — session locale orpheline (profil
+  // supprimé, ou rattachement jamais confirmé). Bloque la modale plutôt que
+  // de laisser l'utilisateur "éditer" une fiche fantôme.
+  const [orphaned, setOrphaned] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
@@ -79,6 +88,7 @@ export default function IntervenantFicheModal({
     setLoadedPrenom(prenom);
     setLoadedNom(nom);
     setPickedPhotoUri(null);
+    setOrphaned(false);
     if (mode === "create") {
       setRows([{ label: "", duration_minutes: "" }]);
       setRemovedIds([]);
@@ -96,10 +106,15 @@ export default function IntervenantFicheModal({
         .order("created_at", { ascending: true }),
       supabase
         .from("intervenant_profiles")
-        .select("prenom, nom, photo")
+        .select("prenom, nom, photo, photo_updated_at")
         .eq("id", intervenantProfileId)
         .maybeSingle(),
     ]).then(([{ data }, { data: profileData }]) => {
+      if (!profileData) {
+        setOrphaned(true);
+        setLoading(false);
+        return;
+      }
       setRows(
         (data && data.length > 0)
           ? data.map((t) => ({ id: t.id, label: t.label, duration_minutes: String(t.duration_minutes) }))
@@ -107,6 +122,7 @@ export default function IntervenantFicheModal({
       );
       setRemovedIds([]);
       setExistingPhoto(profileData?.photo ?? null);
+      setExistingPhotoUpdatedAt(profileData?.photo_updated_at ?? null);
       if (profileData?.prenom) {
         setFichePrenom(profileData.prenom);
         setLoadedPrenom(profileData.prenom);
@@ -136,10 +152,12 @@ export default function IntervenantFicheModal({
     // Copie dans le dossier document (persistant) — le fichier renvoyé par le
     // picker vit dans le cache de l'app, non garanti de survivre jusqu'au clic
     // sur "Enregistrer" sinon (même précaution que account.tsx handlePickPhoto).
+    // Nom de fichier horodaté (et non fixe) : <Image> met en cache par URI, un
+    // nom constant faisait qu'un second choix de photo dans la même session
+    // ne se réaffichait pas (l'app montrait encore l'aperçu précédent).
     let persistedUri = result.assets[0].uri;
     try {
-      const dest = new File(Paths.document, "intervenant_fiche_photo.jpg");
-      if (dest.exists) dest.delete();
+      const dest = new File(Paths.document, `intervenant_fiche_photo_${Date.now()}.jpg`);
       new File(result.assets[0].uri).copy(dest);
       persistedUri = dest.uri;
     } catch {
@@ -184,8 +202,31 @@ export default function IntervenantFicheModal({
           .insert({ space_id: spaceId, prenom: trimmedPrenom, nom: trimmedNom, pin })
           .select("id")
           .single();
-        if (error || !data) throw error ?? new Error("Création de la fiche impossible.");
-        profileId = data.id;
+        if (error && error.code === "23505") {
+          // Une fiche existe déjà pour ce prénom/nom dans cet espace
+          // (contrainte unique idx_intervenant_profiles_unique_identity) —
+          // même logique de rattachement que _layout.tsx handleSaveIdentity :
+          // si le PIN correspond on réutilise la fiche existante, sinon on
+          // prévient plutôt que de laisser croire à une création réussie.
+          const { data: existing } = await supabase
+            .from("intervenant_profiles")
+            .select("id, pin")
+            .eq("space_id", spaceId)
+            .ilike("prenom", trimmedPrenom)
+            .ilike("nom", trimmedNom)
+            .maybeSingle();
+          if (!existing) throw error;
+          if (existing.pin !== pin) {
+            throw new Error(
+              "Une fiche existe déjà pour ce prénom et ce nom, avec un code différent. Vérifie ton code ou contacte l'organisateur.",
+            );
+          }
+          profileId = existing.id;
+        } else if (error || !data) {
+          throw error ?? new Error("Création de la fiche impossible.");
+        } else {
+          profileId = data.id;
+        }
       } else if (trimmedPrenom !== loadedPrenom || trimmedNom !== loadedNom) {
         const { error } = await supabase
           .from("intervenant_profiles")
@@ -214,7 +255,7 @@ export default function IntervenantFicheModal({
           } else {
             const { error: photoErr } = await supabase
               .from("intervenant_profiles")
-              .update({ photo: filename })
+              .update({ photo: filename, photo_updated_at: new Date().toISOString() })
               .eq("id", profileId);
             if (photoErr) console.error("[IntervenantFicheModal] photo column update failed:", photoErr);
           }
@@ -224,7 +265,8 @@ export default function IntervenantFicheModal({
       }
 
       if (removedIds.length > 0) {
-        await supabase.from("intervention_types").delete().in("id", removedIds);
+        const { error: delErr } = await supabase.from("intervention_types").delete().in("id", removedIds);
+        if (delErr) throw delErr;
       }
 
       const toInsert = rows.filter((r) => !r.id).map((r) => ({
@@ -233,17 +275,19 @@ export default function IntervenantFicheModal({
         duration_minutes: parseInt(r.duration_minutes, 10),
       })).filter((r) => r.label.length > 0 && Number.isFinite(r.duration_minutes) && r.duration_minutes > 0);
       if (toInsert.length > 0) {
-        await supabase.from("intervention_types").insert(toInsert);
+        const { error: insErr } = await supabase.from("intervention_types").insert(toInsert);
+        if (insErr) throw insErr;
       }
 
       const toUpdate = rows.filter((r) => r.id);
       for (const r of toUpdate) {
         const duration = parseInt(r.duration_minutes, 10);
         if (!r.label.trim() || !Number.isFinite(duration) || duration <= 0) continue;
-        await supabase
+        const { error: updErr } = await supabase
           .from("intervention_types")
           .update({ label: r.label.trim(), duration_minutes: duration })
           .eq("id", r.id);
+        if (updErr) throw updErr;
       }
 
       onSaved(profileId!, trimmedPrenom, trimmedNom);
@@ -272,11 +316,25 @@ export default function IntervenantFicheModal({
 
             {loading ? (
               <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
+            ) : orphaned ? (
+              <>
+                <Text style={[styles.subtitle, { color: C.danger }]}>
+                  Cette fiche intervenant n'existe plus. Déconnecte-toi (Mon compte → Se
+                  déconnecter) puis reconnecte-toi via le lien d'invitation en ressaisissant
+                  ton prénom, ton nom et ton code — tu seras automatiquement rattaché à ta
+                  fiche si elle existe encore.
+                </Text>
+                {onClose && (
+                  <TouchableOpacity onPress={onClose} style={styles.cancelBtn}>
+                    <Text style={[styles.cancelBtnText, { color: C.muted }]}>Fermer</Text>
+                  </TouchableOpacity>
+                )}
+              </>
             ) : (
               <>
                 <TouchableOpacity style={styles.photoPicker} onPress={pickPhoto} activeOpacity={0.8}>
                   <PatientAvatar
-                    photoUrl={pickedPhotoUri ?? (existingPhoto ? intervenantPhotoUrl(existingPhoto) : null)}
+                    photoUrl={pickedPhotoUri ?? (existingPhoto ? intervenantPhotoUrl(existingPhoto, existingPhotoUpdatedAt) : null)}
                     firstname={ficheePrenom || prenom}
                     lastname={ficheNom || nom}
                     size={72}

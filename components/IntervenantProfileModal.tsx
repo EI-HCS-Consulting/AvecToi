@@ -18,9 +18,12 @@ import type { Theme } from "@/lib/themes";
 // vraie FK sur reservations : le rapprochement est donc exact, pas
 // approximatif.
 
-function intervenantPhotoUrl(filename: string) {
+// updatedAt bust le cache CDN/<Image> — voir IntervenantFicheModal.tsx pour
+// le détail (nom de fichier fixe + upsert, sans ça un ré-upload continuerait
+// d'afficher l'ancienne photo).
+function intervenantPhotoUrl(filename: string, updatedAt?: string | null) {
   const { data } = supabase.storage.from("intervenant-photos").getPublicUrl(filename);
-  return data.publicUrl;
+  return updatedAt ? `${data.publicUrl}?v=${new Date(updatedAt).getTime()}` : data.publicUrl;
 }
 
 interface Props {
@@ -63,7 +66,7 @@ export default function IntervenantProfileModal({
         .order("creneau", { ascending: true }),
       supabase
         .from("intervenant_profiles")
-        .select("photo")
+        .select("photo, photo_updated_at")
         .eq("id", intervenantProfileId)
         .maybeSingle(),
     ]);
@@ -71,7 +74,7 @@ export default function IntervenantProfileModal({
     const soins: Reservation[] = data || [];
     setPlanifies(soins.filter((r) => !isSlotFullyPast(r.date, r.creneau)));
     setFaits(soins.filter((r) => isSlotFullyPast(r.date, r.creneau)).reverse());
-    setPhotoUrl(profileData?.photo ? intervenantPhotoUrl(profileData.photo) : null);
+    setPhotoUrl(profileData?.photo ? intervenantPhotoUrl(profileData.photo, profileData.photo_updated_at) : null);
     setLoading(false);
   }, [spaceId, intervenantProfileId]);
 
