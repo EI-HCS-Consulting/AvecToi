@@ -39,11 +39,18 @@ interface Props {
   // Uniquement en mode "edit" — le mode "create" est bloquant (première
   // connexion d'un intervenant, voir app/(visitor)/_layout.tsx).
   onClose?: () => void;
-  // prenom/nom renvoyés tels qu'enregistrés dans intervenant_profiles —
-  // l'appelant doit les répercuter sur la session locale (saveVisitorSession)
-  // pour rester la source affichée ailleurs dans l'app (Mes informations,
-  // matching des alertes RebookingAlertModal…).
-  onSaved: (profileId: string, prenom: string, nom: string) => void;
+  // Tout ce qui est renvoyé ici est tel qu'enregistré dans
+  // intervenant_profiles — l'appelant doit le répercuter sur son propre état
+  // (et la session locale via saveVisitorSession) pour rester la source
+  // affichée ailleurs dans l'app (Mes informations, matching des alertes
+  // RebookingAlertModal…) sans attendre un rechargement. telephone/phraseTotem
+  // sont `null` si vidés ou jamais remplis ; photo/photoUpdatedAt sont `null`
+  // tant qu'aucune photo n'a jamais été uploadée pour cette fiche.
+  onSaved: (
+    profileId: string, prenom: string, nom: string,
+    telephone: string | null, phraseTotem: string | null,
+    photo: string | null, photoUpdatedAt: string | null,
+  ) => void;
 }
 
 // Fiche intervenant : liste ajoutable/supprimable de types d'intervention
@@ -267,7 +274,10 @@ export default function IntervenantFicheModal({
 
       // Upload la photo seulement si une nouvelle a été choisie — best-effort,
       // un échec ne doit pas bloquer l'enregistrement des types d'intervention
-      // qui, eux, ont déjà réussi ou vont suivre.
+      // qui, eux, ont déjà réussi ou vont suivre. finalPhoto/finalPhotoUpdatedAt
+      // suivent ce qui sera effectivement renvoyé via onSaved (voir plus bas).
+      let finalPhoto = existingPhoto;
+      let finalPhotoUpdatedAt = existingPhotoUpdatedAt;
       if (pickedPhotoUri && profileId) {
         try {
           const compressed = await ImageManipulator.manipulateAsync(
@@ -283,11 +293,17 @@ export default function IntervenantFicheModal({
           if (storageErr) {
             console.error("[IntervenantFicheModal] photo upload failed:", storageErr);
           } else {
+            const photoUpdatedAtIso = new Date().toISOString();
             const { error: photoErr } = await supabase
               .from("intervenant_profiles")
-              .update({ photo: filename, photo_updated_at: new Date().toISOString() })
+              .update({ photo: filename, photo_updated_at: photoUpdatedAtIso })
               .eq("id", profileId);
-            if (photoErr) console.error("[IntervenantFicheModal] photo column update failed:", photoErr);
+            if (photoErr) {
+              console.error("[IntervenantFicheModal] photo column update failed:", photoErr);
+            } else {
+              finalPhoto = filename;
+              finalPhotoUpdatedAt = photoUpdatedAtIso;
+            }
           }
         } catch (e) {
           console.error("[IntervenantFicheModal] unexpected photo error:", e);
@@ -320,7 +336,11 @@ export default function IntervenantFicheModal({
         if (updErr) throw updErr;
       }
 
-      onSaved(profileId!, trimmedPrenom, trimmedNom);
+      onSaved(
+        profileId!, trimmedPrenom, trimmedNom,
+        trimmedTelephone || null, trimmedPhraseTotem || null,
+        finalPhoto, finalPhotoUpdatedAt,
+      );
     } catch (e: any) {
       Alert.alert("Erreur", e?.message ?? "Impossible d'enregistrer la fiche intervenant.");
     } finally {

@@ -35,6 +35,16 @@ function supportPhotoUrl(spaceId: string, filename: string) {
   return data.publicUrl;
 }
 
+// updatedAt bust le cache CDN/<Image> — voir IntervenantFicheModal.tsx pour
+// le détail (nom de fichier fixe + upsert, sans ça un ré-upload continuerait
+// d'afficher l'ancienne photo). Même bucket/convention de nom de fichier
+// (`${intervenantProfileId}.jpg`) que la fiche intervenant : les deux lisent
+// et écrivent la même image.
+function intervenantPhotoUrl(filename: string, updatedAt?: string | null) {
+  const { data } = supabase.storage.from("intervenant-photos").getPublicUrl(filename);
+  return updatedAt ? `${data.publicUrl}?v=${new Date(updatedAt).getTime()}` : data.publicUrl;
+}
+
 // Même règle de slug que NewsFeed.tsx / SouvenirsGallery.tsx / Soutien.tsx.
 function sanitize(str: string) {
   return str
@@ -79,6 +89,12 @@ export default function VisitorAccountScreen() {
   const [pinRevealed, setPinRevealed] = useState(false);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [motto, setMotto] = useState("");
+  // Téléphone — intervenant uniquement (colonne intervenant_profiles.telephone,
+  // voir migration 20260719_intervenant_profiles_contact.sql). Ma phrase totem
+  // (state `motto` ci-dessus, réutilisé pour les deux rôles) pointe vers
+  // intervenant_profiles.phrase_totem plutôt que visitor_profiles.motto quand
+  // role === "intervenant" — voir syncIntervenantContact plus bas.
+  const [telephone, setTelephone] = useState("");
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
   const [patientProfileVisible, setPatientProfileVisible] = useState(false);
@@ -211,16 +227,32 @@ export default function VisitorAccountScreen() {
         setPin(s.pin);
         setPhotoUri(s.localPhotoUri);
         setMotto(s.motto);
+        setTelephone(s.telephone);
         setRole(s.role ?? "visiteur");
         setIntervenantProfileId(s.intervenantProfileId ?? null);
         if (space) {
           loadActivity(space.id, s.prenom, s.nom);
-          // Photo/motto de secours : si cet appareil/session n'a plus de copie
-          // locale (réinstallation, cache vidé, nouvel appareil) mais qu'une
-          // photo/phrase a déjà été synchronisée (visible côté admin dans ce
-          // cas, voir components/VisitorsBlock.tsx), on l'affiche quand même
-          // au lieu de proposer d'en ajouter une comme si elle n'existait pas.
-          if (!s.localPhotoUri || !s.motto) {
+          if (s.role === "intervenant" && s.intervenantProfileId) {
+            // Photo/téléphone/phrase totem de secours — même principe que le
+            // fallback visiteur ci-dessous, mais la source de vérité est
+            // intervenant_profiles (partagée avec la fiche intervenant, voir
+            // components/IntervenantFicheModal.tsx) plutôt que visitor_profiles.
+            if (!s.localPhotoUri || !s.motto || !s.telephone) {
+              const { data } = await supabase
+                .from("intervenant_profiles")
+                .select("photo, photo_updated_at, telephone, phrase_totem")
+                .eq("id", s.intervenantProfileId)
+                .maybeSingle();
+              if (!s.localPhotoUri && data?.photo) setPhotoUri(intervenantPhotoUrl(data.photo, data.photo_updated_at));
+              if (!s.motto && data?.phrase_totem) setMotto(data.phrase_totem);
+              if (!s.telephone && data?.telephone) setTelephone(data.telephone);
+            }
+          } else if (!s.localPhotoUri || !s.motto) {
+            // Photo/motto de secours : si cet appareil/session n'a plus de copie
+            // locale (réinstallation, cache vidé, nouvel appareil) mais qu'une
+            // photo/phrase a déjà été synchronisée (visible côté admin dans ce
+            // cas, voir components/VisitorsBlock.tsx), on l'affiche quand même
+            // au lieu de proposer d'en ajouter une comme si elle n'existait pas.
             const { data } = await supabase
               .from("visitor_profiles")
               .select("photo, motto")
@@ -270,17 +302,68 @@ export default function VisitorAccountScreen() {
     }
 
     setPhotoUri(persistedUri);
-    if (space) {
-      await saveVisitorSession({
-        token,
-        spaceId: space.id,
-        prenom: prenom.trim(),
-        nom: nom.trim(),
-        email: email.trim(),
-        localPhotoUri: persistedUri,
-      });
+    if (!space) return;
+    if (role === "intervenant" && intervenantProfileId) {
+      await saveVisitorSession({ token, spaceId: space.id, localPhotoUri: persistedUri });
       showToast("Photo enregistrée ✓");
-      syncProfilePhoto(space.id, prenom.trim(), nom.trim(), persistedUri);
+      syncIntervenantPhoto(intervenantProfileId, persistedUri);
+      return;
+    }
+    await saveVisitorSession({
+      token,
+      spaceId: space.id,
+      prenom: prenom.trim(),
+      nom: nom.trim(),
+      email: email.trim(),
+      localPhotoUri: persistedUri,
+    });
+    showToast("Photo enregistrée ✓");
+    syncProfilePhoto(space.id, prenom.trim(), nom.trim(), persistedUri);
+  }
+
+  // Synchronise la photo vers intervenant_profiles — même bucket/convention
+  // de nom de fichier (`${profileId}.jpg`) que components/IntervenantFicheModal.tsx,
+  // pour que les deux écrans affichent toujours la même image. Best-effort,
+  // comme syncProfilePhoto ci-dessous.
+  async function syncIntervenantPhoto(profileId: string, localUri: string) {
+    try {
+      const compressed = await ImageManipulator.manipulateAsync(
+        localUri,
+        [{ resize: { width: 300 } }],
+        { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
+      );
+      const fileData = await new File(compressed.uri).arrayBuffer();
+      const filename = `${profileId}.jpg`;
+      const { error: storageErr } = await supabase.storage
+        .from("intervenant-photos")
+        .upload(filename, fileData, { contentType: "image/jpeg", cacheControl: "3600", upsert: true });
+      if (storageErr) {
+        console.error("[syncIntervenantPhoto] storage upload failed:", storageErr);
+        return;
+      }
+      const { error: updErr } = await supabase
+        .from("intervenant_profiles")
+        .update({ photo: filename, photo_updated_at: new Date().toISOString() })
+        .eq("id", profileId);
+      if (updErr) console.error("[syncIntervenantPhoto] update failed:", updErr);
+    } catch (e) {
+      console.error("[syncIntervenantPhoto] unexpected error:", e);
+    }
+  }
+
+  // Synchronise téléphone + phrase totem vers intervenant_profiles — même
+  // principe que syncProfileMotto ci-dessous, mais pour la fiche intervenant
+  // (partagée avec components/IntervenantFicheModal.tsx) plutôt que
+  // visitor_profiles.
+  async function syncIntervenantContact(profileId: string, telephoneValue: string, mottoValue: string) {
+    try {
+      const { error } = await supabase
+        .from("intervenant_profiles")
+        .update({ telephone: telephoneValue.trim() || null, phrase_totem: mottoValue.trim() || null })
+        .eq("id", profileId);
+      if (error) console.error("[syncIntervenantContact] update failed:", error);
+    } catch (e) {
+      console.error("[syncIntervenantContact] unexpected error:", e);
     }
   }
 
@@ -347,11 +430,16 @@ export default function VisitorAccountScreen() {
       email: email.trim(),
       localPhotoUri: photoUri,
       motto,
+      telephone,
     });
     setSaving(false);
     showToast("Enregistré ✓");
-    if (photoUri) syncProfilePhoto(space.id, prenom.trim(), nom.trim(), photoUri);
-    if (prenom.trim() && nom.trim()) syncProfileMotto(space.id, prenom.trim(), nom.trim(), motto);
+    if (role === "intervenant" && intervenantProfileId) {
+      syncIntervenantContact(intervenantProfileId, telephone, motto);
+    } else {
+      if (photoUri) syncProfilePhoto(space.id, prenom.trim(), nom.trim(), photoUri);
+      if (prenom.trim() && nom.trim()) syncProfileMotto(space.id, prenom.trim(), nom.trim(), motto);
+    }
     loadActivity(space.id, prenom, nom);
   }
 
@@ -563,6 +651,16 @@ export default function VisitorAccountScreen() {
                       autoCapitalize="none"
                       autoCorrect={false}
                     />
+                    {role === "intervenant" && (
+                      <TextInput
+                        style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                        placeholder="Téléphone (optionnel)"
+                        placeholderTextColor={C.muted}
+                        value={telephone}
+                        onChangeText={setTelephone}
+                        keyboardType="phone-pad"
+                      />
+                    )}
                   </View>
 
                   <Text style={[styles.sectionTitle, { color: C.gold, marginTop: 8 }]}>💬 Ma phrase totem (optionnel)</Text>
@@ -575,7 +673,9 @@ export default function VisitorAccountScreen() {
                       onChangeText={setMotto}
                     />
                     <Text style={[styles.cardDesc, { color: C.muted, marginBottom: 0 }]}>
-                      Une phrase qui te définit — affichée à côté de ton nom dans le bloc Visiteurs des Paramètres.
+                      {role === "intervenant"
+                        ? "Une phrase qui te définit — affichée sur ta fiche intervenant, vue par les visiteurs et les autres intervenants."
+                        : "Une phrase qui te définit — affichée à côté de ton nom dans le bloc Visiteurs des Paramètres."}
                     </Text>
                   </View>
 
@@ -983,10 +1083,18 @@ export default function VisitorAccountScreen() {
           intervenantProfileId={intervenantProfileId}
           theme={C}
           onClose={() => setFicheModalVisible(false)}
-          onSaved={async (_profileId, savedPrenom, savedNom) => {
-            await saveVisitorSession({ token, spaceId: space.id, prenom: savedPrenom, nom: savedNom });
+          onSaved={async (_profileId, savedPrenom, savedNom, savedTelephone, savedPhraseTotem, savedPhoto, savedPhotoUpdatedAt) => {
+            await saveVisitorSession({
+              token, spaceId: space.id,
+              prenom: savedPrenom, nom: savedNom,
+              telephone: savedTelephone ?? "",
+              motto: savedPhraseTotem ?? "",
+            });
             setPrenom(savedPrenom);
             setNom(savedNom);
+            setTelephone(savedTelephone ?? "");
+            setMotto(savedPhraseTotem ?? "");
+            if (savedPhoto) setPhotoUri(intervenantPhotoUrl(savedPhoto, savedPhotoUpdatedAt));
             setFicheModalVisible(false);
             showToast("Fiche intervenant enregistrée ✓");
           }}

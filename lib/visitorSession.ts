@@ -20,6 +20,9 @@ export interface VisitorSession {
   pin: string;
   localPhotoUri: string | null;
   motto: string;
+  // Téléphone — pertinent seulement côté intervenant (intervenant_profiles),
+  // caché localement sur le même principe que motto ci-dessus.
+  telephone: string;
   // "intervenant" pour un professionnel (infirmier·ère, kiné, aide à
   // domicile…) entré via "🩺 Je suis intervenant" — sessions déjà
   // persistées sans ce champ sont traitées comme "visiteur" (voir fallback
@@ -51,6 +54,7 @@ export async function saveVisitorSession(
     pin?: string;
     localPhotoUri?: string | null;
     motto?: string;
+    telephone?: string;
     role?: "visiteur" | "intervenant";
     intervenantProfileId?: string | null;
   },
@@ -65,6 +69,7 @@ export async function saveVisitorSession(
     pin: partial.pin ?? existing?.pin ?? "",
     localPhotoUri: partial.localPhotoUri ?? existing?.localPhotoUri ?? null,
     motto: partial.motto ?? existing?.motto ?? "",
+    telephone: partial.telephone ?? existing?.telephone ?? "",
     role: partial.role ?? existing?.role ?? "visiteur",
     intervenantProfileId: partial.intervenantProfileId ?? existing?.intervenantProfileId ?? null,
   };
