@@ -71,6 +71,11 @@ export default function IntervenantFicheModal({
   // upload effectif seulement au clic sur "Enregistrer" — voir handleSave).
   const [existingPhoto, setExistingPhoto] = useState<string | null>(null);
   const [pickedPhotoUri, setPickedPhotoUri] = useState<string | null>(null);
+  // true si intervenantProfileId a été fourni (mode edit) mais ne correspond
+  // à aucune ligne intervenant_profiles — session locale orpheline (profil
+  // supprimé, ou rattachement jamais confirmé). Bloque la modale plutôt que
+  // de laisser l'utilisateur "éditer" une fiche fantôme.
+  const [orphaned, setOrphaned] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
@@ -79,6 +84,7 @@ export default function IntervenantFicheModal({
     setLoadedPrenom(prenom);
     setLoadedNom(nom);
     setPickedPhotoUri(null);
+    setOrphaned(false);
     if (mode === "create") {
       setRows([{ label: "", duration_minutes: "" }]);
       setRemovedIds([]);
@@ -100,6 +106,11 @@ export default function IntervenantFicheModal({
         .eq("id", intervenantProfileId)
         .maybeSingle(),
     ]).then(([{ data }, { data: profileData }]) => {
+      if (!profileData) {
+        setOrphaned(true);
+        setLoading(false);
+        return;
+      }
       setRows(
         (data && data.length > 0)
           ? data.map((t) => ({ id: t.id, label: t.label, duration_minutes: String(t.duration_minutes) }))
@@ -184,8 +195,31 @@ export default function IntervenantFicheModal({
           .insert({ space_id: spaceId, prenom: trimmedPrenom, nom: trimmedNom, pin })
           .select("id")
           .single();
-        if (error || !data) throw error ?? new Error("Création de la fiche impossible.");
-        profileId = data.id;
+        if (error && error.code === "23505") {
+          // Une fiche existe déjà pour ce prénom/nom dans cet espace
+          // (contrainte unique idx_intervenant_profiles_unique_identity) —
+          // même logique de rattachement que _layout.tsx handleSaveIdentity :
+          // si le PIN correspond on réutilise la fiche existante, sinon on
+          // prévient plutôt que de laisser croire à une création réussie.
+          const { data: existing } = await supabase
+            .from("intervenant_profiles")
+            .select("id, pin")
+            .eq("space_id", spaceId)
+            .ilike("prenom", trimmedPrenom)
+            .ilike("nom", trimmedNom)
+            .maybeSingle();
+          if (!existing) throw error;
+          if (existing.pin !== pin) {
+            throw new Error(
+              "Une fiche existe déjà pour ce prénom et ce nom, avec un code différent. Vérifie ton code ou contacte l'organisateur.",
+            );
+          }
+          profileId = existing.id;
+        } else if (error || !data) {
+          throw error ?? new Error("Création de la fiche impossible.");
+        } else {
+          profileId = data.id;
+        }
       } else if (trimmedPrenom !== loadedPrenom || trimmedNom !== loadedNom) {
         const { error } = await supabase
           .from("intervenant_profiles")
@@ -275,6 +309,20 @@ export default function IntervenantFicheModal({
 
             {loading ? (
               <ActivityIndicator color={C.accent} style={{ marginVertical: 24 }} />
+            ) : orphaned ? (
+              <>
+                <Text style={[styles.subtitle, { color: C.danger }]}>
+                  Cette fiche intervenant n'existe plus. Déconnecte-toi (Mon compte → Se
+                  déconnecter) puis reconnecte-toi via le lien d'invitation en ressaisissant
+                  ton prénom, ton nom et ton code — tu seras automatiquement rattaché à ta
+                  fiche si elle existe encore.
+                </Text>
+                {onClose && (
+                  <TouchableOpacity onPress={onClose} style={styles.cancelBtn}>
+                    <Text style={[styles.cancelBtnText, { color: C.muted }]}>Fermer</Text>
+                  </TouchableOpacity>
+                )}
+              </>
             ) : (
               <>
                 <TouchableOpacity style={styles.photoPicker} onPress={pickPhoto} activeOpacity={0.8}>
