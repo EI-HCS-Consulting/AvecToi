@@ -124,6 +124,19 @@ export default function AdminIntervenantsScreen() {
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text style={[styles.sectionTitle, { color: C.gold }]}>Planning</Text>
 
+        <View style={{ marginBottom: 14 }}>
+          <MiniCalendar
+            selDate={iso}
+            onSelect={(newIso) => setSelectedDay(new Date(newIso + "T00:00:00"))}
+            calMonth={calMonth}
+            onMonthChange={setCalMonth}
+            startDate={startDate}
+            C={C}
+            size="lg"
+            markedDates={interventionDates}
+          />
+        </View>
+
         <View style={[styles.dayNav, { backgroundColor: C.card, borderColor: C.border }]}>
           <TouchableOpacity
             onPress={() => {
@@ -172,19 +185,6 @@ export default function AdminIntervenantsScreen() {
             </View>
           ))
         )}
-
-        <View style={{ marginBottom: 14 }}>
-          <MiniCalendar
-            selDate={iso}
-            onSelect={(newIso) => setSelectedDay(new Date(newIso + "T00:00:00"))}
-            calMonth={calMonth}
-            onMonthChange={setCalMonth}
-            startDate={startDate}
-            C={C}
-            size="lg"
-            markedDates={interventionDates}
-          />
-        </View>
 
         <TouchableOpacity
           style={[styles.addBtn, { backgroundColor: C.orange }]}
