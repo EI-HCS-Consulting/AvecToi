@@ -1,10 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Modal } from "react-native";
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import { useSpace } from "@/lib/SpaceContext";
 import { supabase } from "@/lib/supabase";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
-import { toISO, toFrLong, toFrShort, addDays, isSlotFullyPast } from "@/lib/slotUtils";
+import { toISO, toFrLong, toFrShort, addDays } from "@/lib/slotUtils";
 import { deleteLinkedCalendarEvent } from "@/lib/calendarSync";
 import AdminAddIntervention, { type AdminAddInterventionHandle } from "@/components/AdminAddIntervention";
 import AdminEditReservation, { type AdminEditReservationHandle } from "@/components/AdminEditReservation";
@@ -12,7 +12,7 @@ import DeleteReservationConfirm, { type DeleteReservationConfirmHandle } from "@
 import IntervenantFicheModal from "@/components/IntervenantFicheModal";
 import IntervenantProfileModal from "@/components/IntervenantProfileModal";
 import SoinsPlanifiesBlock from "@/components/SoinsPlanifiesBlock";
-import PlanningCalendarModal from "@/components/PlanningCalendarModal";
+import MiniCalendar from "@/components/MiniCalendar";
 import type { Reservation, IntervenantProfile, InterventionType } from "@/lib/types";
 
 // Écran admin dédié "Planning des intervenants" — n'affiche que les
@@ -36,8 +36,7 @@ export default function AdminIntervenantsScreen() {
     d.setHours(0, 0, 0, 0);
     return d;
   });
-  const [slotPicker, setSlotPicker] = useState(false);
-  const [calendarModal, setCalendarModal] = useState(false);
+  const [calMonth, setCalMonth] = useState(() => ({ year: selectedDay.getFullYear(), month: selectedDay.getMonth() }));
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [viewingProfile, setViewingProfile] = useState<IntervenantProfile | null>(null);
   // Replié par défaut — reléguée en bas d'écran, derrière Planning et Soins
@@ -84,10 +83,15 @@ export default function AdminIntervenantsScreen() {
 
   useEffect(() => { refreshProfiles(); }, [refreshProfiles]);
 
+  // Le calendrier mensuel suit le pager jour par jour : passer au mois
+  // suivant/précédent via ‹ › recentre la grille dessous automatiquement.
+  useEffect(() => {
+    setCalMonth({ year: selectedDay.getFullYear(), month: selectedDay.getMonth() });
+  }, [selectedDay]);
+
   if (!space) return null;
 
   const iso = toISO(selectedDay);
-  const slots = getSlotsForDate(iso);
   const dayInterventions = reservations
     .filter((r) => r.type === "Intervention" && r.date === iso)
     .sort((a, b) => a.creneau.localeCompare(b.creneau));
@@ -131,10 +135,10 @@ export default function AdminIntervenantsScreen() {
           >
             <Text style={[styles.navBtnText, { color: C.text }]}>‹</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={{ alignItems: "center" }} onPress={() => setCalendarModal(true)} activeOpacity={0.7}>
+          <View style={{ alignItems: "center" }}>
             <Text style={[styles.dayTitle, { color: C.text }]}>{toFrLong(selectedDay)}</Text>
             <Text style={[styles.daySub, { color: C.muted }]}>{toFrShort(selectedDay)}</Text>
-          </TouchableOpacity>
+          </View>
           <TouchableOpacity
             onPress={() => setSelectedDay(addDays(selectedDay, 1))}
             style={[styles.navBtn, { borderColor: C.border }]}
@@ -169,10 +173,22 @@ export default function AdminIntervenantsScreen() {
           ))
         )}
 
+        <View style={{ marginBottom: 14 }}>
+          <MiniCalendar
+            selDate={iso}
+            onSelect={(newIso) => setSelectedDay(new Date(newIso + "T00:00:00"))}
+            calMonth={calMonth}
+            onMonthChange={setCalMonth}
+            startDate={startDate}
+            C={C}
+            size="lg"
+            markedDates={interventionDates}
+          />
+        </View>
+
         <TouchableOpacity
           style={[styles.addBtn, { backgroundColor: C.orange }]}
-          onPress={() => setSlotPicker(true)}
-          disabled={slots.length === 0}
+          onPress={() => addRef.current?.open(iso)}
         >
           <Text style={styles.addBtnText}>+ Ajouter une intervention</Text>
         </TouchableOpacity>
@@ -220,50 +236,14 @@ export default function AdminIntervenantsScreen() {
         </View>
       </ScrollView>
 
-      {/* ── Sélecteur de créneau de départ avant ouverture d'AdminAddIntervention ── */}
-      <Modal visible={slotPicker} transparent animationType="fade" onRequestClose={() => setSlotPicker(false)}>
-        <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => setSlotPicker(false)}>
-          <TouchableOpacity activeOpacity={1}>
-            <View style={[styles.pickerSheet, { backgroundColor: C.card, borderColor: C.orange }]}>
-              <Text style={[styles.pickerTitle, { color: C.text }]}>Créneau de départ</Text>
-              <ScrollView style={{ maxHeight: 320 }}>
-                <View style={styles.pickerGrid}>
-                  {slots.map((slot) => {
-                    const past = isSlotFullyPast(iso, slot);
-                    if (past) return null;
-                    return (
-                      <TouchableOpacity
-                        key={slot}
-                        style={[styles.pickerOption, { borderColor: C.border, backgroundColor: C.bg }]}
-                        onPress={() => { setSlotPicker(false); addRef.current?.open(iso, slot); }}
-                      >
-                        <Text style={[styles.pickerOptionText, { color: C.text }]}>{slot}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </ScrollView>
-            </View>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </Modal>
-
-      <PlanningCalendarModal
-        visible={calendarModal}
-        onClose={() => setCalendarModal(false)}
-        selectedDay={selectedDay}
-        onSelectDay={setSelectedDay}
-        interventionDates={interventionDates}
-        startDate={startDate}
-        C={C}
-      />
-
       {space && slotConfig && (
         <AdminAddIntervention
           ref={addRef}
           space={space}
           slotConfig={slotConfig}
-          slots={slots}
+          getSlotsForDate={getSlotsForDate}
+          startDate={startDate}
+          interventionDates={interventionDates}
           onAdded={async () => { await refreshReservations(); showToast("Intervention ajoutée ✓"); }}
           C={C}
         />
@@ -359,13 +339,6 @@ const styles = StyleSheet.create({
 
   addBtn: { borderRadius: 12, paddingVertical: 15, alignItems: "center", marginTop: 6 },
   addBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" },
-
-  pickerOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center", padding: 24 },
-  pickerSheet: { width: "100%", maxWidth: 380, borderRadius: 20, borderWidth: 1, padding: 20 },
-  pickerTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 16, marginBottom: 14, textAlign: "center" },
-  pickerGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center", paddingBottom: 4 },
-  pickerOption: { borderWidth: 1, borderRadius: 8, paddingVertical: 10, paddingHorizontal: 16 },
-  pickerOptionText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
 
   toast: { position: "absolute", bottom: 24, alignSelf: "center", paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10 },
   toastText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13, color: "#fff" },

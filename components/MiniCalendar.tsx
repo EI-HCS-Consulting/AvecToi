@@ -27,8 +27,8 @@ interface Props {
   slots?: string[];
   reservations?: Reservation[];
   // Jours à signaler d'un point de couleur, indépendamment de showDots/
-  // getDayStatus (qui ne couvre que l'occupation des visites) — utilisé par
-  // PlanningCalendarModal pour repérer les jours avec un soin planifié.
+  // getDayStatus (qui ne couvre que l'occupation des visites) — utilisé côté
+  // admin pour repérer les jours avec un soin planifié.
   markedDates?: Set<string>;
 }
 
