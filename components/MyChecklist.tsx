@@ -6,8 +6,9 @@ import {
 import * as Crypto from "expo-crypto";
 import { supabase } from "@/lib/supabase";
 import ConfirmModal from "@/components/ConfirmModal";
+import { normalizePhone } from "@/lib/phone";
 import { CHECKLIST_TEMPLATES, addDaysIso, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
-import type { PersonalChecklistItem, Task } from "@/lib/types";
+import type { PersonalChecklistItem, IntervenantChecklistTemplate, Task } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
 interface Props {
@@ -23,6 +24,12 @@ interface Props {
   // suggérées (Entraide) ne concernent pas les intervenants, voir
   // app/(visitor)/account.tsx.
   hideImportBanner?: boolean;
+  // Téléphone brut de la fiche intervenant (role === "intervenant"
+  // uniquement) — active "💾 Enregistrer comme modèle" / "📥 Mes modèles"
+  // pour réutiliser une checklist perso dans un autre dossier patient.
+  // Normalisé en interne (voir normalizePhone), même mécanisme que "Mes
+  // espaces" (app/(visitor)/account.tsx, linkedSpaces).
+  intervenantTelephone?: string;
 }
 
 function linesToTitles(text: string): string[] {
@@ -35,7 +42,9 @@ function linesToTitles(text: string): string[] {
 // importé reste lié à un vrai besoin `tasks` (visible du Mur d'Entraide) :
 // basculer son statut ici met aussi à jour tasks.status, qui se propage
 // partout via l'abonnement realtime déjà en place dans Entraide.tsx.
-export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, ownerPin, C, hideImportBanner }: Props) {
+export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, ownerPin, C, hideImportBanner, intervenantTelephone }: Props) {
+  const normalizedTelephone = intervenantTelephone ? normalizePhone(intervenantTelephone) : "";
+  const canUseTemplates = normalizedTelephone.length >= 6;
   const [items, setItems] = useState<PersonalChecklistItem[]>([]);
   const [loading, setLoading] = useState(true);
   // Un seul sous-bloc ouvert à la fois, comme "Mes contributions" — clé de
@@ -49,6 +58,20 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
   const [newChecklistName, setNewChecklistName] = useState("");
   const [newChecklistItemsText, setNewChecklistItemsText] = useState("");
   const [creatingChecklist, setCreatingChecklist] = useState(false);
+
+  // Ajout d'items dans une checklist perso déjà créée — un seul champ car un
+  // seul groupe est ouvert à la fois (openGroup), remis à zéro à chaque
+  // changement de groupe ouvert (voir useEffect plus bas).
+  const [groupAddText, setGroupAddText] = useState("");
+  const [groupAddSaving, setGroupAddSaving] = useState(false);
+
+  // "Mes modèles" (intervenant uniquement) — sauvegarder une checklist perso
+  // comme modèle réutilisable, puis l'importer dans un autre dossier patient.
+  const [savingTemplateName, setSavingTemplateName] = useState<string | null>(null);
+  const [templatesPicker, setTemplatesPicker] = useState(false);
+  const [templates, setTemplates] = useState<IntervenantChecklistTemplate[]>([]);
+  const [loadingTemplates, setLoadingTemplates] = useState(false);
+  const [importingTemplateId, setImportingTemplateId] = useState<string | null>(null);
 
   // Sélection multiple (restant appuyé sur un item, comme dans le Mur
   // d'Entraide) — pour supprimer plusieurs items de sa checklist en une fois.
@@ -86,6 +109,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
   }, [spaceId, ownerPin, ownerPrenom, ownerNom, canLoad]);
 
   useEffect(() => { loadItems(); }, [loadItems]);
+  useEffect(() => { setGroupAddText(""); }, [openGroup]);
 
   function findDuplicateTask(title: string): Task | undefined {
     const norm = title.trim().toLowerCase();
@@ -153,6 +177,85 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     setNewChecklistName("");
     setNewChecklistItemsText("");
     setOpenGroup(name);
+    loadItems();
+  }
+
+  async function addItemToGroup(name: string) {
+    const titles = linesToTitles(groupAddText);
+    if (!titles.length) return;
+    setGroupAddSaving(true);
+    const rows = titles.map((title) => ({
+      space_id: spaceId,
+      owner_prenom: ownerPrenom,
+      owner_nom: ownerNom,
+      owner_pin: ownerPin,
+      title,
+      status: "a_faire" as const,
+      task_id: null,
+      checklist_context: null,
+      custom_checklist_name: name,
+    }));
+    const { error } = await supabase.from("personal_checklist_items").insert(rows);
+    setGroupAddSaving(false);
+    if (error) {
+      Alert.alert("Erreur", "Impossible d'ajouter : " + error.message);
+      return;
+    }
+    setGroupAddText("");
+    loadItems();
+  }
+
+  async function saveGroupAsTemplate(name: string) {
+    if (!canUseTemplates) return;
+    const titles = groupItems(name).map((it) => it.title);
+    if (!titles.length) return;
+    setSavingTemplateName(name);
+    const { error } = await supabase
+      .from("intervenant_checklist_templates")
+      .upsert({ telephone: normalizedTelephone, name, items: titles }, { onConflict: "telephone,name" });
+    setSavingTemplateName(null);
+    if (error) {
+      Alert.alert("Erreur", "Impossible d'enregistrer le modèle : " + error.message);
+      return;
+    }
+    Alert.alert("Modèle enregistré", `"${name}" est maintenant disponible dans "📥 Mes modèles", dans tous tes dossiers patient.`);
+  }
+
+  async function openTemplatesPicker() {
+    if (!canUseTemplates) return;
+    setTemplatesPicker(true);
+    setLoadingTemplates(true);
+    const { data } = await supabase
+      .from("intervenant_checklist_templates")
+      .select("*")
+      .eq("telephone", normalizedTelephone)
+      .order("name", { ascending: true });
+    setTemplates((data ?? []) as IntervenantChecklistTemplate[]);
+    setLoadingTemplates(false);
+  }
+
+  async function importTemplate(tpl: IntervenantChecklistTemplate) {
+    if (!tpl.items.length) return;
+    setImportingTemplateId(tpl.id);
+    const rows = tpl.items.map((title) => ({
+      space_id: spaceId,
+      owner_prenom: ownerPrenom,
+      owner_nom: ownerNom,
+      owner_pin: ownerPin,
+      title,
+      status: "a_faire" as const,
+      task_id: null,
+      checklist_context: null,
+      custom_checklist_name: tpl.name,
+    }));
+    const { error } = await supabase.from("personal_checklist_items").insert(rows);
+    setImportingTemplateId(null);
+    if (error) {
+      Alert.alert("Erreur", "Impossible d'importer le modèle : " + error.message);
+      return;
+    }
+    setTemplatesPicker(false);
+    setOpenGroup(tpl.name);
     loadItems();
   }
 
@@ -282,7 +385,11 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     new Set(items.map((it) => it.custom_checklist_name).filter((n): n is string => !!n)),
   );
 
-  function renderGroupCard(groupItemsList: PersonalChecklistItem[]) {
+  // customName : nom de la checklist perso si ce groupe en est une — permet
+  // d'y ajouter de nouveaux items directement (voir groupAddText). Absent
+  // pour les checklists suggérées importées et pour "Mes items personnels"
+  // (qui a déjà son propre champ d'ajout, tout en haut du bloc).
+  function renderGroupCard(groupItemsList: PersonalChecklistItem[], customName?: string) {
     return (
       <View style={[styles.card, styles.groupCard, { backgroundColor: C.card, borderColor: C.border }]}>
         {groupItemsList.length === 0 ? (
@@ -322,6 +429,29 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
             </TouchableOpacity>
           );
         })}
+        {customName && (
+          <View style={styles.groupAddRow}>
+            <TextInput
+              style={[styles.groupAddInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+              placeholder="+ Ajouter un item (un par ligne)"
+              placeholderTextColor={C.muted}
+              value={groupAddText}
+              onChangeText={setGroupAddText}
+              multiline
+            />
+            <TouchableOpacity
+              style={[styles.groupAddBtn, { borderColor: C.gold, opacity: groupAddText.trim() ? 1 : 0.5 }]}
+              onPress={() => addItemToGroup(customName)}
+              disabled={!groupAddText.trim() || groupAddSaving}
+              activeOpacity={0.8}
+            >
+              {groupAddSaving
+                ? <ActivityIndicator color={C.gold} />
+                : <Text style={[styles.groupAddBtnText, { color: C.gold }]}>+ Ajouter</Text>
+              }
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
     );
   }
@@ -396,9 +526,23 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                     <Text style={[styles.groupHeaderText, { color: C.text }]}>
                       📋 {name} ({groupList.length})
                     </Text>
-                    <Text style={[styles.groupChevron, { color: C.muted }]}>{isOpen ? "▲" : "▼"}</Text>
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+                      {canUseTemplates && (
+                        <TouchableOpacity
+                          onPress={() => saveGroupAsTemplate(name)}
+                          disabled={savingTemplateName === name}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          {savingTemplateName === name
+                            ? <ActivityIndicator color={C.gold} size="small" />
+                            : <Text style={{ fontSize: 16 }}>💾</Text>
+                          }
+                        </TouchableOpacity>
+                      )}
+                      <Text style={[styles.groupChevron, { color: C.muted }]}>{isOpen ? "▲" : "▼"}</Text>
+                    </View>
                   </TouchableOpacity>
-                  {isOpen && renderGroupCard(groupList)}
+                  {isOpen && renderGroupCard(groupList, name)}
                 </View>
               );
             })}
@@ -453,6 +597,16 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
         >
           <Text style={[styles.btnSecondaryText, { color: C.gold }]}>+ Créer une checklist</Text>
         </TouchableOpacity>
+
+        {canUseTemplates && (
+          <TouchableOpacity
+            style={[styles.btnSecondary, { borderColor: C.gold, marginTop: 8 }]}
+            onPress={openTemplatesPicker}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.btnSecondaryText, { color: C.gold }]}>📥 Mes modèles</Text>
+          </TouchableOpacity>
+        )}
 
         {!hideImportBanner && (
           <TouchableOpacity
@@ -527,6 +681,52 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                 }
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── MODAL : mes modèles de checklist (intervenant, cross-space) ─── */}
+      <Modal visible={templatesPicker} transparent animationType="slide" onRequestClose={() => setTemplatesPicker(false)}>
+        <View style={styles.overlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setTemplatesPicker(false)} />
+          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.gold }]}>
+            <Text style={[styles.sheetTitle, { color: C.text }]}>📥 Mes modèles</Text>
+            <Text style={[styles.intro, { color: C.muted }]}>
+              Importe une checklist que tu as enregistrée comme modèle (💾, depuis un autre dossier patient) dans ce dossier-ci.
+            </Text>
+            {loadingTemplates ? (
+              <ActivityIndicator color={C.gold} style={{ marginVertical: 16 }} />
+            ) : templates.length === 0 ? (
+              <Text style={[styles.empty, { color: C.muted }]}>
+                Aucun modèle pour le moment. Enregistre une checklist comme modèle avec 💾, depuis son en-tête.
+              </Text>
+            ) : (
+              templates.map((tpl) => (
+                <TouchableOpacity
+                  key={tpl.id}
+                  style={[styles.checklistCard, { borderColor: C.gold, backgroundColor: C.gold + "14" }]}
+                  onPress={() => importTemplate(tpl)}
+                  disabled={importingTemplateId === tpl.id}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.checklistCardIcon}>📋</Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.checklistCardTitle, { color: C.text }]}>{tpl.name}</Text>
+                    <Text style={[styles.checklistCardCount, { color: C.muted }]}>{tpl.items.length} items</Text>
+                  </View>
+                  {importingTemplateId === tpl.id
+                    ? <ActivityIndicator color={C.gold} />
+                    : <Text style={[styles.checklistCardArrow, { color: C.gold }]}>→</Text>
+                  }
+                </TouchableOpacity>
+              ))
+            )}
+            <TouchableOpacity
+              onPress={() => setTemplatesPicker(false)}
+              style={[styles.btnSecondary, { borderColor: C.border, marginTop: 10, alignSelf: "stretch" }]}
+            >
+              <Text style={[styles.btnSecondaryText, { color: C.muted, textAlign: "center" }]}>Fermer</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -685,6 +885,10 @@ const styles = StyleSheet.create({
   rowText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
   rowTextDone: { textDecorationLine: "line-through" },
   input: { borderWidth: 1, borderRadius: 10, padding: 12, fontFamily: "DM_Sans_400Regular", fontSize: 14, marginTop: 12 },
+  groupAddRow: { padding: 6, paddingTop: 2 },
+  groupAddInput: { borderWidth: 1, borderRadius: 10, padding: 10, fontFamily: "DM_Sans_400Regular", fontSize: 13, marginTop: 6 },
+  groupAddBtn: { borderWidth: 1, borderRadius: 10, paddingVertical: 10, alignItems: "center", marginTop: 6 },
+  groupAddBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
   btnSecondary: { flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 12, alignItems: "center", marginTop: 8 },
   btnSecondaryText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
   btnPrimary: { flex: 1.3, borderRadius: 10, paddingVertical: 14, alignItems: "center", justifyContent: "center" },

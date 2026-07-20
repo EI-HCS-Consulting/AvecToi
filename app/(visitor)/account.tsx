@@ -953,6 +953,7 @@ export default function VisitorAccountScreen() {
           ownerPin={pin}
           C={C}
           hideImportBanner={role === "intervenant"}
+          intervenantTelephone={role === "intervenant" ? telephone : undefined}
         />
 
         <TouchableOpacity

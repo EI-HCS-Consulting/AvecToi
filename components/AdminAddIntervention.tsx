@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { toFrLong, toISO, isSlotFullyPast } from "@/lib/slotUtils";
 import { addToNativeCalendar, linkCalendarEvent } from "@/lib/calendarSync";
 import MiniCalendar from "@/components/MiniCalendar";
+import ConfirmModal from "@/components/ConfirmModal";
 import type { PatientSpace, SlotConfig, IntervenantProfile, InterventionType } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -51,6 +52,7 @@ function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, i
   const [loadingProfiles, setLoadingProfiles] = useState(false);
   const [loadingTypes, setLoadingTypes] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [dayBookedAlert, setDayBookedAlert] = useState(false);
 
   const [savedId, setSavedId] = useState<string | null>(null);
   const [rebookedCount, setRebookedCount] = useState(0);
@@ -141,10 +143,7 @@ function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, i
       } else if (error.message.includes("INTERVENTION_OVERLAP_SELF")) {
         Alert.alert("Chevauchement", "Cet intervenant a déjà une intervention prévue sur ce créneau.");
       } else if (error.message.includes("DAY_ALREADY_BOOKED")) {
-        Alert.alert(
-          "Un seul créneau par jour",
-          "Le mode \"1 visite par jour\" est activé : une visite ou une intervention est déjà prévue ce jour-là. Choisis un autre jour.",
-        );
+        setDayBookedAlert(true);
       } else {
         Alert.alert("Erreur lors de la réservation", error.message);
       }
@@ -179,6 +178,7 @@ function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, i
   }
 
   return (
+    <>
     <Modal visible={visible} transparent animationType="slide" onRequestClose={close}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => !saving && close()}>
@@ -407,6 +407,20 @@ function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, i
         </TouchableOpacity>
       </KeyboardAvoidingView>
     </Modal>
+
+    <ConfirmModal
+      visible={dayBookedAlert}
+      icon="📅"
+      title="Un seul créneau par jour"
+      message={"Le mode \"1 visite par jour\" est activé : une visite ou une intervention est déjà prévue ce jour-là. Choisis un autre jour."}
+      singleButton
+      destructive={false}
+      confirmLabel="J'ai compris"
+      onCancel={() => setDayBookedAlert(false)}
+      onConfirm={() => setDayBookedAlert(false)}
+      C={C}
+    />
+    </>
   );
 }
 

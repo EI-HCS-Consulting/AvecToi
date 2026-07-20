@@ -8,6 +8,7 @@ import { useSpace } from "@/lib/SpaceContext";
 import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
 import { getSlotOccupancy, toFrShort, nightStartSlot, isSlotPast } from "@/lib/slotUtils";
 import MiniCalendar from "@/components/MiniCalendar";
+import ConfirmModal from "@/components/ConfirmModal";
 import type { Reservation } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -37,6 +38,7 @@ function AdminEditReservation({ onSaved, onDelete, C }: Props, ref: React.Ref<Ad
   const [nom, setNom] = useState("");
   const [saving, setSaving] = useState(false);
   const [cascade, setCascade] = useState<Record<string, boolean>>({});
+  const [dayBookedAlert, setDayBookedAlert] = useState(false);
 
   useImperativeHandle(ref, () => ({
     open: (r) => {
@@ -91,16 +93,18 @@ function AdminEditReservation({ onSaved, onDelete, C }: Props, ref: React.Ref<Ad
       // count === 0 sans erreur = écriture silencieusement bloquée (ex. policy
       // RLS manquante en UPDATE) : le calendrier natif, lui, se met à jour
       // quand même car il ne dépend pas de la base — d'où le faux "succès".
-      Alert.alert(
-        "Erreur",
-        error?.message.includes("SLOT_FULL")
-          ? "Ce créneau est déjà complet. Choisis-en un autre."
-          : error?.message.includes("SLOT_BLOCKED_BY_INTERVENTION")
-          ? "Ce créneau est réservé à une intervention prioritaire. Choisis-en un autre."
-          : error?.message.includes("DAY_ALREADY_BOOKED")
-          ? "Le mode \"1 visite par jour\" est activé et une visite est déjà prévue ce jour-là. Choisis un autre jour."
-          : error ? "Erreur lors de la modification : " + error.message : "La modification n'a pas été enregistrée en base.",
-      );
+      if (error?.message.includes("DAY_ALREADY_BOOKED")) {
+        setDayBookedAlert(true);
+      } else {
+        Alert.alert(
+          "Erreur",
+          error?.message.includes("SLOT_FULL")
+            ? "Ce créneau est déjà complet. Choisis-en un autre."
+            : error?.message.includes("SLOT_BLOCKED_BY_INTERVENTION")
+            ? "Ce créneau est réservé à une intervention prioritaire. Choisis-en un autre."
+            : error ? "Erreur lors de la modification : " + error.message : "La modification n'a pas été enregistrée en base.",
+        );
+      }
       return;
     }
 
@@ -144,6 +148,7 @@ function AdminEditReservation({ onSaved, onDelete, C }: Props, ref: React.Ref<Ad
   }
 
   return (
+    <>
     <Modal visible={!!target} transparent animationType="slide" onRequestClose={() => setTarget(null)}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => !saving && setTarget(null)}>
@@ -263,6 +268,20 @@ function AdminEditReservation({ onSaved, onDelete, C }: Props, ref: React.Ref<Ad
         </TouchableOpacity>
       </KeyboardAvoidingView>
     </Modal>
+
+    <ConfirmModal
+      visible={dayBookedAlert}
+      icon="📅"
+      title="Un seul créneau par jour"
+      message={"Le mode \"1 visite par jour\" est activé et une visite est déjà prévue ce jour-là. Choisis un autre jour."}
+      singleButton
+      destructive={false}
+      confirmLabel="J'ai compris"
+      onCancel={() => setDayBookedAlert(false)}
+      onConfirm={() => setDayBookedAlert(false)}
+      C={C}
+    />
+    </>
   );
 }
 
