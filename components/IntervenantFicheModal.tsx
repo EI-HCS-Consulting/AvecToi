@@ -8,6 +8,7 @@ import * as ImageManipulator from "expo-image-manipulator";
 import { File, Paths } from "expo-file-system";
 import { supabase } from "@/lib/supabase";
 import PatientAvatar from "@/components/PatientAvatar";
+import { normalizePhone } from "@/lib/phone";
 import type { Theme } from "@/lib/themes";
 
 // updatedAt bust le cache CDN/<Image> — le fichier est uploadé sous un nom
@@ -93,6 +94,11 @@ export default function IntervenantFicheModal({
   // supprimé, ou rattachement jamais confirmé). Bloque la modale plutôt que
   // de laisser l'utilisateur "éditer" une fiche fantôme.
   const [orphaned, setOrphaned] = useState(false);
+  // true si ce téléphone (normalisé) est déjà utilisé par une fiche sur un
+  // autre espace — simple message de réassurance en mode create, ne
+  // préremplit rien (chaque espace garde sa propre fiche indépendante,
+  // voir "Mes espaces" dans app/(visitor)/account.tsx).
+  const [knownElsewhere, setKnownElsewhere] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
@@ -102,6 +108,7 @@ export default function IntervenantFicheModal({
     setLoadedNom(nom);
     setPickedPhotoUri(null);
     setOrphaned(false);
+    setKnownElsewhere(false);
     if (mode === "create") {
       setRows([{ label: "", duration_minutes: "" }]);
       setRemovedIds([]);
@@ -188,6 +195,24 @@ export default function IntervenantFicheModal({
     setPickedPhotoUri(persistedUri);
   }
 
+  // Détection légère "déjà connu ailleurs" — mode create uniquement, pour
+  // rassurer l'intervenant que son rattachement va fonctionner. Ne copie
+  // aucune donnée (photo/phrase totem/PIN restent propres à chaque espace).
+  async function checkKnownElsewhere() {
+    if (mode !== "create") return;
+    const normalized = normalizePhone(ficheTelephone);
+    if (normalized.length < 6) {
+      setKnownElsewhere(false);
+      return;
+    }
+    const { count } = await supabase
+      .from("intervenant_profiles")
+      .select("id", { count: "exact", head: true })
+      .eq("telephone", normalized)
+      .neq("space_id", spaceId);
+    setKnownElsewhere(!!count && count > 0);
+  }
+
   function updateRow(index: number, patch: Partial<TypeRow>) {
     setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
   }
@@ -207,7 +232,8 @@ export default function IntervenantFicheModal({
   const validRows = rows
     .map((r) => ({ label: r.label.trim(), duration_minutes: parseInt(r.duration_minutes, 10) }))
     .filter((r) => r.label.length > 0 && Number.isFinite(r.duration_minutes) && r.duration_minutes > 0);
-  const canSave = validRows.length > 0 && !!ficheePrenom.trim() && !!ficheNom.trim() && !saving;
+  const canSave = validRows.length > 0 && !!ficheePrenom.trim() && !!ficheNom.trim()
+    && (mode === "edit" || !!ficheTelephone.trim()) && !saving;
 
   async function handleSave() {
     if (!canSave) return;
@@ -215,7 +241,7 @@ export default function IntervenantFicheModal({
     try {
       const trimmedPrenom = ficheePrenom.trim();
       const trimmedNom = ficheNom.trim();
-      const trimmedTelephone = ficheTelephone.trim();
+      const trimmedTelephone = normalizePhone(ficheTelephone);
       const trimmedPhraseTotem = fichePhraseTotem.trim();
       let profileId = intervenantProfileId ?? null;
 
@@ -414,12 +440,18 @@ export default function IntervenantFicheModal({
 
                 <TextInput
                   style={[styles.input, styles.fullInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                  placeholder="Téléphone (optionnel)"
+                  placeholder={mode === "create" ? "Téléphone" : "Téléphone (optionnel)"}
                   placeholderTextColor={C.muted}
                   value={ficheTelephone}
                   onChangeText={setFicheTelephone}
+                  onBlur={checkKnownElsewhere}
                   keyboardType="phone-pad"
                 />
+                {knownElsewhere && (
+                  <Text style={[styles.subtitle, { color: C.accent, marginTop: -6, marginBottom: 14, textAlign: "left" }]}>
+                    🔗 Ce numéro est déjà lié à un autre espace — tu pourras y accéder depuis Mon compte.
+                  </Text>
+                )}
                 <TextInput
                   style={[styles.input, styles.fullInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
                   placeholder="Phrase totem (optionnel)"

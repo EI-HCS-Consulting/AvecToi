@@ -12,6 +12,7 @@ import { useVisitorSpace } from "@/lib/VisitorContext";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { supabase } from "@/lib/supabase";
 import { getVisitorSession, saveVisitorSession, clearVisitorSession } from "@/lib/visitorSession";
+import { normalizePhone } from "@/lib/phone";
 import PinPad from "@/components/PinPad";
 import PatientProfileModal from "@/components/PatientProfileModal";
 import IntervenantFicheModal from "@/components/IntervenantFicheModal";
@@ -53,6 +54,15 @@ function sanitize(str: string) {
     .replace(/[^a-zA-Z0-9]/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
+}
+
+interface LinkedIntervenantSpace {
+  id: string;
+  space_id: string;
+  prenom: string;
+  nom: string;
+  pin: string;
+  patient_spaces: { patient_firstname: string; patient_lastname: string; invite_token: string } | null;
 }
 
 const CAT_ICONS: Record<Task["category"], string> = {
@@ -102,6 +112,14 @@ export default function VisitorAccountScreen() {
   const [role, setRole] = useState<"visiteur" | "intervenant">("visiteur");
   const [intervenantProfileId, setIntervenantProfileId] = useState<string | null>(null);
   const [ficheModalVisible, setFicheModalVisible] = useState(false);
+
+  // "Mes espaces" — autres espaces patients liés au même téléphone (voir
+  // Handoff/plan "Rattachement multi-espaces des intervenants"). Chargé
+  // uniquement pour un intervenant dont le téléphone est connu ; n'affecte
+  // jamais les visiteurs ni les autres espaces (requête filtrée par le
+  // téléphone de CET appareil, pas un listing ouvert).
+  const [linkedSpaces, setLinkedSpaces] = useState<LinkedIntervenantSpace[]>([]);
+  const [switchingSpaceId, setSwitchingSpaceId] = useState<string | null>(null);
 
   // Changement de PIN — 3 phases dans une même modale, réutilisant le même
   // PinPad : (1) vérifier l'ancien PIN, (2) saisir le nouveau, (3) le
@@ -268,6 +286,40 @@ export default function VisitorAccountScreen() {
       setLoading(false);
     });
   }, [space, loadActivity]);
+
+  useEffect(() => {
+    const normalized = normalizePhone(telephone);
+    if (role !== "intervenant" || normalized.length < 6) {
+      setLinkedSpaces([]);
+      return;
+    }
+    supabase
+      .from("intervenant_profiles")
+      .select("id, space_id, prenom, nom, pin, patient_spaces(patient_firstname, patient_lastname, invite_token)")
+      .eq("telephone", normalized)
+      .then(({ data }) => setLinkedSpaces((data as any) ?? []));
+  }, [role, telephone]);
+
+  async function handleSwitchLinkedSpace(row: LinkedIntervenantSpace) {
+    if (!row.patient_spaces || switchingSpaceId) return;
+    setSwitchingSpaceId(row.id);
+    await saveVisitorSession({
+      token: row.patient_spaces.invite_token,
+      spaceId: row.space_id,
+      prenom: row.prenom,
+      nom: row.nom,
+      pin: row.pin,
+      role: "intervenant",
+      intervenantProfileId: row.id,
+      telephone,
+      motto: "",
+      localPhotoUri: null,
+    });
+    router.replace({
+      pathname: "/(visitor)/home/calendar",
+      params: { spaceId: row.space_id, token: row.patient_spaces.invite_token },
+    } as any);
+  }
 
   async function handlePickPhoto() {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -926,6 +978,36 @@ export default function VisitorAccountScreen() {
           >
             <Text style={styles.patientProfileBtnText}>🩺 Ma fiche intervenant</Text>
           </TouchableOpacity>
+        )}
+
+        {role === "intervenant" && linkedSpaces.length >= 2 && (
+          <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 10 }]}>
+            <Text style={[styles.contribHeaderText, { color: C.text, marginBottom: 2 }]}>🔗 Mes espaces</Text>
+            {linkedSpaces.map((row) => {
+              const isActive = row.space_id === space.id;
+              const label = row.patient_spaces
+                ? `${row.patient_spaces.patient_firstname} ${row.patient_spaces.patient_lastname}`.trim()
+                : "Espace";
+              return (
+                <TouchableOpacity
+                  key={row.id}
+                  style={styles.activityRow}
+                  disabled={isActive || switchingSpaceId === row.id}
+                  onPress={() => handleSwitchLinkedSpace(row)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]}>{label}</Text>
+                  {isActive ? (
+                    <Text style={[styles.activityRowSub, { color: C.accent }]}>Actif</Text>
+                  ) : switchingSpaceId === row.id ? (
+                    <ActivityIndicator color={C.accent} size="small" />
+                  ) : (
+                    <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         )}
 
         <TouchableOpacity style={styles.switchLink} onPress={handleSwitchSpace}>
