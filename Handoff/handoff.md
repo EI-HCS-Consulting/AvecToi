@@ -1,92 +1,71 @@
 # Handoff — AvecToi
-_Généré le : 2026-07-18_
+_Généré le : 2026-07-19_
 
 ## État global du projet
 
-**Stack :** React Native + Expo SDK 51+, Expo Router, Supabase (BDD/Auth/Storage/Realtime/Edge Functions), EAS Build + EAS Update (channels development/preview/production, `expo-updates` installé, build "development" avec client de dev connecté au Metro local — un reload suffit pour voir les changements JS sans passer par `eas update`). expo-notifications, expo-calendar, expo-image-picker. Resend (transactionnel) branché sur les Edge Functions. Stripe côté web uniquement (avectoi.care), app 100% "reader" conforme Play Store. Supabase CLI bloqué sur cette machine (App Control Policy Windows) : déploiement des migrations/Edge Functions exclusivement via le Dashboard Supabase (copier/coller le SQL).
+**Stack :** React Native + Expo SDK 51+, Expo Router, Supabase (BDD/Auth/Storage/Realtime/Edge Functions), EAS Build + EAS Update (channels development/preview/production, `expo-updates` installé). expo-notifications, expo-calendar, expo-image-picker. Resend (transactionnel) branché sur les Edge Functions. Stripe côté web uniquement (avectoi.care), app 100% "reader" conforme Play Store. Supabase CLI bloqué sur cette machine (App Control Policy Windows) : déploiement des migrations/Edge Functions exclusivement via le Dashboard Supabase (copier/coller le SQL).
 
-**Repo GitHub :** `https://github.com/EI-HCS-Consulting/AvecToi`, branche `main` protégée par ruleset (PR obligatoire). `main` local à jour avec `origin/main` (`a9432b4`).
+**⚠️ Règle permanente — EAS Update :** il n'existe aucune CI/CD qui publie automatiquement les mises à jour OTA. **Après chaque branche mergée sur `main` (qui contient du code app), je dois pousser manuellement `eas update --channel preview --message "<résumé>"`** (le flag `--non-interactive` déclenche un avertissement bénin "`use $CI=1 instead`" mais la commande se termine et publie correctement quand même — sans impact fonctionnel). Sans ce push, l'utilisateur ne reçoit pas la mise à jour côté app.
+
+**Repo GitHub :** `https://github.com/EI-HCS-Consulting/AvecToi`, branche `main` protégée par ruleset (PR obligatoire). `main` local à jour avec `origin/main` (`4c32ed1`).
 
 **Branches ouvertes sur `origin` :**
 - `main`
 - `docs/spec-web-upgrade` — non mergée, en attente depuis plusieurs sessions sur décision explicite de l'utilisateur (statut inchangé).
-- `docs/handoff-update-2026-07-18` — cette mise à jour du handoff, en attente de PR/merge.
-- 10 branches **déjà mergées** mais pas encore supprimées sur origin (nettoyage sur demande explicite seulement, comme convenu) : `fix/popups-design`, `docs/handoff-update`, `docs/handoff-update-2026-07-16`, `docs/handoff-update-2026-07-17`, `feat/admin-chronologie`, `fix/chrono-scroll-gesture`, `fix/chrono-scroll-overlay-sibling`, `feat/entraide-checklists-administratives`, `feat/entraide-delete-checklist-batch`, `feat/intervenants-planning`, `fix/rebooking-alert-pin-collision`, `feature/one-visit-per-day`.
+- Branches **déjà mergées** mais pas encore supprimées sur origin (nettoyage sur demande explicite seulement, comme convenu) : `fix/popups-design`, `docs/handoff-update`, `docs/handoff-update-2026-07-16`, `docs/handoff-update-2026-07-17`, `docs/handoff-update-2026-07-18`, `feat/admin-chronologie`, `fix/chrono-scroll-gesture`, `fix/chrono-scroll-overlay-sibling`, `feat/entraide-checklists-administratives`, `feat/entraide-delete-checklist-batch`, `feat/intervenants-planning`, `fix/rebooking-alert-pin-collision`, `feature/one-visit-per-day`, `fix/intervention-types-error-handling`, `feature/intervenant-contact-fields`, `feature/intervenant-contact-sync`.
 
-**Livré (V1, CLAUDE.md points 1-10) :** setup Expo/Supabase/Git, Auth admin, accès visiteur, calendrier + créneaux + réservation + PIN, galerie Souvenirs, Nouvelles du jour, Entraide + Mur de soutien (+ checklists administratives suggérées par contexte), 6 thèmes + mode Dark/Light par compte, "Prochaine disponibilité", ajout calendrier natif Android, RLS, accompagnants, parité admin/visiteur "Mon compte", autofill Google Maps, onboarding séquencé + partage freemium débloqué, cap freemium à granularité fine, Paramètres en 4 sections avec historique, granularité minute horaires, emails réservation/annulation (Resend), fiche patient + profils visiteurs, Dark/Light aligné visuellement, Entraide filtres + fermeture auto des besoins, secteur hospitalier synchronisé/exclu de l'adresse, bloc "Visiteurs" dans Paramètres (photos + identités), Chronologie (frise historique en popup, Paramètres > Historique), Planning des intervenants, **mode "1 visite par jour" (nouveau, cette session)** — voir détail ci-dessous.
+**Livré (V1, CLAUDE.md points 1-10) :** setup Expo/Supabase/Git, Auth admin, accès visiteur, calendrier + créneaux + réservation + PIN, galerie Souvenirs, Nouvelles du jour, Entraide + Mur de soutien (+ checklists administratives), 6 thèmes + mode Dark/Light, "Prochaine disponibilité", ajout calendrier natif Android, RLS, accompagnants, parité admin/visiteur "Mon compte", onboarding séquencé, cap freemium, Paramètres 4 sections + historique, emails réservation/annulation (Resend), fiche patient + profils visiteurs, Chronologie, Planning des intervenants, mode "1 visite par jour" (suspension rétroactive des doublons), **début de la Refonte du compte Intervenant — Phase A + unification contact/photo (nouveau, cette session)** — voir détail ci-dessous.
 
-**Mode "1 visite par jour" — livré, PR #45 mergée (pas encore testé manuellement par l'utilisateur) :**
-- Nouveau bloc admin dans Règles de visite, entre "Intervalle entre deux créneaux" et "Visiteurs max par créneau" : un interrupteur unique, **application instantanée** (comme Nuitées/Intervenants — corrigé en cours de session, voir section 4).
-- Une fois activé : dès qu'un créneau "Visite" est réservé un jour donné, les autres créneaux de ce jour disparaissent de l'onglet Créneaux pour tout le monde (visiteur ET intervenant). L'auteur de la réservation garde la main : le sélecteur interne à "Modifier" (`BookingFlow`) reste inchangé, tous les créneaux du jour restent choisissables pour déplacer sa propre réservation.
-- N'affecte ni les Nuitées ni les Interventions (jamais soumises à `check_slot_capacity`).
-- Enforcement serveur (pas seulement client) : nouvelle exception `DAY_ALREADY_BOOKED` dans `check_slot_capacity()`, cohort (`group_id`) exclu du contrôle pour ne jamais bloquer sa propre modification ni les accompagnants d'une même réservation.
-- **Activation rétroactive non destructive** : à l'activation (`false→true`), `apply_slot_rule_change()` balaie les réservations "Visite" futures et, pour chaque jour ayant déjà plusieurs réservations, garde active la première enregistrée (`created_at` le plus ancien) et **suspend** les autres (`alert_type = 'day_cap_suspended'`, nouveau — sans jamais déplacer ni supprimer). Le visiteur concerné voit le popup d'alerte habituel (`RebookingAlertModal`) et choisit un autre jour via "Modifier".
-- 2 migrations appliquées manuellement via le Dashboard : `20260718_one_visit_per_day.sql` (colonne + trigger + toggle) puis `20260719_one_visit_per_day_activation.sql` (correctif : toggle instantané, contrainte `alert_type`/`change_type` élargie à `day_cap_suspended`, suspension rétroactive).
+**Refonte du compte Intervenant — Phase A (PR #56) puis unification contact/photo (PR #57), les deux mergées et validées par l'utilisateur en conditions réelles :**
+- Colonnes `telephone` et `phrase_totem` (optionnelles) ajoutées à `intervenant_profiles`, exposées dans « 🩺 Fiche intervenant » (create + edit).
+- `intervenant_profiles` devient la **source unique de vérité** pour photo, téléphone et phrase totem d'un intervenant : un champ Téléphone est apparu dans « Mes informations » (Mon compte), et modifier la photo/phrase totem/téléphone depuis « Mon compte » ou depuis « Ma fiche intervenant » met à jour l'autre écran instantanément. Comportement visiteur (`visitor_profiles`) strictement inchangé.
+- `Documentation/Documentation Fonctionnalités.docx` mis à jour en conséquence (sections 7.1 et 7.3).
+- C'est la Phase A d'un plan en 4 phases (`C:\Users\ReMarkt\.claude\plans\warm-stargazing-penguin.md`) : B = restructuration navigation compte intervenant, C = tchat privé admin↔intervenant, D = changement de patient par code dossier — une phase à la fois, chacune sa propre branche/PR testée avant la suivante.
 
 **En cours / pas commencé :**
-- Points 11-12 (notifications push rappel, RGPD purge auto J-7) : livrés lors de sessions antérieures, pas re-testés récemment.
+- **Phase B du plan Intervenant (prochaine étape)** — cacher tabs Souvenirs/Entraide pour l'intervenant, scinder `account.tsx` en `VisitorAccountView`/`IntervenantAccountView`.
 - Points 13-14 (EAS Build APK signé, fiche Play Store) : pas commencés.
-- Branche `docs/spec-web-upgrade` : toujours en attente.
-- Checklists administratives (Entraide) : toujours pas testées manuellement dans l'app.
-- Bug connu, pas corrigé : les flèches de navigation jour du calendrier visiteur (`app/(visitor)/home/slots.tsx`) contournent la vérification `allowed_weekdays`.
-- Planning des intervenants : flux de réservation simple confirmé fonctionnel. **Toujours pas testés manuellement** : recasage automatique des visiteurs chevauchants, ajout/édition/suppression admin, synchro calendrier natif pour une intervention, lien intervention → créneau.
-- **Mode "1 visite par jour" (nouveau) : pas encore testé manuellement** — voir plan de test ci-dessous (section 5).
-- Isolation Supabase (séparer l'instance prod partagée avec le site web) : plan complet dans `ISOLATION_SUPABASE.md`, mise en œuvre différée sur décision de l'utilisateur.
-- 10 branches mergées à nettoyer sur origin (voir ci-dessus, sur demande explicite).
+- Bug connu, pas corrigé : les flèches de navigation jour du calendrier visiteur (`app/(visitor)/home/slots.tsx`) contournent `allowed_weekdays`.
+- Planning des intervenants : flux simple confirmé fonctionnel, mais recasage auto détaillé / admin CRUD / synchro calendrier natif toujours pas retestés depuis leur livraison.
+- Isolation Supabase (séparer l'instance prod partagée avec le site web) : plan complet dans `ISOLATION_SUPABASE.md`, différée sur décision de l'utilisateur.
+- Branches mergées à nettoyer sur origin (liste ci-dessus, sur demande explicite).
+- `docs/spec-web-upgrade` : toujours en attente d'une décision.
 
 ## Historique cumulé
-- Lots 1-10 (fonctionnalités de base) + sessions du 2026-07-04 au 07-16 (`dossier_code`, cap freemium, PIN visiteur sécurisé, refonte Paramètres 4 sections, historique + recasage auto + alertes, Resend de bout en bout, fiche patient + profils visiteurs, Dark/Light, fusion réservations groupées, popups harmonisées, Chronologie, checklists administratives Entraide) — voir handoffs archivés pour le détail (PR #7-#40, mergées).
-- 2026-07-17 : Planning des intervenants — rôle intervenant complet (fiches, types d'intervention, réservation prioritaire sur les visites avec recasage auto), écran admin dédié, bloc résumé dans Historique, lien direct vers le calendrier des créneaux (PR #41, mergée). Correctif en test réel d'une contrainte CHECK préexistante bloquant les inserts `'Intervention'`.
-- 2026-07-18 (cette session) : correctif alerte de recasage matchée par prénom+nom+PIN (PR #44), puis mode "1 visite par jour" — voir détail ci-dessous.
+- Lots 1-10 (fonctionnalités de base) + sessions du 2026-07-04 au 07-17 (`dossier_code`, cap freemium, PIN visiteur sécurisé, Paramètres 4 sections, historique + recasage auto, Resend, fiche patient, Dark/Light, Chronologie, checklists administratives, Planning des intervenants) — voir handoffs archivés pour le détail (PR #7-#41, mergées).
+- 2026-07-18 : correctif alerte de recasage matchée par prénom+nom+PIN (PR #44), puis mode "1 visite par jour" — toggle à application instantanée, suspension rétroactive automatique des réservations en doublon sur un même jour (PR #45), migrations `20260718_one_visit_per_day.sql` + `20260719_one_visit_per_day_activation.sql`. Non testé manuellement en fin de session.
+- 2026-07-19 (cette session) : démarrage de la Refonte du compte Intervenant — Phase A (téléphone + phrase totem, PR #56) puis unification photo/téléphone/phrase totem entre Mon compte et la fiche intervenant (PR #57) — voir détail ci-dessous.
 
 ## 1. Objectif de la session
-Ajouter dans Règles de visite un mode "1 visite par jour" : une fois activé, un seul créneau "Visite" réservé par jour ; les autres créneaux du jour disparaissent de l'onglet Créneaux pour tout le monde sauf pour l'auteur de la réservation (qui garde la main pour la déplacer). Puis, suite à retour utilisateur après premier test : corriger l'activation qui ne bloquait pas réellement les autres créneaux, préciser que l'activation prend effet à partir du jour de l'activation sans écraser l'existant, et suspendre automatiquement (sans supprimer) les réservations en doublon sur un même jour déjà pris avant l'activation, en ne gardant active que la première enregistrée.
-État "done" : atteint côté implémentation — PR #45 mergée dans `main`, migrations SQL appliquées par l'utilisateur via le Dashboard. **Pas encore validé en test réel** par l'utilisateur (prochaine étape).
+Démarrer la "Refonte du compte Intervenant" (plan `warm-stargazing-penguin.md`) phase par phase, en commençant par la Phase A (téléphone + phrase totem sur `intervenant_profiles`). En cours de test réel, l'utilisateur a signalé un problème de fond : les informations de contact (téléphone, phrase totem, photo) n'étaient pas synchronisées entre "Mon compte" et "Ma fiche intervenant" — modifier l'une ne modifiait pas l'autre. Objectif étendu en cours de session pour corriger ça.
+État "done" : les deux PR (#56, #57) sont mergées, testées et validées par l'utilisateur ("ok ça fonctionne"), les deux EAS Update correspondants sont poussés sur `preview`, et ce handoff + la documentation fonctionnelle sont à jour.
 
 ## 2. État actuel
-
 **Fait cette session :**
-- Fix `RebookingAlertModal` : matching par prénom+nom+PIN (au lieu du seul PIN) pour éviter qu'une alerte d'un ancien test resurgisse sous une identité différente partageant le même PIN dans le même espace. Fix connexe : champs prénom/nom manquants dans `IntervenantFicheModal`. PR #44 mergée.
-- Implémentation initiale du mode "1 visite par jour" : migration `20260718_one_visit_per_day.sql` (colonne `slot_config.one_visit_per_day`, exception `DAY_ALREADY_BOOKED` dans `check_slot_capacity()`), toggle admin dans Règles de visite, filtrage des créneaux visiteur (`app/(visitor)/home/slots.tsx`), messages d'erreur dans `BookingFlow`/`AdminAddReservation`/`AdminEditReservation`. PR #45 ouverte.
-- **Retour utilisateur après application de la migration** : le mode ne bloquait pas réellement les autres créneaux du jour. Cause identifiée : le toggle était rattaché au bouton "Enregistrer" global du bloc Règles de visite (`handleSaveSlotRules`) plutôt qu'appliqué immédiatement — contrairement aux toggles Nuitées/Intervenants juste en dessous, qui s'appliquent au clic.
-- Correctif complet, migration `20260719_one_visit_per_day_activation.sql` :
-  - Toggle converti en application instantanée (`handleToggleOneVisitPerDay`, même pattern que `handleToggleNight`/`handleToggleIntervenants`), retiré de `handleSaveSlotRules`.
-  - Description du bouton mise à jour pour préciser que l'activation prend effet immédiatement à partir d'aujourd'hui, sans effacer les réservations déjà passées.
-  - Nouveau `alert_type`/`change_type` `'day_cap_suspended'` (contraintes CHECK élargies sur `reservations` et `reservation_change_history`).
-  - `apply_slot_rule_change()` : à l'activation (`false→true`), suspend automatiquement (sans déplacer/supprimer) toutes les réservations "Visite" futures en doublon sur un même jour sauf la première enregistrée (`created_at` le plus ancien par cohort `group_id`) ; nouveau champ `day_cap_suspended` dans le JSON de retour, surfacé dans `rebookingSummary()`.
-  - `check_slot_capacity()` : exclut les réservations déjà `day_cap_suspended` du contrôle `DAY_ALREADY_BOOKED` (sinon elles resteraient bloquantes indéfiniment).
-  - `app/(visitor)/home/slots.tsx` : `dayVisitBooking` exclut désormais les réservations `day_cap_suspended`.
-  - `lib/types.ts` : `Reservation.alert_type` inclut `"day_cap_suspended"`.
-- `npx tsc --noEmit` : aucune nouvelle erreur après chaque étape (erreurs restantes pré-existantes, Edge Functions Deno et `lib/notifications.ts`, sans rapport).
-- Commit + push sur `feature/one-visit-per-day`, PR #45 mergée par l'utilisateur dans `main`. Les deux migrations (`20260718`, `20260719`) ont été appliquées manuellement par l'utilisateur via le Dashboard Supabase.
+- Migration `supabase/migrations/20260719_intervenant_profiles_contact.sql` (colonnes `telephone`/`phrase_totem` sur `intervenant_profiles`) appliquée manuellement via le Dashboard Supabase.
+- `components/IntervenantFicheModal.tsx` : formulaire étendu avec téléphone + phrase totem (create + edit) ; `onSaved` renvoie désormais 7 valeurs (`profileId, prenom, nom, telephone, phraseTotem, photo, photoUpdatedAt`) au lieu de 3, pour que les appelants mettent à jour leur état local sans refetch. Vérifié compatible avec les 3 sites d'appel existants (`npx tsc --noEmit` sans nouvelle erreur).
+- `lib/visitorSession.ts` : ajout du champ `telephone` à `VisitorSession`, même pattern optionnel-avec-fallback que `motto`.
+- `app/(visitor)/account.tsx` : champ Téléphone ajouté dans "Mes informations" (intervenant uniquement) ; `intervenant_profiles` devient la source de lecture/écriture pour photo/téléphone/phrase totem quand `role === "intervenant"` (nouvelles fonctions `syncIntervenantPhoto`, `syncIntervenantContact`, helper `intervenantPhotoUrl`) ; `visitor_profiles` reste inchangé pour les visiteurs.
+- PR #56 (Phase A) et PR #57 (unification contact/photo) mergées sur `main` ; l'utilisateur a confirmé le bon fonctionnement en conditions réelles pour les deux.
+- Deux pushes `eas update --channel preview` effectués (un après chaque merge), publiés avec succès.
+- `Documentation/Documentation Fonctionnalités.docx` mis à jour : section 7.1 (téléphone/phrase totem optionnels sur la fiche) et section 7.3 (champ Téléphone dans "Mes informations", synchronisation photo/téléphone/phrase totem avec la fiche intervenant) — édité via un script `python-docx` (modifié sur disque, pas encore committé).
 
-**Dernière action avant ce handoff :** `main` local resynchronisé avec `origin/main` (`a9432b4`) après le merge de la PR #45 ; branche `docs/handoff-update-2026-07-18` créée pour ce handoff.
+**Dernière action avant ce handoff :** édition du `.docx` de documentation fonctionnelle via `python-docx` (disponible sur cette machine à `/c/Python314/python` — noter ce chemin exact pour les prochaines éditions ; `pandoc` n'est pas installé et l'alias `python`/`python3` seul ne fonctionne pas dans Bash sur cette machine).
 
 ## 3. Fichiers concernés
-- `app/(admin)/settings.tsx` → bloc "Choisir 1 visite par jour" (Règles de visite) : toggle instantané `handleToggleOneVisitPerDay`, `RuleChangeResult.day_cap_suspended`, `rebookingSummary()`.
-- `app/(visitor)/home/slots.tsx` → filtrage des créneaux affichés selon `dayVisitBooking` (exclut les réservations suspendues).
-- `components/BookingFlow.tsx`, `components/AdminAddReservation.tsx`, `components/AdminEditReservation.tsx` → message d'erreur `DAY_ALREADY_BOOKED`.
-- `lib/types.ts` → `SlotConfig.one_visit_per_day`, `SlotConfigHistoryEntry.one_visit_per_day`, `Reservation.alert_type` (+`day_cap_suspended`).
-- `supabase/migrations/20260718_one_visit_per_day.sql` → colonne + trigger + RPC (version initiale).
-- `supabase/migrations/20260719_one_visit_per_day_activation.sql` → correctif : contraintes CHECK élargies, exclusion des lignes suspendues dans `check_slot_capacity()`, suspension rétroactive dans `apply_slot_rule_change()`.
-- `components/RebookingAlertModal.tsx`, `components/IntervenantFicheModal.tsx`, `app/(visitor)/_layout.tsx`, `app/(visitor)/account.tsx` → PR #44 (matching prénom+nom+PIN, champs manquants).
+- `supabase/migrations/20260719_intervenant_profiles_contact.sql` → migration téléphone/phrase_totem sur `intervenant_profiles`.
+- `lib/types.ts` → `IntervenantProfile.telephone`/`phrase_totem` ajoutés.
+- `components/IntervenantFicheModal.tsx` → formulaire fiche intervenant, callback `onSaved` étendu à 7 paramètres.
+- `lib/visitorSession.ts` → champ `telephone` ajouté à `VisitorSession`.
+- `app/(visitor)/account.tsx` → champ Téléphone dans "Mes informations", logique de synchronisation photo/téléphone/phrase totem côté intervenant (`intervenant_profiles` comme source unique).
+- `app/(admin)/intervenants.tsx`, `app/(visitor)/_layout.tsx` → sites d'appel de `IntervenantFicheModal` vérifiés compatibles (non modifiés).
+- `Documentation/Documentation Fonctionnalités.docx` → sections 7.1 et 7.3 mises à jour (téléphone/phrase totem sur la fiche, synchronisation avec Mon compte).
 
 ## 4. Ce qui a échoué
-- Premier design du toggle "1 visite par jour" : intégré au bouton "Enregistrer" global de Règles de visite (comme les horaires/jours/dates bloquées), au lieu d'une application instantanée. Résultat en test réel : l'admin pouvait activer visuellement le mode sans qu'il soit réellement persisté en base tant que "Enregistrer" n'était pas cliqué séparément — l'utilisateur a signalé que d'autres créneaux restaient réservables malgré l'activation apparente. **Leçon pour la suite** : tout toggle binaire à effet serveur immédiat attendu par l'utilisateur (comme Nuitées/Intervenants) doit s'appliquer au clic, pas être bundlé dans un formulaire à sauvegarde différée — même si ça duplique légèrement le pattern `applyRuleChange`.
-- Décision initiale (documentée dans le commentaire de `20260718_one_visit_per_day.sql`) de ne pas faire de recasage rétroactif à l'activation : explicitement annulée par l'utilisateur, qui voulait au contraire une suspension automatique des doublons existants. Ne pas supposer qu'un changement de règle n'affecte que le futur sans le confirmer avec l'utilisateur.
+- Rien n'a échoué de manière bloquante cette session. Seule difficulté mineure : le `Read` tool ne peut pas ouvrir le `.docx` binaire directement (attendu) ; `pandoc` n'est pas installé sur cette machine, mais `python-docx` l'est via `/c/Python314/python` — chemin de contournement à réutiliser directement pour les prochaines mises à jour de la documentation fonctionnelle plutôt que de re-tester `pandoc` à chaque fois.
 
 ## 5. Prochaine étape
-1. **Tester manuellement le mode "1 visite par jour"** (rien testé en conditions réelles depuis le correctif) :
-   - Activer le mode : vérifier que le toggle s'applique immédiatement (pas besoin de cliquer "Enregistrer"), et que le message de suspension rétroactive s'affiche si des doublons existaient déjà ce jour-là.
-   - Réserver un créneau côté visiteur : vérifier que les autres créneaux du même jour disparaissent (pour un autre appareil/visiteur aussi).
-   - "Modifier" la réservation : vérifier que tous les créneaux du jour redeviennent choisissables dans la modale.
-   - Réserver avec un accompagnant (même créneau) : vérifier que ça passe sans `DAY_ALREADY_BOOKED`.
-   - Vérifier qu'une Nuitée ou une Intervention le même jour n'est pas bloquée.
-   - Cas suspension rétroactive : créer artificiellement 2 réservations "Visite" le même jour (mode désactivé), puis activer le mode — vérifier que la première reste active, que la seconde est suspendue avec le popup d'alerte, et que son auteur peut la déplacer vers un autre jour.
-   - Désactiver le mode : vérifier que tous les créneaux redeviennent visibles.
-2. Tester manuellement le reste du Planning des intervenants (recasage auto, admin CRUD, synchro calendrier, lien intervention → créneau) — reporté depuis la session précédente.
-3. Tester manuellement les checklists administratives (Entraide) — reporté depuis plusieurs sessions.
-4. Nettoyer sur origin les 10 branches déjà mergées listées plus haut — sur demande explicite seulement.
-5. Décider du sort de `docs/spec-web-upgrade`.
-6. Corriger le bug connu des flèches de navigation jour dans le calendrier visiteur (`slots.tsx`, contournement de `allowed_weekdays`).
-7. Revalider les points 11-12 (notifications push, purge RGPD) ; reprendre la roadmap points 13-14 (EAS Build → APK signé, fiche Play Store).
+1. Committer `Documentation/Documentation Fonctionnalités.docx` (actuellement modifié mais pas committé) avec ce handoff — branche `docs/handoff-update-2026-07-19`, PR, merge.
+2. La règle EAS Update ne s'applique pas nécessairement à ce merge purement documentaire, mais reste active pour tout futur merge contenant du code app (voir "État global du projet" ci-dessus).
+3. Démarrer la **Phase B** du plan `warm-stargazing-penguin.md` : restructuration de la navigation du compte intervenant (cacher tabs Souvenirs/Entraide, scinder `account.tsx` en vues Visiteur/Intervenant dédiées) — nouvelle branche dédiée, une seule phase à la fois comme convenu.
+4. Items reportés, à reprendre sur demande de l'utilisateur : bug flèches jour `slots.tsx`, isolation Supabase dev/prod, nettoyage des branches mergées, décision sur `docs/spec-web-upgrade`, retest complet du Planning des intervenants (recasage auto, admin CRUD, synchro calendrier natif) et du mode "1 visite par jour" (jamais confirmé testé manuellement par l'utilisateur malgré la mention "ça fonctionne" de cette session, qui concernait le volet contact/photo, pas ce mode-là).
