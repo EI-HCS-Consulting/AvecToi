@@ -27,8 +27,8 @@ interface Props {
   slots?: string[];
   reservations?: Reservation[];
   // Jours à signaler d'un point de couleur, indépendamment de showDots/
-  // getDayStatus (qui ne couvre que l'occupation des visites) — utilisé par
-  // PlanningCalendarModal pour repérer les jours avec un soin planifié.
+  // getDayStatus (qui ne couvre que l'occupation des visites) — utilisé côté
+  // admin pour repérer les jours avec un soin planifié.
   markedDates?: Set<string>;
 }
 
@@ -114,17 +114,25 @@ export default function MiniCalendar({
                 styles.miniCell,
                 large && styles.miniCellLg,
                 cellSize ? { width: cellSize, height: cellSize } : null,
-                {
-                  backgroundColor: isSelected ? C.accent : isPast ? "transparent" : useStatusBg ? statusBg : C.bg,
-                  borderColor: isSelected ? C.accent : C.border,
-                  borderWidth: 1,
-                  opacity: isPast ? 0.3 : 1,
-                },
+                { opacity: isPast ? 0.3 : 1 },
               ]}
               onPress={() => !isPast && onSelect(iso)}
               disabled={isPast}
               activeOpacity={0.7}
             >
+              {/* Bordure sur un calque séparé (pas sur la case dimensionnée) : un
+                  borderWidth direct agrandit la case de 2px en RN, ce qui décalait
+                  la grille d'une colonne à chaque ligne (7e case renvoyée à la ligne). */}
+              <View
+                style={[
+                  StyleSheet.absoluteFillObject,
+                  large ? styles.miniCellBgLg : styles.miniCellBg,
+                  {
+                    backgroundColor: isSelected ? C.accent : isPast ? "transparent" : useStatusBg ? statusBg : C.bg,
+                    borderColor: isSelected ? C.accent : C.border,
+                  },
+                ]}
+              />
               <View style={styles.miniCellInner}>
                 <Text style={[styles.miniCellText, large && styles.miniCellTextLg, { color: isSelected || useStatusBg ? "#fff" : C.text }]}>{day.getDate()}</Text>
                 {markedDates?.has(iso) && !isPast && (
@@ -168,6 +176,8 @@ const styles = StyleSheet.create({
   miniCell: { width: "13.28%", aspectRatio: 1, borderRadius: 6, alignItems: "center", justifyContent: "center" },
   miniCellLg: { width: "13%", aspectRatio: 1, borderRadius: 10 },
   miniCellInner: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" },
+  miniCellBg: { borderRadius: 6, borderWidth: 1 },
+  miniCellBgLg: { borderRadius: 10, borderWidth: 1 },
   // includeFontPadding false : Android ajoute par défaut un espace vertical
   // asymétrique autour du glyphe (ascent/descent) qui décale le chiffre.
   miniCellText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, includeFontPadding: false },

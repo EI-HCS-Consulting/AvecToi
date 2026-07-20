@@ -4,33 +4,41 @@ import {
   ActivityIndicator, KeyboardAvoidingView, Platform, Alert,
 } from "react-native";
 import { supabase } from "@/lib/supabase";
-import { toFrLong } from "@/lib/slotUtils";
+import { toFrLong, toISO, isSlotFullyPast } from "@/lib/slotUtils";
 import { addToNativeCalendar, linkCalendarEvent } from "@/lib/calendarSync";
+import MiniCalendar from "@/components/MiniCalendar";
 import type { PatientSpace, SlotConfig, IntervenantProfile, InterventionType } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
 // Modale "ajouter une intervention" côté admin — parallèle à
 // AdminAddReservation.tsx (non modifié, celui-ci reste hardcodé
-// "Visite"|"Nuit") : choix de l'intervenant → choix de son type
-// d'intervention → confirmation → même RPC book_intervention que côté
-// intervenant (voir InterventionBookingFlow.tsx), avec p_pin='ADMIN' —
-// ainsi les visites en conflit sont recasées exactement de la même façon,
-// que la réservation vienne de l'intervenant ou de l'admin en son nom.
+// "Visite"|"Nuit") : jour → horaire → intervenant → type d'intervention,
+// un seul popup en 4 étapes progressives, puis même RPC book_intervention
+// que côté intervenant (voir InterventionBookingFlow.tsx), avec
+// p_pin='ADMIN' — ainsi les visites en conflit sont recasées exactement de
+// la même façon, que la réservation vienne de l'intervenant ou de l'admin
+// en son nom.
 
 export interface AdminAddInterventionHandle {
-  open: (iso: string, slot: string) => void;
+  open: (initialIso?: string) => void;
 }
 
 interface Props {
   space: PatientSpace;
   slotConfig: SlotConfig;
-  slots: string[];
+  getSlotsForDate: (iso: string) => string[];
+  startDate: Date;
+  interventionDates: Set<string>;
   onAdded: () => void;
   C: Theme;
 }
 
-function AdminAddIntervention({ space, slotConfig, slots, onAdded, C }: Props, ref: React.Ref<AdminAddInterventionHandle>) {
-  const [target, setTarget] = useState<{ iso: string; slot: string } | null>(null);
+function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, interventionDates, onAdded, C }: Props, ref: React.Ref<AdminAddInterventionHandle>) {
+  const [visible, setVisible] = useState(false);
+  const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
+  const [selectedIso, setSelectedIso] = useState<string | null>(null);
+  const [selectedSlot, setSelectedSlot] = useState<string | null>(null);
+
   const [profiles, setProfiles] = useState<IntervenantProfile[]>([]);
   const [types, setTypes] = useState<InterventionType[]>([]);
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
@@ -46,8 +54,12 @@ function AdminAddIntervention({ space, slotConfig, slots, onAdded, C }: Props, r
   const [calendarAdded, setCalendarAdded] = useState(false);
 
   useImperativeHandle(ref, () => ({
-    open: (iso, slot) => {
-      setTarget({ iso, slot });
+    open: (initialIso) => {
+      const iso = initialIso ?? toISO(new Date());
+      const d = new Date(iso + "T00:00:00");
+      setSelectedIso(iso);
+      setCalMonth({ year: d.getFullYear(), month: d.getMonth() });
+      setSelectedSlot(null);
       setSelectedProfileId(null);
       setSelectedTypeId(null);
       setTypes([]);
@@ -63,6 +75,7 @@ function AdminAddIntervention({ space, slotConfig, slots, onAdded, C }: Props, r
           setProfiles(data || []);
           setLoadingProfiles(false);
         });
+      setVisible(true);
     },
   }));
 
@@ -81,21 +94,30 @@ function AdminAddIntervention({ space, slotConfig, slots, onAdded, C }: Props, r
       });
   }, [selectedProfileId]);
 
+  const allSlotsForDay = selectedIso ? getSlotsForDate(selectedIso) : [];
+  const futureSlotsForDay = selectedIso ? allSlotsForDay.filter((s) => !isSlotFullyPast(selectedIso, s)) : [];
   const selectedProfile = profiles.find((p) => p.id === selectedProfileId) ?? null;
   const selectedType = types.find((t) => t.id === selectedTypeId) ?? null;
 
+  function selectDay(iso: string) {
+    setSelectedIso(iso);
+    setSelectedSlot(null);
+    setSelectedProfileId(null);
+    setSelectedTypeId(null);
+  }
+
   async function handleBook() {
-    if (!target || !selectedProfile || !selectedType) return;
+    if (!selectedIso || !selectedSlot || !selectedProfile || !selectedType) return;
     setSaving(true);
 
     const { data, error } = await supabase.rpc("book_intervention", {
       p_space_id: space.id,
       p_intervenant_profile_id: selectedProfile.id,
       p_intervention_type_id: selectedType.id,
-      p_date: target.iso,
-      p_start_slot: target.slot,
+      p_date: selectedIso,
+      p_start_slot: selectedSlot,
       p_pin: "ADMIN",
-      p_slots: slots,
+      p_slots: allSlotsForDay,
     });
 
     setSaving(false);
@@ -118,10 +140,10 @@ function AdminAddIntervention({ space, slotConfig, slots, onAdded, C }: Props, r
   }
 
   async function handleAddToCalendar() {
-    if (!target || !savedId || !selectedType) return;
+    if (!selectedIso || !selectedSlot || !savedId || !selectedType) return;
     setAddingToCalendar(true);
     const result = await addToNativeCalendar(
-      space, slotConfig, target.iso, target.slot, "Intervention", null,
+      space, slotConfig, selectedIso, selectedSlot, "Intervention", null,
       undefined, selectedType.label, selectedType.duration_minutes,
     );
     setAddingToCalendar(false);
@@ -134,22 +156,22 @@ function AdminAddIntervention({ space, slotConfig, slots, onAdded, C }: Props, r
   }
 
   function close() {
-    setTarget(null);
+    setVisible(false);
     setSavedId(null);
   }
 
   return (
-    <Modal visible={!!target} transparent animationType="slide" onRequestClose={close}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={close}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => !saving && close()}>
-          <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
+          <ScrollView style={{ width: "100%" }} contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
             <TouchableOpacity activeOpacity={1}>
               <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.orange }]}>
                 {savedId ? (
                   <>
                     <Text style={[styles.sheetTitle, { color: C.success }]}>Intervention ajoutée ✓</Text>
                     <Text style={[styles.sheetSub, { color: C.muted }]}>
-                      {selectedType?.label} · {target && toFrLong(new Date(target.iso + "T12:00:00"))} · {target?.slot}
+                      {selectedType?.label} · {selectedIso && toFrLong(new Date(selectedIso + "T12:00:00"))} · {selectedSlot}
                     </Text>
 
                     {!!rebookedCount && (
@@ -191,80 +213,125 @@ function AdminAddIntervention({ space, slotConfig, slots, onAdded, C }: Props, r
                 ) : (
                   <>
                     <Text style={[styles.sheetTitle, { color: C.text }]}>🩺 Ajouter une intervention</Text>
-                    <Text style={[styles.sheetSub, { color: C.muted }]}>
-                      {target && toFrLong(new Date(target.iso + "T12:00:00"))} · {target?.slot}
-                    </Text>
 
-                    {loadingProfiles ? (
-                      <ActivityIndicator color={C.orange} style={{ marginVertical: 16 }} />
-                    ) : profiles.length === 0 ? (
-                      <Text style={[styles.sheetSub, { color: C.muted }]}>
-                        Aucun intervenant n'a encore créé de fiche pour cet espace.
-                      </Text>
-                    ) : (
-                      <>
-                        <Text style={[styles.fieldLabel, { color: C.gold }]}>Intervenant</Text>
-                        <View style={styles.optionGrid}>
-                          {profiles.map((p) => {
-                            const selected = selectedProfileId === p.id;
-                            return (
-                              <TouchableOpacity
-                                key={p.id}
-                                style={[
-                                  styles.option,
-                                  { backgroundColor: selected ? C.orange : C.bg, borderColor: selected ? C.orange : C.border },
-                                ]}
-                                onPress={() => setSelectedProfileId(p.id)}
-                                activeOpacity={0.75}
-                              >
-                                <Text style={[styles.optionLabel, { color: selected ? "#fff" : C.text }]}>{p.prenom} {p.nom}</Text>
-                              </TouchableOpacity>
-                            );
-                          })}
-                        </View>
+                    <Text style={[styles.fieldLabel, { color: C.gold }]}>Jour</Text>
+                    {selectedIso && (
+                      <MiniCalendar
+                        selDate={selectedIso}
+                        onSelect={selectDay}
+                        calMonth={calMonth}
+                        onMonthChange={setCalMonth}
+                        startDate={startDate}
+                        C={C}
+                        size="sm"
+                        markedDates={interventionDates}
+                      />
+                    )}
 
-                        {selectedProfileId && (
-                          loadingTypes ? (
-                            <ActivityIndicator color={C.orange} style={{ marginVertical: 16 }} />
-                          ) : types.length === 0 ? (
-                            <Text style={[styles.sheetSub, { color: C.muted }]}>
-                              Cet intervenant n'a pas encore renseigné de type d'intervention.
-                            </Text>
-                          ) : (
-                            <>
-                              <Text style={[styles.fieldLabel, { color: C.gold }]}>Type d'intervention</Text>
-                              <View style={styles.optionGrid}>
-                                {types.map((t) => {
-                                  const selected = selectedTypeId === t.id;
-                                  return (
-                                    <TouchableOpacity
-                                      key={t.id}
-                                      style={[
-                                        styles.option,
-                                        { backgroundColor: selected ? C.orange : C.bg, borderColor: selected ? C.orange : C.border },
-                                      ]}
-                                      onPress={() => setSelectedTypeId(t.id)}
-                                      activeOpacity={0.75}
-                                    >
-                                      <Text style={[styles.optionLabel, { color: selected ? "#fff" : C.text }]}>{t.label}</Text>
-                                      <Text style={[styles.optionSub, { color: selected ? "rgba(255,255,255,0.85)" : C.muted }]}>
-                                        {t.duration_minutes} min
-                                      </Text>
-                                    </TouchableOpacity>
-                                  );
-                                })}
-                              </View>
-                            </>
-                          )
-                        )}
+                    {selectedIso && (
+                      futureSlotsForDay.length === 0 ? (
+                        <Text style={[styles.sheetSub, { color: C.muted, marginBottom: 16 }]}>
+                          Aucun créneau disponible ce jour-là.
+                        </Text>
+                      ) : (
+                        <>
+                          <Text style={[styles.fieldLabel, { color: C.gold }]}>Horaire</Text>
+                          <View style={styles.optionGrid}>
+                            {futureSlotsForDay.map((slot) => {
+                              const selected = selectedSlot === slot;
+                              return (
+                                <TouchableOpacity
+                                  key={slot}
+                                  style={[
+                                    styles.option,
+                                    { backgroundColor: selected ? C.orange : C.bg, borderColor: selected ? C.orange : C.border },
+                                  ]}
+                                  onPress={() => setSelectedSlot(slot)}
+                                  activeOpacity={0.75}
+                                >
+                                  <Text style={[styles.optionLabel, { color: selected ? "#fff" : C.text }]}>{slot}</Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        </>
+                      )
+                    )}
 
-                        <View style={[styles.priorityBox, { borderColor: C.orange, backgroundColor: "rgba(249,115,22,0.1)" }]}>
-                          <Text style={[styles.priorityText, { color: C.text }]}>
-                            ⚠️ Cette intervention est prioritaire sur les visites. Toute visite déjà prévue sur ce
-                            créneau sera automatiquement déplacée au créneau valide le plus proche.
-                          </Text>
-                        </View>
-                      </>
+                    {selectedSlot && (
+                      loadingProfiles ? (
+                        <ActivityIndicator color={C.orange} style={{ marginVertical: 16 }} />
+                      ) : profiles.length === 0 ? (
+                        <Text style={[styles.sheetSub, { color: C.muted }]}>
+                          Aucun intervenant n'a encore créé de fiche pour cet espace.
+                        </Text>
+                      ) : (
+                        <>
+                          <Text style={[styles.fieldLabel, { color: C.gold }]}>Intervenant</Text>
+                          <View style={styles.optionGrid}>
+                            {profiles.map((p) => {
+                              const selected = selectedProfileId === p.id;
+                              return (
+                                <TouchableOpacity
+                                  key={p.id}
+                                  style={[
+                                    styles.option,
+                                    { backgroundColor: selected ? C.orange : C.bg, borderColor: selected ? C.orange : C.border },
+                                  ]}
+                                  onPress={() => setSelectedProfileId(p.id)}
+                                  activeOpacity={0.75}
+                                >
+                                  <Text style={[styles.optionLabel, { color: selected ? "#fff" : C.text }]}>{p.prenom} {p.nom}</Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+
+                          {selectedProfileId && (
+                            loadingTypes ? (
+                              <ActivityIndicator color={C.orange} style={{ marginVertical: 16 }} />
+                            ) : types.length === 0 ? (
+                              <Text style={[styles.sheetSub, { color: C.muted }]}>
+                                Cet intervenant n'a pas encore renseigné de type d'intervention.
+                              </Text>
+                            ) : (
+                              <>
+                                <Text style={[styles.fieldLabel, { color: C.gold }]}>Type d'intervention</Text>
+                                <View style={styles.optionGrid}>
+                                  {types.map((t) => {
+                                    const selected = selectedTypeId === t.id;
+                                    return (
+                                      <TouchableOpacity
+                                        key={t.id}
+                                        style={[
+                                          styles.option,
+                                          { backgroundColor: selected ? C.orange : C.bg, borderColor: selected ? C.orange : C.border },
+                                        ]}
+                                        onPress={() => setSelectedTypeId(t.id)}
+                                        activeOpacity={0.75}
+                                      >
+                                        <Text style={[styles.optionLabel, { color: selected ? "#fff" : C.text }]}>{t.label}</Text>
+                                        <Text style={[styles.optionSub, { color: selected ? "rgba(255,255,255,0.85)" : C.muted }]}>
+                                          {t.duration_minutes} min
+                                        </Text>
+                                      </TouchableOpacity>
+                                    );
+                                  })}
+                                </View>
+                              </>
+                            )
+                          )}
+                        </>
+                      )
+                    )}
+
+                    {!!selectedType && (
+                      <View style={[styles.priorityBox, { borderColor: C.orange, backgroundColor: "rgba(249,115,22,0.1)" }]}>
+                        <Text style={[styles.priorityText, { color: C.text }]}>
+                          ⚠️ Cette intervention est prioritaire sur les visites. Toute visite déjà prévue sur ce
+                          créneau sera automatiquement déplacée au créneau valide le plus proche.
+                        </Text>
+                      </View>
                     )}
 
                     <View style={styles.sheetBtns}>
