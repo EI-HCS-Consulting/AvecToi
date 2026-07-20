@@ -120,6 +120,11 @@ function InterventionBookingFlow(
         Alert.alert("Créneau impossible", "Cette intervention dépasserait minuit. Choisis un créneau plus tôt.");
       } else if (error.message.includes("INTERVENTION_OVERLAP_SELF")) {
         Alert.alert("Chevauchement", "Tu as déjà une intervention prévue sur ce créneau.");
+      } else if (error.message.includes("DAY_ALREADY_BOOKED")) {
+        Alert.alert(
+          "Un seul créneau par jour",
+          "Le mode \"1 visite par jour\" est activé : une visite ou une intervention est déjà prévue ce jour-là. Choisis un autre jour.",
+        );
       } else {
         Alert.alert("Erreur lors de la réservation", error.message);
       }

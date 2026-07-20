@@ -127,6 +127,11 @@ function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, i
         Alert.alert("Créneau impossible", "Cette intervention dépasserait minuit. Choisis un créneau plus tôt.");
       } else if (error.message.includes("INTERVENTION_OVERLAP_SELF")) {
         Alert.alert("Chevauchement", "Cet intervenant a déjà une intervention prévue sur ce créneau.");
+      } else if (error.message.includes("DAY_ALREADY_BOOKED")) {
+        Alert.alert(
+          "Un seul créneau par jour",
+          "Le mode \"1 visite par jour\" est activé : une visite ou une intervention est déjà prévue ce jour-là. Choisis un autre jour.",
+        );
       } else {
         Alert.alert("Erreur lors de la réservation", error.message);
       }
@@ -164,7 +169,7 @@ function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, i
     <Modal visible={visible} transparent animationType="slide" onRequestClose={close}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => !saving && close()}>
-          <ScrollView style={{ width: "100%" }} contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
+          <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
             <TouchableOpacity activeOpacity={1}>
               <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.orange }]}>
                 {savedId ? (
@@ -360,9 +365,9 @@ function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, i
 export default forwardRef(AdminAddIntervention);
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center", padding: 20 },
-  overlayScroll: { flexGrow: 1, justifyContent: "center", alignItems: "center" },
-  sheet: { width: "100%", maxWidth: 400, borderRadius: 20, borderWidth: 1, padding: 24, paddingBottom: 32 },
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "flex-end" },
+  overlayScroll: { flexGrow: 1, justifyContent: "flex-end" },
+  sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, padding: 24, paddingBottom: 32, marginBottom: 12 },
   sheetTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, marginBottom: 6, textAlign: "center" },
   sheetSub: { fontFamily: "DM_Sans_400Regular", fontSize: 13, textAlign: "center", marginBottom: 16 },
 
