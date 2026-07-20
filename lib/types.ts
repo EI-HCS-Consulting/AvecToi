@@ -362,6 +362,19 @@ export interface PersonalChecklistItem {
   created_at: string;
 }
 
+// Modèle de checklist réutilisable par un intervenant, indépendant d'un
+// space_id précis — voir components/MyChecklist.tsx (💾 Enregistrer comme
+// modèle / 📥 Mes modèles) et supabase/migrations/20260728_intervenant_checklist_templates.sql.
+// Identité cross-space par téléphone normalisé, même mécanisme que "Mes
+// espaces" (app/(visitor)/account.tsx, linkedSpaces).
+export interface IntervenantChecklistTemplate {
+  id: string;
+  telephone: string;
+  name: string;
+  items: string[];
+  created_at: string;
+}
+
 export interface SupportMessage {
   id: string;
   space_id: string;

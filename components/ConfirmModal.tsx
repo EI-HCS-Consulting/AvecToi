@@ -16,11 +16,15 @@ interface Props {
   onCancel: () => void;
   onConfirm: () => void;
   C: Theme;
+  // Masque le bouton Annuler et n'affiche qu'un unique bouton pleine
+  // largeur (onConfirm) — pour les popups purement informatifs (ex.
+  // "Un seul créneau par jour") qui remplacent un Alert.alert à 1 bouton.
+  singleButton?: boolean;
 }
 
 export default function ConfirmModal({
   visible, icon = "🗑️", title, message, cancelLabel = "Annuler", confirmLabel,
-  destructive = true, saving = false, onCancel, onConfirm, C,
+  destructive = true, saving = false, onCancel, onConfirm, C, singleButton = false,
 }: Props) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
@@ -30,9 +34,11 @@ export default function ConfirmModal({
           <Text style={[styles.title, { color: C.text }]}>{title}</Text>
           {message ? <Text style={[styles.sub, { color: C.muted }]}>{message}</Text> : null}
           <View style={styles.buttons}>
-            <TouchableOpacity style={[styles.btn, { borderColor: C.border }]} onPress={onCancel} disabled={saving}>
-              <Text style={[styles.btnText, { color: C.muted }]}>{cancelLabel}</Text>
-            </TouchableOpacity>
+            {!singleButton && (
+              <TouchableOpacity style={[styles.btn, { borderColor: C.border }]} onPress={onCancel} disabled={saving}>
+                <Text style={[styles.btnText, { color: C.muted }]}>{cancelLabel}</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               style={[
                 styles.btn,

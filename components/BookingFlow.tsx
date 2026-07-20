@@ -14,6 +14,7 @@ import { supabase } from "@/lib/supabase";
 import { getVisitorSession, saveVisitorSession, sessionPinMatches } from "@/lib/visitorSession";
 import PinPad from "@/components/PinPad";
 import MiniCalendar from "@/components/MiniCalendar";
+import ConfirmModal from "@/components/ConfirmModal";
 import { getSlotOccupancy, isReservationDatePast, isSlotFullyPast, toISO, toFrLong, toFrShort, nightStartSlot, nightRangeLabel } from "@/lib/slotUtils";
 import { isSpaceCapped } from "@/lib/freemiumCap";
 import type { Reservation, SlotConfig, PatientSpace } from "@/lib/types";
@@ -72,6 +73,7 @@ function BookingFlow(
   const [nom, setNom] = useState("");
   const [pinValue, setPinValue] = useState("");
   const [saving, setSaving] = useState(false);
+  const [dayBookedAlert, setDayBookedAlert] = useState(false);
   // Email optionnel de la personne réservée, proposé uniquement quand le
   // visiteur réserve sous un nom différent du sien (ex. un proche âgé) —
   // permet d'envoyer un email de confirmation avec les infos pratiques
@@ -269,10 +271,7 @@ function BookingFlow(
       } else if (error.message.includes("DAY_ALREADY_BOOKED")) {
         // Même titre/message que components/AdminAddReservation.tsx — texte
         // harmonisé entre visiteur et admin pour ce même cas d'erreur.
-        Alert.alert(
-          "Un seul créneau par jour",
-          "Le mode \"1 visite par jour\" est activé : une visite est déjà prévue ce jour-là. Choisis un autre jour, ou modifie la réservation existante.",
-        );
+        setDayBookedAlert(true);
       } else {
         Alert.alert("Erreur lors de la réservation", error.message);
       }
@@ -857,6 +856,19 @@ function BookingFlow(
           <Text style={styles.toastText}>{toast}</Text>
         </View>
       )}
+
+      <ConfirmModal
+        visible={dayBookedAlert}
+        icon="📅"
+        title="Un seul créneau par jour"
+        message={"Le mode \"1 visite par jour\" est activé : une visite est déjà prévue ce jour-là. Choisis un autre jour, ou modifie la réservation existante."}
+        singleButton
+        destructive={false}
+        confirmLabel="J'ai compris"
+        onCancel={() => setDayBookedAlert(false)}
+        onConfirm={() => setDayBookedAlert(false)}
+        C={C}
+      />
     </>
   );
 }

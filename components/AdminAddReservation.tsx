@@ -7,6 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { toFrLong } from "@/lib/slotUtils";
 import { addToNativeCalendar, linkCalendarEvent } from "@/lib/calendarSync";
 import { isSpaceCapped } from "@/lib/freemiumCap";
+import ConfirmModal from "@/components/ConfirmModal";
 import type { PatientSpace, Reservation, SlotConfig } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -44,6 +45,7 @@ function AdminAddReservation({ spaceId, space, slotConfig, reservations, onAdded
   const [people, setPeople] = useState<Person[]>([EMPTY_PERSON]);
   const [saving, setSaving] = useState(false);
   const [adminEmail, setAdminEmail] = useState<string | null>(null);
+  const [dayBookedAlert, setDayBookedAlert] = useState(false);
 
   // Réservation(s) enregistrée(s) : id de la première, pour proposer l'ajout
   // au calendrier natif une fois la sauvegarde faite (même geste que côté
@@ -130,10 +132,7 @@ function AdminAddReservation({ spaceId, space, slotConfig, reservations, onAdded
         // devrait plus arriver en pratique côté admin depuis que les autres
         // créneaux du jour sont masqués (voir app/(admin)/home/slots.tsx),
         // sauf collision (deux ajouts simultanés sur le même espace).
-        Alert.alert(
-          "Un seul créneau par jour",
-          "Le mode \"1 visite par jour\" est activé : une visite est déjà prévue ce jour-là. Choisis un autre jour, ou modifie la réservation existante.",
-        );
+        setDayBookedAlert(true);
       } else {
         Alert.alert("Erreur", "Erreur lors de l'ajout : " + error.message);
       }
@@ -177,6 +176,7 @@ function AdminAddReservation({ spaceId, space, slotConfig, reservations, onAdded
   }
 
   return (
+    <>
     <Modal visible={!!target} transparent animationType="slide" onRequestClose={close}>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => !saving && close()}>
@@ -265,6 +265,20 @@ function AdminAddReservation({ spaceId, space, slotConfig, reservations, onAdded
         </TouchableOpacity>
       </KeyboardAvoidingView>
     </Modal>
+
+    <ConfirmModal
+      visible={dayBookedAlert}
+      icon="📅"
+      title="Un seul créneau par jour"
+      message={"Le mode \"1 visite par jour\" est activé : une visite est déjà prévue ce jour-là. Choisis un autre jour, ou modifie la réservation existante."}
+      singleButton
+      destructive={false}
+      confirmLabel="J'ai compris"
+      onCancel={() => setDayBookedAlert(false)}
+      onConfirm={() => setDayBookedAlert(false)}
+      C={C}
+    />
+    </>
   );
 }
 

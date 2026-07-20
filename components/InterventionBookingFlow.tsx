@@ -8,6 +8,7 @@ import { useRouter } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { linkCalendarEvent, addToNativeCalendar, deleteLinkedCalendarEvent } from "@/lib/calendarSync";
 import { isReservationDatePast, isSlotFullyPast, toFrLong, toFrShort } from "@/lib/slotUtils";
+import ConfirmModal from "@/components/ConfirmModal";
 import type { Reservation, SlotConfig, PatientSpace, InterventionType } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -68,6 +69,7 @@ function InterventionBookingFlow(
   const [bookingTarget, setBookingTarget] = useState<{ iso: string; slot: string } | null>(null);
   const [selectedTypeId, setSelectedTypeId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [dayBookedAlert, setDayBookedAlert] = useState(false);
   const [confirmed, setConfirmed] = useState<ConfirmedBooking | null>(null);
   const [calendarAdded, setCalendarAdded] = useState(false);
 
@@ -121,10 +123,7 @@ function InterventionBookingFlow(
       } else if (error.message.includes("INTERVENTION_OVERLAP_SELF")) {
         Alert.alert("Chevauchement", "Tu as déjà une intervention prévue sur ce créneau.");
       } else if (error.message.includes("DAY_ALREADY_BOOKED")) {
-        Alert.alert(
-          "Un seul créneau par jour",
-          "Le mode \"1 visite par jour\" est activé : une visite ou une intervention est déjà prévue ce jour-là. Choisis un autre jour.",
-        );
+        setDayBookedAlert(true);
       } else {
         Alert.alert("Erreur lors de la réservation", error.message);
       }
@@ -329,6 +328,19 @@ function InterventionBookingFlow(
           <Text style={styles.toastText}>{toast}</Text>
         </View>
       )}
+
+      <ConfirmModal
+        visible={dayBookedAlert}
+        icon="📅"
+        title="Un seul créneau par jour"
+        message={"Le mode \"1 visite par jour\" est activé : une visite ou une intervention est déjà prévue ce jour-là. Choisis un autre jour."}
+        singleButton
+        destructive={false}
+        confirmLabel="J'ai compris"
+        onCancel={() => setDayBookedAlert(false)}
+        onConfirm={() => setDayBookedAlert(false)}
+        C={C}
+      />
     </>
   );
 }
