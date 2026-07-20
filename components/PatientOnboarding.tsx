@@ -255,6 +255,7 @@ export default function PatientOnboarding() {
             admin_id: userData.user.id,
             admin_firstname: userData.user.user_metadata?.firstname ?? null,
             admin_lastname: userData.user.user_metadata?.lastname ?? null,
+            admin_email: userData.user.email ?? null,
             patient_firstname: firstname.trim(),
             patient_lastname: lastname.trim(),
             patient_motto: patientMotto.trim() || null,
