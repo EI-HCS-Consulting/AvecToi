@@ -1084,17 +1084,24 @@ export default function VisitorAccountScreen() {
           theme={C}
           onClose={() => setFicheModalVisible(false)}
           onSaved={async (_profileId, savedPrenom, savedNom, savedTelephone, savedPhraseTotem, savedPhoto, savedPhotoUpdatedAt) => {
+            // Persiste aussi la photo dans localPhotoUri : sinon la session
+            // locale garde l'ancienne URI (ou reste vide), et rouvrir l'app
+            // réaffiche l'ancienne photo malgré le changement fait ici — voir
+            // le fallback de rechargement dans le useEffect plus haut, qui ne
+            // re-fetch depuis intervenant_profiles que si localPhotoUri est vide.
+            const newPhotoUri = savedPhoto ? intervenantPhotoUrl(savedPhoto, savedPhotoUpdatedAt) : null;
             await saveVisitorSession({
               token, spaceId: space.id,
               prenom: savedPrenom, nom: savedNom,
               telephone: savedTelephone ?? "",
               motto: savedPhraseTotem ?? "",
+              localPhotoUri: newPhotoUri,
             });
             setPrenom(savedPrenom);
             setNom(savedNom);
             setTelephone(savedTelephone ?? "");
             setMotto(savedPhraseTotem ?? "");
-            if (savedPhoto) setPhotoUri(intervenantPhotoUrl(savedPhoto, savedPhotoUpdatedAt));
+            if (newPhotoUri) setPhotoUri(newPhotoUri);
             setFicheModalVisible(false);
             showToast("Fiche intervenant enregistrée ✓");
           }}
