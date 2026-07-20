@@ -12,6 +12,7 @@ import DeleteReservationConfirm, { type DeleteReservationConfirmHandle } from "@
 import IntervenantFicheModal from "@/components/IntervenantFicheModal";
 import IntervenantProfileModal from "@/components/IntervenantProfileModal";
 import SoinsPlanifiesBlock from "@/components/SoinsPlanifiesBlock";
+import PlanningCalendarModal from "@/components/PlanningCalendarModal";
 import type { Reservation, IntervenantProfile, InterventionType } from "@/lib/types";
 
 // Écran admin dédié "Planning des intervenants" — n'affiche que les
@@ -36,6 +37,7 @@ export default function AdminIntervenantsScreen() {
     return d;
   });
   const [slotPicker, setSlotPicker] = useState(false);
+  const [calendarModal, setCalendarModal] = useState(false);
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [viewingProfile, setViewingProfile] = useState<IntervenantProfile | null>(null);
   // Replié par défaut — reléguée en bas d'écran, derrière Planning et Soins
@@ -89,6 +91,7 @@ export default function AdminIntervenantsScreen() {
   const dayInterventions = reservations
     .filter((r) => r.type === "Intervention" && r.date === iso)
     .sort((a, b) => a.creneau.localeCompare(b.creneau));
+  const interventionDates = new Set(reservations.filter((r) => r.type === "Intervention").map((r) => r.date));
 
   function handleDelete(r: Reservation) {
     deleteRef.current?.open(r);
@@ -128,10 +131,10 @@ export default function AdminIntervenantsScreen() {
           >
             <Text style={[styles.navBtnText, { color: C.text }]}>‹</Text>
           </TouchableOpacity>
-          <View style={{ alignItems: "center" }}>
+          <TouchableOpacity style={{ alignItems: "center" }} onPress={() => setCalendarModal(true)} activeOpacity={0.7}>
             <Text style={[styles.dayTitle, { color: C.text }]}>{toFrLong(selectedDay)}</Text>
             <Text style={[styles.daySub, { color: C.muted }]}>{toFrShort(selectedDay)}</Text>
-          </View>
+          </TouchableOpacity>
           <TouchableOpacity
             onPress={() => setSelectedDay(addDays(selectedDay, 1))}
             style={[styles.navBtn, { borderColor: C.border }]}
@@ -244,6 +247,16 @@ export default function AdminIntervenantsScreen() {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+
+      <PlanningCalendarModal
+        visible={calendarModal}
+        onClose={() => setCalendarModal(false)}
+        selectedDay={selectedDay}
+        onSelectDay={setSelectedDay}
+        interventionDates={interventionDates}
+        startDate={startDate}
+        C={C}
+      />
 
       {space && slotConfig && (
         <AdminAddIntervention
