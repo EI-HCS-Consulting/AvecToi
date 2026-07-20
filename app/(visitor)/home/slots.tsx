@@ -7,7 +7,7 @@ import BookingFlow, { type BookingFlowHandle } from "@/components/BookingFlow";
 import InterventionBookingFlow, { type InterventionBookingFlowHandle } from "@/components/InterventionBookingFlow";
 import { getSlotOccupancy, getNightReservation, getInterventionOverlap, isReservationDatePast, isSlotFullyPast, toISO, toFrLong, toFrShort, addDays, nightStartSlot, nightRangeLabel } from "@/lib/slotUtils";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
-import type { Reservation } from "@/lib/types";
+import type { Reservation, SlotConfig } from "@/lib/types";
 
 // Recentré sur les créneaux "Visite" uniquement depuis le Lot 3 — la nuitée
 // a son propre écran (home/nights.tsx). La logique de réservation/PIN/édition
@@ -68,6 +68,33 @@ export default function SlotsScreen() {
 
   if (!space || !slotConfig) return null;
 
+  // Même vérification que getDayStatus (calendrier mensuel) : un jour dont
+  // le jour de semaine est exclu de allowed_weekdays, ou qui figure dans
+  // blocked_dates, n'est pas navigable — les flèches ‹ › doivent sauter
+  // par-dessus au lieu de s'y arrêter (sinon on peut réserver une visite un
+  // jour que l'admin a explicitement rendu indisponible).
+  const isDayAllowed = (d: Date, config: SlotConfig): boolean => {
+    const day = new Date(d); day.setHours(0, 0, 0, 0);
+    const start = new Date(startDate); start.setHours(0, 0, 0, 0);
+    if (day < start) return false;
+    if (config.allowed_weekdays && !config.allowed_weekdays.includes(day.getDay())) return false;
+    if (config.blocked_dates && config.blocked_dates.includes(toISO(day))) return false;
+    return true;
+  };
+
+  // Cap de sécurité (2 ans) pour ne jamais boucler indéfiniment si une
+  // config admin exclut tous les jours de semaine.
+  const findNextAllowedDay = (from: Date, direction: 1 | -1): Date | null => {
+    let candidate = addDays(from, direction);
+    for (let i = 0; i < 730; i++) {
+      if (direction === -1 && candidate < startDate) return null;
+      const candidateConfig = getConfigForDate(toISO(candidate)) ?? slotConfig;
+      if (isDayAllowed(candidate, candidateConfig)) return candidate;
+      candidate = addDays(candidate, direction);
+    }
+    return null;
+  };
+
   const iso = toISO(selectedDay);
   const dayConfig = getConfigForDate(iso) ?? slotConfig;
   const allDaySlots = getSlotsForDate(iso);
@@ -90,7 +117,7 @@ export default function SlotsScreen() {
         {/* Day navigation */}
         <View style={[styles.dayNav, { backgroundColor: C.card, borderColor: C.border }]}>
           <TouchableOpacity
-            onPress={() => { const prev = addDays(selectedDay, -1); if (prev >= startDate) setSelectedDay(prev); }}
+            onPress={() => { const prev = findNextAllowedDay(selectedDay, -1); if (prev) setSelectedDay(prev); }}
             disabled={toISO(selectedDay) === toISO(startDate)}
             style={[styles.navBtn, { borderColor: C.border }]}
           >
@@ -100,7 +127,10 @@ export default function SlotsScreen() {
             <Text style={[styles.dayTitle, { color: C.text }]}>{toFrLong(selectedDay)}</Text>
             <Text style={[styles.daySub, { color: C.muted }]}>{toFrShort(selectedDay)}</Text>
           </View>
-          <TouchableOpacity onPress={() => setSelectedDay(addDays(selectedDay, 1))} style={[styles.navBtn, { borderColor: C.border }]}>
+          <TouchableOpacity
+            onPress={() => { const next = findNextAllowedDay(selectedDay, 1); if (next) setSelectedDay(next); }}
+            style={[styles.navBtn, { borderColor: C.border }]}
+          >
             <Text style={[styles.navBtnText, { color: C.text }]}>›</Text>
           </TouchableOpacity>
         </View>
