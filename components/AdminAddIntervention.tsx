@@ -31,9 +31,14 @@ interface Props {
   interventionDates: Set<string>;
   onAdded: () => void;
   C: Theme;
+  // Réutilisation côté intervenant (app/(visitor)/soins.tsx, bouton
+  // "Ajouter une intervention") : intervenant déjà connu, on saute l'étape
+  // de sélection et on réserve avec son vrai PIN plutôt que "ADMIN".
+  fixedIntervenantProfileId?: string;
+  pin?: string;
 }
 
-function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, interventionDates, onAdded, C }: Props, ref: React.Ref<AdminAddInterventionHandle>) {
+function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, interventionDates, onAdded, C, fixedIntervenantProfileId, pin }: Props, ref: React.Ref<AdminAddInterventionHandle>) {
   const [visible, setVisible] = useState(false);
   const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
   const [selectedIso, setSelectedIso] = useState<string | null>(null);
@@ -60,21 +65,27 @@ function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, i
       setSelectedIso(iso);
       setCalMonth({ year: d.getFullYear(), month: d.getMonth() });
       setSelectedSlot(null);
-      setSelectedProfileId(null);
       setSelectedTypeId(null);
       setTypes([]);
       setSavedId(null);
       setCalendarAdded(false);
-      setLoadingProfiles(true);
-      supabase
-        .from("intervenant_profiles")
-        .select("*")
-        .eq("space_id", space.id)
-        .order("prenom", { ascending: true })
-        .then(({ data }) => {
-          setProfiles(data || []);
-          setLoadingProfiles(false);
-        });
+      if (fixedIntervenantProfileId) {
+        setSelectedProfileId(fixedIntervenantProfileId);
+        setProfiles([]);
+        setLoadingProfiles(false);
+      } else {
+        setSelectedProfileId(null);
+        setLoadingProfiles(true);
+        supabase
+          .from("intervenant_profiles")
+          .select("*")
+          .eq("space_id", space.id)
+          .order("prenom", { ascending: true })
+          .then(({ data }) => {
+            setProfiles(data || []);
+            setLoadingProfiles(false);
+          });
+      }
       setVisible(true);
     },
   }));
@@ -96,13 +107,15 @@ function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, i
 
   const allSlotsForDay = selectedIso ? getSlotsForDate(selectedIso) : [];
   const futureSlotsForDay = selectedIso ? allSlotsForDay.filter((s) => !isSlotFullyPast(selectedIso, s)) : [];
-  const selectedProfile = profiles.find((p) => p.id === selectedProfileId) ?? null;
+  const selectedProfile = fixedIntervenantProfileId
+    ? ({ id: fixedIntervenantProfileId } as IntervenantProfile)
+    : profiles.find((p) => p.id === selectedProfileId) ?? null;
   const selectedType = types.find((t) => t.id === selectedTypeId) ?? null;
 
   function selectDay(iso: string) {
     setSelectedIso(iso);
     setSelectedSlot(null);
-    setSelectedProfileId(null);
+    if (!fixedIntervenantProfileId) setSelectedProfileId(null);
     setSelectedTypeId(null);
   }
 
@@ -116,7 +129,7 @@ function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, i
       p_intervention_type_id: selectedType.id,
       p_date: selectedIso,
       p_start_slot: selectedSlot,
-      p_pin: "ADMIN",
+      p_pin: pin ?? "ADMIN",
       p_slots: allSlotsForDay,
     });
 
@@ -263,7 +276,42 @@ function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, i
                       )
                     )}
 
-                    {selectedSlot && (
+                    {selectedSlot && fixedIntervenantProfileId && (
+                      loadingTypes ? (
+                        <ActivityIndicator color={C.orange} style={{ marginVertical: 16 }} />
+                      ) : types.length === 0 ? (
+                        <Text style={[styles.sheetSub, { color: C.muted }]}>
+                          Tu n'as pas encore renseigné de type d'intervention (voir "Ma fiche intervenant").
+                        </Text>
+                      ) : (
+                        <>
+                          <Text style={[styles.fieldLabel, { color: C.gold }]}>Type d'intervention</Text>
+                          <View style={styles.optionGrid}>
+                            {types.map((t) => {
+                              const selected = selectedTypeId === t.id;
+                              return (
+                                <TouchableOpacity
+                                  key={t.id}
+                                  style={[
+                                    styles.option,
+                                    { backgroundColor: selected ? C.orange : C.bg, borderColor: selected ? C.orange : C.border },
+                                  ]}
+                                  onPress={() => setSelectedTypeId(t.id)}
+                                  activeOpacity={0.75}
+                                >
+                                  <Text style={[styles.optionLabel, { color: selected ? "#fff" : C.text }]}>{t.label}</Text>
+                                  <Text style={[styles.optionSub, { color: selected ? "rgba(255,255,255,0.85)" : C.muted }]}>
+                                    {t.duration_minutes} min
+                                  </Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        </>
+                      )
+                    )}
+
+                    {selectedSlot && !fixedIntervenantProfileId && (
                       loadingProfiles ? (
                         <ActivityIndicator color={C.orange} style={{ marginVertical: 16 }} />
                       ) : profiles.length === 0 ? (
