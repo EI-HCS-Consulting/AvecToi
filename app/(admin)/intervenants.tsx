@@ -11,6 +11,7 @@ import AdminEditReservation, { type AdminEditReservationHandle } from "@/compone
 import DeleteReservationConfirm, { type DeleteReservationConfirmHandle } from "@/components/DeleteReservationConfirm";
 import IntervenantFicheModal from "@/components/IntervenantFicheModal";
 import IntervenantProfileModal from "@/components/IntervenantProfileModal";
+import SoinsPlanifiesBlock from "@/components/SoinsPlanifiesBlock";
 import type { Reservation, IntervenantProfile, InterventionType } from "@/lib/types";
 
 // Écran admin dédié "Planning des intervenants" — n'affiche que les
@@ -37,6 +38,9 @@ export default function AdminIntervenantsScreen() {
   const [slotPicker, setSlotPicker] = useState(false);
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [viewingProfile, setViewingProfile] = useState<IntervenantProfile | null>(null);
+  // Replié par défaut — reléguée en bas d'écran, derrière Planning et Soins
+  // planifiés (voir components/IntervenantsBlock.tsx pour le même pattern).
+  const [fichesOpen, setFichesOpen] = useState(false);
 
   const [profiles, setProfiles] = useState<IntervenantProfile[]>([]);
   const [typesByProfile, setTypesByProfile] = useState<Record<string, InterventionType[]>>({});
@@ -111,40 +115,7 @@ export default function AdminIntervenantsScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scroll}>
-        <Text style={[styles.sectionTitle, { color: C.gold }]}>Fiches intervenants</Text>
-        {loadingProfiles ? null : profiles.length === 0 ? (
-          <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
-            <Text style={[styles.emptyText, { color: C.muted }]}>
-              Aucun intervenant n'a encore rejoint cet espace via le lien d'invitation.
-            </Text>
-          </View>
-        ) : (
-          profiles.map((p) => (
-            <View key={p.id} style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
-              <View style={styles.profileRow}>
-                <TouchableOpacity style={{ flex: 1 }} activeOpacity={0.7} onPress={() => setViewingProfile(p)}>
-                  <Text style={[styles.profileName, { color: C.text }]}>{p.prenom} {p.nom}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.editBtn, { borderColor: C.orange }]} onPress={() => setEditingProfileId(p.id)}>
-                  <Text style={[styles.editBtnText, { color: C.orange }]}>Modifier</Text>
-                </TouchableOpacity>
-              </View>
-              {(typesByProfile[p.id] || []).length === 0 ? (
-                <Text style={[styles.emptyText, { color: C.muted }]}>Aucun type d'intervention renseigné.</Text>
-              ) : (
-                <View style={styles.typeChips}>
-                  {(typesByProfile[p.id] || []).map((t) => (
-                    <View key={t.id} style={[styles.typeChip, { borderColor: C.border, backgroundColor: C.bg }]}>
-                      <Text style={[styles.typeChipText, { color: C.text }]}>{t.label} · {t.duration_minutes} min</Text>
-                    </View>
-                  ))}
-                </View>
-              )}
-            </View>
-          ))
-        )}
-
-        <Text style={[styles.sectionTitle, { color: C.gold, marginTop: 24 }]}>Planning</Text>
+        <Text style={[styles.sectionTitle, { color: C.gold }]}>Planning</Text>
 
         <View style={[styles.dayNav, { backgroundColor: C.card, borderColor: C.border }]}>
           <TouchableOpacity
@@ -202,6 +173,48 @@ export default function AdminIntervenantsScreen() {
         >
           <Text style={styles.addBtnText}>+ Ajouter une intervention</Text>
         </TouchableOpacity>
+
+        <SoinsPlanifiesBlock spaceId={space.id} C={C} />
+
+        <Text style={[styles.sectionTitle, { color: C.gold, marginTop: 24 }]}>Fiches intervenants</Text>
+        <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
+          <TouchableOpacity onPress={() => setFichesOpen((o) => !o)} activeOpacity={0.7} style={styles.headerRow}>
+            <Text style={[styles.emptyText, { color: C.muted, flex: 1 }]}>
+              {profiles.length === 0 ? "Aucun intervenant n'a encore rejoint cet espace." : `${profiles.length} intervenant${profiles.length > 1 ? "s" : ""} enregistré${profiles.length > 1 ? "s" : ""}.`}
+            </Text>
+            <Text style={[styles.toggleIcon, { color: C.muted }]}>{fichesOpen ? "▾" : "▸"}</Text>
+          </TouchableOpacity>
+
+          {fichesOpen && (
+            <View style={{ marginTop: 10 }}>
+              {loadingProfiles ? null : profiles.length === 0 ? null : (
+                profiles.map((p) => (
+                  <View key={p.id} style={[styles.subCard, { borderColor: C.border }]}>
+                    <View style={styles.profileRow}>
+                      <TouchableOpacity style={{ flex: 1 }} activeOpacity={0.7} onPress={() => setViewingProfile(p)}>
+                        <Text style={[styles.profileName, { color: C.text }]}>{p.prenom} {p.nom}</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={[styles.editBtn, { borderColor: C.orange }]} onPress={() => setEditingProfileId(p.id)}>
+                        <Text style={[styles.editBtnText, { color: C.orange }]}>Modifier</Text>
+                      </TouchableOpacity>
+                    </View>
+                    {(typesByProfile[p.id] || []).length === 0 ? (
+                      <Text style={[styles.emptyText, { color: C.muted }]}>Aucun type d'intervention renseigné.</Text>
+                    ) : (
+                      <View style={styles.typeChips}>
+                        {(typesByProfile[p.id] || []).map((t) => (
+                          <View key={t.id} style={[styles.typeChip, { borderColor: C.border, backgroundColor: C.bg }]}>
+                            <Text style={[styles.typeChipText, { color: C.text }]}>{t.label} · {t.duration_minutes} min</Text>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                ))
+              )}
+            </View>
+          )}
+        </View>
       </ScrollView>
 
       {/* ── Sélecteur de créneau de départ avant ouverture d'AdminAddIntervention ── */}
@@ -306,6 +319,9 @@ const styles = StyleSheet.create({
   card: { borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 10 },
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
 
+  headerRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  toggleIcon: { fontSize: 14 },
+  subCard: { borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 10 },
   profileRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
   profileName: { fontFamily: "DM_Sans_700Bold", fontSize: 15 },
   editBtn: { borderWidth: 1, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 12 },
