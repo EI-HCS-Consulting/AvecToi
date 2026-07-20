@@ -26,6 +26,10 @@ interface Props {
   slotConfig?: SlotConfig;
   slots?: string[];
   reservations?: Reservation[];
+  // Jours à signaler d'un point de couleur, indépendamment de showDots/
+  // getDayStatus (qui ne couvre que l'occupation des visites) — utilisé par
+  // PlanningCalendarModal pour repérer les jours avec un soin planifié.
+  markedDates?: Set<string>;
 }
 
 // Toujours 6 lignes (42 cases) quel que soit le mois affiché, pour que ce
@@ -39,7 +43,7 @@ const FIXED_CELLS = FIXED_ROWS * 7;
 const GRID_GAP_LG = 3;
 
 export default function MiniCalendar({
-  selDate, onSelect, calMonth, onMonthChange, startDate, C, size = "sm", slotConfig, slots, reservations,
+  selDate, onSelect, calMonth, onMonthChange, startDate, C, size = "sm", slotConfig, slots, reservations, markedDates,
 }: Props) {
   const large = size === "lg";
   const showDots = !!(slotConfig && slots && reservations);
@@ -112,6 +116,9 @@ export default function MiniCalendar({
             >
               <View style={styles.miniCellInner}>
                 <Text style={[styles.miniCellText, large && styles.miniCellTextLg, { color: isSelected || useStatusBg ? "#fff" : C.text }]}>{day.getDate()}</Text>
+                {markedDates?.has(iso) && !isPast && (
+                  <View style={[styles.miniDot, large && styles.miniDotLg, { backgroundColor: isSelected || useStatusBg ? "#fff" : C.orange }]} />
+                )}
               </View>
             </TouchableOpacity>
           );
@@ -150,4 +157,6 @@ const styles = StyleSheet.create({
   // asymétrique autour du glyphe (ascent/descent) qui décale le chiffre.
   miniCellText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, includeFontPadding: false },
   miniCellTextLg: { fontSize: 17 },
+  miniDot: { width: 4, height: 4, borderRadius: 2, marginTop: 2 },
+  miniDotLg: { width: 5, height: 5, borderRadius: 2.5, marginTop: 3 },
 });
