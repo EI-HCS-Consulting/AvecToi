@@ -125,9 +125,14 @@ function AdminAddReservation({ spaceId, space, slotConfig, reservations, onAdded
           "Ce créneau est réservé à une intervention prioritaire (infirmier·ère, kiné…). Choisis-en un autre.",
         );
       } else if (error.message.includes("DAY_ALREADY_BOOKED")) {
+        // Même titre/message que components/BookingFlow.tsx — texte
+        // harmonisé entre visiteur et admin pour ce même cas d'erreur. Ne
+        // devrait plus arriver en pratique côté admin depuis que les autres
+        // créneaux du jour sont masqués (voir app/(admin)/home/slots.tsx),
+        // sauf collision (deux ajouts simultanés sur le même espace).
         Alert.alert(
           "Un seul créneau par jour",
-          "Le mode \"1 visite par jour\" est activé et une visite est déjà prévue ce jour-là. Choisis un autre jour.",
+          "Le mode \"1 visite par jour\" est activé : une visite est déjà prévue ce jour-là. Choisis un autre jour, ou modifie la réservation existante.",
         );
       } else {
         Alert.alert("Erreur", "Erreur lors de l'ajout : " + error.message);

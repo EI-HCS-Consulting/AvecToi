@@ -206,8 +206,18 @@ function SlotsList({
 }) {
   const { getConfigForDate, getSlotsForDate } = useSpace();
   const slotConfig = getConfigForDate(iso);
-  const slots = getSlotsForDate(iso);
+  const allSlots = getSlotsForDate(iso);
   if (!slotConfig) return null;
+
+  // Mode "1 visite / jour" : même filtrage que app/(visitor)/home/slots.tsx —
+  // une fois qu'un créneau "Visite" est réservé ce jour-là, les autres
+  // disparaissent de la liste, y compris côté admin (avant, seul le visiteur
+  // ne les voyait plus ; l'admin retombait sur le popup "Un seul créneau par
+  // jour" en tentant d'ajouter une réservation sur un autre créneau).
+  const dayVisitBooking = slotConfig.one_visit_per_day
+    ? reservations.find((r) => r.type === "Visite" && r.date === iso && r.alert_type !== "day_cap_suspended")
+    : undefined;
+  const slots = dayVisitBooking ? allSlots.filter((s) => s === dayVisitBooking.creneau) : allSlots;
 
   return (
     <>
