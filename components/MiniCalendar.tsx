@@ -42,6 +42,11 @@ const FIXED_CELLS = FIXED_ROWS * 7;
 // taille de case ci-dessous, doit rester identique à miniGridLg.gap.
 const GRID_GAP_LG = 3;
 
+// Lundi en premier, cohérent avec firstDow ci-dessous (getDay() converti en
+// index 0=lundi). Sans cet en-tête, la position d'un jour dans la grille est
+// facile à mal lire (colonnes non identifiées).
+const WEEKDAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
+
 export default function MiniCalendar({
   selDate, onSelect, calMonth, onMonthChange, startDate, C, size = "sm", slotConfig, slots, reservations, markedDates,
 }: Props) {
@@ -77,6 +82,12 @@ export default function MiniCalendar({
         >
           <Text style={[styles.navBtnText, large && styles.navBtnTextLg, { color: C.text }]}>›</Text>
         </TouchableOpacity>
+      </View>
+
+      <View style={[styles.weekdayRow, large && styles.weekdayRowLg]}>
+        {WEEKDAY_LABELS.map((label, i) => (
+          <Text key={i} style={[styles.weekdayLabel, large && styles.weekdayLabelLg, { color: C.muted }]}>{label}</Text>
+        ))}
       </View>
 
       <View style={[styles.miniGrid, large && styles.miniGridLg]} onLayout={large ? onGridLayout : undefined}>
@@ -147,6 +158,10 @@ const styles = StyleSheet.create({
   // conteneur (sinon la 7e case passe à la ligne suivante et casse la
   // grille 7 colonnes / 6 lignes — c'était la cause du bug précédent).
   miniGridLg: { gap: GRID_GAP_LG, justifyContent: "center" },
+  weekdayRow: { flexDirection: "row", gap: 2, marginBottom: 4 },
+  weekdayRowLg: { gap: GRID_GAP_LG, justifyContent: "center" },
+  weekdayLabel: { width: "13.28%", textAlign: "center", fontFamily: "DM_Sans_600SemiBold", fontSize: 10 },
+  weekdayLabelLg: { width: "13%", fontSize: 12 },
   // alignItems/justifyContent "center" centrent le contenu de la cellule ;
   // le centrage du chiffre lui-même est repris par miniCellInner ci-dessous
   // (View de centrage dédiée, indépendante du rendu interne du Touchable).
