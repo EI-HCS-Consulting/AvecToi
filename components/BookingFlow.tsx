@@ -267,9 +267,11 @@ function BookingFlow(
           "Ce créneau est réservé à une intervention (infirmier·ère, kiné…) prioritaire. Choisis-en un autre.",
         );
       } else if (error.message.includes("DAY_ALREADY_BOOKED")) {
+        // Même titre/message que components/AdminAddReservation.tsx — texte
+        // harmonisé entre visiteur et admin pour ce même cas d'erreur.
         Alert.alert(
           "Un seul créneau par jour",
-          "Une visite est déjà prévue ce jour-là. Choisis un autre jour, ou modifie la réservation existante.",
+          "Le mode \"1 visite par jour\" est activé : une visite est déjà prévue ce jour-là. Choisis un autre jour, ou modifie la réservation existante.",
         );
       } else {
         Alert.alert("Erreur lors de la réservation", error.message);
