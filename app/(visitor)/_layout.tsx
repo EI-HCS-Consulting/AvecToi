@@ -237,6 +237,15 @@ function VisitorTabs() {
         options={{
           title: "Souvenirs",
           tabBarIcon: ({ color, size }) => <Ionicons name="images-outline" size={size} color={color} />,
+          href: role === "intervenant" ? null : undefined,
+        }}
+      />
+      <Tabs.Screen
+        name="intervenants"
+        options={{
+          title: "Intervenants",
+          tabBarIcon: ({ color, size }) => <Ionicons name="people-outline" size={size} color={color} />,
+          href: role === "intervenant" ? undefined : null,
         }}
       />
       <Tabs.Screen
@@ -244,6 +253,15 @@ function VisitorTabs() {
         options={{
           title: "Entraide",
           tabBarIcon: ({ color, size }) => <Ionicons name="people-outline" size={size} color={color} />,
+          href: role === "intervenant" ? null : undefined,
+        }}
+      />
+      <Tabs.Screen
+        name="soins"
+        options={{
+          title: "Soins",
+          tabBarIcon: ({ color, size }) => <Ionicons name="medkit-outline" size={size} color={color} />,
+          href: role === "intervenant" ? undefined : null,
         }}
       />
       <Tabs.Screen

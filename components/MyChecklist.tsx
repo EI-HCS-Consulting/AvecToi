@@ -19,6 +19,10 @@ interface Props {
   // sinon le PIN de session du visiteur.
   ownerPin: string;
   C: Theme;
+  // Masque "✨ Importer une checklist toute prête" — les checklists
+  // suggérées (Entraide) ne concernent pas les intervenants, voir
+  // app/(visitor)/account.tsx.
+  hideImportBanner?: boolean;
 }
 
 function linesToTitles(text: string): string[] {
@@ -31,7 +35,7 @@ function linesToTitles(text: string): string[] {
 // importé reste lié à un vrai besoin `tasks` (visible du Mur d'Entraide) :
 // basculer son statut ici met aussi à jour tasks.status, qui se propage
 // partout via l'abonnement realtime déjà en place dans Entraide.tsx.
-export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, ownerPin, C }: Props) {
+export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, ownerPin, C, hideImportBanner }: Props) {
   const [items, setItems] = useState<PersonalChecklistItem[]>([]);
   const [loading, setLoading] = useState(true);
   // Un seul sous-bloc ouvert à la fois, comme "Mes contributions" — clé de
@@ -450,13 +454,15 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
           <Text style={[styles.btnSecondaryText, { color: C.gold }]}>+ Créer une checklist</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[styles.importBanner, { backgroundColor: C.gold + "1c", borderColor: C.gold }]}
-          onPress={openImportPicker}
-          activeOpacity={0.8}
-        >
-          <Text style={[styles.importBannerText, { color: C.gold }]}>✨ Importer une checklist toute prête</Text>
-        </TouchableOpacity>
+        {!hideImportBanner && (
+          <TouchableOpacity
+            style={[styles.importBanner, { backgroundColor: C.gold + "1c", borderColor: C.gold }]}
+            onPress={openImportPicker}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.importBannerText, { color: C.gold }]}>✨ Importer une checklist toute prête</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <ConfirmModal

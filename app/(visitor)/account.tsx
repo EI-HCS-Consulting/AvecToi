@@ -650,7 +650,9 @@ export default function VisitorAccountScreen() {
           />
         </View>
 
-        {(Object.keys(SECTION_META) as AccountSectionKey[]).map((key) => {
+        {(Object.keys(SECTION_META) as AccountSectionKey[])
+          .filter((k) => !(role === "intervenant" && (k === "souvenirs" || k === "besoins" || k === "resv")))
+          .map((key) => {
           const isOpen = activeSection === key;
           const hint = key === "info" ? (prenom.trim() && nom.trim() ? `${prenom} ${nom}` : "À compléter")
             : key === "resv" ? `${myReservations.length} réservation(s)`
@@ -950,6 +952,7 @@ export default function VisitorAccountScreen() {
           ownerNom={nom}
           ownerPin={pin}
           C={C}
+          hideImportBanner={role === "intervenant"}
         />
 
         <TouchableOpacity
@@ -960,7 +963,7 @@ export default function VisitorAccountScreen() {
           <Text style={styles.patientProfileBtnText}>🩺 Fiche patient</Text>
         </TouchableOpacity>
 
-        {space?.intervenants_enabled && (
+        {space?.intervenants_enabled && role !== "intervenant" && (
           <TouchableOpacity
             style={[styles.patientProfileBtn, { marginTop: 10 }]}
             onPress={() => setIntervenantsListVisible(true)}
