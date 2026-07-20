@@ -141,6 +141,20 @@ export default function AdminAccountScreen() {
     setAdminLastname(tempLastname.trim());
     setAdminMotto(tempMotto.trim());
     setAdminPin(tempPin);
+
+    // Recopie le PIN dans patient_spaces.admin_pin : dénormalisé depuis
+    // user_metadata pour être consultable via l'API publique / le dashboard
+    // Supabase (auth.users n'est pas exposé), même principe que admin_email
+    // (migration 20260726_patient_spaces_admin_email.sql). Sans cette
+    // recopie, la colonne resterait figée à sa valeur de création de
+    // l'espace (vide, le PIN n'existant pas encore à ce moment-là).
+    if (adminUserId) {
+      await supabase
+        .from("patient_spaces")
+        .update({ admin_pin: tempPin || null })
+        .eq("admin_id", adminUserId);
+    }
+
     showToast(emailChanged ? "Profil mis à jour ✓ Vérifie tes emails pour confirmer la nouvelle adresse." : "Profil mis à jour ✓");
     setEditProfileModal(false);
   }

@@ -6,6 +6,7 @@ export interface PatientSpace {
   admin_firstname: string | null;
   admin_lastname: string | null;
   admin_email: string | null;
+  admin_pin: string | null;
   patient_firstname: string;
   patient_lastname: string;
   patient_photo_url: string | null;
