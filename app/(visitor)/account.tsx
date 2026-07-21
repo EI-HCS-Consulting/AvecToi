@@ -12,6 +12,7 @@ import { useVisitorSpace } from "@/lib/VisitorContext";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { supabase } from "@/lib/supabase";
 import { getVisitorSession, saveVisitorSession, clearVisitorSession } from "@/lib/visitorSession";
+import { enterByDossierCode } from "@/lib/visitorEntry";
 import { normalizePhone } from "@/lib/phone";
 import PinPad from "@/components/PinPad";
 import PatientProfileModal from "@/components/PatientProfileModal";
@@ -120,6 +121,16 @@ export default function VisitorAccountScreen() {
   // téléphone de CET appareil, pas un listing ouvert).
   const [linkedSpaces, setLinkedSpaces] = useState<LinkedIntervenantSpace[]>([]);
   const [switchingSpaceId, setSwitchingSpaceId] = useState<string | null>(null);
+
+  // "Rejoindre un nouveau patient" — pivot vers un espace jamais rejoint,
+  // via le code dossier (voir components/ShareSpace.tsx côté admin). Recrée
+  // la fiche intervenant à l'identique (photo, téléphone, phrase totem,
+  // types d'intervention) à partir du profil courant, sans repasser par le
+  // formulaire de création bloquant — voir handleJoinNewSpace.
+  const [joinModalVisible, setJoinModalVisible] = useState(false);
+  const [joinCode, setJoinCode] = useState("");
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState("");
 
   // Changement de PIN — 3 phases dans une même modale, réutilisant le même
   // PinPad : (1) vérifier l'ancien PIN, (2) saisir le nouveau, (3) le
@@ -319,6 +330,152 @@ export default function VisitorAccountScreen() {
       pathname: "/(visitor)/home/calendar",
       params: { spaceId: row.space_id, token: row.patient_spaces.invite_token },
     } as any);
+  }
+
+  // Copie la photo et les types d'intervention du profil courant vers la
+  // fiche fraîchement créée sur le nouvel espace — best-effort, ne bloque
+  // jamais le pivot (le prénom/nom/téléphone/phrase totem sont déjà passés
+  // à l'insert dans handleJoinNewSpace, seuls la photo — copie storage
+  // directe, pas de re-upload — et les types d'intervention nécessitent une
+  // 2e étape une fois le nouvel id connu).
+  async function copyProfileExtras(targetProfileId: string) {
+    if (!intervenantProfileId) return;
+    try {
+      const [{ data: sourceProfile }, { data: sourceTypes }] = await Promise.all([
+        supabase.from("intervenant_profiles").select("photo").eq("id", intervenantProfileId).maybeSingle(),
+        supabase.from("intervention_types").select("label, duration_minutes").eq("intervenant_profile_id", intervenantProfileId),
+      ]);
+      if (sourceProfile?.photo) {
+        const { error: copyErr } = await supabase.storage
+          .from("intervenant-photos")
+          .copy(sourceProfile.photo, `${targetProfileId}.jpg`);
+        if (!copyErr) {
+          await supabase.from("intervenant_profiles")
+            .update({ photo: `${targetProfileId}.jpg`, photo_updated_at: new Date().toISOString() })
+            .eq("id", targetProfileId);
+        } else {
+          console.error("[copyProfileExtras] storage copy failed:", copyErr);
+        }
+      }
+      if (sourceTypes && sourceTypes.length > 0) {
+        const { error: typesErr } = await supabase.from("intervention_types").insert(
+          sourceTypes.map((t) => ({
+            intervenant_profile_id: targetProfileId,
+            label: t.label,
+            duration_minutes: t.duration_minutes,
+          })),
+        );
+        if (typesErr) console.error("[copyProfileExtras] intervention_types copy failed:", typesErr);
+      }
+    } catch (e) {
+      console.error("[copyProfileExtras] unexpected error:", e);
+    }
+  }
+
+  // Rejoindre un nouvel espace via son code dossier (voir
+  // components/ShareSpace.tsx côté admin, colonne patient_spaces.dossier_code).
+  // Si une fiche existe déjà sur cet espace pour ce téléphone (créée par
+  // l'admin, ou lors d'un précédent pivot), on la réutilise. Sinon on la
+  // recrée à l'identique à partir du profil courant (prénom/nom/téléphone/
+  // phrase totem à l'insert, photo/types via copyProfileExtras) — jamais de
+  // formulaire à reremplir, même à la toute première connexion sur cet
+  // espace.
+  async function handleJoinNewSpace() {
+    const code = joinCode.trim();
+    if (!code || joining) return;
+    setJoining(true);
+    setJoinError("");
+    try {
+      const result = await enterByDossierCode(code);
+      if (!result.ok) {
+        setJoinError(
+          result.reason === "inactive"
+            ? "Cet espace n'est plus actif."
+            : "Code dossier introuvable — vérifie-le auprès de l'organisateur.",
+        );
+        return;
+      }
+      if (!result.intervenantsEnabled) {
+        setJoinError("Ce patient n'a pas activé l'accès intervenant.");
+        return;
+      }
+      if (space && result.spaceId === space.id) {
+        setJoinError("Tu es déjà sur cet espace.");
+        return;
+      }
+
+      const normalizedTelephone = normalizePhone(telephone);
+      const { data: existingRow } = await supabase
+        .from("intervenant_profiles")
+        .select("id, pin")
+        .eq("space_id", result.spaceId)
+        .eq("telephone", normalizedTelephone)
+        .maybeSingle();
+
+      let targetProfileId = existingRow?.id ?? null;
+      let targetPin = existingRow?.pin ?? pin;
+
+      if (!targetProfileId) {
+        const { data: inserted, error: insertErr } = await supabase
+          .from("intervenant_profiles")
+          .insert({
+            space_id: result.spaceId,
+            prenom: prenom.trim(),
+            nom: nom.trim(),
+            pin,
+            telephone: normalizedTelephone || null,
+            phrase_totem: motto.trim() || null,
+          })
+          .select("id")
+          .single();
+
+        if (insertErr?.code === "23505") {
+          // Une fiche existe déjà pour ce prénom/nom sur cet espace (créée
+          // par l'admin sans le même téléphone) — même logique de
+          // rattachement que IntervenantFicheModal.handleSave.
+          const { data: conflictRow } = await supabase
+            .from("intervenant_profiles")
+            .select("id, pin")
+            .eq("space_id", result.spaceId)
+            .ilike("prenom", prenom.trim())
+            .ilike("nom", nom.trim())
+            .maybeSingle();
+          if (!conflictRow || conflictRow.pin !== pin) {
+            setJoinError("Une fiche existe déjà pour ce prénom et ce nom sur cet espace, avec un code différent. Contacte l'organisateur.");
+            return;
+          }
+          targetProfileId = conflictRow.id;
+          targetPin = conflictRow.pin;
+        } else if (insertErr || !inserted) {
+          throw insertErr ?? new Error("Impossible de rejoindre cet espace.");
+        } else {
+          targetProfileId = inserted.id;
+          targetPin = pin;
+          await copyProfileExtras(targetProfileId);
+        }
+      }
+
+      await saveVisitorSession({
+        token: result.token,
+        spaceId: result.spaceId,
+        prenom, nom, pin: targetPin,
+        role: "intervenant",
+        intervenantProfileId: targetProfileId,
+        telephone,
+        motto,
+        localPhotoUri: null,
+      });
+      setJoinModalVisible(false);
+      setJoinCode("");
+      router.replace({
+        pathname: "/(visitor)/home/calendar",
+        params: { spaceId: result.spaceId, token: result.token },
+      } as any);
+    } catch (e: any) {
+      setJoinError(e?.message ?? "Impossible de rejoindre cet espace.");
+    } finally {
+      setJoining(false);
+    }
   }
 
   async function handlePickPhoto() {
@@ -1014,6 +1171,27 @@ export default function VisitorAccountScreen() {
           </View>
         )}
 
+        {role === "intervenant" && (
+          <TouchableOpacity
+            style={[styles.patientProfileBtn, { backgroundColor: C.accent, marginTop: 10 }]}
+            onPress={() => {
+              if (normalizePhone(telephone).length < 6) {
+                Alert.alert(
+                  "Téléphone requis",
+                  "Renseigne ton téléphone dans \"Mes informations\" avant de rejoindre un nouvel espace — il sert à retrouver ta fiche.",
+                );
+                return;
+              }
+              setJoinError("");
+              setJoinCode("");
+              setJoinModalVisible(true);
+            }}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.patientProfileBtnText}>➕ Rejoindre un nouveau patient</Text>
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity style={styles.switchLink} onPress={handleSwitchSpace}>
           <Text style={[styles.switchLinkText, { color: C.muted }]}>Suivre un autre espace</Text>
         </TouchableOpacity>
@@ -1136,6 +1314,47 @@ export default function VisitorAccountScreen() {
                 </Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={joinModalVisible} transparent animationType="fade" onRequestClose={() => setJoinModalVisible(false)}>
+        <View style={styles.pinModalOverlay}>
+          <View style={[styles.pinModalCard, { backgroundColor: C.card, borderColor: C.border }]}>
+            <Text style={[styles.pinModalTitle, { color: C.text }]}>➕ Rejoindre un nouveau patient</Text>
+            <Text style={[styles.cardDesc, { color: C.muted, textAlign: "center", marginBottom: 14 }]}>
+              Demande le code dossier à l'organisateur de ce nouvel espace. Ta fiche (photo,
+              téléphone, phrase totem, types d'intervention) sera reprise automatiquement.
+            </Text>
+            <TextInput
+              style={[
+                styles.input,
+                { backgroundColor: C.bg, borderColor: C.border, color: C.text, width: "100%", textAlign: "center", letterSpacing: 2 },
+              ]}
+              placeholder="Code dossier"
+              placeholderTextColor={C.muted}
+              value={joinCode}
+              onChangeText={(v) => setJoinCode(v.toUpperCase())}
+              autoCapitalize="characters"
+              autoCorrect={false}
+            />
+            {!!joinError && (
+              <Text style={[styles.pinModalError, { color: C.danger, marginTop: 10 }]}>{joinError}</Text>
+            )}
+            <TouchableOpacity
+              style={[
+                styles.saveBtn,
+                { backgroundColor: C.accent, width: "100%", marginTop: 16 },
+                (joining || !joinCode.trim()) && { opacity: 0.5 },
+              ]}
+              onPress={handleJoinNewSpace}
+              disabled={joining || !joinCode.trim()}
+            >
+              {joining ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.saveBtnText}>Rejoindre</Text>}
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.pinModalCancel} onPress={() => setJoinModalVisible(false)}>
+              <Text style={[styles.pinModalCancelText, { color: C.muted }]}>Annuler</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
