@@ -70,6 +70,7 @@ function InterventionBookingFlow(
   const [selectedTypeId, setSelectedTypeId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [dayBookedAlert, setDayBookedAlert] = useState(false);
+  const [overlapAlert, setOverlapAlert] = useState(false);
   const [confirmed, setConfirmed] = useState<ConfirmedBooking | null>(null);
   const [calendarAdded, setCalendarAdded] = useState(false);
 
@@ -121,7 +122,7 @@ function InterventionBookingFlow(
       if (error.message.includes("INTERVENTION_CROSSES_MIDNIGHT")) {
         Alert.alert("Créneau impossible", "Cette intervention dépasserait minuit. Choisis un créneau plus tôt.");
       } else if (error.message.includes("INTERVENTION_OVERLAP_SELF")) {
-        Alert.alert("Chevauchement", "Tu as déjà une intervention prévue sur ce créneau.");
+        setOverlapAlert(true);
       } else if (error.message.includes("DAY_ALREADY_BOOKED")) {
         setDayBookedAlert(true);
       } else {
@@ -339,6 +340,19 @@ function InterventionBookingFlow(
         confirmLabel="J'ai compris"
         onCancel={() => setDayBookedAlert(false)}
         onConfirm={() => setDayBookedAlert(false)}
+        C={C}
+      />
+
+      <ConfirmModal
+        visible={overlapAlert}
+        icon="⚠️"
+        title="Chevauchement"
+        message="Tu as déjà une intervention prévue sur ce créneau."
+        singleButton
+        destructive={false}
+        confirmLabel="J'ai compris"
+        onCancel={() => setOverlapAlert(false)}
+        onConfirm={() => setOverlapAlert(false)}
         C={C}
       />
     </>

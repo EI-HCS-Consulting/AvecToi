@@ -689,7 +689,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
       <Modal visible={templatesPicker} transparent animationType="slide" onRequestClose={() => setTemplatesPicker(false)}>
         <View style={styles.overlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setTemplatesPicker(false)} />
-          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.gold }]}>
+          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.gold, marginBottom: 12 }]}>
             <Text style={[styles.sheetTitle, { color: C.text }]}>📥 Mes modèles</Text>
             <Text style={[styles.intro, { color: C.muted }]}>
               Importe une checklist que tu as enregistrée comme modèle (💾, depuis un autre dossier patient) dans ce dossier-ci.

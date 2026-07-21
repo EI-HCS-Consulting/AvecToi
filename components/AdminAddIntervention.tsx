@@ -8,7 +8,7 @@ import { toFrLong, toISO, isSlotFullyPast } from "@/lib/slotUtils";
 import { addToNativeCalendar, linkCalendarEvent } from "@/lib/calendarSync";
 import MiniCalendar from "@/components/MiniCalendar";
 import ConfirmModal from "@/components/ConfirmModal";
-import type { PatientSpace, SlotConfig, IntervenantProfile, InterventionType } from "@/lib/types";
+import type { PatientSpace, SlotConfig, IntervenantProfile, InterventionType, Reservation } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
 // Modale "ajouter une intervention" côté admin — parallèle à
@@ -30,6 +30,14 @@ interface Props {
   getSlotsForDate: (iso: string) => string[];
   startDate: Date;
   interventionDates: Set<string>;
+  // Toutes les réservations de l'espace (Visite + Nuit + Intervention) —
+  // sert uniquement à détecter en amont, dès l'ouverture sur un jour donné,
+  // qu'il est déjà pris quand le mode "1 visite par jour" est actif (même
+  // règle que côté serveur, voir book_intervention() dans
+  // supabase/migrations/20260720_book_intervention_one_visit_per_day.sql),
+  // pour ouvrir directement la popup "Un seul créneau par jour" au lieu de
+  // laisser dérouler tout le formulaire jusqu'au clic "Réserver".
+  reservations: Reservation[];
   onAdded: () => void;
   C: Theme;
   // Réutilisation côté intervenant (app/(visitor)/soins.tsx, bouton
@@ -39,7 +47,7 @@ interface Props {
   pin?: string;
 }
 
-function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, interventionDates, onAdded, C, fixedIntervenantProfileId, pin }: Props, ref: React.Ref<AdminAddInterventionHandle>) {
+function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, interventionDates, reservations, onAdded, C, fixedIntervenantProfileId, pin }: Props, ref: React.Ref<AdminAddInterventionHandle>) {
   const [visible, setVisible] = useState(false);
   const [calMonth, setCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
   const [selectedIso, setSelectedIso] = useState<string | null>(null);
@@ -53,6 +61,16 @@ function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, i
   const [loadingTypes, setLoadingTypes] = useState(false);
   const [saving, setSaving] = useState(false);
   const [dayBookedAlert, setDayBookedAlert] = useState(false);
+  const [overlapAlert, setOverlapAlert] = useState(false);
+
+  // Même règle que le trigger check_slot_capacity() / book_intervention()
+  // côté serveur : une visite ou une intervention déjà présente ce jour-là
+  // (hors "day_cap_suspended") suffit à le considérer pris.
+  function isDayAlreadyBooked(iso: string) {
+    return reservations.some(
+      (r) => r.date === iso && (r.type === "Visite" || r.type === "Intervention") && r.alert_type !== "day_cap_suspended",
+    );
+  }
 
   const [savedId, setSavedId] = useState<string | null>(null);
   const [rebookedCount, setRebookedCount] = useState(0);
@@ -63,6 +81,12 @@ function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, i
   useImperativeHandle(ref, () => ({
     open: (initialIso) => {
       const iso = initialIso ?? toISO(new Date());
+
+      if (slotConfig.one_visit_per_day && isDayAlreadyBooked(iso)) {
+        setDayBookedAlert(true);
+        return;
+      }
+
       const d = new Date(iso + "T00:00:00");
       setSelectedIso(iso);
       setCalMonth({ year: d.getFullYear(), month: d.getMonth() });
@@ -141,7 +165,7 @@ function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, i
       if (error.message.includes("INTERVENTION_CROSSES_MIDNIGHT")) {
         Alert.alert("Créneau impossible", "Cette intervention dépasserait minuit. Choisis un créneau plus tôt.");
       } else if (error.message.includes("INTERVENTION_OVERLAP_SELF")) {
-        Alert.alert("Chevauchement", "Cet intervenant a déjà une intervention prévue sur ce créneau.");
+        setOverlapAlert(true);
       } else if (error.message.includes("DAY_ALREADY_BOOKED")) {
         setDayBookedAlert(true);
       } else {
@@ -418,6 +442,19 @@ function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, i
       confirmLabel="J'ai compris"
       onCancel={() => setDayBookedAlert(false)}
       onConfirm={() => setDayBookedAlert(false)}
+      C={C}
+    />
+
+    <ConfirmModal
+      visible={overlapAlert}
+      icon="⚠️"
+      title="Chevauchement"
+      message="Cet intervenant a déjà une intervention prévue sur ce créneau."
+      singleButton
+      destructive={false}
+      confirmLabel="J'ai compris"
+      onCancel={() => setOverlapAlert(false)}
+      onConfirm={() => setOverlapAlert(false)}
       C={C}
     />
     </>

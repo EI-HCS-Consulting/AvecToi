@@ -154,6 +154,7 @@ export default function VisitorSoinsScreen() {
           getSlotsForDate={getSlotsForDate}
           startDate={startDate}
           interventionDates={interventionDates}
+          reservations={reservations}
           fixedIntervenantProfileId={intervenantProfileId ?? undefined}
           pin={myPin ?? undefined}
           onAdded={async () => { await refreshReservations(); }}
