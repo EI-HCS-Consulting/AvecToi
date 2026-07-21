@@ -13,8 +13,11 @@ DECLARE
   v_secret  TEXT := '<CRON_SECRET>';
 BEGIN
 
-  -- Supprimer un éventuel job existant
-  PERFORM cron.unschedule('rgpd-purge-daily');
+  -- Supprimer un éventuel job existant (cron.unschedule lève une erreur si
+  -- le job n'existe pas encore, contrairement à un DROP ... IF EXISTS)
+  IF EXISTS (SELECT 1 FROM cron.job WHERE jobname = 'rgpd-purge-daily') THEN
+    PERFORM cron.unschedule('rgpd-purge-daily');
+  END IF;
 
   -- Planifier l'exécution quotidienne à 02:00 UTC
   PERFORM cron.schedule(
