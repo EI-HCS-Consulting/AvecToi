@@ -37,7 +37,7 @@ const FIXED_SLOT_CONFIG = {
   max_night_visitors: 1,
 };
 
-const SPACE_DURATION_DAYS = 30; // matches the "Prolonger de 30 jours" RGPD cycle
+const SPACE_DURATION_DAYS = 90; // matches the "Prolonger de 90 jours" RGPD cycle
 
 type Step = "patient" | "care" | "hours" | "capacity";
 const FORM_STEPS: Step[] = ["patient", "care", "hours", "capacity"];

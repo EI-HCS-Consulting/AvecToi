@@ -1,0 +1,51 @@
+name: Supabase schema backup
+
+# Sauvegarde hebdomadaire du SCHEMA (structure) Supabase — pas les données.
+# `supabase db dump` (le vrai outil Supabase CLI, exécuté ici sur le runner
+# GitHub Actions et non sur la machine locale où il est bloqué par l'App
+# Control Policy Windows) extrait tout le DDL réel : tables, colonnes, RLS
+# policies, triggers, buckets Storage. Ça comble le point noté dans
+# ISOLATION_SUPABASE.md : la plupart du schéma a été créé à la main dans le
+# SQL Editor et n'existe dans aucun fichier de migration versionné. Gratuit
+# (aucun besoin du plan Pro) : pg_dump/supabase CLI parlent directement au
+# Postgres du projet via la chaîne de connexion, indépendamment du tier.
+#
+# Si le schéma a changé depuis le dernier snapshot committé, ouvre une PR
+# automatique (main est protégée par un ruleset qui exige une PR).
+on:
+  schedule:
+    - cron: "0 3 * * 1" # tous les lundis à 03:00 UTC
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Dump schema (public + storage)
+        run: |
+          mkdir -p supabase/schema_backups
+          supabase db dump --db-url "${{ secrets.SUPABASE_DB_URL }}" --schema public,storage -f supabase/schema_backups/schema_snapshot.sql
+
+      - name: Open PR if schema changed
+        uses: peter-evans/create-pull-request@v6
+        with:
+          commit-message: "chore: snapshot schéma Supabase (backup structure)"
+          branch: chore/schema-backup-auto
+          delete-branch: true
+          title: "chore: snapshot schéma Supabase du ${{ github.run_id }}"
+          body: |
+            Snapshot automatique du schéma Supabase (structure uniquement — tables, RLS, triggers, buckets Storage), généré chaque lundi par `.github/workflows/schema-backup.yml`.
+
+            Aucune donnée patient dans ce fichier — uniquement le DDL (`CREATE TABLE`, `CREATE POLICY`, etc.). Objectif : garder une trace versionnée de la structure réelle de la base, indépendamment de toute perte/corruption du projet Supabase. Voir `ISOLATION_SUPABASE.md`.
