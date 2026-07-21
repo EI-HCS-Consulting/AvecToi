@@ -244,6 +244,7 @@ export default function AdminIntervenantsScreen() {
           getSlotsForDate={getSlotsForDate}
           startDate={startDate}
           interventionDates={interventionDates}
+          reservations={reservations}
           onAdded={async () => { await refreshReservations(); showToast("Intervention ajoutée ✓"); }}
           C={C}
         />
