@@ -114,11 +114,12 @@ export default function VisitorAccountScreen() {
   const [intervenantProfileId, setIntervenantProfileId] = useState<string | null>(null);
   const [ficheModalVisible, setFicheModalVisible] = useState(false);
 
-  // "Mes espaces" — autres espaces patients liés au même téléphone (voir
-  // Handoff/plan "Rattachement multi-espaces des intervenants"). Chargé
-  // uniquement pour un intervenant dont le téléphone est connu ; n'affecte
-  // jamais les visiteurs ni les autres espaces (requête filtrée par le
-  // téléphone de CET appareil, pas un listing ouvert).
+  // "Mes Patients" — autres espaces patients déjà rejoints par ce même
+  // téléphone (basculement direct, sans ressaisir le code dossier — voir
+  // handleSwitchLinkedSpace). Chargé uniquement pour un intervenant dont le
+  // téléphone est connu ; n'affecte jamais les visiteurs ni les autres
+  // espaces (requête filtrée par le téléphone de CET appareil, pas un
+  // listing ouvert).
   const [linkedSpaces, setLinkedSpaces] = useState<LinkedIntervenantSpace[]>([]);
   const [switchingSpaceId, setSwitchingSpaceId] = useState<string | null>(null);
 
@@ -1143,7 +1144,7 @@ export default function VisitorAccountScreen() {
 
         {role === "intervenant" && linkedSpaces.length >= 2 && (
           <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 10 }]}>
-            <Text style={[styles.contribHeaderText, { color: C.text, marginBottom: 2 }]}>🔗 Mes espaces</Text>
+            <Text style={[styles.contribHeaderText, { color: C.text, marginBottom: 2 }]}>👥 Mes Patients</Text>
             {linkedSpaces.map((row) => {
               const isActive = row.space_id === space.id;
               const label = row.patient_spaces
