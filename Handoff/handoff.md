@@ -5,7 +5,22 @@ _Généré le : 2026-07-20 (soir)_
 
 **Stack :** React Native + Expo SDK 51+, Expo Router, Supabase (BDD/Auth/Storage/Realtime/Edge Functions), EAS Build + EAS Update (channels development/preview/production, `expo-updates` installé). expo-notifications, expo-calendar, expo-image-picker. Resend (transactionnel) branché sur les Edge Functions. Stripe côté web uniquement (avectoi.care), app 100% "reader" conforme Play Store. Supabase CLI bloqué sur cette machine (App Control Policy Windows) : déploiement des migrations/Edge Functions exclusivement via le Dashboard Supabase (copier/coller le SQL en un seul bloc).
 
-**EAS Update — automatisé depuis le 20/07 (PR #61) :** `.github/workflows/eas-update-preview.yml` publie automatiquement `eas update --channel preview` à chaque push sur `main` contenant du code app (paths-ignore sur `Handoff/`, `Documentation/`, `**.md`). Rien à faire manuellement après un merge de code.
+**EAS Update — automatisé depuis le 20/07 (PR #61) :** `.github/workflows/eas-update-preview.yml` publie automatiquement `eas update --channel preview` à chaque push sur `main` contenant du code app (paths-ignore sur `Handoff/`, `Documentation/`, `**.md`). Un `workflow_dispatch` permet aussi de rejouer une publication manuellement (Actions → "EAS Update (preview)" → Run workflow, ou `gh workflow run "EAS Update (preview)" --ref main`) si un run automatique a échoué.
+
+**⚠️ Point d'attention — panne silencieuse du 21/07 (PR #84 → #86), à ne pas reproduire :**
+- **Cause :** l'étape de publication interpolait `github.event.head_commit.message` *directement dans le texte du script bash* (`--message "${{ github.event.head_commit.message }}"`). Un message de commit multi-lignes contenant des guillemets (`"..."`, `«...»` — courant dans nos messages de merge PR) casse le quoting bash : `eas update` reçoit des arguments tronqués et échoue (`Unexpected arguments: ...`). Le job a un run rouge dans l'onglet Actions, mais **rien ne bloque le merge ni n'alerte dans l'app** — le channel `preview` est resté figé sur un vieux commit pendant ~3h sans que ce soit visible ailleurs que dans Actions.
+- **Écriture correcte (corrigée dans le workflow) :** passer toute donnée potentiellement multi-ligne/avec guillemets par une variable d'environnement, jamais par interpolation `${{ }}` directe dans un `run:` bash :
+  ```yaml
+  - name: Publish EAS Update (preview)
+    env:
+      COMMIT_MESSAGE: ${{ github.event.head_commit.message || 'fallback si workflow_dispatch' }}
+    run: |
+      FIRST_LINE="$(printf '%s' "$COMMIT_MESSAGE" | head -n1)"
+      eas update --channel preview --message "$FIRST_LINE" --non-interactive
+  ```
+  (Ce pattern — env var + `$VAR` entre guillemets — est aussi la recommandation GitHub officielle contre l'injection de script, pas seulement contre ce bug de syntaxe.)
+- **Réflexe à prendre après un merge important :** un `gh run list --workflow=eas-update-preview.yml --limit 3` (ou l'onglet Actions) pour confirmer que le run est vert, plutôt que de supposer que la publication a réussi.
+- **Piège séparé, à ne pas confondre avec une régression de code :** même une fois la publication OTA réussie, `expo-updates` (config par défaut, `fallbackToCacheTimeout` non fixé) télécharge la mise à jour en arrière-plan mais **sert encore l'ancien bundle JS au lancement en cours** — la nouvelle version n'est appliquée qu'au prochain redémarrage **complet** de l'app (fermer depuis le multitâche, pas juste mettre en arrière-plan), parfois il faut fermer/rouvrir deux fois juste après une publication. Symptôme observé le 21/07 : juste après le fix + republication, un nouveau compte intervenant ne voyait ni le bloc "Mes Patients" ni le bouton "Rejoindre un nouveau patient" — fausse alerte, résolue en relançant complètement l'app. Avant de chercher un bug de code suite à un déploiement OTA récent, toujours commencer par un redémarrage complet de l'app testée.
 
 **Repo GitHub :** `https://github.com/EI-HCS-Consulting/AvecToi`, branche `main` protégée par ruleset (PR obligatoire). `main` local à jour avec `origin/main` (`ddd1a82`, PR #75 mergée).
 
