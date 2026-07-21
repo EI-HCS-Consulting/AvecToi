@@ -701,25 +701,27 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                 Aucun modèle pour le moment. Enregistre une checklist comme modèle avec 💾, depuis son en-tête.
               </Text>
             ) : (
-              templates.map((tpl) => (
-                <TouchableOpacity
-                  key={tpl.id}
-                  style={[styles.checklistCard, { borderColor: C.gold, backgroundColor: C.gold + "14" }]}
-                  onPress={() => importTemplate(tpl)}
-                  disabled={importingTemplateId === tpl.id}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.checklistCardIcon}>📋</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.checklistCardTitle, { color: C.text }]}>{tpl.name}</Text>
-                    <Text style={[styles.checklistCardCount, { color: C.muted }]}>{tpl.items.length} items</Text>
-                  </View>
-                  {importingTemplateId === tpl.id
-                    ? <ActivityIndicator color={C.gold} />
-                    : <Text style={[styles.checklistCardArrow, { color: C.gold }]}>→</Text>
-                  }
-                </TouchableOpacity>
-              ))
+              <ScrollView style={styles.scroll} showsVerticalScrollIndicator nestedScrollEnabled>
+                {templates.map((tpl) => (
+                  <TouchableOpacity
+                    key={tpl.id}
+                    style={[styles.checklistCard, { borderColor: C.gold, backgroundColor: C.gold + "14" }]}
+                    onPress={() => importTemplate(tpl)}
+                    disabled={importingTemplateId === tpl.id}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.checklistCardIcon}>📋</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.checklistCardTitle, { color: C.text }]}>{tpl.name}</Text>
+                      <Text style={[styles.checklistCardCount, { color: C.muted }]}>{tpl.items.length} items</Text>
+                    </View>
+                    {importingTemplateId === tpl.id
+                      ? <ActivityIndicator color={C.gold} />
+                      : <Text style={[styles.checklistCardArrow, { color: C.gold }]}>→</Text>
+                    }
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
             )}
             <TouchableOpacity
               onPress={() => setTemplatesPicker(false)}
