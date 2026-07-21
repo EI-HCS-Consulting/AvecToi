@@ -11,6 +11,10 @@ on:
       - "Handoff/**"
       - "Documentation/**"
       - "**.md"
+  # Permet de rejouer manuellement une publication (onglet Actions → Run
+  # workflow) si un run automatique a échoué et que le channel "preview" est
+  # resté figé sur un commit plus ancien que main.
+  workflow_dispatch:
 
 jobs:
   update:
@@ -44,5 +48,16 @@ jobs:
           echo "EXPO_PUBLIC_SUPABASE_URL=${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}" >> .env.local
           echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}" >> .env.local
 
+      # Le message du commit passe par une variable d'env (pas une
+      # interpolation ${{ }} directe dans le script) : un message multi-ligne
+      # contenant des guillemets ("...", «...») casserait le quoting bash et
+      # ferait planter `eas update` avec des arguments tronqués — vu en
+      # pratique sur le merge de la PR #84 (channel preview resté figé).
       - name: Publish EAS Update (preview)
-        run: eas update --channel preview --message "${{ github.event.head_commit.message }}" --non-interactive
+        env:
+          # head_commit est absent sur un déclenchement manuel
+          # (workflow_dispatch) — message de repli dans ce cas.
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message || 'Manual OTA update (workflow_dispatch)' }}
+        run: |
+          FIRST_LINE="$(printf '%s' "$COMMIT_MESSAGE" | head -n1)"
+          eas update --channel preview --message "$FIRST_LINE" --non-interactive
