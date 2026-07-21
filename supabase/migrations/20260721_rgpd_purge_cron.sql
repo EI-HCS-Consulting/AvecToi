@@ -1,7 +1,13 @@
 -- RGPD Purge — Configuration pg_cron
--- Exécuter dans le SQL Editor du dashboard Supabase.
+-- Exécuter dans le SQL Editor du dashboard Supabase (en un seul bloc).
 -- Prérequis : activer les extensions pg_cron et pg_net dans
 -- Dashboard → Database → Extensions.
+--
+-- Déjà appliqué en prod le 21/07 : pg_cron/pg_net n'avaient jamais été
+-- activés sur ce projet (le job rgpd-purge-daily n'existait pas du tout —
+-- voir REFLEXION_SITE_VERCEL_ET_RGPD.md). Conservé ici comme les autres
+-- fichiers de ce dossier, pour rejouer la même config sur un futur projet
+-- Supabase isolé (cf. ISOLATION_SUPABASE.md).
 
 -- Remplacer les valeurs suivantes :
 --   <PROJECT_REF>  → l'identifiant de projet Supabase (ex: flmslcdzjuifkivmzins)
