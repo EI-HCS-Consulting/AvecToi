@@ -22,3 +22,17 @@ Fonctionnalité officielle (preview DB par branche Git), mais plan Pro (25$/mois
 
 ## En attendant (solution actuelle, zéro effort)
 Utiliser l'espace de test déjà existant (`space_id = 779f5e5c-084e-418a-adb9-4a2e4af33d80`, créé lors d'une session précédente) pour tous les tests téléphone. Les données sont cloisonnées par `space_id` dans toutes les tables, donc ça ne pollue pas l'espace du vrai patient. Limite : le **schéma** et les **buckets Storage** restent partagés — toute migration SQL appliquée affecte aussi l'app en prod (acceptable tant que les migrations sont additives, comme actuellement).
+
+## Mise à jour du 21/07 — sauvegarde automatique du schéma (structure)
+
+Déclencheur : la purge RGPD a supprimé les données de l'unique vraie patiente (espace historique lié à `planning-visites-maman.vercel.app`), révélant concrètement le risque du tier gratuit (0 jour de rétention de backup) combiné au schéma jamais versionné. Sans copie du schéma quelque part, une perte/corruption du projet Supabase actuel serait irrécupérable — pas juste pour les données, mais pour la structure elle-même (tables, RLS, triggers, buckets).
+
+**Solution mise en place, gratuite, sans passer par la CLI Supabase locale (bloquée sur cette machine) :** `.github/workflows/schema-backup.yml` — un job GitHub Actions (cloud, donc pas concerné par l'App Control Policy Windows) qui exécute chaque lundi 03:00 UTC (+ déclenchement manuel possible) :
+```
+supabase db dump --db-url "$SUPABASE_DB_URL" --schema public,storage -f supabase/schema_backups/schema_snapshot.sql
+```
+Si le schéma a changé depuis le dernier snapshot, le job ouvre automatiquement une PR (main est protégée par ruleset). Aucune donnée patient dans ce fichier : uniquement le DDL (`CREATE TABLE`, `CREATE POLICY`, buckets Storage).
+
+**Reste à faire (côté toi, une seule fois) :** ajouter le secret GitHub Actions `SUPABASE_DB_URL` sur le repo (Settings → Secrets and variables → Actions → New repository secret). Valeur : la chaîne de connexion Postgres du projet, trouvable dans Dashboard Supabase → Project Settings → Database → Connection string — prendre la variante **"Session pooler"** ou **"Direct connection"** (PAS "Transaction pooler" / port 6543, qui ne supporte pas `pg_dump`/`supabase db dump`). Une fois le secret posé, le premier run (manuel via l'onglet Actions → "Supabase schema backup" → "Run workflow") capture l'état actuel du schéma en prod — la meilleure sauvegarde de structure possible à ce stade.
+
+Ça ne couvre pas les **données** (toujours 0 backup sur le tier gratuit) — seulement la **structure**, ce qui était la demande explicite. Un vrai backup de données (PITR) resterait un argument pour le plan Pro (25$/mois) si on veut un jour protéger les données elles-mêmes, pas juste le plan de construction de la base.

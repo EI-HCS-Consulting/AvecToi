@@ -1370,7 +1370,7 @@ export default function SettingsScreen() {
     if (!space) return;
     Alert.alert(
       "Prolonger l'espace",
-      "Ajouter 30 jours à la date de conservation ? Toutes les données seront conservées 30 jours de plus.",
+      "Ajouter 90 jours à la date de conservation ? Toutes les données seront conservées 90 jours de plus.",
       [
         { text: "Annuler", style: "cancel" },
         {
@@ -1380,11 +1380,11 @@ export default function SettingsScreen() {
 
             const currentPurge = new Date(space.purge_scheduled_at);
             const newPurge = new Date(currentPurge);
-            newPurge.setDate(newPurge.getDate() + 30);
+            newPurge.setDate(newPurge.getDate() + 90);
 
             const currentEnd = new Date(space.end_date + "T00:00:00");
             const newEnd = new Date(currentEnd);
-            newEnd.setDate(newEnd.getDate() + 30);
+            newEnd.setDate(newEnd.getDate() + 90);
 
             const { error } = await supabase
               .from("patient_spaces")
@@ -1398,7 +1398,7 @@ export default function SettingsScreen() {
             if (error) {
               showToast("Erreur lors de la prolongation.");
             } else {
-              showToast("Espace prolongé de 30 jours ✓");
+              showToast("Espace prolongé de 90 jours ✓");
             }
           },
         },
@@ -2595,7 +2595,7 @@ export default function SettingsScreen() {
                   >
                     {prolonging
                       ? <ActivityIndicator color="#fff" size="small" />
-                      : <Text style={[styles.prolongBtnText, { textAlign: "center" }]}>⏳ Prolonger de 30 jours{"\n"}(renouvelable gratuitement)</Text>
+                      : <Text style={[styles.prolongBtnText, { textAlign: "center" }]}>⏳ Prolonger de 90 jours{"\n"}(renouvelable gratuitement)</Text>
                     }
                   </TouchableOpacity>
                 </View>

@@ -15,10 +15,17 @@ _Généré le : 2026-07-20 (soir)_
 
 **En cours / pas commencé :**
 - Points 13-14 (EAS Build APK signé, fiche Play Store) : pas commencés.
-- Bug connu, pas corrigé : les flèches de navigation jour du calendrier visiteur (`app/(visitor)/home/slots.tsx`) contournent `allowed_weekdays`.
-- Isolation Supabase (séparer l'instance prod partagée avec le site web) : plan complet dans `ISOLATION_SUPABASE.md`, différée sur décision de l'utilisateur.
+- ~~Bug flèches jour calendrier visiteur~~ : **corrigé et mergé (PR #77)**, `slots.tsx` respecte maintenant `allowed_weekdays`/`blocked_dates` via `findNextAllowedDay`.
+- Isolation Supabase (séparer l'instance prod partagée avec le site web) : plan complet dans `ISOLATION_SUPABASE.md`, différée sur décision de l'utilisateur. **Nouveau (21/07) :** sauvegarde automatique hebdo du SCHÉMA (structure) mise en place via `.github/workflows/schema-backup.yml` — reste à poser le secret GitHub `SUPABASE_DB_URL` (voir ISOLATION_SUPABASE.md, section "Mise à jour du 21/07"). Les données elles-mêmes restent sans backup tant qu'on est sur le tier gratuit.
 - `docs/spec-web-upgrade` : toujours en attente d'une décision.
 - **Migration `20260728_intervenant_checklist_templates.sql` (PR #74) :** toujours pas confirmée exécutée en prod par l'utilisateur — "📥 Mes modèles" restera en échec silencieux tant que ce n'est pas fait (voir §5 du handoff précédent, PR #75).
+
+**3 fils ouverts identifiés le 21/07 (suite à la purge RGPD de l'espace patient historique) — à ne pas perdre :**
+1. **Alertes email RGPD jamais envoyées** : la fonction `rgpd-purge` a bien un envoi J-7 (`sendPurgeAlert`), mais il est silencieusement sauté (`console.warn` uniquement) si le secret `RESEND_API_KEY` n'est pas configuré *sur cette Edge Function précise* dans Supabase (Dashboard → Edge Functions → rgpd-purge → Secrets). À vérifier/reposer avant que ça ne se reproduise sur un futur vrai espace patient.
+2. **Mélange nuitées/créneaux entre espaces sur le site Vercel historique** (`planning-visites-maman.vercel.app`) : l'utilisateur observe des données d'autres espaces patients qui s'affichent sur ce site figé depuis `HANDOFF_migration_auth.md` (qui interdit d'y toucher). Sent un bug de filtrage par `space_id` côté ce vieux code MVP, jamais investigué.
+3. **Nouveau site web à héberger sur Infomaniak**, en remplacement/parallèle d'`avectoi.care` (actuellement Vercel), à démarrer "au plus vite" selon l'utilisateur — sans forcément débrancher le site Vercel actuel dans l'immédiat. Pas encore scopé (stack, ce qui doit être porté depuis avectoi.care).
+
+**RGPD — durée de rétention repassée à 90 jours (21/07) :** `SPACE_DURATION_DAYS` dans `PatientOnboarding.tsx` était passé à 30 jours (l'utilisateur se souvenait d'un réglage initial à 90) ; remis à 90 jours, avec le bouton/textes "Prolonger" (`app/(admin)/settings.tsx`) alignés sur la même valeur. **Important : ce changement de code ne s'applique qu'aux futurs espaces créés (et futurs clics sur "Prolonger") — il ne modifie PAS rétroactivement le `purge_scheduled_at` déjà enregistré sur les espaces existants.** Si des espaces actifs doivent être étendus, il faut soit cliquer "Prolonger" dans leurs Paramètres, soit faire une mise à jour SQL manuelle en base.
 
 ## Historique cumulé
 - Lots 1-10 (fonctionnalités de base) + sessions du 2026-07-04 au 07-17 (`dossier_code`, cap freemium, PIN visiteur sécurisé, Paramètres 4 sections, historique + recasage auto, Resend, fiche patient, Dark/Light, Chronologie, checklists administratives, Planning des intervenants) — PR #7-#41, mergées.
