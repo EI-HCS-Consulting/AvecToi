@@ -310,7 +310,12 @@ export default function VisitorAccountScreen() {
       .select("id, space_id, prenom, nom, pin, patient_spaces(patient_firstname, patient_lastname, invite_token)")
       .eq("telephone", normalized)
       .then(({ data }) => setLinkedSpaces((data as any) ?? []));
-  }, [role, telephone]);
+    // space?.id est nécessaire ici (en plus de role/telephone) : rejoindre un
+    // nouvel espace (handleJoinNewSpace) ou basculer vers un espace déjà lié
+    // (handleSwitchLinkedSpace) ne change ni le rôle ni le téléphone — sans
+    // cette dépendance, la liste restait figée sur son état au tout premier
+    // montage et n'incluait jamais les espaces rejoints depuis.
+  }, [role, telephone, space?.id]);
 
   async function handleSwitchLinkedSpace(row: LinkedIntervenantSpace) {
     if (!row.patient_spaces || switchingSpaceId) return;
