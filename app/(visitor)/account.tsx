@@ -70,12 +70,15 @@ const CAT_ICONS: Record<Task["category"], string> = {
   repas: "🍽️", affaires: "🧳", courses: "🛒", transport: "🚗", administratif: "🗂️", autre: "📌",
 };
 
-type AccountSectionKey = "info" | "resv" | "souvenirs" | "news" | "soutien" | "besoins";
+type AccountSectionKey = "info" | "patients" | "resv" | "souvenirs" | "news" | "soutien" | "besoins";
 // Ordre d'affichage de la grille = ordre des clés ci-dessous (2 tuiles par
 // ligne) : Infos/Réservations, Nouvelles/Souvenirs, Entraide/Soutien. Le PIN
-// n'a plus sa propre tuile — regroupé dans "Mes informations".
+// n'a plus sa propre tuile — regroupé dans "Mes informations". "patients"
+// n'existe que pour un intervenant (voir le filter plus bas), juste après
+// "info" pour rester visible sans avoir à scroller.
 const SECTION_META: Record<AccountSectionKey, { icon: string; label: string }> = {
   info: { icon: "📝", label: "Mes informations" },
+  patients: { icon: "👥", label: "Mes Patients" },
   resv: { icon: "📅", label: "Mes réservations" },
   news: { icon: "📰", label: "Mes nouvelles" },
   souvenirs: { icon: "📷", label: "Mes souvenirs" },
@@ -320,22 +323,31 @@ export default function VisitorAccountScreen() {
   async function handleSwitchLinkedSpace(row: LinkedIntervenantSpace) {
     if (!row.patient_spaces || switchingSpaceId) return;
     setSwitchingSpaceId(row.id);
-    await saveVisitorSession({
-      token: row.patient_spaces.invite_token,
-      spaceId: row.space_id,
-      prenom: row.prenom,
-      nom: row.nom,
-      pin: row.pin,
-      role: "intervenant",
-      intervenantProfileId: row.id,
-      telephone,
-      motto: "",
-      localPhotoUri: null,
-    });
-    router.replace({
-      pathname: "/(visitor)/home/calendar",
-      params: { spaceId: row.space_id, token: row.patient_spaces.invite_token },
-    } as any);
+    // try/finally : l'onglet Compte reste monté en arrière-plan quand on
+    // navigue vers le calendrier (Tabs ne démonte pas les écrans visités) —
+    // sans ce reset, switchingSpaceId restait bloqué sur cette ligne et son
+    // bouton ne répondait plus au retour sur Compte, tant que route/patients
+    // n'était pas rouverte sur un state neuf.
+    try {
+      await saveVisitorSession({
+        token: row.patient_spaces.invite_token,
+        spaceId: row.space_id,
+        prenom: row.prenom,
+        nom: row.nom,
+        pin: row.pin,
+        role: "intervenant",
+        intervenantProfileId: row.id,
+        telephone,
+        motto: "",
+        localPhotoUri: null,
+      });
+      router.replace({
+        pathname: "/(visitor)/home/calendar",
+        params: { spaceId: row.space_id, token: row.patient_spaces.invite_token },
+      } as any);
+    } finally {
+      setSwitchingSpaceId(null);
+    }
   }
 
   // Copie la photo et les types d'intervention du profil courant vers la
@@ -814,10 +826,14 @@ export default function VisitorAccountScreen() {
         </View>
 
         {(Object.keys(SECTION_META) as AccountSectionKey[])
-          .filter((k) => !(role === "intervenant" && (k === "souvenirs" || k === "besoins" || k === "resv")))
+          .filter((k) => {
+            if (k === "patients") return role === "intervenant";
+            return !(role === "intervenant" && (k === "souvenirs" || k === "besoins" || k === "resv"));
+          })
           .map((key) => {
           const isOpen = activeSection === key;
           const hint = key === "info" ? (prenom.trim() && nom.trim() ? `${prenom} ${nom}` : "À compléter")
+            : key === "patients" ? `${Math.max(linkedSpaces.length, 1)} patient(s)`
             : key === "resv" ? `${myReservations.length} réservation(s)`
             : key === "souvenirs" ? `${mySouvenirs.length} photo(s)`
             : key === "news" ? `${myNews.length} nouvelle(s)`
@@ -926,6 +942,60 @@ export default function VisitorAccountScreen() {
                     </TouchableOpacity>
                   </View>
                 </>
+              )}
+
+              {isOpen && key === "patients" && (
+                <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
+                  {linkedSpaces.map((row) => {
+                    const isActive = row.space_id === space.id;
+                    const label = row.patient_spaces
+                      ? `${row.patient_spaces.patient_firstname} ${row.patient_spaces.patient_lastname}`.trim()
+                      : "Espace";
+                    return (
+                      <TouchableOpacity
+                        key={row.id}
+                        style={[
+                          styles.patientBtn,
+                          {
+                            borderColor: isActive ? C.accent : C.border,
+                            backgroundColor: isActive ? `${C.accent}1A` : C.bg,
+                          },
+                        ]}
+                        disabled={isActive || switchingSpaceId === row.id}
+                        onPress={() => handleSwitchLinkedSpace(row)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.patientBtnText, { color: C.text }]} numberOfLines={1}>{label}</Text>
+                        {isActive ? (
+                          <Text style={[styles.patientBtnBadge, { color: C.accent }]}>Actif</Text>
+                        ) : switchingSpaceId === row.id ? (
+                          <ActivityIndicator color={C.accent} size="small" />
+                        ) : (
+                          <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+
+                  <TouchableOpacity
+                    style={[styles.patientProfileBtn, { backgroundColor: C.accent, marginTop: linkedSpaces.length > 0 ? 4 : 0 }]}
+                    onPress={() => {
+                      if (normalizePhone(telephone).length < 6) {
+                        Alert.alert(
+                          "Téléphone requis",
+                          "Renseigne ton téléphone dans \"Mes informations\" avant de rejoindre un nouvel espace — il sert à retrouver ta fiche.",
+                        );
+                        return;
+                      }
+                      setJoinError("");
+                      setJoinCode("");
+                      setJoinModalVisible(true);
+                    }}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.patientProfileBtnText}>➕ Rejoindre un nouveau patient</Text>
+                  </TouchableOpacity>
+                </View>
               )}
 
               {isOpen && key === "resv" && (
@@ -1144,57 +1214,6 @@ export default function VisitorAccountScreen() {
             activeOpacity={0.85}
           >
             <Text style={styles.patientProfileBtnText}>🩺 Ma fiche intervenant</Text>
-          </TouchableOpacity>
-        )}
-
-        {role === "intervenant" && linkedSpaces.length >= 2 && (
-          <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 10 }]}>
-            <Text style={[styles.contribHeaderText, { color: C.text, marginBottom: 2 }]}>👥 Mes Patients</Text>
-            {linkedSpaces.map((row) => {
-              const isActive = row.space_id === space.id;
-              const label = row.patient_spaces
-                ? `${row.patient_spaces.patient_firstname} ${row.patient_spaces.patient_lastname}`.trim()
-                : "Espace";
-              return (
-                <TouchableOpacity
-                  key={row.id}
-                  style={styles.activityRow}
-                  disabled={isActive || switchingSpaceId === row.id}
-                  onPress={() => handleSwitchLinkedSpace(row)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]}>{label}</Text>
-                  {isActive ? (
-                    <Text style={[styles.activityRowSub, { color: C.accent }]}>Actif</Text>
-                  ) : switchingSpaceId === row.id ? (
-                    <ActivityIndicator color={C.accent} size="small" />
-                  ) : (
-                    <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        )}
-
-        {role === "intervenant" && (
-          <TouchableOpacity
-            style={[styles.patientProfileBtn, { backgroundColor: C.accent, marginTop: 10 }]}
-            onPress={() => {
-              if (normalizePhone(telephone).length < 6) {
-                Alert.alert(
-                  "Téléphone requis",
-                  "Renseigne ton téléphone dans \"Mes informations\" avant de rejoindre un nouvel espace — il sert à retrouver ta fiche.",
-                );
-                return;
-              }
-              setJoinError("");
-              setJoinCode("");
-              setJoinModalVisible(true);
-            }}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.patientProfileBtnText}>➕ Rejoindre un nouveau patient</Text>
           </TouchableOpacity>
         )}
 
@@ -1499,6 +1518,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#2E75B6", borderRadius: 10, paddingVertical: 13, marginTop: 24,
   },
   patientProfileBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" },
+
+  patientBtn: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    borderWidth: 1, borderRadius: 12, paddingVertical: 13, paddingHorizontal: 14, marginBottom: 8,
+  },
+  patientBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14, flex: 1, marginRight: 8 },
+  patientBtnBadge: { fontFamily: "DM_Sans_700Bold", fontSize: 11.5 },
 
   switchLink: { alignItems: "center", marginTop: 20 },
   switchLinkText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, textDecorationLine: "underline" },
