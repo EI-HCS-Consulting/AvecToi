@@ -18,6 +18,7 @@ import PinPad from "@/components/PinPad";
 import PatientProfileModal from "@/components/PatientProfileModal";
 import IntervenantFicheModal from "@/components/IntervenantFicheModal";
 import IntervenantsListModal from "@/components/IntervenantsListModal";
+import { switchToLinkedSpace } from "@/lib/intervenantSpaceSwitch";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import MyChecklist from "@/components/MyChecklist";
 import type { Reservation, ReservationChangeHistoryEntry, SouvenirPhoto, NewsEntry, SupportMessage, Task } from "@/lib/types";
@@ -329,22 +330,7 @@ export default function VisitorAccountScreen() {
     // bouton ne répondait plus au retour sur Compte, tant que route/patients
     // n'était pas rouverte sur un state neuf.
     try {
-      await saveVisitorSession({
-        token: row.patient_spaces.invite_token,
-        spaceId: row.space_id,
-        prenom: row.prenom,
-        nom: row.nom,
-        pin: row.pin,
-        role: "intervenant",
-        intervenantProfileId: row.id,
-        telephone,
-        motto: "",
-        localPhotoUri: null,
-      });
-      router.replace({
-        pathname: "/(visitor)/home/calendar",
-        params: { spaceId: row.space_id, token: row.patient_spaces.invite_token },
-      } as any);
+      await switchToLinkedSpace(row, telephone, router);
     } finally {
       setSwitchingSpaceId(null);
     }
