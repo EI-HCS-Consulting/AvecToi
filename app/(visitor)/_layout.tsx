@@ -269,6 +269,15 @@ function VisitorTabs() {
         options={{
           title: "Soutien",
           tabBarIcon: ({ color, size }) => <Ionicons name="heart-outline" size={size} color={color} />,
+          href: role === "intervenant" ? null : undefined,
+        }}
+      />
+      <Tabs.Screen
+        name="patients"
+        options={{
+          title: "Patients",
+          tabBarIcon: ({ color, size }) => <Ionicons name="person-outline" size={size} color={color} />,
+          href: role === "intervenant" ? undefined : null,
         }}
       />
       <Tabs.Screen

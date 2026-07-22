@@ -62,6 +62,27 @@ export function activeAddressParts(space: PatientSpace): AddressParts {
 }
 
 /**
+ * Résumé court du lieu d'intervention (1 ligne), pour PatientsList.tsx —
+ * même logique que le bandeau SpaceHeader.tsx (infoLines) : domicile → ville,
+ * hôpital → nom + "Service X · Chambre Y".
+ */
+export function careLocationSummary(
+  space: Pick<PatientSpace, "home_care_mode" | "hospital_name" | "hospital_service" | "hospital_room" | "home_city" | "home_postal_code">,
+): string {
+  if (space.home_care_mode) {
+    const city = cityLine(space.home_postal_code, space.home_city);
+    return city ? `Domicile · ${city}` : "Domicile";
+  }
+  const serviceRoom = [
+    space.hospital_service ? `Service ${space.hospital_service}` : null,
+    space.hospital_room ? `Chambre ${space.hospital_room}` : null,
+  ]
+    .filter((p): p is string => !!p)
+    .join("  ·  ");
+  return [space.hospital_name, serviceRoom].filter((p) => p && p.trim().length > 0).join(" — ") || "Lieu à préciser";
+}
+
+/**
  * Le segment /maps/place/<...>/ contient souvent le nom ET l'adresse
  * complète, séparés par des virgules :
  * "Hôpital Michallon - CHU Grenoble Alpes, Bd de la Chantourne, 38700 La Tronche"
