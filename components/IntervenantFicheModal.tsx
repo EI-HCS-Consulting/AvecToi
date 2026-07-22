@@ -392,7 +392,7 @@ export default function IntervenantFicheModal({
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <ScrollView
           style={{ flex: 1 }}
-          contentContainerStyle={[styles.overlay, { flexGrow: 1, justifyContent: "center", paddingVertical: 16 }]}
+          contentContainerStyle={[styles.overlay, { flexGrow: 1, justifyContent: "flex-start", paddingVertical: 16 }]}
           keyboardShouldPersistTaps="handled"
         >
           <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
