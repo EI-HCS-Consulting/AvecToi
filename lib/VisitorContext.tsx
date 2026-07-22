@@ -119,7 +119,10 @@ export function VisitorSpaceProvider({ token, children }: { token: string; child
       if (!slotConfig) return null;
       if (iso >= toISO(new Date())) return slotConfig;
       const entry = resolveConfigForDate(configHistory, iso);
-      return entry || slotConfig;
+      // slot_config_history ne trace pas intervenant_priority_mode (pas de
+      // pertinence rétroactive, purement affichage) — on retombe sur la
+      // valeur live pour compléter le type.
+      return entry ? { ...entry, intervenant_priority_mode: slotConfig?.intervenant_priority_mode ?? "all" } : slotConfig;
     },
     [slotConfig, configHistory],
   );

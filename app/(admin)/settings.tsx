@@ -21,6 +21,7 @@ import { useDisplayMode } from "@/lib/DisplayModeContext";
 import PatientAvatar from "@/components/PatientAvatar";
 import VisitorsBlock from "@/components/VisitorsBlock";
 import IntervenantsBlock from "@/components/IntervenantsBlock";
+import IntervenantPriorityModal from "@/components/IntervenantPriorityModal";
 import { resolvePlaceFromMapsUrl } from "@/lib/address";
 import { generateSlots, formatHourMinute, isSlotFullyPast } from "@/lib/slotUtils";
 import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
@@ -48,7 +49,7 @@ interface FieldHistoryEntry {
 }
 
 // ─── Chronologie (popup frise) ─────────────────────────────────────────────
-type ChronoEventKind = "hosp" | "regles" | "consignes" | "resa" | "hospitalisation" | "sortie" | "besoin";
+type ChronoEventKind = "hosp" | "regles" | "consignes" | "resa" | "soin" | "hospitalisation" | "sortie" | "besoin";
 interface ChronoEvent {
   id: string;
   kind: ChronoEventKind;
@@ -62,6 +63,7 @@ const CHRONO_KIND_COLOR: Record<ChronoEventKind, keyof Theme> = {
   regles: "gold",
   consignes: "accent",
   resa: "success",
+  soin: "success",
   hospitalisation: "danger",
   sortie: "success",
   besoin: "orange",
@@ -669,6 +671,7 @@ export default function SettingsScreen() {
   // Nuitées toggle + heures
   const [nightToggling, setNightToggling] = useState(false);
   const [intervenantsToggling, setIntervenantsToggling] = useState(false);
+  const [priorityModalVisible, setPriorityModalVisible] = useState(false);
   const [oneVisitPerDayToggling, setOneVisitPerDayToggling] = useState(false);
   const nightHoursInit = useRef(false);
   const [nightStartHour, setNightStartHour] = useState(19);
@@ -857,12 +860,22 @@ export default function SettingsScreen() {
         detail: h.new_value ? `→ ${h.new_value}` : "→ (vide)",
       };
     }),
-    ...chronoReservations.map((r): ChronoEvent => ({
-      id: `resa-${r.id}`, kind: "resa", date: new Date(r.date + "T12:00:00"),
-      icon: r.type === "Nuit" ? "🌙" : "☀️",
-      title: `${r.prenom} ${r.nom}`,
-      detail: `${r.type === "Nuit" ? "Nuitée" : "Visite"} · ${r.creneau}`,
-    })),
+    ...chronoReservations.map((r): ChronoEvent => {
+      if (r.type === "Intervention") {
+        return {
+          id: `resa-${r.id}`, kind: "soin", date: new Date(r.date + "T12:00:00"),
+          icon: "🩺",
+          title: `Visite intervenant : ${r.prenom} ${r.nom} à ${r.creneau}`,
+          detail: `Soin : ${r.intervention_label ?? "?"}${r.duration_minutes ? ` · ${r.duration_minutes} min` : ""}`,
+        };
+      }
+      return {
+        id: `resa-${r.id}`, kind: "resa", date: new Date(r.date + "T12:00:00"),
+        icon: r.type === "Nuit" ? "🌙" : "☀️",
+        title: `${r.prenom} ${r.nom}`,
+        detail: `${r.type === "Nuit" ? "Nuitée" : "Visite"} · ${r.creneau}`,
+      };
+    }),
     ...chronoTasks.map((t): ChronoEvent => ({
       id: `task-${t.id}`, kind: "besoin", date: new Date(t.created_at),
       icon: TASK_CAT_ICONS[t.category],
@@ -2219,6 +2232,12 @@ export default function SettingsScreen() {
                         >
                           <Text style={styles.saveNotesBtnText}>🩺 Planning des intervenants →</Text>
                         </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.saveNotesBtn, { backgroundColor: C.card, borderWidth: 1, borderColor: C.orange, marginTop: 8 }]}
+                          onPress={() => setPriorityModalVisible(true)}
+                        >
+                          <Text style={[styles.saveNotesBtnText, { color: C.orange }]}>⚡ Priorité des créneaux intervenants</Text>
+                        </TouchableOpacity>
                       </>
                     )}
                   </View>
@@ -2363,9 +2382,16 @@ export default function SettingsScreen() {
                   triée à l'inverse : le plus tardif en haut, le plus proche
                   tout en bas du scroll. */}
               <TouchableOpacity style={styles.historyBlockHeader} onPress={() => toggleHistoryBlock("soins")} activeOpacity={0.7}>
-                <Text style={[styles.fieldLabel, { color: C.gold }]}>
-                  🩺 Soins planifiés{filteredSoinsPlanifies.length > 0 ? ` (${filteredSoinsPlanifies.length})` : ""}
-                </Text>
+                <View style={styles.historyBlockTitleRow}>
+                  <Text style={[styles.fieldLabel, { color: C.gold, marginBottom: 0, flexShrink: 1 }]} numberOfLines={1} ellipsizeMode="tail">
+                    🩺 Soins planifiés
+                  </Text>
+                  {filteredSoinsPlanifies.length > 0 && (
+                    <Text style={[styles.fieldLabel, { color: C.gold, marginBottom: 0, marginLeft: 4, flexShrink: 0 }]}>
+                      ({filteredSoinsPlanifies.length})
+                    </Text>
+                  )}
+                </View>
                 <Text style={[styles.historyToggleIcon, { color: C.muted }]}>{historyBlocksOpen.soins ? "▾" : "▸"}</Text>
               </TouchableOpacity>
               {historyBlocksOpen.soins && (
@@ -3183,6 +3209,17 @@ export default function SettingsScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
+      {space && slotConfig && (
+        <IntervenantPriorityModal
+          visible={priorityModalVisible}
+          onClose={() => setPriorityModalVisible(false)}
+          spaceId={space.id}
+          currentMode={slotConfig.intervenant_priority_mode ?? "all"}
+          C={C}
+          onSaved={() => { refreshSlotConfig(); showToast("Priorité des créneaux intervenants enregistrée ✓"); }}
+        />
+      )}
+
       {/* ── MODAL CHRONOLOGIE (frise) ──────────────────────────────────── */}
       <Modal visible={chronoModal} transparent animationType="slide" onRequestClose={() => setChronoModal(false)}>
         <View style={styles.overlay}>
@@ -3220,14 +3257,23 @@ export default function SettingsScreen() {
                         </View>
                         {!isLast && <View style={[styles.chronoLine, { backgroundColor: C.border }]} />}
                       </View>
-                      <View style={styles.chronoContent}>
+                      <View
+                        style={[
+                          styles.chronoContent,
+                          ev.kind === "soin" && [styles.chronoSoinBox, { borderColor: C.success, backgroundColor: `${C.success}14` }],
+                        ]}
+                      >
                         <Text style={[styles.historyDate, { color: C.muted }]}>
                           {ev.date.toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
                         </Text>
                         <Text style={[styles.chronoTitle, { color: ev.kind === "hospitalisation" ? C.danger : C.text }]}>
                           {ev.title}
                         </Text>
-                        {ev.detail && <Text style={[styles.historyOld, { color: C.muted }]}>{ev.detail}</Text>}
+                        {ev.detail && (
+                          <Text style={[styles.historyOld, { color: ev.kind === "soin" ? C.success : C.muted }]}>
+                            {ev.detail}
+                          </Text>
+                        )}
                       </View>
                     </View>
                   );
@@ -3347,6 +3393,7 @@ const styles = StyleSheet.create({
   },
   historyEmpty: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginBottom: 4, fontStyle: "italic" },
   historyBlockHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  historyBlockTitleRow: { flexDirection: "row", alignItems: "center", flexShrink: 1, marginRight: 8 },
   historyToggleIcon: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
   historyRow: { borderLeftWidth: 3, paddingLeft: 12, marginBottom: 12 },
   historyRowPressable: { flexDirection: "row", alignItems: "center" },
@@ -3373,6 +3420,10 @@ const styles = StyleSheet.create({
   chronoLine: { flex: 1, width: 2, marginBottom: 2 },
   chronoContent: { flex: 1, paddingLeft: 10, paddingBottom: 18 },
   chronoTitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13.5, marginTop: 2, marginBottom: 2 },
+  // Encadré vert distinctif pour les événements "soin" (voir item h) — se
+  // superpose à chronoContent (marginLeft compense le paddingLeft déjà posé
+  // par la frise pour garder l'alignement avec les autres lignes).
+  chronoSoinBox: { borderWidth: 1, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, marginBottom: 10 },
 
   // Admin notes
   warningText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, marginBottom: 10 },

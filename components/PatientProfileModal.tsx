@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { View, Text, TouchableOpacity, Image, Modal, StyleSheet } from "react-native";
+import { View, Text, TouchableOpacity, Image, Modal, StyleSheet, ScrollView } from "react-native";
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import PatientAvatar from "@/components/PatientAvatar";
@@ -59,9 +59,9 @@ export default function PatientProfileModal({ visible, onClose, space, C }: Prop
   }
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
+        <View style={[styles.card, { backgroundColor: C.card, borderColor: C.accent }]}>
           <View style={[styles.headerRow, { borderBottomColor: C.border }]}>
             <TouchableOpacity
               onPress={() => space.patient_photo_url && setPhotoLightbox(true)}
@@ -86,12 +86,9 @@ export default function PatientProfileModal({ visible, onClose, space, C }: Prop
               )}
               <Text style={[styles.sub, { color: C.muted }]}>Fiche patient</Text>
             </View>
-            <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { borderColor: C.border }]}>
-              <Text style={[styles.closeBtnText, { color: C.muted }]}>✕</Text>
-            </TouchableOpacity>
           </View>
 
-          <View style={styles.rows}>
+          <ScrollView style={styles.scroll} contentContainerStyle={styles.rows}>
             {admissionDateLabel && (
               <View style={styles.row}>
                 <Text style={[styles.rowLabel, { color: C.gold }]}>🏥 Date d'hospitalisation</Text>
@@ -143,7 +140,11 @@ export default function PatientProfileModal({ visible, onClose, space, C }: Prop
                 Aucune information supplémentaire renseignée pour le moment.
               </Text>
             )}
-          </View>
+          </ScrollView>
+
+          <TouchableOpacity onPress={onClose} style={styles.closeFooterBtn}>
+            <Text style={[styles.closeFooterBtnText, { color: C.muted }]}>Fermer</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -170,16 +171,17 @@ export default function PatientProfileModal({ visible, onClose, space, C }: Prop
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "flex-end" },
-  sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, padding: 20, paddingBottom: 40, marginBottom: 12 },
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "center", alignItems: "center", padding: 24 },
+  card: { width: "100%", maxWidth: 400, maxHeight: "85%", borderRadius: 20, borderWidth: 1, padding: 24 },
   headerRow: { flexDirection: "row", alignItems: "center", marginBottom: 12, paddingBottom: 16, borderBottomWidth: 1 },
   name: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18 },
   // Couleur fixe (pas de token de thème) : voulue identique en Light et Dark.
   motto: { fontFamily: "Caveat_600SemiBold", fontSize: 18, color: "#7EC8E3", marginTop: 1 },
   sub: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 2 },
-  closeBtn: { width: 32, height: 32, borderRadius: 16, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  closeBtnText: { fontSize: 14, fontFamily: "DM_Sans_700Bold" },
+  closeFooterBtn: { alignItems: "center", marginTop: 14 },
+  closeFooterBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
 
+  scroll: { maxHeight: 360 },
   rows: { gap: 14 },
   row: { gap: 3 },
   rowLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase" },

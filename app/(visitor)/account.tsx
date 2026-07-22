@@ -14,6 +14,8 @@ import { supabase } from "@/lib/supabase";
 import { getVisitorSession, saveVisitorSession, clearVisitorSession } from "@/lib/visitorSession";
 import { enterByDossierCode } from "@/lib/visitorEntry";
 import { normalizePhone } from "@/lib/phone";
+import { metierLabel } from "@/lib/metiers";
+import { isSlotFullyPast } from "@/lib/slotUtils";
 import PinPad from "@/components/PinPad";
 import PatientProfileModal from "@/components/PatientProfileModal";
 import IntervenantFicheModal from "@/components/IntervenantFicheModal";
@@ -71,15 +73,17 @@ const CAT_ICONS: Record<Task["category"], string> = {
   repas: "🍽️", affaires: "🧳", courses: "🛒", transport: "🚗", administratif: "🗂️", autre: "📌",
 };
 
-type AccountSectionKey = "info" | "patients" | "resv" | "souvenirs" | "news" | "soutien" | "besoins";
+type AccountSectionKey = "info" | "patients" | "mes_soins" | "resv" | "souvenirs" | "news" | "soutien" | "besoins";
 // Ordre d'affichage de la grille = ordre des clés ci-dessous (2 tuiles par
 // ligne) : Infos/Réservations, Nouvelles/Souvenirs, Entraide/Soutien. Le PIN
-// n'a plus sa propre tuile — regroupé dans "Mes informations". "patients"
-// n'existe que pour un intervenant (voir le filter plus bas), juste après
-// "info" pour rester visible sans avoir à scroller.
+// n'a plus sa propre tuile — regroupé dans "Mes informations". "patients" et
+// "mes_soins" n'existent que pour un intervenant (voir le filter plus bas) —
+// "mes_soins" remplace "soutien" (Mur de soutien, sans objet côté
+// intervenant) et liste ses soins effectués/planifiés sur ce patient.
 const SECTION_META: Record<AccountSectionKey, { icon: string; label: string }> = {
   info: { icon: "📝", label: "Mes informations" },
   patients: { icon: "👥", label: "Mes Patients" },
+  mes_soins: { icon: "🩺", label: "Mes soins" },
   resv: { icon: "📅", label: "Mes réservations" },
   news: { icon: "📰", label: "Mes nouvelles" },
   souvenirs: { icon: "📷", label: "Mes souvenirs" },
@@ -110,6 +114,9 @@ export default function VisitorAccountScreen() {
   // intervenant_profiles.phrase_totem plutôt que visitor_profiles.motto quand
   // role === "intervenant" — voir syncIntervenantContact plus bas.
   const [telephone, setTelephone] = useState("");
+  // Métier — intervenant uniquement (intervenant_profiles.metier, voir
+  // lib/metiers.ts), même principe que telephone ci-dessus.
+  const [metier, setMetier] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
   const [patientProfileVisible, setPatientProfileVisible] = useState(false);
@@ -262,24 +269,27 @@ export default function VisitorAccountScreen() {
         setPhotoUri(s.localPhotoUri);
         setMotto(s.motto);
         setTelephone(s.telephone);
+        setMetier(s.metier || null);
         setRole(s.role ?? "visiteur");
         setIntervenantProfileId(s.intervenantProfileId ?? null);
         if (space) {
           loadActivity(space.id, s.prenom, s.nom);
           if (s.role === "intervenant" && s.intervenantProfileId) {
-            // Photo/téléphone/phrase totem de secours — même principe que le
-            // fallback visiteur ci-dessous, mais la source de vérité est
-            // intervenant_profiles (partagée avec la fiche intervenant, voir
-            // components/IntervenantFicheModal.tsx) plutôt que visitor_profiles.
-            if (!s.localPhotoUri || !s.motto || !s.telephone) {
+            // Photo/téléphone/phrase totem/métier de secours — même principe
+            // que le fallback visiteur ci-dessous, mais la source de vérité
+            // est intervenant_profiles (partagée avec la fiche intervenant,
+            // voir components/IntervenantFicheModal.tsx) plutôt que
+            // visitor_profiles.
+            if (!s.localPhotoUri || !s.motto || !s.telephone || !s.metier) {
               const { data } = await supabase
                 .from("intervenant_profiles")
-                .select("photo, photo_updated_at, telephone, phrase_totem")
+                .select("photo, photo_updated_at, telephone, phrase_totem, metier")
                 .eq("id", s.intervenantProfileId)
                 .maybeSingle();
               if (!s.localPhotoUri && data?.photo) setPhotoUri(intervenantPhotoUrl(data.photo, data.photo_updated_at));
               if (!s.motto && data?.phrase_totem) setMotto(data.phrase_totem);
               if (!s.telephone && data?.telephone) setTelephone(data.telephone);
+              if (!s.metier && data?.metier) setMetier(data.metier);
             }
           } else if (!s.localPhotoUri || !s.motto) {
             // Photo/motto de secours : si cet appareil/session n'a plus de copie
@@ -813,13 +823,17 @@ export default function VisitorAccountScreen() {
 
         {(Object.keys(SECTION_META) as AccountSectionKey[])
           .filter((k) => {
-            if (k === "patients") return role === "intervenant";
-            return !(role === "intervenant" && (k === "souvenirs" || k === "besoins" || k === "resv"));
+            if (k === "patients" || k === "mes_soins") return role === "intervenant";
+            return !(role === "intervenant" && (k === "souvenirs" || k === "besoins" || k === "resv" || k === "soutien"));
           })
           .map((key) => {
           const isOpen = activeSection === key;
+          const mesSoins = myReservations.filter((r) => r.type === "Intervention");
+          const mesSoinsPlanifies = mesSoins.filter((r) => !isSlotFullyPast(r.date, r.creneau));
+          const mesSoinsFaits = mesSoins.filter((r) => isSlotFullyPast(r.date, r.creneau));
           const hint = key === "info" ? (prenom.trim() && nom.trim() ? `${prenom} ${nom}` : "À compléter")
             : key === "patients" ? `${Math.max(linkedSpaces.length, 1)} patient(s)`
+            : key === "mes_soins" ? `${mesSoinsPlanifies.length} planifié(s)`
             : key === "resv" ? `${myReservations.length} réservation(s)`
             : key === "souvenirs" ? `${mySouvenirs.length} photo(s)`
             : key === "news" ? `${myNews.length} nouvelle(s)`
@@ -879,6 +893,16 @@ export default function VisitorAccountScreen() {
                         onChangeText={setTelephone}
                         keyboardType="phone-pad"
                       />
+                    )}
+                    {role === "intervenant" && (
+                      <View style={styles.metierInfoRow}>
+                        <Text style={[styles.metierInfoLabel, { color: C.muted }]}>Métier / spécialisation</Text>
+                        <TouchableOpacity onPress={() => setFicheModalVisible(true)} activeOpacity={0.7}>
+                          <Text style={[styles.metierInfoValue, { color: C.gold }]}>
+                            {metier ? metierLabel(metier) : "À renseigner ›"}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
                     )}
                   </View>
 
@@ -982,6 +1006,58 @@ export default function VisitorAccountScreen() {
                     <Text style={styles.patientProfileBtnText}>➕ Rejoindre un nouveau patient</Text>
                   </TouchableOpacity>
                 </View>
+              )}
+
+              {isOpen && key === "mes_soins" && (
+                activityLoading ? (
+                  <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
+                ) : (
+                  <>
+                    <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
+                      <Text style={[styles.mesSoinsSubtitle, { color: C.gold }]}>
+                        🩺 Soins planifiés ({mesSoinsPlanifies.length})
+                      </Text>
+                      {mesSoinsPlanifies.length === 0 ? (
+                        <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucun soin planifié.</Text>
+                      ) : mesSoinsPlanifies.map((r) => (
+                        <TouchableOpacity
+                          key={r.id}
+                          style={styles.activityRow}
+                          onPress={() => handleOpenReservation(r)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]}>
+                            {new Date(r.date).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} · {r.creneau}
+                            {r.intervention_label ? ` — ${r.intervention_label}` : ""}
+                          </Text>
+                          <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+
+                    <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
+                      <Text style={[styles.mesSoinsSubtitle, { color: C.gold }]}>
+                        ✅ Soins faits ({mesSoinsFaits.length})
+                      </Text>
+                      {mesSoinsFaits.length === 0 ? (
+                        <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucun soin réalisé pour le moment.</Text>
+                      ) : mesSoinsFaits.map((r) => (
+                        <TouchableOpacity
+                          key={r.id}
+                          style={styles.activityRow}
+                          onPress={() => handleOpenReservation(r)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]}>
+                            {new Date(r.date).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} · {r.creneau}
+                            {r.intervention_label ? ` — ${r.intervention_label}` : ""}
+                          </Text>
+                          <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </>
+                )
               )}
 
               {isOpen && key === "resv" && (
@@ -1399,7 +1475,7 @@ export default function VisitorAccountScreen() {
           intervenantProfileId={intervenantProfileId}
           theme={C}
           onClose={() => setFicheModalVisible(false)}
-          onSaved={async (_profileId, savedPrenom, savedNom, savedTelephone, savedPhraseTotem, savedPhoto, savedPhotoUpdatedAt) => {
+          onSaved={async (_profileId, savedPrenom, savedNom, savedTelephone, savedPhraseTotem, savedPhoto, savedPhotoUpdatedAt, savedMetier) => {
             // Persiste aussi la photo dans localPhotoUri : sinon la session
             // locale garde l'ancienne URI (ou reste vide), et rouvrir l'app
             // réaffiche l'ancienne photo malgré le changement fait ici — voir
@@ -1411,12 +1487,14 @@ export default function VisitorAccountScreen() {
               prenom: savedPrenom, nom: savedNom,
               telephone: savedTelephone ?? "",
               motto: savedPhraseTotem ?? "",
+              metier: savedMetier ?? "",
               localPhotoUri: newPhotoUri,
             });
             setPrenom(savedPrenom);
             setNom(savedNom);
             setTelephone(savedTelephone ?? "");
             setMotto(savedPhraseTotem ?? "");
+            setMetier(savedMetier ?? null);
             if (newPhotoUri) setPhotoUri(newPhotoUri);
             setFicheModalVisible(false);
             showToast("Fiche intervenant enregistrée ✓");
@@ -1461,10 +1539,14 @@ const styles = StyleSheet.create({
   card: { borderWidth: 1, borderRadius: 14, padding: 16, marginBottom: 4, gap: 10 },
   cardDesc: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 19, marginBottom: 4 },
   input: { borderWidth: 1, borderRadius: 10, padding: 13, fontFamily: "DM_Sans_400Regular", fontSize: 15 },
+  metierInfoRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 4, paddingTop: 2 },
+  metierInfoLabel: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
+  metierInfoValue: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
 
   displayModeLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15 },
 
   activityEmpty: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
+  mesSoinsSubtitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 8 },
   activityRow: { paddingVertical: 6, flexDirection: "row", alignItems: "center", gap: 8 },
   activityRowText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 19 },
   activityRowSub: { fontFamily: "DM_Sans_400Regular", fontSize: 11.5, lineHeight: 16, marginTop: 1 },

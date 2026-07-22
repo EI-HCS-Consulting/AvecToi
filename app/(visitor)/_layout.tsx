@@ -176,10 +176,10 @@ function VisitorTabs() {
           nom={identityNom}
           pin={identityPin}
           theme={C}
-          onSaved={async (profileId, savedPrenom, savedNom) => {
+          onSaved={async (profileId, savedPrenom, savedNom, _telephone, _phraseTotem, _photo, _photoUpdatedAt, savedMetier) => {
             await saveVisitorSession({
               token, spaceId: space.id, intervenantProfileId: profileId,
-              prenom: savedPrenom, nom: savedNom,
+              prenom: savedPrenom, nom: savedNom, metier: savedMetier ?? "",
             });
             setIdentityPrenom(savedPrenom);
             setIdentityNom(savedNom);

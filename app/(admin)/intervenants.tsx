@@ -13,6 +13,7 @@ import IntervenantFicheModal from "@/components/IntervenantFicheModal";
 import IntervenantProfileModal from "@/components/IntervenantProfileModal";
 import SoinsPlanifiesBlock from "@/components/SoinsPlanifiesBlock";
 import MiniCalendar from "@/components/MiniCalendar";
+import { metierLabel } from "@/lib/metiers";
 import type { Reservation, IntervenantProfile, InterventionType } from "@/lib/types";
 
 // Écran admin dédié "Planning des intervenants" — n'affiche que les
@@ -212,6 +213,9 @@ export default function AdminIntervenantsScreen() {
                     <View style={styles.profileRow}>
                       <TouchableOpacity style={{ flex: 1 }} activeOpacity={0.7} onPress={() => setViewingProfile(p)}>
                         <Text style={[styles.profileName, { color: C.text }]}>{p.prenom} {p.nom}</Text>
+                        {!!p.metier && (
+                          <Text style={[styles.profileMetier, { color: C.muted }]}>{metierLabel(p.metier)}</Text>
+                        )}
                       </TouchableOpacity>
                       <TouchableOpacity style={[styles.editBtn, { borderColor: C.orange }]} onPress={() => setEditingProfileId(p.id)}>
                         <Text style={[styles.editBtnText, { color: C.orange }]}>Modifier</Text>
@@ -318,6 +322,7 @@ const styles = StyleSheet.create({
   subCard: { borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 10 },
   profileRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
   profileName: { fontFamily: "DM_Sans_700Bold", fontSize: 15 },
+  profileMetier: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 1 },
   editBtn: { borderWidth: 1, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 12 },
   editBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
   typeChips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },

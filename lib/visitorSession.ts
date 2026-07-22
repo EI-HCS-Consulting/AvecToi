@@ -23,6 +23,9 @@ export interface VisitorSession {
   // Téléphone — pertinent seulement côté intervenant (intervenant_profiles),
   // caché localement sur le même principe que motto ci-dessus.
   telephone: string;
+  // Clé du métier (voir lib/metiers.ts) — pertinent seulement côté
+  // intervenant, même principe que telephone ci-dessus.
+  metier: string;
   // "intervenant" pour un professionnel (infirmier·ère, kiné, aide à
   // domicile…) entré via "🩺 Je suis intervenant" — sessions déjà
   // persistées sans ce champ sont traitées comme "visiteur" (voir fallback
@@ -55,6 +58,7 @@ export async function saveVisitorSession(
     localPhotoUri?: string | null;
     motto?: string;
     telephone?: string;
+    metier?: string;
     role?: "visiteur" | "intervenant";
     intervenantProfileId?: string | null;
   },
@@ -70,6 +74,7 @@ export async function saveVisitorSession(
     localPhotoUri: partial.localPhotoUri ?? existing?.localPhotoUri ?? null,
     motto: partial.motto ?? existing?.motto ?? "",
     telephone: partial.telephone ?? existing?.telephone ?? "",
+    metier: partial.metier ?? existing?.metier ?? "",
     role: partial.role ?? existing?.role ?? "visiteur",
     intervenantProfileId: partial.intervenantProfileId ?? existing?.intervenantProfileId ?? null,
   };

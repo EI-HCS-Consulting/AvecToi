@@ -6,9 +6,11 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import { File, Paths } from "expo-file-system";
+import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import PatientAvatar from "@/components/PatientAvatar";
 import { normalizePhone } from "@/lib/phone";
+import { METIERS } from "@/lib/metiers";
 import type { Theme } from "@/lib/themes";
 
 // updatedAt bust le cache CDN/<Image> — le fichier est uploadé sous un nom
@@ -51,6 +53,7 @@ interface Props {
     profileId: string, prenom: string, nom: string,
     telephone: string | null, phraseTotem: string | null,
     photo: string | null, photoUpdatedAt: string | null,
+    metier: string | null,
   ) => void;
 }
 
@@ -70,6 +73,9 @@ export default function IntervenantFicheModal({
   // côté visiteur — vides tant que l'intervenant ne les a pas remplis.
   const [ficheTelephone, setFicheTelephone] = useState("");
   const [fichePhraseTotem, setFichePhraseTotem] = useState("");
+  // Clé du métier (voir lib/metiers.ts) — demandé dès la création (première
+  // connexion), sert aussi d'icône de repli pour l'avatar sans photo.
+  const [ficheMetier, setFicheMetier] = useState<string | null>(null);
   const [rows, setRows] = useState<TypeRow[]>([{ label: "", duration_minutes: "" }]);
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(mode === "edit");
@@ -83,6 +89,7 @@ export default function IntervenantFicheModal({
   const [loadedNom, setLoadedNom] = useState(nom);
   const [loadedTelephone, setLoadedTelephone] = useState("");
   const [loadedPhraseTotem, setLoadedPhraseTotem] = useState("");
+  const [loadedMetier, setLoadedMetier] = useState<string | null>(null);
   // existingPhoto : nom de fichier déjà enregistré (mode edit). pickedPhotoUri :
   // uri locale fraîchement choisie, pas encore uploadée (aperçu immédiat,
   // upload effectif seulement au clic sur "Enregistrer" — voir handleSave).
@@ -115,8 +122,10 @@ export default function IntervenantFicheModal({
       setExistingPhoto(null);
       setFicheTelephone("");
       setFichePhraseTotem("");
+      setFicheMetier(null);
       setLoadedTelephone("");
       setLoadedPhraseTotem("");
+      setLoadedMetier(null);
       setLoading(false);
       return;
     }
@@ -130,7 +139,7 @@ export default function IntervenantFicheModal({
         .order("created_at", { ascending: true }),
       supabase
         .from("intervenant_profiles")
-        .select("prenom, nom, photo, photo_updated_at, telephone, phrase_totem")
+        .select("prenom, nom, photo, photo_updated_at, telephone, phrase_totem, metier")
         .eq("id", intervenantProfileId)
         .maybeSingle(),
     ]).then(([{ data }, { data: profileData }]) => {
@@ -159,6 +168,8 @@ export default function IntervenantFicheModal({
       setLoadedTelephone(profileData?.telephone ?? "");
       setFichePhraseTotem(profileData?.phrase_totem ?? "");
       setLoadedPhraseTotem(profileData?.phrase_totem ?? "");
+      setFicheMetier(profileData?.metier ?? null);
+      setLoadedMetier(profileData?.metier ?? null);
       setLoading(false);
     });
   }, [visible, mode, intervenantProfileId]);
@@ -233,7 +244,7 @@ export default function IntervenantFicheModal({
     .map((r) => ({ label: r.label.trim(), duration_minutes: parseInt(r.duration_minutes, 10) }))
     .filter((r) => r.label.length > 0 && Number.isFinite(r.duration_minutes) && r.duration_minutes > 0);
   const canSave = validRows.length > 0 && !!ficheePrenom.trim() && !!ficheNom.trim()
-    && (mode === "edit" || !!ficheTelephone.trim()) && !saving;
+    && (mode === "edit" || (!!ficheTelephone.trim() && !!ficheMetier)) && !saving;
 
   async function handleSave() {
     if (!canSave) return;
@@ -255,6 +266,7 @@ export default function IntervenantFicheModal({
             pin,
             telephone: trimmedTelephone || null,
             phrase_totem: trimmedPhraseTotem || null,
+            metier: ficheMetier,
           })
           .select("id")
           .single();
@@ -289,6 +301,7 @@ export default function IntervenantFicheModal({
         if (trimmedNom !== loadedNom) updatePayload.nom = trimmedNom;
         if (trimmedTelephone !== loadedTelephone) updatePayload.telephone = trimmedTelephone || null;
         if (trimmedPhraseTotem !== loadedPhraseTotem) updatePayload.phrase_totem = trimmedPhraseTotem || null;
+        if (ficheMetier !== loadedMetier) updatePayload.metier = ficheMetier;
         if (Object.keys(updatePayload).length > 0) {
           const { error } = await supabase
             .from("intervenant_profiles")
@@ -365,7 +378,7 @@ export default function IntervenantFicheModal({
       onSaved(
         profileId!, trimmedPrenom, trimmedNom,
         trimmedTelephone || null, trimmedPhraseTotem || null,
-        finalPhoto, finalPhotoUpdatedAt,
+        finalPhoto, finalPhotoUpdatedAt, ficheMetier,
       );
     } catch (e: any) {
       Alert.alert("Erreur", e?.message ?? "Impossible d'enregistrer la fiche intervenant.");
@@ -415,6 +428,7 @@ export default function IntervenantFicheModal({
                     lastname={ficheNom || nom}
                     size={72}
                     C={C}
+                    metier={ficheMetier}
                   />
                   <Text style={[styles.photoPickerText, { color: C.accent }]}>Changer la photo</Text>
                 </TouchableOpacity>
@@ -459,6 +473,29 @@ export default function IntervenantFicheModal({
                   value={fichePhraseTotem}
                   onChangeText={setFichePhraseTotem}
                 />
+
+                <Text style={[styles.metierLabel, { color: C.gold }]}>
+                  Métier / spécialisation{mode === "create" ? "" : " (optionnel)"}
+                </Text>
+                <View style={styles.metierGrid}>
+                  {METIERS.map((m) => {
+                    const selected = ficheMetier === m.key;
+                    return (
+                      <TouchableOpacity
+                        key={m.key}
+                        onPress={() => setFicheMetier(m.key)}
+                        activeOpacity={0.8}
+                        style={[
+                          styles.metierChip,
+                          { borderColor: selected ? C.accent : C.border, backgroundColor: selected ? `${C.accent}22` : C.bg },
+                        ]}
+                      >
+                        <Ionicons name={m.icon} size={15} color={selected ? C.accent : C.muted} />
+                        <Text style={[styles.metierChipText, { color: selected ? C.accent : C.text }]}>{m.label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
 
                 {rows.map((row, i) => (
                   <View key={row.id ?? `new-${i}`} style={styles.row}>
@@ -567,6 +604,10 @@ const styles = StyleSheet.create({
   labelInput: { flex: 2 },
   durationInput: { flex: 1, textAlign: "center" },
   fullInput: { marginBottom: 10 },
+  metierLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 },
+  metierGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
+  metierChip: { flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderRadius: 20, paddingVertical: 7, paddingHorizontal: 12 },
+  metierChipText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
   removeBtn: {
     width: 32,
     height: 32,
