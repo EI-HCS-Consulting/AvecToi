@@ -390,11 +390,7 @@ export default function IntervenantFicheModal({
   return (
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={[styles.overlay, { flexGrow: 1, justifyContent: "flex-start", paddingVertical: 16 }]}
-          keyboardShouldPersistTaps="handled"
-        >
+        <View style={styles.overlay}>
           <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
             <Text style={[styles.title, { color: C.text }]}>🩺 Fiche intervenant</Text>
             <Text style={[styles.subtitle, { color: C.muted }]}>
@@ -421,6 +417,11 @@ export default function IntervenantFicheModal({
               </>
             ) : (
               <>
+                {/* Champs dans un ScrollView à hauteur bornée (plutôt que
+                    toute la carte) : Enregistrer/Annuler restent toujours
+                    visibles sous la liste, sans dépendre du scroll pour les
+                    atteindre — voir styles.scroll. */}
+                <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: 4 }} keyboardShouldPersistTaps="handled">
                 <TouchableOpacity style={styles.photoPicker} onPress={pickPhoto} activeOpacity={0.8}>
                   <PatientAvatar
                     photoUrl={pickedPhotoUri ?? (existingPhoto ? intervenantPhotoUrl(existingPhoto, existingPhotoUpdatedAt) : null)}
@@ -527,6 +528,7 @@ export default function IntervenantFicheModal({
                 <TouchableOpacity onPress={addRow} style={styles.addBtn}>
                   <Text style={[styles.addBtnText, { color: C.accent }]}>+ Ajouter un type</Text>
                 </TouchableOpacity>
+                </ScrollView>
 
                 <TouchableOpacity
                   style={[styles.saveBtn, { backgroundColor: C.accent }, !canSave && { opacity: 0.5 }]}
@@ -545,7 +547,7 @@ export default function IntervenantFicheModal({
               </>
             )}
           </View>
-        </ScrollView>
+        </View>
       </KeyboardAvoidingView>
     </Modal>
   );
@@ -562,9 +564,13 @@ const styles = StyleSheet.create({
   card: {
     width: "100%",
     maxWidth: 400,
+    maxHeight: "88%",
     borderRadius: 20,
     borderWidth: 1,
     padding: 24,
+  },
+  scroll: {
+    maxHeight: 420,
   },
   title: {
     fontFamily: "PlayfairDisplay_700Bold",
