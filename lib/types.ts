@@ -52,6 +52,10 @@ export interface PatientSpace {
   // domicile…) pour cet espace — voir components/IntervenantFicheModal.tsx
   // et app/(admin)/intervenants.tsx. Désactivé par défaut.
   intervenants_enabled: boolean;
+  // Autorise l'admin à rendre visibles aux visiteurs les messages "Nouvelles
+  // du jour" publiés par des intervenants — canal dédié intervenants+admin
+  // par défaut (voir components/NewsFeed.tsx).
+  intervenant_news_visible_to_visitors: boolean;
 }
 
 export interface SlotConfig {
@@ -79,6 +83,12 @@ export interface SlotConfig {
   // indisponibles pour tout le monde sauf pour l'auteur de la réservation
   // (voir check_slot_capacity() côté serveur et (visitor)/home/slots.tsx).
   one_visit_per_day: boolean;
+  // "all" = tous les créneaux intervenants sont prioritaires sur les visites
+  // (comportement historique). "selected" = seuls les intervenants avec
+  // intervenant_profiles.priority_slots=true le sont — voir
+  // check_slot_capacity()/book_intervention() côté serveur et
+  // components/IntervenantPriorityModal.tsx.
+  intervenant_priority_mode: "all" | "selected";
 }
 
 // Snapshot versionné de SlotConfig — une ligne fait foi de son valid_from
@@ -172,6 +182,14 @@ export interface IntervenantProfile {
   photo_updated_at: string | null;
   telephone: string | null;
   phrase_totem: string | null;
+  // Clé du métier (voir lib/metiers.ts, ex. "infirmier", "kine") — saisi à la
+  // création de la fiche, sert à afficher la spécialisation et à choisir
+  // l'icône de repli de l'avatar (IntervenantAvatar.tsx) sans photo.
+  metier: string | null;
+  // Créneaux d'intervention prioritaires sur les visites — n'a d'effet que
+  // si slot_config.intervenant_priority_mode = "selected" (sinon tous les
+  // intervenants sont prioritaires, voir IntervenantPriorityModal.tsx).
+  priority_slots: boolean;
   created_at: string;
 }
 
@@ -231,6 +249,13 @@ export interface NewsEntry {
   author_prenom: string;
   author_nom: string;
   author_pin: string;
+  // Rôle de l'auteur au moment de la publication — détermine la portée du
+  // message : "intervenant"/"admin" restent réservés au canal
+  // intervenants+admin, sauf si l'espace autorise leur visibilité aux
+  // visiteurs (voir patient_spaces.intervenant_news_visible_to_visitors et
+  // components/NewsFeed.tsx). Les messages "visiteur" restent toujours
+  // visibles de tous, comme avant cette fonctionnalité.
+  author_role: "visiteur" | "intervenant" | "admin";
   created_at: string;
 }
 

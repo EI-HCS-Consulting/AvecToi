@@ -458,7 +458,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
 
   return (
     <View>
-      <Text style={[styles.sectionTitle, { color: C.gold }]}>Ma Checklist</Text>
+      <Text style={[styles.sectionTitle, { color: C.gold }]}>Mes Checklists</Text>
 
       <View style={[styles.wrapperCard, { backgroundColor: C.card, borderColor: C.border }]}>
         {loading ? (

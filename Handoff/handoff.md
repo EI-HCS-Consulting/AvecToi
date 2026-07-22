@@ -22,6 +22,7 @@ _Généré le : 2026-07-21 (soir, suite)_
 **Build EAS preview le plus récent (21/07) :** `52e0707b-c21e-4a12-9df2-6cbe1f13cc66` (profil `preview`, APK), installé et testé par l'utilisateur — "ça marche nickel". **Aucune soumission Play Store effectuée** (explicitement exclue par l'utilisateur pour l'instant) — points 13-14 du backlog (EAS Build signé + fiche Play Store) toujours pas commencés.
 
 **En cours / pas commencé :**
+- **⚠️ Voir `AUDIT_RLS_TAILLE_CODE_MORT.md` (racine, 2026-07-22)** : 2 bugs RLS trouvés et corrigés sur une branche non pushée (`fix/souvenirs-rls-and-news-delete`) — migrations SQL pas encore exécutées en prod, PR pas encore ouverte — + options taille de l'app (180 Mo) et audit code mort/redondant, tous les deux volontairement reportés par l'utilisateur ("on verra plus tard"). Trois chantiers à reprendre sur demande, pas à relancer spontanément.
 - Points 13-14 (EAS Build APK signé, fiche Play Store) : pas commencés, décision volontairement différée par l'utilisateur.
 - Isolation Supabase (séparer l'instance prod partagée avec le site web) : plan complet dans `ISOLATION_SUPABASE.md`, différée sur décision de l'utilisateur. Sauvegarde auto hebdo du **schéma** opérationnelle (PR #79) ; les données elles-mêmes restent sans backup (tier gratuit, pas de PITR).
 - `docs/spec-web-upgrade` : toujours en attente d'une décision.
@@ -76,4 +77,5 @@ Deux demandes UX/design : harmoniser le popup "Chevauchement" avec le design du 
 
 ## 5. Prochaine étape
 1. Aucune action bloquante en attente côté app — build preview validé par l'utilisateur, rien à committer.
-2. Items reportés, à reprendre sur demande de l'utilisateur : isolation Supabase dev/prod, nettoyage des branches mergées sur origin, décision sur `docs/spec-web-upgrade`, confirmation d'exécution de la migration `20260728_intervenant_checklist_templates.sql` (PR #74, bloquant pour "Mes modèles" — toujours pas confirmée), démarrage du nouveau site Infomaniak, points 13-14 (EAS Build APK signé + fiche Play Store) quand l'utilisateur sera prêt à soumettre.
+2. **Consulter `AUDIT_RLS_TAILLE_CODE_MORT.md` (racine)** : pousser/merger `fix/souvenirs-rls-and-news-delete` + exécuter ses 2 migrations SQL en prod (bug photo souvenir + suppression Nouvelle) ; taille de l'app (180 Mo) et code mort/redondant restent à reprendre sur demande de l'utilisateur.
+3. Items reportés, à reprendre sur demande de l'utilisateur : isolation Supabase dev/prod, nettoyage des branches mergées sur origin, décision sur `docs/spec-web-upgrade`, confirmation d'exécution de la migration `20260728_intervenant_checklist_templates.sql` (PR #74, bloquant pour "Mes modèles" — toujours pas confirmée), démarrage du nouveau site Infomaniak, points 13-14 (EAS Build APK signé + fiche Play Store) quand l'utilisateur sera prêt à soumettre.

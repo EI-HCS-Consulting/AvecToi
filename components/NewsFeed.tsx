@@ -31,6 +31,14 @@ interface Props {
   C: Theme;
   isAdmin: boolean;
   capped: boolean;
+  // Rôle de la session visiteur (ignoré si isAdmin) — détermine si les
+  // publications de CE viewer sont marquées author_role "intervenant" et
+  // s'il voit le canal intervenants+admin en entier (voir filtrage plus bas).
+  viewerRole?: "visiteur" | "intervenant";
+  // patient_spaces.intervenant_news_visible_to_visitors — écrases par
+  // l'admin via le bouton du header ci-dessous, propagé en temps réel par
+  // SpaceContext/VisitorContext (realtime sur patient_spaces).
+  intervenantNewsVisibleToVisitors: boolean;
 }
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
@@ -67,8 +75,31 @@ function sanitize(str: string) {
 }
 
 // ─── Composant principal ──────────────────────────────────────────────────────
-export default function NewsFeed({ spaceId, C, isAdmin, capped }: Props) {
+export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "visiteur", intervenantNewsVisibleToVisitors }: Props) {
   const router = useRouter();
+  const effectiveRole: "visiteur" | "intervenant" | "admin" = isAdmin ? "admin" : viewerRole;
+
+  // Reflète la prop en local pour un retour visuel instantané au clic
+  // "Autoriser"/"Restreindre" — la prop elle-même ne sera mise à jour
+  // qu'après le round-trip realtime de patient_spaces (voir SpaceContext).
+  const [visibleToVisitors, setVisibleToVisitors] = useState(intervenantNewsVisibleToVisitors);
+  useEffect(() => { setVisibleToVisitors(intervenantNewsVisibleToVisitors); }, [intervenantNewsVisibleToVisitors]);
+
+  async function toggleVisibility() {
+    const next = !visibleToVisitors;
+    setVisibleToVisitors(next);
+    const { error } = await supabase
+      .from("patient_spaces")
+      .update({ intervenant_news_visible_to_visitors: next })
+      .eq("id", spaceId);
+    if (error) {
+      setVisibleToVisitors(!next);
+      showToast("Erreur lors du changement de visibilité");
+    } else {
+      showToast(next ? "Visible aussi par les visiteurs ✓" : "Réservé aux intervenants et à l'admin ✓");
+    }
+  }
+
   const { focusEntryId } = useLocalSearchParams<{ focusEntryId?: string }>();
   const listRef = useRef<FlatList<NewsEntryWithUrls>>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
@@ -142,13 +173,21 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped }: Props) {
 
   useEffect(() => { loadEntries(); }, [loadEntries]);
 
+  // Canal intervenants+admin : un visiteur ne voit que les nouvelles
+  // publiées par des visiteurs, plus celles d'intervenants/admin si l'admin
+  // a explicitement ouvert la visibilité (voir toggleVisibility ci-dessus).
+  // Intervenants et admin voient toujours tout.
+  const visibleEntries = entries.filter(
+    (e) => effectiveRole !== "visiteur" || e.author_role === "visiteur" || visibleToVisitors,
+  );
+
   // Arrivée depuis Souvenirs ("Voir l'original") via un lien profond
   // (?focusEntryId=...) : on scrolle jusqu'à la carte et on la surligne
   // brièvement. focusedRef évite de re-déclencher le scroll à chaque
   // rechargement realtime des entrées.
   useEffect(() => {
     if (!focusEntryId || focusedRef.current || loading) return;
-    const index = entries.findIndex((e) => e.id === focusEntryId);
+    const index = visibleEntries.findIndex((e) => e.id === focusEntryId);
     if (index === -1) return;
     focusedRef.current = true;
     setHighlightId(focusEntryId);
@@ -156,7 +195,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped }: Props) {
       listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.2 });
     }, 300);
     setTimeout(() => setHighlightId(null), 2500);
-  }, [focusEntryId, entries, loading]);
+  }, [focusEntryId, visibleEntries, loading]);
 
   // Realtime
   useEffect(() => {
@@ -410,6 +449,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped }: Props) {
         author_prenom: formPrenom.trim(),
         author_nom: formNom.trim(),
         author_pin: isAdmin ? "ADMIN" : (sessionPin || formPin),
+        author_role: effectiveRole,
         photos: uploadedFilenames,
       });
 
@@ -559,6 +599,20 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped }: Props) {
       {/* Header */}
       <View style={[styles.header, { backgroundColor: C.card, borderBottomColor: C.border }]}>
         <Text style={[styles.headerTitle, { color: C.text }]}>📰 Nouvelles du jour</Text>
+        {effectiveRole !== "visiteur" && (
+          <View style={styles.headerStatusRow}>
+            <Text style={[styles.headerStatusText, { color: visibleToVisitors ? C.success : C.muted }]}>
+              {visibleToVisitors ? "🔓 Visible aussi par les visiteurs" : "🔒 Dédié aux intervenants et à l'admin"}
+            </Text>
+            {isAdmin && (
+              <TouchableOpacity onPress={toggleVisibility} style={[styles.headerToggleBtn, { borderColor: C.accent }]} activeOpacity={0.75}>
+                <Text style={[styles.headerToggleBtnText, { color: C.accent }]}>
+                  {visibleToVisitors ? "Restreindre" : "Autoriser"}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
       </View>
 
       <View style={[styles.subHeader, styles.subHeaderRow, { backgroundColor: C.card, borderBottomColor: C.border }]}>
@@ -580,7 +634,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped }: Props) {
 
       {loading ? (
         <View style={styles.centered}><ActivityIndicator color={C.accent} size="large" /></View>
-      ) : entries.length === 0 ? (
+      ) : visibleEntries.length === 0 ? (
         <View style={styles.centered}>
           <Text style={{ fontSize: 40, marginBottom: 12 }}>📰</Text>
           <Text style={[styles.emptyText, { color: C.muted }]}>Aucune nouvelle pour l'instant.</Text>
@@ -589,7 +643,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped }: Props) {
       ) : (
         <FlatList
           ref={listRef}
-          data={entries}
+          data={visibleEntries}
           keyExtractor={(e) => e.id}
           renderItem={renderEntry}
           contentContainerStyle={styles.list}
@@ -870,8 +924,12 @@ const styles = StyleSheet.create({
   emptyText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15, textAlign: "center", marginBottom: 8 },
   emptyHint: { fontFamily: "DM_Sans_400Regular", fontSize: 13, textAlign: "center" },
 
-  header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingTop: 52, paddingBottom: 12, borderBottomWidth: 1 },
+  header: { paddingHorizontal: 16, paddingTop: 52, paddingBottom: 16, borderBottomWidth: 1 },
   headerTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18 },
+  headerStatusRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 },
+  headerStatusText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, flex: 1 },
+  headerToggleBtn: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, marginLeft: 8 },
+  headerToggleBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11 },
   subHeader: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1 },
   subHeaderRow: { flexDirection: "row", gap: 10 },
   addBtn: { flex: 1, minWidth: 0, borderRadius: 10, paddingVertical: 12, alignItems: "center" },

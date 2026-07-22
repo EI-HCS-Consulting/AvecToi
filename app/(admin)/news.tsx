@@ -24,7 +24,15 @@ export default function AdminNewsScreen() {
     );
   }
 
-  return <NewsFeed spaceId={space.id} C={C} isAdmin={true} capped={isSpaceCapped(space, reservations)} />;
+  return (
+    <NewsFeed
+      spaceId={space.id}
+      C={C}
+      isAdmin={true}
+      capped={isSpaceCapped(space, reservations)}
+      intervenantNewsVisibleToVisitors={space.intervenant_news_visible_to_visitors}
+    />
+  );
 }
 
 const styles = StyleSheet.create({

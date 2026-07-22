@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from "rea
 import { supabase } from "@/lib/supabase";
 import PatientAvatar from "@/components/PatientAvatar";
 import IntervenantProfileModal from "@/components/IntervenantProfileModal";
+import { metierLabel } from "@/lib/metiers";
 import type { Theme } from "@/lib/themes";
 
 // Bloc "Intervenants" des Paramètres admin — juste après le bloc "Visiteurs"
@@ -20,6 +21,7 @@ interface IntervenantRow {
   nom: string;
   photo: string | null;
   photo_updated_at: string | null;
+  metier: string | null;
 }
 
 // updatedAt bust le cache CDN/<Image> — voir IntervenantFicheModal.tsx pour
@@ -46,7 +48,7 @@ export default function IntervenantsBlock({ spaceId, C }: Props) {
     setLoading(true);
     const { data, error } = await supabase
       .from("intervenant_profiles")
-      .select("id, prenom, nom, photo, photo_updated_at")
+      .select("id, prenom, nom, photo, photo_updated_at, metier")
       .eq("space_id", spaceId)
       .order("prenom", { ascending: true });
 
@@ -94,11 +96,17 @@ export default function IntervenantsBlock({ spaceId, C }: Props) {
                     lastname={it.nom}
                     size={36}
                     C={C}
+                    metier={it.metier}
                   />
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.name, { color: C.text }]} numberOfLines={1}>
                       {it.prenom} {it.nom}
                     </Text>
+                    {!!it.metier && (
+                      <Text style={[styles.metier, { color: C.muted }]} numberOfLines={1}>
+                        {metierLabel(it.metier)}
+                      </Text>
+                    )}
                   </View>
                   <View style={[styles.openBtn, { borderColor: C.border }]}>
                     <Text style={[styles.openBtnText, { color: C.accent }]}>›</Text>
@@ -139,6 +147,7 @@ const styles = StyleSheet.create({
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
   row: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10 },
   name: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
+  metier: { fontFamily: "DM_Sans_400Regular", fontSize: 11, marginTop: 1 },
   openBtn: { width: 30, height: 30, borderRadius: 15, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   openBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 16 },
 });

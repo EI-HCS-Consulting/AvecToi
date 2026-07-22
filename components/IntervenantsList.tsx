@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { useVisitorSpace } from "@/lib/VisitorContext";
 import PatientAvatar from "@/components/PatientAvatar";
 import IntervenantProfileModal from "@/components/IntervenantProfileModal";
+import { metierLabel } from "@/lib/metiers";
 import type { Theme } from "@/lib/themes";
 
 // Corps de liste partagé entre la modale bottom-sheet (IntervenantsListModal,
@@ -17,6 +18,7 @@ interface IntervenantRow {
   nom: string;
   photo: string | null;
   photo_updated_at: string | null;
+  metier: string | null;
 }
 
 // updatedAt bust le cache CDN/<Image> — voir IntervenantFicheModal.tsx pour
@@ -44,7 +46,7 @@ export default function IntervenantsList({ spaceId, C }: Props) {
     setLoading(true);
     const { data, error } = await supabase
       .from("intervenant_profiles")
-      .select("id, prenom, nom, photo, photo_updated_at")
+      .select("id, prenom, nom, photo, photo_updated_at, metier")
       .eq("space_id", spaceId)
       .order("prenom", { ascending: true });
 
@@ -67,7 +69,7 @@ export default function IntervenantsList({ spaceId, C }: Props) {
       {loading ? (
         <ActivityIndicator color={C.accent} style={{ marginVertical: 32 }} />
       ) : (
-        <ScrollView contentContainerStyle={styles.scroll}>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scroll}>
           {intervenants.length === 0 ? (
             <Text style={[styles.emptyText, { color: C.muted }]}>Aucun intervenant enregistré pour l'instant.</Text>
           ) : (
@@ -85,11 +87,18 @@ export default function IntervenantsList({ spaceId, C }: Props) {
                     activeOpacity={photoUrl ? 0.85 : 1}
                     disabled={!photoUrl}
                   >
-                    <PatientAvatar photoUrl={photoUrl} firstname={it.prenom} lastname={it.nom} size={44} C={C} />
+                    <PatientAvatar photoUrl={photoUrl} firstname={it.prenom} lastname={it.nom} size={44} C={C} metier={it.metier} />
                   </TouchableOpacity>
-                  <Text style={[styles.name, { color: C.text }]} numberOfLines={1}>
-                    {it.prenom} {it.nom}
-                  </Text>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.name, { color: C.text }]} numberOfLines={1}>
+                      {it.prenom} {it.nom}
+                    </Text>
+                    {!!it.metier && (
+                      <Text style={[styles.metier, { color: C.muted }]} numberOfLines={1}>
+                        {metierLabel(it.metier)}
+                      </Text>
+                    )}
+                  </View>
                   <Text style={[styles.chevron, { color: C.muted }]}>›</Text>
                 </TouchableOpacity>
               );
@@ -127,7 +136,8 @@ const styles = StyleSheet.create({
   scroll: { paddingBottom: 24 },
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, textAlign: "center", marginVertical: 16 },
   row: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12 },
-  name: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15, flex: 1 },
+  name: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15 },
+  metier: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 1 },
   chevron: { fontFamily: "DM_Sans_700Bold", fontSize: 16 },
   lightboxOverlay: {
     flex: 1,
