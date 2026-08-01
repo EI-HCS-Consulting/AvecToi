@@ -25,6 +25,7 @@ import IntervenantPriorityModal from "@/components/IntervenantPriorityModal";
 import { resolvePlaceFromMapsUrl } from "@/lib/address";
 import { generateSlots, formatHourMinute, isSlotFullyPast } from "@/lib/slotUtils";
 import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
+import { canEnableIntervenants } from "@/lib/freemiumCap";
 import type { Theme } from "@/lib/themes";
 import type { NewsEntry, Task, SupportMessage, SlotConfig, ReservationChangeHistoryEntry, Reservation } from "@/lib/types";
 import { openAndroidTimePicker, openAndroidDatePicker } from "@/lib/androidTimePicker";
@@ -1131,8 +1132,15 @@ export default function SettingsScreen() {
   // ── Intervenants toggle ──────────────────────────────────────────────────────
   async function handleToggleIntervenants() {
     if (!space) return;
-    setIntervenantsToggling(true);
     const nextEnabled = !space.intervenants_enabled;
+    if (nextEnabled && !canEnableIntervenants(space)) {
+      Alert.alert(
+        "Fonctionnalité Premium",
+        "La gestion des intervenants fait partie de l'offre Premium. Passez votre espace en illimité pour l'activer.",
+      );
+      return;
+    }
+    setIntervenantsToggling(true);
     const wasEnabled = space.intervenants_enabled;
     const { error } = await supabase
       .from("patient_spaces")
