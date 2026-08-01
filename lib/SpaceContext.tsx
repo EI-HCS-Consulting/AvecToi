@@ -19,6 +19,11 @@ interface SpaceContextValue {
   refreshReservations: () => Promise<void>;
   refreshSpace: () => Promise<void>;
   refreshSlotConfig: () => Promise<void>;
+  // Met à jour le space en mémoire sans refetch ni toucher `loading` — pour
+  // refléter un update qu'on vient de faire soi-même sans attendre le tick
+  // realtime (qui peut arriver après le prochain render et donner l'impression
+  // que le changement "ne tient pas").
+  patchSpace: (patch: Partial<PatientSpace>) => void;
   // Résolution "figée dans le temps" de la config de créneaux : pour
   // aujourd'hui/le futur, renvoie la config live (référence identique,
   // aucun lookup) ; pour un jour déjà passé, résout via slot_config_history
@@ -44,6 +49,7 @@ const SpaceContext = createContext<SpaceContextValue>({
   refreshReservations: async () => {},
   refreshSpace: async () => {},
   refreshSlotConfig: async () => {},
+  patchSpace: () => {},
   getConfigForDate: () => null,
   getSlotsForDate: () => [],
 });
@@ -135,6 +141,10 @@ export function AdminSpaceProvider({ adminId, children }: { adminId: string; chi
     pastSlotsCache.current.clear();
     setConfigHistory(historyData || []);
   }, [space?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const patchSpace = useCallback((patch: Partial<PatientSpace>) => {
+    setSpace((prev) => (prev ? { ...prev, ...patch } : prev));
+  }, []);
 
   const getConfigForDate = useCallback(
     (iso: string): SlotConfig | null => {
@@ -228,7 +238,7 @@ export function AdminSpaceProvider({ adminId, children }: { adminId: string; chi
 
   return (
     <SpaceContext.Provider
-      value={{ space, slotConfig, slots, reservations, loading, hasSpace: !!space, selectedDay, setSelectedDay, pendingBookingSlot, setPendingBookingSlot, refreshReservations, refreshSpace, refreshSlotConfig, getConfigForDate, getSlotsForDate }}
+      value={{ space, slotConfig, slots, reservations, loading, hasSpace: !!space, selectedDay, setSelectedDay, pendingBookingSlot, setPendingBookingSlot, refreshReservations, refreshSpace, refreshSlotConfig, patchSpace, getConfigForDate, getSlotsForDate }}
     >
       {children}
     </SpaceContext.Provider>
