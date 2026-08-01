@@ -6,3 +6,8 @@ export function isSpaceCapped(space: PatientSpace | null, reservations: Reservat
   if (!space || space.premium) return false;
   return reservations.filter((r) => r.type === "Visite").length >= FREE_VISIT_LIMIT;
 }
+
+export function canEnableIntervenants(space: PatientSpace | null): boolean {
+  if (!space) return false;
+  return space.premium;
+}
