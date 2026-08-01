@@ -4,6 +4,7 @@ import {
   StyleSheet, KeyboardAvoidingView, Platform, ScrollView, Modal,
 } from "react-native";
 import { useRouter } from "expo-router";
+import * as Linking from "expo-linking";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import { themes } from "@/lib/themes";
@@ -41,7 +42,13 @@ export default function SignupScreen() {
     const { data, error } = await supabase.auth.signUp({
       email: email.trim(),
       password,
-      options: { data: { firstname: firstname.trim(), lastname: lastname.trim() } },
+      options: {
+        data: { firstname: firstname.trim(), lastname: lastname.trim() },
+        // Sans ça, le lien de confirmation dans l'email renvoie vers le Site URL
+        // par défaut du projet Supabase (souvent pas configuré) → page inaccessible.
+        // Il faut aussi autoriser "avectoi://*" dans Supabase > Auth > URL Configuration.
+        emailRedirectTo: Linking.createURL("auth/confirmed"),
+      },
     });
     setLoading(false);
 

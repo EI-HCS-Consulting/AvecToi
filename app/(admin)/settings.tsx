@@ -340,7 +340,7 @@ const sliderStyles = StyleSheet.create({
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { space, slotConfig, loading, hasSpace, refreshSlotConfig, refreshSpace } = useSpace();
+  const { space, slotConfig, loading, hasSpace, refreshSlotConfig, refreshSpace, patchSpace } = useSpace();
   const { theme: C } = useDisplayMode();
 
   const [photoUploading, setPhotoUploading] = useState(false);
@@ -1158,8 +1158,11 @@ export default function SettingsScreen() {
     }
     // Pas de refreshSpace() ici : il bascule le flag `loading` du contexte, ce qui
     // démonte tout le <Tabs> le temps du refetch (voir AdminGate dans _layout.tsx)
-    // et fait retomber la navigation sur l'onglet par défaut (accueil) — l'update
-    // Supabase ci-dessus est déjà reflété via le canal realtime `space-admin:*`.
+    // et fait retomber la navigation sur l'onglet par défaut (accueil). Le canal
+    // realtime `space-admin:*` finit par refléter l'update, mais son tick peut
+    // arriver après le prochain render du Switch (qui repasserait alors sur
+    // l'ancienne valeur) — on met donc à jour le space en mémoire tout de suite.
+    patchSpace({ intervenants_enabled: nextEnabled });
     await logFieldChange("intervenants_enabled", wasEnabled ? "Activé" : "Désactivé", nextEnabled ? "Activé" : "Désactivé");
     loadHistory();
     showToast(wasEnabled ? "Planning des intervenants désactivé ✓" : "Planning des intervenants activé ✓");
@@ -1419,7 +1422,7 @@ export default function SettingsScreen() {
               .from("patient_spaces")
               .update({
                 purge_scheduled_at: newPurge.toISOString(),
-                end_date: newEnd.toISOString().split("T")[0],
+                end_date: isoDate(newEnd),
               })
               .eq("id", space.id);
 

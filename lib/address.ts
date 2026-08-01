@@ -217,7 +217,16 @@ export async function resolvePlaceFromMapsUrl(url: string): Promise<ResolvedPlac
   if (extractPlaceSegments(trimmed).length === 0) {
     trace.push(`Lien court détecté, résolution de la redirection : ${trimmed}`);
     try {
-      const res = await fetch(trimmed, { method: "HEAD", redirect: "follow" });
+      // GET, pas HEAD : la chaîne de redirection de maps.app.goo.gl passe par
+      // un écran de consentement RGPD qui ne répond pas de façon fiable aux
+      // requêtes HEAD (parfois 405, ou redirection non suivie) — et un
+      // User-Agent de navigateur évite un éventuel blocage anti-bot silencieux
+      // qui laisserait finalUrl = lien court, donc aucune adresse trouvée.
+      const res = await fetch(trimmed, {
+        method: "GET",
+        redirect: "follow",
+        headers: { "User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36" },
+      });
       finalUrl = res.url || trimmed;
       trace.push(`URL finale : ${finalUrl}`);
     } catch (e) {
