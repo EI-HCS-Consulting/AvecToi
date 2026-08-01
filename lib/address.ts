@@ -92,7 +92,25 @@ export function careLocationSummary(
 function extractPlaceSegments(url: string): string[] {
   const match = url.match(/\/maps\/place\/([^/?]+)/);
   if (!match) return [];
-  const decoded = decodeURIComponent(match[1].replace(/\+/g, " "));
+  // Décoder AVANT de remplacer les "+" par des espaces, pas l'inverse : sur un
+  // lien enveloppé par l'écran de consentement RGPD de Google, le "+" d'origine
+  // est lui-même encodé en "%2B" (double encodage). Remplacer les "+" d'abord
+  // ne trouve donc rien à ce stade, et un seul decodeURIComponent laisse à la
+  // fois des "%C3%B4" non résolus et des "+" fraîchement révélés jamais
+  // convertis en espace. decodeURIComponent ne touche jamais un "+" littéral,
+  // donc décoder (jusqu'à 2 fois, comme decodeLayers) puis remplacer ensuite
+  // fonctionne aussi bien pour un lien simple que pour un lien enveloppé.
+  let raw = match[1];
+  for (let i = 0; i < 2; i++) {
+    try {
+      const next = decodeURIComponent(raw);
+      if (next === raw) break;
+      raw = next;
+    } catch {
+      break;
+    }
+  }
+  const decoded = raw.replace(/\+/g, " ");
   return decoded.split(",").map((s) => s.trim()).filter(Boolean);
 }
 
@@ -175,6 +193,48 @@ async function reverseGeocode(lat: number, lon: number): Promise<{ street: strin
   }
 }
 
+/**
+ * Géocodage direct (nom → adresse) via Nominatim, pour les liens Google Maps
+ * qui ne contiennent qu'un identifiant de lieu opaque (data=!4m2!3m1!1s0x...,
+ * ni adresse texte ni @lat,lon) — cas fréquent pour les gros établissements
+ * (Google omet volontairement l'adresse pour raccourcir l'URL). Essaie le nom
+ * complet, puis une version simplifiée (avant le premier " - ") si Nominatim
+ * ne trouve rien pour le nom complet — un nom composé du type "Hôpital X -
+ * CHU de Y" ne matche souvent aucune entrée Nominatim telle quelle.
+ */
+async function forwardGeocode(name: string): Promise<{ street: string | null; postalCode: string | null; city: string | null; country: string | null; note: string }> {
+  const empty = { street: null, postalCode: null, city: null, country: null };
+  const search = async (query: string) => {
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(query)}&addressdetails=1&limit=1&email=support%40avectoi.care`,
+      { headers: { "User-Agent": "AvecToi/1.0 (support@avectoi.care)", "Accept": "application/json", "Accept-Language": "fr" } }
+    );
+    if (!res.ok) return null;
+    const data = await res.json();
+    return Array.isArray(data) && data.length > 0 ? data[0] : null;
+  };
+  try {
+    let hit = await search(name);
+    let usedQuery = name;
+    if (!hit) {
+      const simplified = name.split(" - ")[0].trim();
+      if (simplified && simplified !== name) {
+        hit = await search(simplified);
+        usedQuery = simplified;
+      }
+    }
+    if (!hit) return { ...empty, note: `Nominatim (recherche par nom) : aucun résultat pour "${name}".` };
+    const a = hit.address ?? {};
+    const street = ([a.house_number, a.road].filter(Boolean).join(" ") || null) as string | null;
+    const postalCode = (a.postcode as string | undefined) ?? null;
+    const city = (a.city ?? a.town ?? a.village ?? a.municipality ?? null) as string | null;
+    const country = (a.country as string | undefined) ?? null;
+    return { street, postalCode, city, country, note: `Nominatim (recherche par nom "${usedQuery}") OK : ${JSON.stringify(a)}` };
+  } catch (e) {
+    return { ...empty, note: `Nominatim (recherche par nom) a échoué : ${String(e)}` };
+  }
+}
+
 export type ResolvedPlace = {
   name: string | null;
   street: string | null;
@@ -217,7 +277,16 @@ export async function resolvePlaceFromMapsUrl(url: string): Promise<ResolvedPlac
   if (extractPlaceSegments(trimmed).length === 0) {
     trace.push(`Lien court détecté, résolution de la redirection : ${trimmed}`);
     try {
-      const res = await fetch(trimmed, { method: "HEAD", redirect: "follow" });
+      // GET, pas HEAD : la chaîne de redirection de maps.app.goo.gl passe par
+      // un écran de consentement RGPD qui ne répond pas de façon fiable aux
+      // requêtes HEAD (parfois 405, ou redirection non suivie) — et un
+      // User-Agent de navigateur évite un éventuel blocage anti-bot silencieux
+      // qui laisserait finalUrl = lien court, donc aucune adresse trouvée.
+      const res = await fetch(trimmed, {
+        method: "GET",
+        redirect: "follow",
+        headers: { "User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36" },
+      });
       finalUrl = res.url || trimmed;
       trace.push(`URL finale : ${finalUrl}`);
     } catch (e) {
@@ -241,9 +310,18 @@ export async function resolvePlaceFromMapsUrl(url: string): Promise<ResolvedPlac
 
   const coords = extractCoords(finalUrl) ?? extractCoords(decoded);
   trace.push(coords ? `Pas d'adresse texte dans le lien, coordonnées trouvées : ${coords.lat}, ${coords.lon}` : "Pas d'adresse texte ni de coordonnées dans le lien.");
-  if (!coords) return finish(name, empty);
 
-  const addr = await reverseGeocode(coords.lat, coords.lon);
-  trace.push(`Nominatim → rue=${addr.street ?? "—"} / CP=${addr.postalCode ?? "—"} / ville=${addr.city ?? "—"} / pays=${addr.country ?? "—"}`);
-  return finish(name, addr);
+  if (coords) {
+    const addr = await reverseGeocode(coords.lat, coords.lon);
+    trace.push(`Nominatim (inverse) → rue=${addr.street ?? "—"} / CP=${addr.postalCode ?? "—"} / ville=${addr.city ?? "—"} / pays=${addr.country ?? "—"}`);
+    if (addr.street || addr.postalCode || addr.city) return finish(name, addr);
+  }
+
+  // Dernier repli : ni adresse texte ni coordonnées exploitables dans le lien
+  // (cas des URL basées uniquement sur un Place ID/CID, ex. "data=!4m2!3m1!1s0x...") —
+  // on tente une recherche Nominatim directement sur le nom du lieu.
+  if (!name) return finish(name, empty);
+  const byName = await forwardGeocode(name);
+  trace.push(byName.note);
+  return finish(name, byName);
 }

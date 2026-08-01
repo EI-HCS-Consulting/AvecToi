@@ -48,8 +48,14 @@ const STEP_TITLES: Record<Step, string> = {
   capacity: "Capacité & durée des visites",
 };
 
+// toISOString() convertit en UTC : à minuit heure locale (UTC+1/+2 en France),
+// ça fait basculer sur la veille. On construit la chaîne depuis les
+// composants locaux de la date pour éviter le décalage d'un jour.
 function isoDate(d: Date) {
-  return d.toISOString().split("T")[0];
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
 }
 
 function hourToDate(hour: number, minute = 0) {
