@@ -1,6 +1,10 @@
 # PRD — AvecToi
-## Product Requirements Document v1.6
-*Préparé pour Claude Code — Juin 2026, synchronisé avec l'application livrée en Juillet 2026*
+## Product Requirements Document v1.7
+*Préparé pour Claude Code — Juin 2026, synchronisé avec l'application livrée en Juillet/Août 2026*
+
+> **Changelog v1.6 → v1.7**
+> - **Activation du rôle Intervenant verrouillée derrière Premium** : un espace Freemium peut désactiver « Planning des intervenants » sans condition, mais ne peut plus l'**activer** tant que l'espace n'est pas passé en Premium (contrôle absent en v1.6, corrigé) — voir §3.9, §3.12
+> - **Site marketing `avectoi.care`** construit (accueil + 3 pages persona : Hospitalisation / Enfant hospitalisé / Soin à domicile), dans un projet Next.js séparé (`avectoi-site`, hors du repo de l'app) — pas encore déployé (hébergement Infomaniak à finaliser)
 
 > **Changelog v1.5 → v1.6**
 > - **Catalogue de métiers pour les intervenants** (choix obligatoire à la fiche intervenant, icône dédiée par métier utilisée comme avatar par défaut sans photo, types d'intervention filtrés par métier) — voir §2, §3.9
@@ -240,7 +244,7 @@ Compte-rendu court après le passage d'un visiteur, pour rassurer les proches ab
 
 Réservé aux professionnels de soin (infirmier·ère, kiné, aide à domicile…), désactivé par défaut sur chaque espace.
 
-- **Activation** : l'admin bascule « Planning des intervenants » dans Paramètres → Règles ; tant que non activé, aucune entrée « Je suis intervenant » n'apparaît côté visiteurs
+- **Activation** : l'admin bascule « Planning des intervenants » dans Paramètres → Règles ; tant que non activé, aucune entrée « Je suis intervenant » n'apparaît côté visiteurs. **Réservé aux espaces Premium depuis v1.7** — un espace Freemium peut désactiver le rôle sans condition, mais pas l'activer (voir §3.12) ; les intervenants eux-mêmes ne paient jamais rien, c'est l'admin de l'espace qui doit passer en Premium
 - **Accès** : même lien d'invitation, QR code ou code dossier que les visiteurs — pas d'invitation nominative distincte
 - **Métier** *(NOUVEAU depuis v1.6)* : catalogue prédéfini de métiers, sélection obligatoire à la fiche intervenant ; icône de métier utilisée comme avatar par défaut sans photo ; affiché sous le nom sur les cartes Intervenants et attaché à chaque soin réservé
 - **Fiche intervenant obligatoire** à la première connexion : métier + au moins un type d'intervention (libellé + durée habituelle, filtrés par métier) avant de pouvoir continuer ; modifiable ensuite depuis Mon compte
@@ -265,6 +269,8 @@ Réservé aux professionnels de soin (infirmier·ère, kiné, aide à domicile�
 
 - Un espace non payant est limité à **8 réservations de type Visite**
 - Au-delà, toute nouvelle réservation ou tout nouvel ajout de photo est bloqué avec un message d'information — jamais de bouton d'achat affiché dans l'app (conformité reader app, §3.1)
+- Le partage de l'espace (lien d'invitation, QR code, code dossier) n'est **pas** limité par le cap — disponible dès la Freemium
+- **Rôle Intervenant réservé au Premium** *(NOUVEAU depuis v1.7)* : activer « Planning des intervenants » (§3.9) exige un espace Premium ; la désactivation reste toujours possible sans condition. Message neutre affiché si l'admin d'un espace Freemium tente d'activer, sans ton commercial appuyé (cohérent avec l'absence de bouton d'achat dans l'app, §3.1)
 - Le passage en espace premium reste un flux **web** (avectoi.care), hors du périmètre de l'app mobile
 
 ---
