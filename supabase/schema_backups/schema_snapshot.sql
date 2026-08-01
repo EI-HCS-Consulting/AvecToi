@@ -423,8 +423,8 @@ declare
   v_start_min integer;
   v_end_min integer;
   v_config slot_config%rowtype;
+  v_priority boolean;
   v_intervention_id uuid;
-  v_day_taken boolean;
 
   v_rebooked uuid[] := array[]::uuid[];
   v_failed uuid[] := array[]::uuid[];
@@ -465,11 +465,6 @@ begin
     raise exception 'INTERVENTION_CROSSES_MIDNIGHT';
   end if;
 
-  select * into v_config from slot_config where space_id = p_space_id;
-  if not found then
-    raise exception 'NO_SLOT_CONFIG_FOR_SPACE';
-  end if;
-
   -- Un même intervenant ne peut pas chevaucher deux de ses propres
   -- interventions ce jour-là (des intervenants différents peuvent en
   -- revanche intervenir en même temps — ex. infirmière + kiné).
@@ -485,24 +480,14 @@ begin
     raise exception 'INTERVENTION_OVERLAP_SELF';
   end if;
 
-  -- Mode "1 visite / jour" : une intervention compte comme l'évènement du
-  -- jour au même titre qu'une visite (voir check_slot_capacity() ci-dessus,
-  -- même règle des deux côtés).
-  if v_config.one_visit_per_day then
-    perform pg_advisory_xact_lock(hashtextextended(p_space_id::text || p_date::text || 'one_visit_per_day', 0));
-
-    select exists (
-      select 1 from reservations
-      where space_id = p_space_id
-        and date = p_date
-        and type in ('Visite', 'Intervention')
-        and coalesce(alert_type, '') <> 'day_cap_suspended'
-    ) into v_day_taken;
-
-    if v_day_taken then
-      raise exception 'DAY_ALREADY_BOOKED';
-    end if;
+  select * into v_config from slot_config where space_id = p_space_id;
+  if not found then
+    raise exception 'NO_SLOT_CONFIG_FOR_SPACE';
   end if;
+
+  select (coalesce(v_config.intervenant_priority_mode, 'all') = 'all' or coalesce(priority_slots, true))
+    into v_priority
+    from intervenant_profiles where id = p_intervenant_profile_id;
 
   insert into reservations (
     space_id, date, creneau, prenom, nom, telephone, type, pin,
@@ -514,7 +499,8 @@ begin
   returning id into v_intervention_id;
 
   -- Recasage des cohortes "Visite" dont le créneau chevauche la fenêtre de
-  -- l'intervention qu'on vient d'insérer.
+  -- l'intervention qu'on vient d'insérer — uniquement si elle est prioritaire.
+  if v_priority then
   for v_cohort in
     select
       coalesce(group_id, id) as cohort_key,
@@ -618,6 +604,7 @@ begin
       v_failed := v_failed || v_cohort.member_ids;
     end if;
   end loop;
+  end if;
 
   return jsonb_build_object(
     'intervention_id', v_intervention_id,
@@ -639,9 +626,8 @@ declare
   v_max integer;
   v_count integer;
   v_slot_duration integer;
+  v_priority_mode text;
   v_blocked boolean;
-  v_one_visit_per_day boolean;
-  v_day_taken boolean;
 begin
   if new.type <> 'Visite' then
     return new;
@@ -649,8 +635,8 @@ begin
 
   perform pg_advisory_xact_lock(hashtextextended(new.space_id::text || new.date::text || new.creneau, 0));
 
-  select max_visitors_per_slot, slot_duration_minutes, one_visit_per_day
-    into v_max, v_slot_duration, v_one_visit_per_day
+  select max_visitors_per_slot, slot_duration_minutes, intervenant_priority_mode
+    into v_max, v_slot_duration, v_priority_mode
     from slot_config where space_id = new.space_id;
   if v_max is null then
     return new;
@@ -668,37 +654,18 @@ begin
   end if;
 
   select exists (
-    select 1 from reservations
-    where space_id = new.space_id
-      and date = new.date
-      and type = 'Intervention'
-      and to_minutes(creneau) < to_minutes(new.creneau) + coalesce(v_slot_duration, 0)
-      and to_minutes(creneau) + coalesce(duration_minutes, 0) > to_minutes(new.creneau)
+    select 1 from reservations r
+    left join intervenant_profiles ip on ip.id = r.intervenant_profile_id
+    where r.space_id = new.space_id
+      and r.date = new.date
+      and r.type = 'Intervention'
+      and to_minutes(r.creneau) < to_minutes(new.creneau) + coalesce(v_slot_duration, 0)
+      and to_minutes(r.creneau) + coalesce(r.duration_minutes, 0) > to_minutes(new.creneau)
+      and (coalesce(v_priority_mode, 'all') = 'all' or coalesce(ip.priority_slots, true))
   ) into v_blocked;
 
   if v_blocked then
     raise exception 'SLOT_BLOCKED_BY_INTERVENTION';
-  end if;
-
-  if v_one_visit_per_day then
-    perform pg_advisory_xact_lock(hashtextextended(new.space_id::text || new.date::text || 'one_visit_per_day', 0));
-
-    select exists (
-      select 1 from reservations
-      where space_id = new.space_id
-        and date = new.date
-        and coalesce(alert_type, '') <> 'day_cap_suspended'
-        and (
-          type = 'Intervention'
-          or (type = 'Visite'
-            and creneau <> new.creneau
-            and coalesce(group_id, id) <> coalesce(new.group_id, new.id))
-        )
-    ) into v_day_taken;
-
-    if v_day_taken then
-      raise exception 'DAY_ALREADY_BOOKED';
-    end if;
   end if;
 
   return new;
@@ -1721,7 +1688,9 @@ CREATE TABLE IF NOT EXISTS "public"."intervenant_profiles" (
     "photo" "text",
     "photo_updated_at" timestamp with time zone,
     "telephone" "text",
-    "phrase_totem" "text"
+    "phrase_totem" "text",
+    "metier" "text",
+    "priority_slots" boolean DEFAULT true NOT NULL
 );
 
 
@@ -1750,7 +1719,9 @@ CREATE TABLE IF NOT EXISTS "public"."news_entries" (
     "author_prenom" "text" NOT NULL,
     "author_nom" "text" NOT NULL,
     "author_pin" "text" NOT NULL,
-    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "author_role" "text" DEFAULT 'visiteur'::"text" NOT NULL,
+    CONSTRAINT "news_entries_author_role_check" CHECK (("author_role" = ANY (ARRAY['visiteur'::"text", 'intervenant'::"text", 'admin'::"text"])))
 );
 
 
@@ -1806,6 +1777,7 @@ CREATE TABLE IF NOT EXISTS "public"."patient_spaces" (
     "intervenants_enabled" boolean DEFAULT false NOT NULL,
     "admin_email" "text",
     "admin_pin" "text",
+    "intervenant_news_visible_to_visitors" boolean DEFAULT false NOT NULL,
     CONSTRAINT "patient_spaces_patient_sex_check" CHECK (("patient_sex" = ANY (ARRAY['M'::"text", 'F'::"text"])))
 );
 
@@ -1911,6 +1883,8 @@ CREATE TABLE IF NOT EXISTS "public"."slot_config" (
     "night_start_minute" integer DEFAULT 0 NOT NULL,
     "night_end_minute" integer DEFAULT 0 NOT NULL,
     "one_visit_per_day" boolean DEFAULT false NOT NULL,
+    "intervenant_priority_mode" "text" DEFAULT 'all'::"text" NOT NULL,
+    CONSTRAINT "slot_config_intervenant_priority_mode_check" CHECK (("intervenant_priority_mode" = ANY (ARRAY['all'::"text", 'selected'::"text"]))),
     CONSTRAINT "slot_config_night_end_minute_check" CHECK ((("night_end_minute" >= 0) AND ("night_end_minute" <= 59))),
     CONSTRAINT "slot_config_night_start_minute_check" CHECK ((("night_start_minute" >= 0) AND ("night_start_minute" <= 59))),
     CONSTRAINT "slot_config_visit_end_minute_check" CHECK ((("visit_end_minute" >= 0) AND ("visit_end_minute" <= 59))),
@@ -2082,7 +2056,7 @@ CREATE TABLE IF NOT EXISTS "public"."visitor_profiles" (
 ALTER TABLE "public"."visitor_profiles" OWNER TO "postgres";
 
 
-CREATE OR REPLACE VIEW "public"."visitor_profiles_by_patient" AS
+CREATE OR REPLACE VIEW "public"."visitor_profiles_by_patient" WITH ("security_invoker"='true') AS
  SELECT "vp"."id",
     "vp"."space_id",
     "ps"."patient_firstname",

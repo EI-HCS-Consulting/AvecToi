@@ -93,7 +93,8 @@ Quand je dis "génère un handoff" :
 4. Rédiger l'état détaillé de la session en cours (template habituel).
 5. Écrire/écraser `Handoff/handoff.md` avec les 3 sections.
 5bis. Mettre à jour `Documentation/Documentation Fonctionnalités.docx` : ajouter/ajuster les sections concernées si des fonctionnalités ont été livrées, modifiées ou supprimées depuis la dernière génération de handoff (nouveaux écrans, nouveaux boutons/menus, changements de comportement par rôle). Ne pas régénérer tout le document — éditer uniquement les sections impactées.
-6. Confirmer que le fichier est écrit et prêt.
+5ter. Évaluer si `PRD_AvecToi_v1_4.md` doit être mis à jour : uniquement si un changement de **portée produit** a eu lieu depuis la dernière génération de handoff (nouveau rôle, nouvelle fonctionnalité majeure, changement de règle métier structurant, changement de schéma de données significatif) — pas pour un simple fix ou un ajustement d'implémentation. Si oui, ajouter un bloc changelog en tête (vX.Y → vX.Y+1, même format que les changelogs existants) et éditer uniquement les sections concernées (rôles §2, fonctionnalités §3.x, schéma §5, hors scope §8 si pertinent) — ne pas régénérer tout le document.
+6. Confirmer que les fichiers modifiés (handoff, et le cas échéant le docx et/ou le PRD) sont écrits et prêts.
 
 ### Template handoff
 ```markdown
