@@ -11,7 +11,13 @@ export const ANDROID_TIME_PICKER_BUTTONS = {
 // render, ce qui redéclenche l'effet qui appelle showOrUpdatePicker → open()).
 // Résultat : l'heure en cours de sélection est réinitialisée avant que l'utilisateur
 // ait pu valider. L'API impérative recommandée par la lib évite ce problème.
-export function openAndroidTimePicker(value: Date, onPick: (date: Date) => void) {
+export async function openAndroidTimePicker(value: Date, onPick: (date: Date) => void) {
+  // Si un dialogue du même type est encore attaché (réouverture rapprochée),
+  // DatePickerModule/TimePickerModule.open() côté natif trouve le fragment précédent,
+  // se contente de le "update()" et ne relie jamais de nouveau listener → onChange ne
+  // se redéclenche plus et la valeur reste bloquée sur le tout premier choix. On force
+  // sa fermeture avant de rouvrir pour repartir sur un fragment neuf à chaque fois.
+  await DateTimePickerAndroid.dismiss("time");
   DateTimePickerAndroid.open({
     value,
     mode: "time",
@@ -28,7 +34,10 @@ export function openAndroidTimePicker(value: Date, onPick: (date: Date) => void)
 // d'Android a un bug connu : changer l'année depuis sa vue calendrier
 // réinitialise le jour/mois au 1er janvier de l'année choisie. Le mode
 // spinner (3 roues jour/mois/année indépendantes) n'a pas ce problème.
-export function openAndroidDatePicker(value: Date, onPick: (date: Date) => void, maximumDate?: Date) {
+export async function openAndroidDatePicker(value: Date, onPick: (date: Date) => void, maximumDate?: Date) {
+  // Même fix que openAndroidTimePicker : évite le fragment "RNCDatePicker" fantôme
+  // qui empêche toute réouverture rapprochée de redéclencher onChange.
+  await DateTimePickerAndroid.dismiss("date");
   DateTimePickerAndroid.open({
     value,
     mode: "date",

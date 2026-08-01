@@ -484,7 +484,8 @@ export default function SettingsScreen() {
     setPatientMedicalSaving(false);
     if (error) showToast("Erreur lors de la sauvegarde.");
     else {
-      await refreshSpace();
+      // Pas de refreshSpace() : voir le commentaire dans handleToggleIntervenants —
+      // le canal realtime `space-admin:*` reflète déjà cet update sans démonter les Tabs.
       showToast("Fiche patient enregistrée ✓");
     }
   }
@@ -1137,6 +1138,10 @@ export default function SettingsScreen() {
       Alert.alert(
         "Fonctionnalité Premium",
         "La gestion des intervenants fait partie de l'offre Premium. Passez votre espace en illimité pour l'activer.",
+        [
+          { text: "Fermer", style: "cancel" },
+          { text: "En savoir plus", onPress: () => Linking.openURL("https://avectoi.care") },
+        ],
       );
       return;
     }
@@ -1151,7 +1156,10 @@ export default function SettingsScreen() {
       showToast("Erreur lors de la mise à jour.");
       return;
     }
-    await refreshSpace();
+    // Pas de refreshSpace() ici : il bascule le flag `loading` du contexte, ce qui
+    // démonte tout le <Tabs> le temps du refetch (voir AdminGate dans _layout.tsx)
+    // et fait retomber la navigation sur l'onglet par défaut (accueil) — l'update
+    // Supabase ci-dessus est déjà reflété via le canal realtime `space-admin:*`.
     await logFieldChange("intervenants_enabled", wasEnabled ? "Activé" : "Désactivé", nextEnabled ? "Activé" : "Désactivé");
     loadHistory();
     showToast(wasEnabled ? "Planning des intervenants désactivé ✓" : "Planning des intervenants activé ✓");

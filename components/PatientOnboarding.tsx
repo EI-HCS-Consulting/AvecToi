@@ -377,7 +377,7 @@ export default function PatientOnboarding() {
               Un mantra qui définit le patient — affiché sous son nom dans la fiche patient et dans le bandeau de l'app.
             </Text>
 
-            <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 14 }]}>🏥 Date d'hospitalisation (optionnel)</Text>
+            <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 4 }]}>🏥 Date d'hospitalisation (optionnel)</Text>
             <TouchableOpacity
               style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, justifyContent: "center" }]}
               onPress={openAdmissionDatePicker}
@@ -625,7 +625,7 @@ export default function PatientOnboarding() {
               />
             )}
 
-            <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 16 }]}>Fin des visites</Text>
+            <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 8 }]}>Fin des visites</Text>
             <TouchableOpacity
               style={[styles.timeBtn, { backgroundColor: C.bg, borderColor: C.border }]}
               onPress={() => {
@@ -736,7 +736,7 @@ export default function PatientOnboarding() {
               value={visitRules}
               onChangeText={setVisitRules}
               multiline
-              numberOfLines={4}
+              numberOfLines={3}
               textAlignVertical="top"
             />
           </View>
@@ -777,22 +777,22 @@ export default function PatientOnboarding() {
 }
 
 const styles = StyleSheet.create({
-  scroll: { padding: 20, paddingTop: 56, paddingBottom: 48 },
-  title: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 26, marginBottom: 8 },
-  stepIndicator: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginBottom: 18 },
+  scroll: { padding: 20, paddingTop: 28, paddingBottom: 24 },
+  title: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 24, marginBottom: 6 },
+  stepIndicator: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginBottom: 10 },
   sectionTitle: {
     fontFamily: "DM_Sans_600SemiBold", fontSize: 11,
     letterSpacing: 1, textTransform: "uppercase",
-    marginBottom: 10,
+    marginBottom: 8,
   },
-  card: { borderWidth: 1, borderRadius: 14, padding: 16, gap: 10 },
-  cardDesc: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 19, marginBottom: 2 },
+  card: { borderWidth: 1, borderRadius: 14, padding: 14, gap: 8 },
+  cardDesc: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 18, marginBottom: 0 },
   input: {
-    borderWidth: 1, borderRadius: 10, padding: 13,
+    borderWidth: 1, borderRadius: 10, padding: 11,
     fontFamily: "DM_Sans_400Regular", fontSize: 15,
   },
   textarea: {
-    borderWidth: 1, borderRadius: 10, padding: 13, minHeight: 90,
+    borderWidth: 1, borderRadius: 10, padding: 11, minHeight: 64,
     fontFamily: "DM_Sans_400Regular", fontSize: 14, lineHeight: 20,
   },
   fieldLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
@@ -809,15 +809,15 @@ const styles = StyleSheet.create({
   stepBtn: { width: 36, height: 36, borderWidth: 1, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   stepBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 18 },
   stepValue: { fontFamily: "DM_Sans_700Bold", fontSize: 16, minWidth: 64, textAlign: "center" },
-  fieldDivider: { height: 1, marginVertical: 4 },
-  nav: { flexDirection: "row", gap: 12, alignItems: "center", marginTop: 28 },
-  backBtn: { paddingVertical: 16, paddingHorizontal: 4 },
+  fieldDivider: { height: 1, marginVertical: 2 },
+  nav: { flexDirection: "row", gap: 12, alignItems: "center", marginTop: 18 },
+  backBtn: { paddingVertical: 14, paddingHorizontal: 4 },
   backBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15 },
-  submitBtn: { flex: 1, borderRadius: 12, paddingVertical: 16, alignItems: "center", marginTop: 28 },
+  submitBtn: { flex: 1, borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 18 },
   submitBtnDisabled: { opacity: 0.5 },
   submitBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 16, color: "#fff" },
   hint: {
     fontFamily: "DM_Sans_400Regular", fontSize: 12, color: "#7a8fa6",
-    textAlign: "center", marginTop: 16, lineHeight: 18,
+    textAlign: "center", marginTop: 10, lineHeight: 17,
   },
 });
