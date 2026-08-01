@@ -10,7 +10,7 @@ import type { Theme } from "@/lib/themes";
 // Extrait de l'ancienne modale "Inviter" de (admin)/dashboard.tsx — devient
 // un écran à part entière (onglet "📱 Partager"), accessible à l'admin ET
 // au visiteur (qui peut ainsi relayer le lien à d'autres proches).
-const WEB_BASE = "https://avectoi.care";
+const WEB_BASE = "https://app.avectoi.care";
 const DOSSIER_CODE_UNIQUE_VIOLATION = "23505";
 const DOSSIER_CODE_MAX_ATTEMPTS = 5;
 
