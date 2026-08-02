@@ -32,6 +32,7 @@ Ce modèle est explicitement autorisé par Google Play et évite toute commissio
 - Toujours créer une branche : feature/nom-feature ou fix/nom-fix
 - Format commit : "feat: description" / "fix: description" / "chore: description"
 - Pull Request sur GitHub avant tout merge sur main
+- **Chaque modification (même un correctif suite à un test) part sur une branche neuve et se termine par une PR poussée sur GitHub** — jamais de nouveau commit ajouté à une branche dont la PR est déjà mergée. L'utilisateur teste sur son téléphone (development build) avant de merger lui-même ; sans PR ouverte, il n'a aucun moyen de récupérer les changements dans ses updates. Ne jamais merger une PR sans confirmation explicite que le test téléphone est passé.
 
 ## Structure de dossiers cible
 ```
