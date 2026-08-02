@@ -17,10 +17,11 @@ export interface PatientSpace {
   patient_motto: string | null;
   patient_admission_date: string | null;
   patient_discharge_date: string | null;
+  name_change_requested_at: string | null;
   hospital_name: string;
-  hospital_service: string;
+  hospital_service: string | null;
   hospital_sector: string | null;
-  hospital_room: string;
+  hospital_room: string | null;
   hospital_address: string;
   hospital_address_line2: string | null;
   hospital_postal_code: string | null;

@@ -571,6 +571,8 @@ export default function SettingsScreen() {
   const [nameChangeFirstname, setNameChangeFirstname] = useState("");
   const [nameChangeLastname, setNameChangeLastname] = useState("");
   const [nameChangeReason, setNameChangeReason] = useState("");
+  const [nameChangeSending, setNameChangeSending] = useState(false);
+  const [nameChangeSent, setNameChangeSent] = useState(false);
 
   // Historique des champs hospitaliers
   const [fieldHistory, setFieldHistory] = useState<FieldHistoryEntry[]>([]);
@@ -930,13 +932,14 @@ export default function SettingsScreen() {
     // (voir setHospitalSectorSynced) — on persiste donc aussi hospital_address_line2
     // ici pour que la BDD reste cohérente même si l'admin n'a jamais ouvert
     // la section Coordonnées.
+    const update = { hospital_room: nextRoom, hospital_service: nextService, hospital_sector: nextSector, hospital_address_line2: nextSector };
     const { error } = await supabase
       .from("patient_spaces")
-      .update({ hospital_room: nextRoom, hospital_service: nextService, hospital_sector: nextSector, hospital_address_line2: nextSector })
+      .update(update)
       .eq("id", space.id);
     setHospitalInfosSaving(false);
     if (error) showToast("Erreur lors de la sauvegarde.");
-    else { showToast("Infos hospitalières enregistrées ✓"); loadHistory(); }
+    else { patchSpace(update); showToast("Infos hospitalières enregistrées ✓"); loadHistory(); }
   }
 
   // ── Admin notes ────────────────────────────────────────────────────────────
@@ -996,21 +999,34 @@ export default function SettingsScreen() {
     setNameChangeFirstname("");
     setNameChangeLastname("");
     setNameChangeReason("");
+    setNameChangeSent(false);
     setNameChangeModal(true);
   }
 
-  function handleSendNameChange() {
+  // Envoyée directement depuis l'app (Edge Function → Resend) plutôt que via
+  // un lien mailto: qui faisait quitter l'app pour ouvrir le client email de
+  // l'utilisateur — celui-ci reste sur l'app et voit une confirmation en
+  // ligne. La colonne name_change_requested_at (mise à jour côté Edge
+  // Function) sert de statut "Demande en cours de traitement", remise à zéro
+  // manuellement par le support une fois le nom effectivement changé.
+  async function handleSendNameChange() {
     if (!space) return;
-    const subject = encodeURIComponent(`Demande de changement de nom — espace ${space.patient_firstname} ${space.patient_lastname}`);
-    const body = encodeURIComponent(
-      `Nom actuel : ${space.patient_firstname} ${space.patient_lastname}\n` +
-      `Nouveau prénom souhaité : ${nameChangeFirstname.trim()}\n` +
-      `Nouveau nom souhaité : ${nameChangeLastname.trim()}\n\n` +
-      `Raison du changement :\n${nameChangeReason.trim()}\n\n` +
-      `ID espace : ${space.id}`
-    );
-    Linking.openURL(`mailto:support@avectoi.care?subject=${subject}&body=${body}`);
-    setNameChangeModal(false);
+    setNameChangeSending(true);
+    const { error } = await supabase.functions.invoke("notify-name-change", {
+      body: {
+        space_id: space.id,
+        new_firstname: nameChangeFirstname.trim(),
+        new_lastname: nameChangeLastname.trim(),
+        reason: nameChangeReason.trim(),
+      },
+    });
+    setNameChangeSending(false);
+    if (error) {
+      showToast("Erreur lors de l'envoi de la demande.");
+      return;
+    }
+    patchSpace({ name_change_requested_at: new Date().toISOString() });
+    setNameChangeSent(true);
   }
 
   // ── Coordonnées (mode de soin + adresse hôpital/domicile) ─────────────────
@@ -1055,7 +1071,7 @@ export default function SettingsScreen() {
         nextMode ? "Soin à domicile" : "Suivi hospitalier"
       );
     }
-    if (!error) loadHistory();
+    if (!error) { patchSpace(update); loadHistory(); }
     setHomeCareToggling(false);
     if (error) {
       showToast("Erreur lors de la mise à jour.");
@@ -2930,12 +2946,18 @@ export default function SettingsScreen() {
                   <Text style={[styles.cardDesc, { color: C.muted, marginBottom: 8 }]}>
                     Le nom et prénom ne peuvent pas être modifiés directement. En cas d'erreur ou de changement, contactez le service client.
                   </Text>
-                  <TouchableOpacity
-                    style={[styles.saveNotesBtn, { backgroundColor: C.overlay, borderWidth: 1, borderColor: C.border }]}
-                    onPress={handleOpenNameChange}
-                  >
-                    <Text style={[styles.saveNotesBtnText, { color: C.muted }]}>✏️ Demander un changement de nom</Text>
-                  </TouchableOpacity>
+                  {space?.name_change_requested_at ? (
+                    <View style={[styles.pendingBadge, { backgroundColor: C.gold + "22", borderColor: C.gold }]}>
+                      <Text style={[styles.pendingBadgeText, { color: C.gold }]}>⏳ Demande en cours de traitement</Text>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      style={[styles.saveNotesBtn, { backgroundColor: C.overlay, borderWidth: 1, borderColor: C.border }]}
+                      onPress={handleOpenNameChange}
+                    >
+                      <Text style={[styles.saveNotesBtnText, { color: C.muted }]}>✏️ Demander un changement de nom</Text>
+                    </TouchableOpacity>
+                  )}
 
                   <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
 
@@ -3171,57 +3193,75 @@ export default function SettingsScreen() {
       </Modal>
 
       {/* ── MODAL CHANGEMENT DE NOM ──────────────────────────────────────── */}
-      <Modal visible={nameChangeModal} transparent animationType="slide" onRequestClose={() => setNameChangeModal(false)}>
+      <Modal visible={nameChangeModal} transparent animationType="fade" onRequestClose={() => setNameChangeModal(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-          <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setNameChangeModal(false)}>
+          <TouchableOpacity style={styles.bdPickerOverlay} activeOpacity={1} onPress={() => setNameChangeModal(false)}>
             <TouchableOpacity activeOpacity={1}>
-              <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
-                <Text style={[styles.sheetTitle, { color: C.text }]}>✏️ Demande de changement de nom</Text>
-                <Text style={[styles.sheetSub, { color: C.muted }]}>
-                  Nom actuel : {space?.patient_firstname} {space?.patient_lastname}
-                </Text>
-                <TextInput
-                  style={[styles.sheetInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                  placeholder="Nouveau prénom"
-                  placeholderTextColor={C.muted}
-                  value={nameChangeFirstname}
-                  onChangeText={setNameChangeFirstname}
-                  autoCapitalize="words"
-                />
-                <TextInput
-                  style={[styles.sheetInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                  placeholder="Nouveau nom"
-                  placeholderTextColor={C.muted}
-                  value={nameChangeLastname}
-                  onChangeText={setNameChangeLastname}
-                  autoCapitalize="words"
-                />
-                <TextInput
-                  style={[styles.sheetInput, styles.sheetTextarea, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                  placeholder="Raison du changement (obligatoire)"
-                  placeholderTextColor={C.muted}
-                  value={nameChangeReason}
-                  onChangeText={setNameChangeReason}
-                  multiline
-                  numberOfLines={3}
-                  textAlignVertical="top"
-                />
-                <View style={styles.sheetBtns}>
-                  <TouchableOpacity onPress={() => setNameChangeModal(false)} style={[styles.btnSecondary, { borderColor: C.border }]}>
-                    <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={handleSendNameChange}
-                    disabled={!nameChangeFirstname.trim() || !nameChangeLastname.trim() || !nameChangeReason.trim()}
-                    style={[
-                      styles.btnPrimary,
-                      { backgroundColor: C.accent },
-                      (!nameChangeFirstname.trim() || !nameChangeLastname.trim() || !nameChangeReason.trim()) && { opacity: 0.5 },
-                    ]}
-                  >
-                    <Text style={styles.btnPrimaryText}>Envoyer</Text>
-                  </TouchableOpacity>
-                </View>
+              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent }]}>
+                {nameChangeSent ? (
+                  <>
+                    <Text style={{ fontSize: 32, textAlign: "center", marginBottom: 8 }}>✅</Text>
+                    <Text style={[styles.sheetTitle, { color: C.text, textAlign: "center" }]}>Demande envoyée</Text>
+                    <Text style={[styles.sheetSub, { color: C.muted, textAlign: "center", marginBottom: 20 }]}>
+                      Votre demande a bien été envoyée à support@avectoi.care et va être traitée le plus rapidement possible. Nous vous remercions pour votre compréhension.
+                    </Text>
+                    <TouchableOpacity onPress={() => setNameChangeModal(false)} style={[styles.btnPrimary, { backgroundColor: C.accent }]}>
+                      <Text style={styles.btnPrimaryText}>Fermer</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <>
+                    <Text style={[styles.sheetTitle, { color: C.text }]}>✏️ Demande de changement de nom</Text>
+                    <Text style={[styles.sheetSub, { color: C.muted }]}>
+                      Nom actuel : {space?.patient_firstname} {space?.patient_lastname}
+                    </Text>
+                    <TextInput
+                      style={[styles.sheetInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                      placeholder="Nouveau prénom"
+                      placeholderTextColor={C.muted}
+                      value={nameChangeFirstname}
+                      onChangeText={setNameChangeFirstname}
+                      autoCapitalize="words"
+                    />
+                    <TextInput
+                      style={[styles.sheetInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                      placeholder="Nouveau nom"
+                      placeholderTextColor={C.muted}
+                      value={nameChangeLastname}
+                      onChangeText={setNameChangeLastname}
+                      autoCapitalize="words"
+                    />
+                    <TextInput
+                      style={[styles.sheetInput, styles.sheetTextarea, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                      placeholder="Raison du changement (obligatoire)"
+                      placeholderTextColor={C.muted}
+                      value={nameChangeReason}
+                      onChangeText={setNameChangeReason}
+                      multiline
+                      numberOfLines={3}
+                      textAlignVertical="top"
+                    />
+                    <View style={styles.sheetBtns}>
+                      <TouchableOpacity onPress={() => setNameChangeModal(false)} style={[styles.btnSecondary, { borderColor: C.border }]} disabled={nameChangeSending}>
+                        <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={handleSendNameChange}
+                        disabled={!nameChangeFirstname.trim() || !nameChangeLastname.trim() || !nameChangeReason.trim() || nameChangeSending}
+                        style={[
+                          styles.btnPrimary,
+                          { backgroundColor: C.accent },
+                          (!nameChangeFirstname.trim() || !nameChangeLastname.trim() || !nameChangeReason.trim() || nameChangeSending) && { opacity: 0.5 },
+                        ]}
+                      >
+                        {nameChangeSending
+                          ? <ActivityIndicator color="#fff" size="small" />
+                          : <Text style={styles.btnPrimaryText}>Envoyer</Text>
+                        }
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                )}
               </View>
             </TouchableOpacity>
           </TouchableOpacity>
@@ -3386,6 +3426,7 @@ const styles = StyleSheet.create({
   allergyRowText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13.5 },
   bdPickerOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center" },
   bdPickerCard: { borderRadius: 16, borderWidth: 1, paddingVertical: 12, paddingHorizontal: 8 },
+  centeredSheet: { width: "88%", borderRadius: 20, borderWidth: 1, padding: 24 },
   bdPickerRow: { paddingVertical: 9, paddingHorizontal: 8, borderRadius: 8 },
   bdPickerRowText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14, textAlign: "center" },
   bdFieldBtn: { flex: 1, alignItems: "center", borderWidth: 1.5, borderRadius: 14, paddingVertical: 8, paddingHorizontal: 4 },
@@ -3453,6 +3494,8 @@ const styles = StyleSheet.create({
   },
   saveNotesBtn: { borderRadius: 10, paddingVertical: 12, alignItems: "center", justifyContent: "center" },
   saveNotesBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" },
+  pendingBadge: { borderRadius: 10, borderWidth: 1, paddingVertical: 12, alignItems: "center", justifyContent: "center" },
+  pendingBadgeText: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },
 
   // Nuitées
   nightRow: { flexDirection: "row", alignItems: "center", gap: 12 },
