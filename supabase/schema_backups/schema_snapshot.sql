@@ -1778,6 +1778,7 @@ CREATE TABLE IF NOT EXISTS "public"."patient_spaces" (
     "admin_email" "text",
     "admin_pin" "text",
     "intervenant_news_visible_to_visitors" boolean DEFAULT false NOT NULL,
+    "name_change_requested_at" timestamp with time zone,
     CONSTRAINT "patient_spaces_patient_sex_check" CHECK (("patient_sex" = ANY (ARRAY['M'::"text", 'F'::"text"])))
 );
 
