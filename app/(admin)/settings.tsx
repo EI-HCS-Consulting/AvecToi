@@ -1025,13 +1025,22 @@ export default function SettingsScreen() {
         },
       });
       if (error) {
-        console.error("notify-name-change error:", error, (error as any)?.context);
-        setNameChangeError("Erreur lors de l'envoi de la demande. Réessaie dans un instant.");
+        let detail = "";
+        try {
+          const body = await (error as any)?.context?.json?.();
+          detail = body?.error || body?.detail || "";
+        } catch {
+          // le corps de la réponse n'était pas du JSON exploitable
+        }
+        console.error("notify-name-change error:", error, detail);
+        setNameChangeError(
+          "Erreur lors de l'envoi de la demande" + (detail ? ` (${detail})` : "") + ". Réessaie dans un instant."
+        );
         return;
       }
       if (data?.error) {
         console.error("notify-name-change returned error:", data.error);
-        setNameChangeError("Erreur lors de l'envoi de la demande. Réessaie dans un instant.");
+        setNameChangeError(`Erreur lors de l'envoi de la demande (${data.error}). Réessaie dans un instant.`);
         return;
       }
       patchSpace({ name_change_requested_at: new Date().toISOString() });
