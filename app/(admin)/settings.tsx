@@ -1025,14 +1025,27 @@ export default function SettingsScreen() {
         },
       });
       if (error) {
-        let detail = "";
+        const ctx = (error as any)?.context;
+        const status = ctx?.status;
+        let bodyText = "";
         try {
-          const body = await (error as any)?.context?.json?.();
-          detail = body?.error || body?.detail || "";
+          if (typeof ctx?.text === "function") bodyText = await ctx.text();
         } catch {
-          // le corps de la réponse n'était pas du JSON exploitable
+          // corps de réponse illisible (déjà consommé, ou pas de body)
         }
-        console.error("notify-name-change error:", error, detail);
+        let parsedMsg = "";
+        if (bodyText) {
+          try {
+            const parsed = JSON.parse(bodyText);
+            parsedMsg = parsed?.error || parsed?.detail || parsed?.msg || bodyText;
+          } catch {
+            parsedMsg = bodyText;
+          }
+        }
+        const detail = [status ? `HTTP ${status}` : null, parsedMsg || error?.message]
+          .filter(Boolean)
+          .join(" — ");
+        console.error("notify-name-change error:", error, status, bodyText);
         setNameChangeError(
           "Erreur lors de l'envoi de la demande" + (detail ? ` (${detail})` : "") + ". Réessaie dans un instant."
         );
