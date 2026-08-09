@@ -573,6 +573,7 @@ export default function SettingsScreen() {
   const [nameChangeReason, setNameChangeReason] = useState("");
   const [nameChangeSending, setNameChangeSending] = useState(false);
   const [nameChangeSent, setNameChangeSent] = useState(false);
+  const [nameChangeError, setNameChangeError] = useState("");
 
   // Historique des champs hospitaliers
   const [fieldHistory, setFieldHistory] = useState<FieldHistoryEntry[]>([]);
@@ -1000,6 +1001,7 @@ export default function SettingsScreen() {
     setNameChangeLastname("");
     setNameChangeReason("");
     setNameChangeSent(false);
+    setNameChangeError("");
     setNameChangeModal(true);
   }
 
@@ -1012,21 +1014,34 @@ export default function SettingsScreen() {
   async function handleSendNameChange() {
     if (!space) return;
     setNameChangeSending(true);
-    const { error } = await supabase.functions.invoke("notify-name-change", {
-      body: {
-        space_id: space.id,
-        new_firstname: nameChangeFirstname.trim(),
-        new_lastname: nameChangeLastname.trim(),
-        reason: nameChangeReason.trim(),
-      },
-    });
-    setNameChangeSending(false);
-    if (error) {
-      showToast("Erreur lors de l'envoi de la demande.");
-      return;
+    setNameChangeError("");
+    try {
+      const { data, error } = await supabase.functions.invoke("notify-name-change", {
+        body: {
+          space_id: space.id,
+          new_firstname: nameChangeFirstname.trim(),
+          new_lastname: nameChangeLastname.trim(),
+          reason: nameChangeReason.trim(),
+        },
+      });
+      if (error) {
+        console.error("notify-name-change error:", error, (error as any)?.context);
+        setNameChangeError("Erreur lors de l'envoi de la demande. Réessaie dans un instant.");
+        return;
+      }
+      if (data?.error) {
+        console.error("notify-name-change returned error:", data.error);
+        setNameChangeError("Erreur lors de l'envoi de la demande. Réessaie dans un instant.");
+        return;
+      }
+      patchSpace({ name_change_requested_at: new Date().toISOString() });
+      setNameChangeSent(true);
+    } catch (e: any) {
+      console.error("notify-name-change threw:", e);
+      setNameChangeError("Erreur réseau — vérifie ta connexion et réessaie.");
+    } finally {
+      setNameChangeSending(false);
     }
-    patchSpace({ name_change_requested_at: new Date().toISOString() });
-    setNameChangeSent(true);
   }
 
   // ── Coordonnées (mode de soin + adresse hôpital/domicile) ─────────────────
@@ -3241,6 +3256,11 @@ export default function SettingsScreen() {
                       numberOfLines={3}
                       textAlignVertical="top"
                     />
+                    {!!nameChangeError && (
+                      <Text style={{ color: C.danger, fontSize: 13, fontFamily: "DM_Sans_600SemiBold", marginBottom: 8 }}>
+                        {nameChangeError}
+                      </Text>
+                    )}
                     <View style={styles.sheetBtns}>
                       <TouchableOpacity onPress={() => setNameChangeModal(false)} style={[styles.btnSecondary, { borderColor: C.border }]} disabled={nameChangeSending}>
                         <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
