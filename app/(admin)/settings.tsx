@@ -11,6 +11,7 @@ import {
 // so the ScrollView actually gets a bounded viewport to scroll within.
 const SHEET_MAX_HEIGHT = Dimensions.get("window").height * 0.85;
 import { useRouter } from "expo-router";
+import * as Updates from "expo-updates";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
@@ -3239,6 +3240,9 @@ export default function SettingsScreen() {
                   <Fragment key="success">
                     <Text style={{ fontSize: 32, textAlign: "center", marginBottom: 8 }}>✅</Text>
                     <Text style={[styles.sheetTitle, { color: C.text, textAlign: "center" }]}>Demande envoyée</Text>
+                    <Text style={{ fontSize: 10, color: "#0f0", backgroundColor: "#000", textAlign: "center", marginBottom: 6 }}>
+                      DEBUG build: {Updates.updateId ?? "embedded (pas d'OTA appliquée)"} · {Updates.createdAt ? Updates.createdAt.toISOString() : "?"} · channel {Updates.channel ?? "?"}
+                    </Text>
                     <Text style={[styles.sheetSub, { color: C.muted, textAlign: "center", marginBottom: 20 }]}>
                       Votre demande a bien été envoyée à support@avectoi.care et va être traitée le plus rapidement possible. Nous vous remercions pour votre compréhension.
                     </Text>
@@ -3249,7 +3253,7 @@ export default function SettingsScreen() {
                         { backgroundColor: C.accent, flexGrow: 0, flexShrink: 0, flexBasis: "auto", alignSelf: "stretch" },
                       ]}
                     >
-                      <Text style={[styles.btnPrimaryText, { color: "yellow", fontSize: 28, backgroundColor: "red" }]}>Fermer</Text>
+                      <Text style={[styles.btnPrimaryText, { color: "#fff" }]}>Fermer</Text>
                     </TouchableOpacity>
                   </Fragment>
                 ) : (
