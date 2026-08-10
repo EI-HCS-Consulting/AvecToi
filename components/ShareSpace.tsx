@@ -80,7 +80,7 @@ export default function ShareSpace({ space, C }: { space: PatientSpace; C: Theme
       <Text style={[styles.title, { color: C.text }]}>🔗 Partager l'invitation</Text>
 
       <Text style={[styles.sub, { color: C.muted }]}>
-        Envoie ce lien aux proches pour qu'ils rejoignent l'espace.
+        Envoie ce lien aux proches de {space.patient_firstname} pour qu'ils rejoignent l'espace.
       </Text>
 
       <View style={[styles.qrContainer, { backgroundColor: "#fff", borderColor: C.border }]}>
