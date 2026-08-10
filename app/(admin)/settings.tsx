@@ -3253,28 +3253,18 @@ export default function SettingsScreen() {
                     <Text style={[styles.sheetSub, { color: C.muted, textAlign: "center", marginBottom: 20 }]}>
                       Votre demande a bien été envoyée à support@avectoi.care et va être traitée le plus rapidement possible. Nous vous remercions pour votre compréhension.
                     </Text>
-                    <View
+                    <TouchableOpacity
+                      onPress={() => setNameChangeModal(false)}
                       style={{
                         width: 220,
                         height: 50,
-                        backgroundColor: "#ff00ff",
-                        borderWidth: 4,
-                        borderColor: "yellow",
+                        backgroundColor: C.accent,
+                        borderRadius: 10,
                         alignItems: "center",
                         justifyContent: "center",
-                        marginBottom: 10,
                       }}
                     >
-                      <Text style={{ color: "#000000", fontSize: 22, fontWeight: "bold" }}>TEST999</Text>
-                    </View>
-                    <TouchableOpacity
-                      onPress={() => setNameChangeModal(false)}
-                      style={[
-                        styles.btnPrimary,
-                        { backgroundColor: C.accent, flexGrow: 0, flexShrink: 0, flexBasis: "auto", alignSelf: "stretch" },
-                      ]}
-                    >
-                      <Text style={[styles.btnPrimaryText, { color: "#fff" }]}>Fermer</Text>
+                      <Text style={{ fontFamily: "DM_Sans_700Bold", fontSize: 15, color: "#ffffff" }}>Fermer</Text>
                     </TouchableOpacity>
                   </Fragment>
                 ) : (
