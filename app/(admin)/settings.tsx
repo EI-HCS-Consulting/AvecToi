@@ -3243,7 +3243,7 @@ export default function SettingsScreen() {
                       Votre demande a bien été envoyée à support@avectoi.care et va être traitée le plus rapidement possible. Nous vous remercions pour votre compréhension.
                     </Text>
                     <TouchableOpacity onPress={() => setNameChangeModal(false)} style={[styles.btnPrimary, { backgroundColor: C.accent }]}>
-                      <Text style={styles.btnPrimaryText}>Fermer</Text>
+                      <Text style={[styles.btnPrimaryText, { color: "#fff" }]}>Fermer</Text>
                     </TouchableOpacity>
                   </>
                 ) : (
