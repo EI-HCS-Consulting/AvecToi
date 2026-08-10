@@ -51,12 +51,10 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
   // groupe (ChecklistContext, "perso", ou nom de checklist perso créée).
   const [openGroup, setOpenGroup] = useState<string | null>(null);
 
-  const [customText, setCustomText] = useState("");
-  const [addingCustom, setAddingCustom] = useState(false);
-
   const [createModal, setCreateModal] = useState(false);
   const [newChecklistName, setNewChecklistName] = useState("");
-  const [newChecklistItemsText, setNewChecklistItemsText] = useState("");
+  const [newChecklistItems, setNewChecklistItems] = useState<string[]>([]);
+  const [newChecklistItemDraft, setNewChecklistItemDraft] = useState("");
   const [creatingChecklist, setCreatingChecklist] = useState(false);
 
   // Ajout d'items dans une checklist perso déjà créée — un seul champ car un
@@ -83,7 +81,8 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
   const [picker, setPicker] = useState(false);
   const [importCtx, setImportCtx] = useState<ChecklistContext | null>(null);
   const [importChecked, setImportChecked] = useState<Record<number, boolean>>({});
-  const [importCustomText, setImportCustomText] = useState("");
+  const [importCustomItems, setImportCustomItems] = useState<string[]>([]);
+  const [importItemDraft, setImportItemDraft] = useState("");
   const [importSaving, setImportSaving] = useState(false);
   // Requêté à l'ouverture du picker plutôt que tenu en permanence — MyChecklist
   // n'a pas besoin de la liste complète des besoins hors de ce flux d'import.
@@ -126,34 +125,20 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     }
   }
 
-  async function addCustomItems() {
-    const titles = linesToTitles(customText);
-    if (!titles.length) return;
-    setAddingCustom(true);
-    const rows = titles.map((title) => ({
-      space_id: spaceId,
-      owner_prenom: ownerPrenom,
-      owner_nom: ownerNom,
-      owner_pin: ownerPin,
-      title,
-      status: "a_faire" as const,
-      task_id: null,
-      checklist_context: null,
-      custom_checklist_name: null,
-    }));
-    const { error } = await supabase.from("personal_checklist_items").insert(rows);
-    setAddingCustom(false);
-    if (error) {
-      Alert.alert("Erreur", "Impossible d'ajouter : " + error.message);
-      return;
-    }
-    setCustomText("");
-    loadItems();
+  function addDraftToNewChecklist() {
+    const title = newChecklistItemDraft.trim();
+    if (!title) return;
+    setNewChecklistItems((prev) => [...prev, title]);
+    setNewChecklistItemDraft("");
+  }
+
+  function removeNewChecklistItem(index: number) {
+    setNewChecklistItems((prev) => prev.filter((_, i) => i !== index));
   }
 
   async function confirmCreateChecklist() {
     const name = newChecklistName.trim();
-    const titles = linesToTitles(newChecklistItemsText);
+    const titles = newChecklistItems;
     if (!name || !titles.length) return;
     setCreatingChecklist(true);
     const rows = titles.map((title) => ({
@@ -175,12 +160,16 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     }
     setCreateModal(false);
     setNewChecklistName("");
-    setNewChecklistItemsText("");
+    setNewChecklistItems([]);
+    setNewChecklistItemDraft("");
     setOpenGroup(name);
     loadItems();
   }
 
-  async function addItemToGroup(name: string) {
+  // target identifie le groupe dans lequel ajouter — soit une checklist perso
+  // nommée (custom_checklist_name), soit une checklist toute prête importée
+  // (checklist_context) : les deux se rouvrent ensuite via groupItems(key).
+  async function addItemToGroup(target: { key: string; isCustom: boolean }) {
     const titles = linesToTitles(groupAddText);
     if (!titles.length) return;
     setGroupAddSaving(true);
@@ -192,8 +181,8 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
       title,
       status: "a_faire" as const,
       task_id: null,
-      checklist_context: null,
-      custom_checklist_name: name,
+      checklist_context: target.isCustom ? null : (target.key as ChecklistContext),
+      custom_checklist_name: target.isCustom ? target.key : null,
     }));
     const { error } = await supabase.from("personal_checklist_items").insert(rows);
     setGroupAddSaving(false);
@@ -302,7 +291,8 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
   function openImportContext(ctx: ChecklistContext) {
     setImportCtx(ctx);
     setImportChecked({});
-    setImportCustomText("");
+    setImportCustomItems([]);
+    setImportItemDraft("");
     setPicker(false);
   }
 
@@ -316,13 +306,24 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     setImportChecked(next);
   }
 
+  function addImportCustomItem() {
+    const title = importItemDraft.trim();
+    if (!title) return;
+    setImportCustomItems((prev) => [...prev, title]);
+    setImportItemDraft("");
+  }
+
+  function removeImportCustomItem(index: number) {
+    setImportCustomItems((prev) => prev.filter((_, i) => i !== index));
+  }
+
   async function confirmImport() {
     if (!importCtx) return;
     const tpl = CHECKLIST_TEMPLATES[importCtx];
     const templateItems = tpl.groups.flatMap((g) => g.items).filter((it) => isAdmin || it.sharedWithVisitors);
     const selected = [
       ...templateItems.filter((item, i) => importChecked[i] && !findDuplicateTask(item.title)),
-      ...linesToTitles(importCustomText)
+      ...importCustomItems
         .map((title): ChecklistItem => ({ title, description: "", sharedWithVisitors: true }))
         .filter((item) => !findDuplicateTask(item.title)),
     ];
@@ -385,11 +386,11 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     new Set(items.map((it) => it.custom_checklist_name).filter((n): n is string => !!n)),
   );
 
-  // customName : nom de la checklist perso si ce groupe en est une — permet
-  // d'y ajouter de nouveaux items directement (voir groupAddText). Absent
-  // pour les checklists suggérées importées et pour "Mes items personnels"
-  // (qui a déjà son propre champ d'ajout, tout en haut du bloc).
-  function renderGroupCard(groupItemsList: PersonalChecklistItem[], customName?: string) {
+  // addTarget : identifie le groupe (checklist perso nommée ou checklist
+  // toute prête importée) pour y ajouter de nouveaux items directement (voir
+  // groupAddText). Absent pour "Mes items personnels" (legacy, sans
+  // checklist parente).
+  function renderGroupCard(groupItemsList: PersonalChecklistItem[], addTarget?: { key: string; isCustom: boolean }) {
     return (
       <View style={[styles.card, styles.groupCard, { backgroundColor: C.card, borderColor: C.border }]}>
         {groupItemsList.length === 0 ? (
@@ -429,7 +430,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
             </TouchableOpacity>
           );
         })}
-        {customName && (
+        {addTarget && (
           <View style={styles.groupAddRow}>
             <TextInput
               style={[styles.groupAddInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
@@ -441,7 +442,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
             />
             <TouchableOpacity
               style={[styles.groupAddBtn, { borderColor: C.gold, opacity: groupAddText.trim() ? 1 : 0.5 }]}
-              onPress={() => addItemToGroup(customName)}
+              onPress={() => addItemToGroup(addTarget)}
               disabled={!groupAddText.trim() || groupAddSaving}
               activeOpacity={0.8}
             >
@@ -508,7 +509,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                     </Text>
                     <Text style={[styles.groupChevron, { color: C.muted }]}>{isOpen ? "▲" : "▼"}</Text>
                   </TouchableOpacity>
-                  {isOpen && renderGroupCard(groupList)}
+                  {isOpen && renderGroupCard(groupList, { key: ctx, isCustom: false })}
                 </View>
               );
             })}
@@ -542,7 +543,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                       <Text style={[styles.groupChevron, { color: C.muted }]}>{isOpen ? "▲" : "▼"}</Text>
                     </View>
                   </TouchableOpacity>
-                  {isOpen && renderGroupCard(groupList, name)}
+                  {isOpen && renderGroupCard(groupList, { key: name, isCustom: true })}
                 </View>
               );
             })}
@@ -570,28 +571,8 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
           </>
         )}
 
-        <TextInput
-          style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-          placeholder="+ Ajouter un item perso (un par ligne)"
-          placeholderTextColor={C.muted}
-          value={customText}
-          onChangeText={setCustomText}
-          multiline
-        />
         <TouchableOpacity
-          style={[styles.btnSecondary, { borderColor: C.accent, opacity: customText.trim() ? 1 : 0.5 }]}
-          onPress={addCustomItems}
-          disabled={!customText.trim() || addingCustom}
-          activeOpacity={0.8}
-        >
-          {addingCustom
-            ? <ActivityIndicator color={C.accent} />
-            : <Text style={[styles.btnSecondaryText, { color: C.accent }]}>+ Ajouter à ma checklist</Text>
-          }
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.btnSecondary, { borderColor: C.gold, marginTop: 8 }]}
+          style={[styles.btnSecondary, { borderColor: C.gold }]}
           onPress={() => setCreateModal(true)}
           activeOpacity={0.8}
         >
@@ -636,10 +617,10 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
       />
 
       {/* ── MODAL : créer sa propre checklist nommée ────────────────────── */}
-      <Modal visible={createModal} transparent animationType="slide" onRequestClose={() => !creatingChecklist && setCreateModal(false)}>
+      <Modal visible={createModal} transparent animationType="fade" onRequestClose={() => !creatingChecklist && setCreateModal(false)}>
         <View style={styles.overlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !creatingChecklist && setCreateModal(false)} />
-          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.gold, paddingBottom: 64 }]}>
+          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.gold }]}>
             <Text style={[styles.sheetTitle, { color: C.text }]}>📋 Créer une checklist</Text>
             <Text style={[styles.intro, { color: C.muted }]}>
               Donne-lui un nom, puis ajoute ses premiers items.
@@ -651,14 +632,41 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
               value={newChecklistName}
               onChangeText={setNewChecklistName}
             />
-            <TextInput
-              style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-              placeholder="Items (un par ligne)"
-              placeholderTextColor={C.muted}
-              value={newChecklistItemsText}
-              onChangeText={setNewChecklistItemsText}
-              multiline
-            />
+
+            <View style={[styles.card, styles.groupCard, { backgroundColor: C.bg, borderColor: C.border, marginTop: 12 }]}>
+              {newChecklistItems.length === 0 ? (
+                <Text style={[styles.empty, { color: C.muted }]}>Aucun item pour le moment.</Text>
+              ) : newChecklistItems.map((title, i) => (
+                <View key={i} style={[styles.row, { borderBottomColor: C.border }]}>
+                  <Text style={[styles.rowText, { flex: 1, color: C.text }]}>{title}</Text>
+                  <TouchableOpacity onPress={() => removeNewChecklistItem(i)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Text style={{ color: C.muted, fontSize: 16 }}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+
+            <View style={[styles.divider, { backgroundColor: C.gold }]} />
+
+            <View style={styles.groupAddRow}>
+              <TextInput
+                style={[styles.groupAddInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 0 }]}
+                placeholder="Nom de l'item"
+                placeholderTextColor={C.muted}
+                value={newChecklistItemDraft}
+                onChangeText={setNewChecklistItemDraft}
+                onSubmitEditing={addDraftToNewChecklist}
+              />
+              <TouchableOpacity
+                style={[styles.groupAddBtn, { borderColor: C.gold, opacity: newChecklistItemDraft.trim() ? 1 : 0.5 }]}
+                onPress={addDraftToNewChecklist}
+                disabled={!newChecklistItemDraft.trim()}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.groupAddBtnText, { color: C.gold }]}>+ Ajouter un item</Text>
+              </TouchableOpacity>
+            </View>
+
             <View style={styles.sheetBtns}>
               <TouchableOpacity
                 style={[styles.btnSecondary, { borderColor: C.border }]}
@@ -670,10 +678,10 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
               <TouchableOpacity
                 style={[
                   styles.btnPrimary,
-                  { backgroundColor: C.gold, opacity: !newChecklistName.trim() || !linesToTitles(newChecklistItemsText).length || creatingChecklist ? 0.5 : 1 },
+                  { backgroundColor: C.gold, opacity: !newChecklistName.trim() || !newChecklistItems.length || creatingChecklist ? 0.5 : 1 },
                 ]}
                 onPress={confirmCreateChecklist}
-                disabled={!newChecklistName.trim() || !linesToTitles(newChecklistItemsText).length || creatingChecklist}
+                disabled={!newChecklistName.trim() || !newChecklistItems.length || creatingChecklist}
               >
                 {creatingChecklist
                   ? <ActivityIndicator color="#fff" />
@@ -686,10 +694,10 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
       </Modal>
 
       {/* ── MODAL : mes modèles de checklist (intervenant, cross-space) ─── */}
-      <Modal visible={templatesPicker} transparent animationType="slide" onRequestClose={() => setTemplatesPicker(false)}>
+      <Modal visible={templatesPicker} transparent animationType="fade" onRequestClose={() => setTemplatesPicker(false)}>
         <View style={styles.overlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setTemplatesPicker(false)} />
-          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.gold, marginBottom: 12 }]}>
+          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.gold }]}>
             <Text style={[styles.sheetTitle, { color: C.text }]}>📥 Mes modèles</Text>
             <Text style={[styles.intro, { color: C.muted }]}>
               Importe une checklist que tu as enregistrée comme modèle (💾, depuis un autre dossier patient) dans ce dossier-ci.
@@ -725,16 +733,25 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
             )}
             <TouchableOpacity
               onPress={() => setTemplatesPicker(false)}
-              style={[styles.btnSecondary, { borderColor: C.border, marginTop: 10, alignSelf: "stretch" }]}
+              style={{
+                width: "100%",
+                height: 48,
+                borderRadius: 10,
+                borderWidth: 1,
+                borderColor: C.border,
+                alignItems: "center",
+                justifyContent: "center",
+                marginTop: 10,
+              }}
             >
-              <Text style={[styles.btnSecondaryText, { color: C.muted, textAlign: "center" }]}>Fermer</Text>
+              <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.muted }}>Fermer</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
       {/* ── MODAL : choix de la checklist à importer ────────────────────── */}
-      <Modal visible={picker} transparent animationType="slide" onRequestClose={() => setPicker(false)}>
+      <Modal visible={picker} transparent animationType="fade" onRequestClose={() => setPicker(false)}>
         <View style={styles.overlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setPicker(false)} />
           <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.gold }]}>
@@ -764,16 +781,25 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
             })}
             <TouchableOpacity
               onPress={() => setPicker(false)}
-              style={[styles.btnSecondary, { borderColor: C.border, marginTop: 10, alignSelf: "stretch" }]}
+              style={{
+                width: "100%",
+                height: 48,
+                borderRadius: 10,
+                borderWidth: 1,
+                borderColor: C.border,
+                alignItems: "center",
+                justifyContent: "center",
+                marginTop: 10,
+              }}
             >
-              <Text style={[styles.btnSecondaryText, { color: C.muted, textAlign: "center" }]}>Annuler</Text>
+              <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.muted }}>Annuler</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
       {/* ── MODAL : sélection des items d'un contexte à importer ────────── */}
-      <Modal visible={!!importCtx} transparent animationType="slide" onRequestClose={() => !importSaving && setImportCtx(null)}>
+      <Modal visible={!!importCtx} transparent animationType="fade" onRequestClose={() => !importSaving && setImportCtx(null)}>
         <View style={styles.overlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !importSaving && setImportCtx(null)} />
           <View style={[styles.sheet, { backgroundColor: C.card, borderColor: importCtx ? C[CHECKLIST_TEMPLATES[importCtx].colorKey] : C.accent }]}>
@@ -781,7 +807,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
               const tpl = CHECKLIST_TEMPLATES[importCtx];
               const color = C[tpl.colorKey];
               const templateItems = tpl.groups.flatMap((g) => g.items).filter((it) => isAdmin || it.sharedWithVisitors);
-              const customCount = linesToTitles(importCustomText).filter((t) => !findDuplicateTask(t)).length;
+              const customCount = importCustomItems.filter((t) => !findDuplicateTask(t)).length;
               const checkedCount = templateItems.filter((item, i) => importChecked[i] && !findDuplicateTask(item.title)).length + customCount;
               return (
                 <>
@@ -818,16 +844,39 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                         </TouchableOpacity>
                       );
                     })}
+                    {importCustomItems.map((title, i) => (
+                      <View key={`custom-${i}`} style={styles.itemRow}>
+                        <View style={[styles.box, { borderColor: color, backgroundColor: color }]}>
+                          <Text style={styles.boxMark}>✓</Text>
+                        </View>
+                        <Text style={[styles.itemTitle, { color: C.text, flex: 1 }]}>{title}</Text>
+                        <TouchableOpacity onPress={() => removeImportCustomItem(i)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                          <Text style={{ color: C.muted, fontSize: 16 }}>✕</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
                   </ScrollView>
 
-                  <TextInput
-                    style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 8 }]}
-                    placeholder="+ Ajouter un item perso (un par ligne)"
-                    placeholderTextColor={C.muted}
-                    value={importCustomText}
-                    onChangeText={setImportCustomText}
-                    multiline
-                  />
+                  <View style={[styles.divider, { backgroundColor: color }]} />
+
+                  <View style={styles.groupAddRow}>
+                    <TextInput
+                      style={[styles.groupAddInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 0 }]}
+                      placeholder="Nom de l'item"
+                      placeholderTextColor={C.muted}
+                      value={importItemDraft}
+                      onChangeText={setImportItemDraft}
+                      onSubmitEditing={addImportCustomItem}
+                    />
+                    <TouchableOpacity
+                      style={[styles.groupAddBtn, { borderColor: color, opacity: importItemDraft.trim() ? 1 : 0.5 }]}
+                      onPress={addImportCustomItem}
+                      disabled={!importItemDraft.trim()}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.groupAddBtnText, { color }]}>+ Ajouter un item</Text>
+                    </TouchableOpacity>
+                  </View>
 
                   <View style={styles.sheetBtns}>
                     <TouchableOpacity
@@ -898,10 +947,11 @@ const styles = StyleSheet.create({
   importBanner: { flexDirection: "row", alignItems: "center", justifyContent: "center", borderWidth: 1, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14, marginTop: 14 },
   importBannerText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13.5 },
 
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "flex-end" },
-  sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, padding: 20, paddingBottom: 40, maxHeight: "82%" },
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center" },
+  sheet: { width: "88%", borderRadius: 20, borderWidth: 1, padding: 20, maxHeight: "82%" },
   sheetTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, marginBottom: 4 },
   sheetBtns: { flexDirection: "row", gap: 10, marginTop: 16 },
+  divider: { height: 2, borderRadius: 1, marginVertical: 14, opacity: 0.6 },
   intro: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 18, marginBottom: 14 },
 
   checklistCard: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1.5, borderRadius: 14, padding: 14, marginBottom: 10 },
