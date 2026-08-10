@@ -3242,7 +3242,13 @@ export default function SettingsScreen() {
                     <Text style={[styles.sheetSub, { color: C.muted, textAlign: "center", marginBottom: 20 }]}>
                       Votre demande a bien été envoyée à support@avectoi.care et va être traitée le plus rapidement possible. Nous vous remercions pour votre compréhension.
                     </Text>
-                    <TouchableOpacity onPress={() => setNameChangeModal(false)} style={[styles.btnPrimary, { backgroundColor: C.accent }]}>
+                    <TouchableOpacity
+                      onPress={() => setNameChangeModal(false)}
+                      style={[
+                        styles.btnPrimary,
+                        { backgroundColor: C.accent, flexGrow: 0, flexShrink: 0, flexBasis: "auto", alignSelf: "stretch" },
+                      ]}
+                    >
                       <Text style={[styles.btnPrimaryText, { color: "#fff" }]}>Fermer</Text>
                     </TouchableOpacity>
                   </Fragment>
