@@ -11,7 +11,6 @@ import {
 // so the ScrollView actually gets a bounded viewport to scroll within.
 const SHEET_MAX_HEIGHT = Dimensions.get("window").height * 0.85;
 import { useRouter } from "expo-router";
-import * as Updates from "expo-updates";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
@@ -1058,7 +1057,18 @@ export default function SettingsScreen() {
         return;
       }
       patchSpace({ name_change_requested_at: new Date().toISOString() });
+      // Ferme puis rouvre le Modal (plutôt que de simplement basculer
+      // nameChangeSent pendant qu'il reste affiché) : sur Android, muter le
+      // contenu d'un Modal déjà visible peut laisser certains éléments
+      // nouvellement introduits sans peinture correcte (vu en pratique sur
+      // le bouton "Fermer" de la vue succès, jamais résolu par un simple
+      // remount de sous-arbre React côté JS). Démonter/remonter le Dialog
+      // natif avec le contenu final déjà déterminé dès le premier rendu
+      // correspond au cas de tous les autres boutons de l'app, qui eux
+      // s'affichent correctement.
       setNameChangeSent(true);
+      setNameChangeModal(false);
+      setTimeout(() => setNameChangeModal(true), 50);
     } catch (e: any) {
       console.error("notify-name-change threw:", e);
       setNameChangeError("Erreur réseau — vérifie ta connexion et réessaie.");
@@ -3240,9 +3250,6 @@ export default function SettingsScreen() {
                   <Fragment key="success">
                     <Text style={{ fontSize: 32, textAlign: "center", marginBottom: 8 }}>✅</Text>
                     <Text style={[styles.sheetTitle, { color: C.text, textAlign: "center" }]}>Demande envoyée</Text>
-                    <Text style={{ fontSize: 10, color: "#0f0", backgroundColor: "#000", textAlign: "center", marginBottom: 6 }}>
-                      DEBUG build: {Updates.updateId ?? "embedded (pas d'OTA appliquée)"} · {Updates.createdAt ? Updates.createdAt.toISOString() : "?"} · channel {Updates.channel ?? "?"}
-                    </Text>
                     <Text style={[styles.sheetSub, { color: C.muted, textAlign: "center", marginBottom: 20 }]}>
                       Votre demande a bien été envoyée à support@avectoi.care et va être traitée le plus rapidement possible. Nous vous remercions pour votre compréhension.
                     </Text>
