@@ -3249,7 +3249,7 @@ export default function SettingsScreen() {
                         { backgroundColor: C.accent, flexGrow: 0, flexShrink: 0, flexBasis: "auto", alignSelf: "stretch" },
                       ]}
                     >
-                      <Text style={[styles.btnPrimaryText, { color: "#fff" }]}>Fermer</Text>
+                      <Text style={[styles.btnPrimaryText, { color: "yellow", fontSize: 28, backgroundColor: "red" }]}>Fermer</Text>
                     </TouchableOpacity>
                   </Fragment>
                 ) : (
