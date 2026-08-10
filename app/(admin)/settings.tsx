@@ -3253,6 +3253,20 @@ export default function SettingsScreen() {
                     <Text style={[styles.sheetSub, { color: C.muted, textAlign: "center", marginBottom: 20 }]}>
                       Votre demande a bien été envoyée à support@avectoi.care et va être traitée le plus rapidement possible. Nous vous remercions pour votre compréhension.
                     </Text>
+                    <View
+                      style={{
+                        width: 220,
+                        height: 50,
+                        backgroundColor: "#ff00ff",
+                        borderWidth: 4,
+                        borderColor: "yellow",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        marginBottom: 10,
+                      }}
+                    >
+                      <Text style={{ color: "#000000", fontSize: 22, fontWeight: "bold" }}>TEST999</Text>
+                    </View>
                     <TouchableOpacity
                       onPress={() => setNameChangeModal(false)}
                       style={[
