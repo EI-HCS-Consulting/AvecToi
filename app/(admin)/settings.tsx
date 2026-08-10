@@ -3251,7 +3251,7 @@ export default function SettingsScreen() {
                     <Text style={{ fontSize: 32, textAlign: "center", marginBottom: 8 }}>✅</Text>
                     <Text style={[styles.sheetTitle, { color: C.text, textAlign: "center" }]}>Demande envoyée</Text>
                     <Text style={[styles.sheetSub, { color: C.muted, textAlign: "center", marginBottom: 20 }]}>
-                      Votre demande a bien été envoyée à support@avectoi.care et va être traitée le plus rapidement possible. Nous vous remercions pour votre compréhension.
+                      Votre demande a bien été envoyée à contact@avectoi.care et va être traitée le plus rapidement possible. Nous vous remercions pour votre compréhension.
                     </Text>
                     <TouchableOpacity
                       onPress={() => setNameChangeModal(false)}
@@ -3262,6 +3262,7 @@ export default function SettingsScreen() {
                         borderRadius: 10,
                         alignItems: "center",
                         justifyContent: "center",
+                        alignSelf: "center",
                       }}
                     >
                       <Text style={{ fontFamily: "DM_Sans_700Bold", fontSize: 15, color: "#ffffff" }}>Fermer</Text>

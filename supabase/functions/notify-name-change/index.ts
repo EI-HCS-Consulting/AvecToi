@@ -89,7 +89,7 @@ Deno.serve(async (req: Request) => {
       },
       body: JSON.stringify({
         from: "AvecToi <notifications@notifications.avectoi.care>",
-        to: ["support@avectoi.care"],
+        to: ["contact@avectoi.care"],
         reply_to: adminEmail ?? undefined,
         subject: `AvecToi — Demande de changement de nom (${space.patient_firstname} ${space.patient_lastname})`,
         html,
