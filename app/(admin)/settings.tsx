@@ -3262,6 +3262,7 @@ export default function SettingsScreen() {
                         borderRadius: 10,
                         alignItems: "center",
                         justifyContent: "center",
+                        alignSelf: "center",
                       }}
                     >
                       <Text style={{ fontFamily: "DM_Sans_700Bold", fontSize: 15, color: "#ffffff" }}>Fermer</Text>
