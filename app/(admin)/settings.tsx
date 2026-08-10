@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { Fragment, useState, useEffect, useRef } from "react";
 import {
   View, Text, TouchableOpacity, ScrollView, StyleSheet,
   Alert, ActivityIndicator, Image, TextInput, Switch,
@@ -3236,7 +3236,7 @@ export default function SettingsScreen() {
             <TouchableOpacity activeOpacity={1}>
               <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent }]}>
                 {nameChangeSent ? (
-                  <>
+                  <Fragment key="success">
                     <Text style={{ fontSize: 32, textAlign: "center", marginBottom: 8 }}>✅</Text>
                     <Text style={[styles.sheetTitle, { color: C.text, textAlign: "center" }]}>Demande envoyée</Text>
                     <Text style={[styles.sheetSub, { color: C.muted, textAlign: "center", marginBottom: 20 }]}>
@@ -3245,9 +3245,9 @@ export default function SettingsScreen() {
                     <TouchableOpacity onPress={() => setNameChangeModal(false)} style={[styles.btnPrimary, { backgroundColor: C.accent }]}>
                       <Text style={[styles.btnPrimaryText, { color: "#fff" }]}>Fermer</Text>
                     </TouchableOpacity>
-                  </>
+                  </Fragment>
                 ) : (
-                  <>
+                  <Fragment key="form">
                     <Text style={[styles.sheetTitle, { color: C.text }]}>✏️ Demande de changement de nom</Text>
                     <Text style={[styles.sheetSub, { color: C.muted }]}>
                       Nom actuel : {space?.patient_firstname} {space?.patient_lastname}
@@ -3302,7 +3302,7 @@ export default function SettingsScreen() {
                         }
                       </TouchableOpacity>
                     </View>
-                  </>
+                  </Fragment>
                 )}
               </View>
             </TouchableOpacity>
