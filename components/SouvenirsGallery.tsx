@@ -553,9 +553,9 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
 
       {/* ── MODAL CHOIX SOURCE (caméra / galerie) ────────────────────────────── */}
       <Modal visible={pickerVisible} transparent animationType="fade" onRequestClose={() => setPickerVisible(false)}>
-        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setPickerVisible(false)}>
+        <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => setPickerVisible(false)}>
           <TouchableOpacity activeOpacity={1}>
-            <View style={[styles.sheet, styles.pickerSheet, { backgroundColor: C.card, borderColor: C.accent }]}>
+            <View style={[styles.centeredSheet, styles.pickerSheet, { backgroundColor: C.card, borderColor: C.accent }]}>
               <Text style={[styles.sheetTitle, { color: C.text, textAlign: "center" }]}>📸 Ajouter un souvenir</Text>
               <Text style={[styles.sheetSub, { color: C.muted, textAlign: "center" }]}>Choisis la source de la photo</Text>
 
@@ -578,10 +578,10 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.btnSecondary, styles.pickerCancel, { borderColor: C.border }]}
                 onPress={() => setPickerVisible(false)}
+                style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", marginTop: 12 }}
               >
-                <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.muted }}>Annuler</Text>
               </TouchableOpacity>
             </View>
           </TouchableOpacity>
@@ -589,12 +589,12 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
       </Modal>
 
       {/* ── MODAL UPLOAD ──────────────────────────────────────────────────── */}
-      <Modal visible={showUpload} transparent animationType="slide" onRequestClose={resetUploadForm}>
+      <Modal visible={showUpload} transparent animationType="fade" onRequestClose={resetUploadForm}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-          <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => !uploading && resetUploadForm()}>
-            <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
-              <TouchableOpacity activeOpacity={1}>
-                <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
+          <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !uploading && resetUploadForm()}>
+            <TouchableOpacity activeOpacity={1}>
+              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
+                <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <Text style={[styles.sheetTitle, { color: C.text }]}>📸 Ajouter un souvenir</Text>
 
                   {/* Preview */}
@@ -666,18 +666,19 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
                       }
                     </TouchableOpacity>
                   </View>
-                </View>
-              </TouchableOpacity>
-            </ScrollView>
+                </ScrollView>
+              </View>
+            </TouchableOpacity>
           </TouchableOpacity>
         </KeyboardAvoidingView>
       </Modal>
 
       {/* ── MODAL DELETE PIN (visiteur) ────────────────────────────────────── */}
       <Modal visible={!!deleteTarget && !isAdmin} transparent animationType="fade" onRequestClose={() => setDeleteTarget(null)}>
-        <View style={styles.overlay}>
-          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.danger }]}>
-            <View style={{ alignItems: "center", marginBottom: 16 }}>
+        <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => setDeleteTarget(null)}>
+          <TouchableOpacity activeOpacity={1}>
+            <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.danger }]}>
+              <View style={{ alignItems: "center", marginBottom: 16 }}>
               <Text style={{ fontSize: 32, marginBottom: 6 }}>🗑️</Text>
               <Text style={[styles.sheetTitle, { color: C.text }]}>Supprimer la photo ?</Text>
               <Text style={[styles.sheetSub, { color: C.muted }]}>
@@ -731,8 +732,9 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
                 }
               </TouchableOpacity>
             </View>
-          </View>
-        </View>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
 
       <ConfirmModal
@@ -824,9 +826,6 @@ const styles = StyleSheet.create({
   lightboxNavText: { color: "#fff", fontSize: 26, fontWeight: "600", lineHeight: 28 },
 
   // Overlay / sheet
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "flex-end" },
-  overlayScroll: { flexGrow: 1, justifyContent: "flex-end" },
-  sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, padding: 24, paddingBottom: 40, marginBottom: 12 },
   sheetTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, marginBottom: 4 },
   sheetSub: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginBottom: 20 },
 
@@ -862,4 +861,8 @@ const styles = StyleSheet.create({
 
   toast: { position: "absolute", bottom: 24, alignSelf: "center", paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10 },
   toastText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13, color: "#fff" },
+
+  // Centered overlay / sheet (for small/medium popups, distinct from the bottom-sheet pair above)
+  centeredOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center" },
+  centeredSheet: { width: "88%", borderRadius: 20, borderWidth: 1, padding: 24 },
 });

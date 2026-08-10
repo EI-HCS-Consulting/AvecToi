@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, Pressable, ScrollView,
   Modal, StyleSheet, Alert, ActivityIndicator, Image,
-  KeyboardAvoidingView, Platform, Linking, Dimensions,
+  KeyboardAvoidingView, Platform, Linking,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
@@ -68,8 +68,6 @@ const STATUS_COLORS = (C: Theme): Record<TaskStatus, string> => ({
   fait: C.muted,
   ferme: C.danger,
 });
-
-const SHEET_MAX_HEIGHT = Dimensions.get("window").height * 0.85;
 
 interface Props {
   spaceId: string;
@@ -2302,10 +2300,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           Overlay en frère du sheet (jamais en ancêtre d'une ScrollView), même
           pattern que app/(admin)/settings.tsx MODAL CHRONOLOGIE : un
           TouchableOpacity ancêtre casse le geste de scroll sur Android. */}
-      <Modal visible={checklistPicker} transparent animationType="slide" onRequestClose={() => setChecklistPicker(false)}>
-        <View style={styles.overlay}>
+      <Modal visible={checklistPicker} transparent animationType="fade" onRequestClose={() => setChecklistPicker(false)}>
+        <View style={styles.centeredOverlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setChecklistPicker(false)} />
-          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.gold }]}>
+          <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.gold }]}>
             <Text style={[styles.sheetTitle, { color: C.text }]}>✨ Checklists suggérées</Text>
             <Text style={[styles.checklistIntro, { color: C.muted }]}>
               Choisis la situation qui correspond — tu pourras décocher ce qui ne s'applique pas avant d'ajouter.
@@ -2332,19 +2330,19 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             })}
             <TouchableOpacity
               onPress={() => setChecklistPicker(false)}
-              style={[styles.btnSecondary, { borderColor: C.border, marginTop: 10, flex: undefined, alignSelf: "stretch" }]}
+              style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", marginTop: 10 }}
             >
-              <Text style={[styles.btnSecondaryText, { color: C.muted, textAlign: "center" }]}>Annuler</Text>
+              <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.muted }}>Annuler</Text>
             </TouchableOpacity>
           </View>
         </View>
       </Modal>
 
       {/* ── MODAL CHECKLIST : sélection des besoins d'un contexte ──────────── */}
-      <Modal visible={!!checklistContext} transparent animationType="slide" onRequestClose={() => setChecklistContext(null)}>
-        <View style={styles.overlay}>
+      <Modal visible={!!checklistContext} transparent animationType="fade" onRequestClose={() => setChecklistContext(null)}>
+        <View style={styles.centeredOverlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !checklistSaving && setChecklistContext(null)} />
-          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: checklistContext ? C[CHECKLIST_TEMPLATES[checklistContext].colorKey] : C.accent, maxHeight: SHEET_MAX_HEIGHT }]}>
+          <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: checklistContext ? C[CHECKLIST_TEMPLATES[checklistContext].colorKey] : C.accent, maxHeight: "82%" }]}>
             {checklistContext && (() => {
               const tpl = CHECKLIST_TEMPLATES[checklistContext];
               const color = C[tpl.colorKey];
@@ -2720,13 +2718,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       </Modal>
 
       {/* ── MODAL PROPOSITIONS REÇUES (demandeur/admin consulte et valide) ──── */}
-      <Modal visible={!!proposalsTarget} transparent animationType="slide" onRequestClose={() => setProposalsTarget(null)}>
-        <View style={styles.overlay}>
-          <TouchableOpacity style={{ flex: 1 }} activeOpacity={1} onPress={() => setProposalsTarget(null)}>
-            <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
-              <TouchableOpacity activeOpacity={1}>
-                <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
-                  <View style={{ alignItems: "center", marginBottom: 14 }}>
+      <Modal visible={!!proposalsTarget} transparent animationType="fade" onRequestClose={() => setProposalsTarget(null)}>
+        <View style={styles.centeredOverlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setProposalsTarget(null)} />
+          <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View style={{ alignItems: "center", marginBottom: 14 }}>
                     <Text style={{ fontSize: 32, marginBottom: 6 }}>🕐</Text>
                     <Text style={[styles.sheetTitle, { color: C.text }]}>Propositions reçues</Text>
                   </View>
@@ -2789,21 +2786,20 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
                   <TouchableOpacity
                     onPress={() => setProposalsTarget(null)}
-                    style={[styles.btnSecondary, { borderColor: C.border, marginTop: 14 }]}
+                    style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", marginTop: 14 }}
                   >
-                    <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Fermer</Text>
+                    <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.muted }}>Fermer</Text>
                   </TouchableOpacity>
-                </View>
-              </TouchableOpacity>
             </ScrollView>
-          </TouchableOpacity>
+          </View>
         </View>
       </Modal>
 
       {/* ── MODAL PIN (désinscrire) ────────────────────────── */}
       <Modal visible={!!pinModal} transparent animationType="fade" onRequestClose={() => setPinModal(null)}>
-        <View style={styles.overlay}>
-          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
+        <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => setPinModal(null)}>
+          <TouchableOpacity activeOpacity={1}>
+            <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent }]}>
             <View style={{ alignItems: "center", marginBottom: 16 }}>
               <Text style={{ fontSize: 32, marginBottom: 6 }}>🔐</Text>
               <Text style={[styles.sheetTitle, { color: C.text }]}>Confirmer avec ton PIN</Text>
@@ -2850,14 +2846,16 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                 <Text style={styles.btnPrimaryText}>Me désinscrire</Text>
               </TouchableOpacity>
             </View>
-          </View>
-        </View>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
 
       {/* ── MODAL "Fait" (photo optionnelle + PIN si visiteur) ─────────────── */}
       <Modal visible={!!doneTarget} transparent animationType="fade" onRequestClose={() => setDoneTarget(null)}>
-        <View style={styles.overlay}>
-          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.success }]}>
+        <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !doneSaving && setDoneTarget(null)}>
+          <TouchableOpacity activeOpacity={1}>
+            <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.success }]}>
             <View style={{ alignItems: "center", marginBottom: 16 }}>
               <Text style={{ fontSize: 32, marginBottom: 6 }}>✓</Text>
               <Text style={[styles.sheetTitle, { color: C.text }]}>Marquer comme fait</Text>
@@ -2921,8 +2919,9 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                 }
               </TouchableOpacity>
             </View>
-          </View>
-        </View>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
 
       <ConfirmModal
@@ -2972,8 +2971,9 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
       {/* ── MODAL DOUBLON (besoin administratif déjà publié) ─────────────── */}
       <Modal visible={!!duplicateTarget} transparent animationType="fade" onRequestClose={() => setDuplicateTarget(null)}>
-        <View style={styles.overlay}>
-          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.gold }]}>
+        <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => setDuplicateTarget(null)}>
+          <TouchableOpacity activeOpacity={1}>
+            <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.gold }]}>
             {duplicateTarget && (
               <>
                 <Text style={{ fontSize: 32, textAlign: "center", marginBottom: 8 }}>⚠️</Text>
@@ -3000,40 +3000,40 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
                 <View style={{ gap: 8, marginTop: 12, width: "100%" }}>
                   <TouchableOpacity
-                    style={[styles.btnPrimary, { backgroundColor: C.accent, flex: undefined, alignSelf: "stretch" }]}
                     onPress={claimDuplicate}
                     activeOpacity={0.85}
+                    style={{ width: "100%", height: 48, borderRadius: 10, backgroundColor: C.accent, alignItems: "center", justifyContent: "center" }}
                   >
-                    <Text style={styles.btnPrimaryText}>🙋 Je m'en occupe</Text>
+                    <Text style={{ fontFamily: "DM_Sans_700Bold", fontSize: 15, color: "#fff" }}>🙋 Je m'en occupe</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.btnPrimary, { backgroundColor: C.gold, flex: undefined, alignSelf: "stretch" }]}
                     onPress={openDuplicateModify}
                     activeOpacity={0.85}
+                    style={{ width: "100%", height: 48, borderRadius: 10, backgroundColor: C.gold, alignItems: "center", justifyContent: "center" }}
                   >
-                    <Text style={[styles.btnPrimaryText, { color: "#0D1B2E" }]}>✏️ Modifier</Text>
+                    <Text style={{ fontFamily: "DM_Sans_700Bold", fontSize: 15, color: "#0D1B2E" }}>✏️ Modifier</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.btnSecondary, { borderColor: C.border, alignSelf: "stretch" }]}
                     onPress={() => setDuplicateTarget(null)}
                     activeOpacity={0.75}
+                    style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center" }}
                   >
-                    <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                    <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.muted }}>Annuler</Text>
                   </TouchableOpacity>
                 </View>
               </>
             )}
-          </View>
-        </View>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
 
       {/* ── MODAL MODIFIER LA DESCRIPTION (depuis le doublon) ─────────────── */}
-      <Modal visible={!!modifyTarget} transparent animationType="slide" onRequestClose={() => setModifyTarget(null)}>
+      <Modal visible={!!modifyTarget} transparent animationType="fade" onRequestClose={() => setModifyTarget(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-          <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => !modifySaving && setModifyTarget(null)}>
-            <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
-              <TouchableOpacity activeOpacity={1}>
-                <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
+          <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !modifySaving && setModifyTarget(null)}>
+            <TouchableOpacity activeOpacity={1}>
+                <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent }]}>
                   <View style={{ alignItems: "center", marginBottom: 14 }}>
                     <Text style={{ fontSize: 32, marginBottom: 6 }}>✏️</Text>
                     <Text style={[styles.sheetTitle, { color: C.text }]}>Modifier la description</Text>
@@ -3072,8 +3072,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                     </TouchableOpacity>
                   </View>
                 </View>
-              </TouchableOpacity>
-            </ScrollView>
+            </TouchableOpacity>
           </TouchableOpacity>
         </KeyboardAvoidingView>
       </Modal>
@@ -3204,6 +3203,11 @@ const styles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "flex-end" },
   overlayScroll: { flexGrow: 1, justifyContent: "flex-end" },
   sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, padding: 20, paddingBottom: 40, marginBottom: 12 },
+
+  // Centered overlay / sheet (for small popups, distinct from the bottom-sheet pair above)
+  centeredOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center" },
+  centeredSheet: { width: "88%", borderRadius: 20, borderWidth: 1, padding: 24 },
+
   sheetTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, marginBottom: 4 },
   sheetSub: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginBottom: 4, textAlign: "center" },
   sheetBtns: { flexDirection: "row", gap: 10, marginTop: 16 },

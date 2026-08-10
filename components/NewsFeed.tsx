@@ -779,8 +779,9 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
 
       {/* ── MODAL PIN ─────────────────────────────────────────────────────── */}
       <Modal visible={!!pinModal} transparent animationType="fade" onRequestClose={() => setPinModal(null)}>
-        <View style={styles.overlay}>
-          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
+        <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => setPinModal(null)}>
+          <TouchableOpacity activeOpacity={1}>
+            <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent }]}>
             <View style={{ alignItems: "center", marginBottom: 16 }}>
               <Text style={{ fontSize: 32, marginBottom: 6 }}>🔐</Text>
               <Text style={[styles.sheetTitle, { color: C.text }]}>Code PIN</Text>
@@ -831,8 +832,9 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
                 </Text>
               </TouchableOpacity>
             </View>
-          </View>
-        </View>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
 
       <ConfirmModal
@@ -957,6 +959,10 @@ const styles = StyleSheet.create({
   sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, padding: 20, paddingBottom: 40, marginBottom: 12 },
   sheetTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, marginBottom: 4 },
   sheetSub: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginBottom: 20 },
+
+  // Centered overlay / sheet (for small popups, distinct from the bottom-sheet pair above)
+  centeredOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center" },
+  centeredSheet: { width: "88%", borderRadius: 20, borderWidth: 1, padding: 24 },
 
   input: { borderWidth: 1, borderRadius: 10, padding: 12, fontFamily: "DM_Sans_400Regular", fontSize: 15, marginBottom: 10 },
   textarea: { height: 110, textAlignVertical: "top" },
