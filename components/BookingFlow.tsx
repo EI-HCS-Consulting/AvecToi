@@ -609,8 +609,8 @@ function BookingFlow(
 
       {/* ── MODAL CONFIRMATION ────────────────────────────────────────────── */}
       <Modal visible={!!confirmed} transparent animationType="fade" onRequestClose={() => { setConfirmed(null); setBookingTarget(null); }}>
-        <View style={styles.overlay}>
-          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
+        <View style={styles.centeredOverlay}>
+          <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent }]}>
             <View style={{ alignItems: "center", marginBottom: 16 }}>
               <Text style={{ fontSize: 40, marginBottom: 8 }}>🎉</Text>
               <Text style={[styles.sheetTitle, { color: C.success }]}>Merci {confirmed?.prenom} !</Text>
@@ -642,11 +642,11 @@ function BookingFlow(
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.backToCalendarBtn, { borderColor: C.accent, backgroundColor: `${C.accent}22`, marginTop: 10 }]}
               onPress={() => { setConfirmed(null); setBookingTarget(null); router.navigate(homeCalendarPath); }}
               activeOpacity={0.75}
+              style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.accent, backgroundColor: `${C.accent}22`, alignItems: "center", justifyContent: "center", marginTop: 10 }}
             >
-              <Text style={[styles.btnSecondaryText, { color: C.accent }]}>← Retour au calendrier</Text>
+              <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.accent }}>← Retour au calendrier</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -654,8 +654,8 @@ function BookingFlow(
 
       {/* ── MODAL PIN ─────────────────────────────────────────────────────── */}
       <Modal visible={!!pinModal} transparent animationType="fade" onRequestClose={() => setPinModal(null)}>
-        <View style={styles.overlay}>
-          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
+        <View style={styles.centeredOverlay}>
+          <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent }]}>
             {pinStep === "enter" ? (
               <>
                 <View style={{ alignItems: "center", marginBottom: 16 }}>
@@ -741,8 +741,11 @@ function BookingFlow(
                   </>
                 )}
 
-                <TouchableOpacity onPress={() => setPinModal(null)} style={[styles.btnSecondary, { borderColor: C.border, marginTop: 8, flex: 0 }]}>
-                  <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Fermer</Text>
+                <TouchableOpacity
+                  onPress={() => setPinModal(null)}
+                  style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", marginTop: 8 }}
+                >
+                  <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.muted }}>Fermer</Text>
                 </TouchableOpacity>
               </>
             )}
@@ -880,6 +883,12 @@ const styles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "flex-end" },
   overlayScroll: { flexGrow: 1, justifyContent: "flex-end" },
   sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, padding: 24, paddingBottom: 40, marginBottom: 12 },
+
+  // Centered (non-bottom-sheet) overlay/sheet — used by small popups (confirmed, pinModal).
+  // Do NOT reuse styles.overlay/styles.sheet above for these; those remain the bottom-sheet shape
+  // used by bookingTarget and editModal.
+  centeredOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center", padding: 24 },
+  centeredSheet: { width: "88%", maxWidth: 400, maxHeight: "82%", borderRadius: 20, borderWidth: 1, padding: 24 },
 
   sheetTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, marginBottom: 4 },
   sheetSub: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginBottom: 20 },

@@ -181,12 +181,12 @@ function InterventionBookingFlow(
   return (
     <>
       {/* ── MODAL RÉSERVATION ──────────────────────────────────────────────── */}
-      <Modal visible={!!bookingTarget && !confirmed} transparent animationType="slide" onRequestClose={() => setBookingTarget(null)}>
+      <Modal visible={!!bookingTarget && !confirmed} transparent animationType="fade" onRequestClose={() => setBookingTarget(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-          <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => !saving && setBookingTarget(null)}>
-            <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
+          <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !saving && setBookingTarget(null)}>
+            <ScrollView contentContainerStyle={styles.centeredOverlayScroll} keyboardShouldPersistTaps="handled">
               <TouchableOpacity activeOpacity={1}>
-                <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.orange }]}>
+                <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.orange }]}>
                   <Text style={[styles.sheetTitle, { color: C.text }]}>🩺 Intervention {bookingTarget?.slot}</Text>
                   <Text style={[styles.sheetSub, { color: C.muted }]}>
                     {bookingTarget && toFrLong(new Date(bookingTarget.iso + "T12:00:00"))}
@@ -255,8 +255,8 @@ function InterventionBookingFlow(
 
       {/* ── MODAL CONFIRMATION ────────────────────────────────────────────── */}
       <Modal visible={!!confirmed} transparent animationType="fade" onRequestClose={() => { setConfirmed(null); setBookingTarget(null); }}>
-        <View style={styles.overlay}>
-          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.orange }]}>
+        <View style={styles.centeredOverlay}>
+          <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.orange }]}>
             <View style={{ alignItems: "center", marginBottom: 16 }}>
               <Text style={{ fontSize: 40, marginBottom: 8 }}>🩺</Text>
               <Text style={[styles.sheetTitle, { color: C.success }]}>Intervention réservée</Text>
@@ -290,11 +290,11 @@ function InterventionBookingFlow(
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.backToCalendarBtn, { borderColor: C.orange, backgroundColor: `${C.orange}22`, marginTop: 10 }]}
               onPress={() => { setConfirmed(null); setBookingTarget(null); router.navigate(homeCalendarPath); }}
               activeOpacity={0.75}
+              style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.orange, backgroundColor: `${C.orange}22`, alignItems: "center", justifyContent: "center", marginTop: 10 }}
             >
-              <Text style={[styles.btnSecondaryText, { color: C.orange }]}>← Retour au calendrier</Text>
+              <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.orange }}>← Retour au calendrier</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -302,8 +302,8 @@ function InterventionBookingFlow(
 
       {/* ── MODAL ANNULATION ──────────────────────────────────────────────── */}
       <Modal visible={!!cancelTarget} transparent animationType="fade" onRequestClose={() => setCancelTarget(null)}>
-        <View style={styles.overlay}>
-          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.orange }]}>
+        <View style={styles.centeredOverlay}>
+          <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.orange }]}>
             <Text style={[styles.sheetTitle, { color: C.text }]}>Annuler cette intervention ?</Text>
             <Text style={[styles.sheetSub, { color: C.muted }]}>
               {cancelTarget?.intervention_label} · {cancelTarget && toFrShort(new Date(cancelTarget.date + "T12:00:00"))} {cancelTarget?.creneau}
@@ -362,9 +362,11 @@ function InterventionBookingFlow(
 export default forwardRef(InterventionBookingFlow);
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "flex-end" },
-  overlayScroll: { flexGrow: 1, justifyContent: "flex-end" },
-  sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, padding: 24, paddingBottom: 40, marginBottom: 12 },
+  // Centered (non-bottom-sheet) overlay/sheet — used by all three modals in this file
+  // (bookingTarget, confirmed, cancelTarget), which are small/medium popups, not large forms.
+  centeredOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center", padding: 24 },
+  centeredOverlayScroll: { flexGrow: 1, justifyContent: "center", alignItems: "center" },
+  centeredSheet: { width: "88%", maxWidth: 400, maxHeight: "82%", borderRadius: 20, borderWidth: 1, padding: 24 },
 
   sheetTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, marginBottom: 4 },
   sheetSub: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginBottom: 20 },

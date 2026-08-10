@@ -737,46 +737,43 @@ export default function AdminAccountScreen() {
       </Modal>
 
       {/* ── MODAL CHANGER MOT DE PASSE ───────────────────────────────────── */}
-      <Modal visible={changePasswordModal} transparent animationType="slide" onRequestClose={() => setChangePasswordModal(false)}>
+      <Modal visible={changePasswordModal} transparent animationType="fade" onRequestClose={() => setChangePasswordModal(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-          <View style={styles.overlay}>
-            <TouchableOpacity
-              style={StyleSheet.absoluteFill}
-              activeOpacity={1}
-              onPress={() => setChangePasswordModal(false)}
-            />
-            <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
-              <Text style={[styles.sheetTitle, { color: C.text }]}>🔒 Changer mon mot de passe</Text>
-              <TextInput
-                style={[styles.sheetInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                placeholder="Nouveau mot de passe"
-                placeholderTextColor={C.muted}
-                value={newPassword}
-                onChangeText={setNewPassword}
-                secureTextEntry
-                autoCapitalize="none"
-              />
-              <TextInput
-                style={[styles.sheetInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                placeholder="Confirmer le nouveau mot de passe"
-                placeholderTextColor={C.muted}
-                value={confirmPassword}
-                onChangeText={setConfirmPassword}
-                secureTextEntry
-                autoCapitalize="none"
-              />
-              <TouchableOpacity
-                style={[styles.saveBtn, { backgroundColor: C.accent, marginTop: 8 }, savingPassword && { opacity: 0.6 }]}
-                onPress={handleChangePassword}
-                disabled={savingPassword}
-              >
-                {savingPassword
-                  ? <ActivityIndicator color="#fff" size="small" />
-                  : <Text style={styles.saveBtnText}>Enregistrer</Text>
-                }
-              </TouchableOpacity>
-            </View>
-          </View>
+          <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => setChangePasswordModal(false)}>
+            <TouchableOpacity activeOpacity={1}>
+              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent }]}>
+                <Text style={[styles.sheetTitle, { color: C.text }]}>🔒 Changer mon mot de passe</Text>
+                <TextInput
+                  style={[styles.sheetInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                  placeholder="Nouveau mot de passe"
+                  placeholderTextColor={C.muted}
+                  value={newPassword}
+                  onChangeText={setNewPassword}
+                  secureTextEntry
+                  autoCapitalize="none"
+                />
+                <TextInput
+                  style={[styles.sheetInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                  placeholder="Confirmer le nouveau mot de passe"
+                  placeholderTextColor={C.muted}
+                  value={confirmPassword}
+                  onChangeText={setConfirmPassword}
+                  secureTextEntry
+                  autoCapitalize="none"
+                />
+                <TouchableOpacity
+                  style={[styles.saveBtn, { backgroundColor: C.accent, marginTop: 8 }, savingPassword && { opacity: 0.6 }]}
+                  onPress={handleChangePassword}
+                  disabled={savingPassword}
+                >
+                  {savingPassword
+                    ? <ActivityIndicator color="#fff" size="small" />
+                    : <Text style={styles.saveBtnText}>Enregistrer</Text>
+                  }
+                </TouchableOpacity>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
         </KeyboardAvoidingView>
       </Modal>
 
@@ -903,6 +900,8 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderTopLeftRadius: 20, borderTopRightRadius: 20,
     padding: 20, paddingBottom: 32, marginBottom: 12,
   },
+  centeredOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center" },
+  centeredSheet: { width: "88%", borderRadius: 20, borderWidth: 1, padding: 24 },
   sheetTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 19, marginBottom: 16 },
   sheetInput: {
     borderWidth: 1, borderRadius: 10, padding: 13,

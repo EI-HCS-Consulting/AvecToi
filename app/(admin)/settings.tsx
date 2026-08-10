@@ -2761,11 +2761,11 @@ export default function SettingsScreen() {
       )}
 
       {/* ── MODAL CALENDRIER DATES BLOQUÉES ─────────────────────────────── */}
-      <Modal visible={blockPickerVisible} transparent animationType="slide" onRequestClose={() => setBlockPickerVisible(false)}>
+      <Modal visible={blockPickerVisible} transparent animationType="fade" onRequestClose={() => setBlockPickerVisible(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-          <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setBlockPickerVisible(false)}>
+          <TouchableOpacity style={styles.bdPickerOverlay} activeOpacity={1} onPress={() => setBlockPickerVisible(false)}>
             <TouchableOpacity activeOpacity={1}>
-              <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.border }]}>
+              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.border }]}>
                 <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 0 }]}>Motif (optionnel)</Text>
                 <TextInput
                   style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginBottom: 12 }]}
@@ -2865,9 +2865,9 @@ export default function SettingsScreen() {
 
                 <TouchableOpacity
                   onPress={() => setBlockPickerVisible(false)}
-                  style={[styles.saveNotesBtn, { backgroundColor: C.accent, marginTop: 16 }]}
+                  style={{ width: "100%", height: 48, borderRadius: 10, backgroundColor: C.accent, alignItems: "center", justifyContent: "center", marginTop: 16 }}
                 >
-                  <Text style={styles.saveNotesBtnText}>Fermer</Text>
+                  <Text style={{ fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" }}>Fermer</Text>
                 </TouchableOpacity>
               </View>
             </TouchableOpacity>
@@ -3216,10 +3216,10 @@ export default function SettingsScreen() {
       </Modal>
 
       {/* ── MODAL SUPPRESSION PHOTO PATIENT ──────────────────────────────── */}
-      <Modal visible={removePhotoModal} transparent animationType="slide" onRequestClose={() => setRemovePhotoModal(false)}>
-        <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setRemovePhotoModal(false)}>
+      <Modal visible={removePhotoModal} transparent animationType="fade" onRequestClose={() => setRemovePhotoModal(false)}>
+        <TouchableOpacity style={styles.bdPickerOverlay} activeOpacity={1} onPress={() => setRemovePhotoModal(false)}>
           <TouchableOpacity activeOpacity={1}>
-            <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.danger }]}>
+            <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.danger }]}>
               <View style={{ alignItems: "center", marginBottom: 4 }}>
                 <Text style={{ fontSize: 32, marginBottom: 6 }}>🗑️</Text>
                 <Text style={[styles.sheetTitle, { color: C.text }]}>Supprimer la photo ?</Text>
@@ -3344,8 +3344,8 @@ export default function SettingsScreen() {
       )}
 
       {/* ── MODAL CHRONOLOGIE (frise) ──────────────────────────────────── */}
-      <Modal visible={chronoModal} transparent animationType="slide" onRequestClose={() => setChronoModal(false)}>
-        <View style={styles.overlay}>
+      <Modal visible={chronoModal} transparent animationType="fade" onRequestClose={() => setChronoModal(false)}>
+        <View style={styles.bdPickerOverlay}>
           {/* TouchableOpacity en frère (absoluteFill), pas en ancêtre du sheet :
               même pattern que MODAL PROFIL PATIENT. Un Touchable ANCÊTRE de la
               ScrollView ci-dessous entre en conflit avec son geste de pan (scroll
@@ -3357,7 +3357,7 @@ export default function SettingsScreen() {
             activeOpacity={1}
             onPress={() => setChronoModal(false)}
           />
-          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: SHEET_MAX_HEIGHT }]}>
+          <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
             <Text style={[styles.sheetTitle, { color: C.text }]}>🕐 Chronologie</Text>
             <Text style={[styles.cardDesc, { color: C.muted, marginBottom: 10 }]}>
               Du plus récent (en haut) à {space?.home_care_mode ? "l'entrée en soin" : "l'hospitalisation"} (en bas) — fais défiler la frise pour naviguer.
@@ -3412,9 +3412,9 @@ export default function SettingsScreen() {
 
             <TouchableOpacity
               onPress={() => setChronoModal(false)}
-              style={[styles.saveNotesBtn, { backgroundColor: C.accent, marginTop: 14 }]}
+              style={{ width: "100%", height: 48, borderRadius: 10, backgroundColor: C.accent, alignItems: "center", justifyContent: "center", marginTop: 14 }}
             >
-              <Text style={styles.saveNotesBtnText}>Fermer</Text>
+              <Text style={{ fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" }}>Fermer</Text>
             </TouchableOpacity>
           </View>
         </View>

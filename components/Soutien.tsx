@@ -597,12 +597,12 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
       )}
 
       {/* ── MODAL AJOUT ───────────────────────────────────────────────────── */}
-      <Modal visible={showAddModal} transparent animationType="slide" onRequestClose={() => !msgSaving && setShowAddModal(false)}>
+      <Modal visible={showAddModal} transparent animationType="fade" onRequestClose={() => !msgSaving && setShowAddModal(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-          <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => !msgSaving && setShowAddModal(false)}>
-            <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
-              <TouchableOpacity activeOpacity={1}>
-                <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
+          <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !msgSaving && setShowAddModal(false)}>
+            <TouchableOpacity activeOpacity={1}>
+              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
+                <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <Text style={[styles.sheetTitle, { color: C.text }]}>💛 Laisser un message</Text>
 
                   <TextInput
@@ -696,20 +696,20 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                       }
                     </TouchableOpacity>
                   </View>
-                </View>
-              </TouchableOpacity>
-            </ScrollView>
+                </ScrollView>
+              </View>
+            </TouchableOpacity>
           </TouchableOpacity>
         </KeyboardAvoidingView>
       </Modal>
 
       {/* ── MODAL ÉDITION ─────────────────────────────────────────────────── */}
-      <Modal visible={!!editTarget} transparent animationType="slide" onRequestClose={() => !editSaving && setEditTarget(null)}>
+      <Modal visible={!!editTarget} transparent animationType="fade" onRequestClose={() => !editSaving && setEditTarget(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-          <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => !editSaving && setEditTarget(null)}>
-            <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
-              <TouchableOpacity activeOpacity={1}>
-                <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
+          <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !editSaving && setEditTarget(null)}>
+            <TouchableOpacity activeOpacity={1}>
+              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent }]}>
+                <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <Text style={[styles.sheetTitle, { color: C.text }]}>✏️ Modifier le message</Text>
 
                   <TextInput
@@ -752,20 +752,20 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                       {editSaving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.btnPrimaryText}>✓ Enregistrer</Text>}
                     </TouchableOpacity>
                   </View>
-                </View>
-              </TouchableOpacity>
-            </ScrollView>
+                </ScrollView>
+              </View>
+            </TouchableOpacity>
           </TouchableOpacity>
         </KeyboardAvoidingView>
       </Modal>
 
       {/* ── MODAL RÉPONSE ─────────────────────────────────────────────────── */}
-      <Modal visible={!!replyTarget} transparent animationType="slide" onRequestClose={() => !replySaving && setReplyTarget(null)}>
+      <Modal visible={!!replyTarget} transparent animationType="fade" onRequestClose={() => !replySaving && setReplyTarget(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-          <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => !replySaving && setReplyTarget(null)}>
-            <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
-              <TouchableOpacity activeOpacity={1}>
-                <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
+          <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !replySaving && setReplyTarget(null)}>
+            <TouchableOpacity activeOpacity={1}>
+              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
+                <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <Text style={[styles.sheetTitle, { color: C.text }]}>🙏 Répondre</Text>
                   {replyTarget && (
                     <Text style={[styles.sheetSub, { color: C.muted }]} numberOfLines={2}>
@@ -839,9 +839,9 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                       }
                     </TouchableOpacity>
                   </View>
-                </View>
-              </TouchableOpacity>
-            </ScrollView>
+                </ScrollView>
+              </View>
+            </TouchableOpacity>
           </TouchableOpacity>
         </KeyboardAvoidingView>
       </Modal>
@@ -967,9 +967,6 @@ const styles = StyleSheet.create({
   pinLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 6, marginTop: 4 },
   pinHint: { fontFamily: "DM_Sans_400Regular", fontSize: 12, lineHeight: 18, marginBottom: 12 },
 
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "flex-end" },
-  overlayScroll: { flexGrow: 1, justifyContent: "flex-end" },
-  sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, padding: 24, paddingBottom: 40, marginBottom: 12 },
   sheetTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, marginBottom: 4 },
   sheetSub: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginBottom: 20 },
   sheetBtns: { flexDirection: "row", gap: 10, marginTop: 16 },
@@ -977,4 +974,8 @@ const styles = StyleSheet.create({
   btnPrimaryText: { fontFamily: "DM_Sans_700Bold", fontSize: 15, color: "#fff" },
   btnSecondary: { flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 14, alignItems: "center" },
   btnSecondaryText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
+
+  // Centered overlay / sheet (for small/medium popups, distinct from the bottom-sheet pair above)
+  centeredOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center" },
+  centeredSheet: { width: "88%", borderRadius: 20, borderWidth: 1, padding: 24 },
 });
