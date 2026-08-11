@@ -73,11 +73,21 @@ export const METIERS: Metier[] = [
   },
   {
     key: "psychologue",
-    label: "Psychologue / Psychiatre",
+    label: "Psychologue",
     icon: "chatbubble-ellipses-outline",
     soins: [
       { label: "Entretien de soutien", icon: "chatbubble-ellipses-outline" },
       { label: "Suivi psychologique", icon: "heart-outline" },
+    ],
+  },
+  {
+    key: "psychiatre",
+    label: "Psychiatre",
+    icon: "pulse-outline",
+    soins: [
+      { label: "Consultation psychiatrique", icon: "pulse-outline" },
+      { label: "Suivi médicamenteux", icon: "medkit-outline" },
+      { label: "Renouvellement d'ordonnance", icon: "document-text-outline" },
     ],
   },
   {

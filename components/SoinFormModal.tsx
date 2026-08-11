@@ -5,6 +5,7 @@ import {
 } from "react-native";
 import { supabase } from "@/lib/supabase";
 import ConfirmModal from "@/components/ConfirmModal";
+import { propagateSoinChange } from "@/lib/interventionTypesSync";
 import type { InterventionType } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -49,11 +50,13 @@ export default function SoinFormModal({
       if (soin) {
         const { error } = await supabase.from("intervention_types").update(payload).eq("id", soin.id);
         if (error) throw error;
+        await propagateSoinChange(intervenantProfileId, { type: "update", oldLabel: soin.label, ...payload });
       } else {
         const { error } = await supabase
           .from("intervention_types")
           .insert({ intervenant_profile_id: intervenantProfileId, ...payload });
         if (error) throw error;
+        await propagateSoinChange(intervenantProfileId, { type: "create", ...payload });
       }
       onSaved();
     } catch (e: any) {
@@ -72,6 +75,7 @@ export default function SoinFormModal({
       Alert.alert("Erreur", "Impossible de supprimer ce soin.");
       return;
     }
+    await propagateSoinChange(intervenantProfileId, { type: "delete", label: soin.label });
     setConfirmDelete(false);
     onDeleted();
   }

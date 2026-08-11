@@ -9,8 +9,10 @@ import { File, Paths } from "expo-file-system";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import PatientAvatar from "@/components/PatientAvatar";
+import MesSoinsList from "@/components/MesSoinsList";
 import { normalizePhone } from "@/lib/phone";
-import { METIERS } from "@/lib/metiers";
+import { propagateSoinChange } from "@/lib/interventionTypesSync";
+import { METIERS, metierLabel } from "@/lib/metiers";
 import type { Theme } from "@/lib/themes";
 
 // updatedAt bust le cache CDN/<Image> — le fichier est uploadé sous un nom
@@ -76,6 +78,7 @@ export default function IntervenantFicheModal({
   // Clé du métier (voir lib/metiers.ts) — demandé dès la création (première
   // connexion), sert aussi d'icône de repli pour l'avatar sans photo.
   const [ficheMetier, setFicheMetier] = useState<string | null>(null);
+  const [metierPickerOpen, setMetierPickerOpen] = useState(false);
   const [rows, setRows] = useState<TypeRow[]>([{ label: "", duration_minutes: "" }]);
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(mode === "edit");
@@ -243,7 +246,7 @@ export default function IntervenantFicheModal({
   const validRows = rows
     .map((r) => ({ label: r.label.trim(), duration_minutes: parseInt(r.duration_minutes, 10) }))
     .filter((r) => r.label.length > 0 && Number.isFinite(r.duration_minutes) && r.duration_minutes > 0);
-  const canSave = validRows.length > 0 && !!ficheePrenom.trim() && !!ficheNom.trim()
+  const canSave = (mode === "edit" || validRows.length > 0) && !!ficheePrenom.trim() && !!ficheNom.trim()
     && (mode === "edit" || (!!ficheTelephone.trim() && !!ficheMetier)) && !saving;
 
   async function handleSave() {
@@ -349,30 +352,38 @@ export default function IntervenantFicheModal({
         }
       }
 
-      if (removedIds.length > 0) {
-        const { error: delErr } = await supabase.from("intervention_types").delete().in("id", removedIds);
-        if (delErr) throw delErr;
-      }
+      // Uniquement en mode "create" : en mode "edit", les soins sont gérés un
+      // par un via MesSoinsList/SoinFormModal (voir plus bas dans le rendu),
+      // qui appelle déjà propagateSoinChange lui-même.
+      if (mode === "create") {
+        if (removedIds.length > 0) {
+          const { error: delErr } = await supabase.from("intervention_types").delete().in("id", removedIds);
+          if (delErr) throw delErr;
+        }
 
-      const toInsert = rows.filter((r) => !r.id).map((r) => ({
-        intervenant_profile_id: profileId,
-        label: r.label.trim(),
-        duration_minutes: parseInt(r.duration_minutes, 10),
-      })).filter((r) => r.label.length > 0 && Number.isFinite(r.duration_minutes) && r.duration_minutes > 0);
-      if (toInsert.length > 0) {
-        const { error: insErr } = await supabase.from("intervention_types").insert(toInsert);
-        if (insErr) throw insErr;
-      }
+        const toInsert = rows.filter((r) => !r.id).map((r) => ({
+          intervenant_profile_id: profileId,
+          label: r.label.trim(),
+          duration_minutes: parseInt(r.duration_minutes, 10),
+        })).filter((r) => r.label.length > 0 && Number.isFinite(r.duration_minutes) && r.duration_minutes > 0);
+        if (toInsert.length > 0) {
+          const { error: insErr } = await supabase.from("intervention_types").insert(toInsert);
+          if (insErr) throw insErr;
+          for (const r of toInsert) {
+            await propagateSoinChange(profileId!, { type: "create", label: r.label, duration_minutes: r.duration_minutes });
+          }
+        }
 
-      const toUpdate = rows.filter((r) => r.id);
-      for (const r of toUpdate) {
-        const duration = parseInt(r.duration_minutes, 10);
-        if (!r.label.trim() || !Number.isFinite(duration) || duration <= 0) continue;
-        const { error: updErr } = await supabase
-          .from("intervention_types")
-          .update({ label: r.label.trim(), duration_minutes: duration })
-          .eq("id", r.id);
-        if (updErr) throw updErr;
+        const toUpdate = rows.filter((r) => r.id);
+        for (const r of toUpdate) {
+          const duration = parseInt(r.duration_minutes, 10);
+          if (!r.label.trim() || !Number.isFinite(duration) || duration <= 0) continue;
+          const { error: updErr } = await supabase
+            .from("intervention_types")
+            .update({ label: r.label.trim(), duration_minutes: duration })
+            .eq("id", r.id);
+          if (updErr) throw updErr;
+        }
       }
 
       onSaved(
@@ -388,6 +399,7 @@ export default function IntervenantFicheModal({
   }
 
   return (
+    <>
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
         <View style={styles.overlay}>
@@ -478,56 +490,59 @@ export default function IntervenantFicheModal({
                 <Text style={[styles.metierLabel, { color: C.gold }]}>
                   Métier / spécialisation{mode === "create" ? "" : " (optionnel)"}
                 </Text>
-                <View style={styles.metierGrid}>
-                  {METIERS.map((m) => {
-                    const selected = ficheMetier === m.key;
-                    return (
-                      <TouchableOpacity
-                        key={m.key}
-                        onPress={() => setFicheMetier(m.key)}
-                        activeOpacity={0.8}
-                        style={[
-                          styles.metierChip,
-                          { borderColor: selected ? C.accent : C.border, backgroundColor: selected ? `${C.accent}22` : C.bg },
-                        ]}
-                      >
-                        <Ionicons name={m.icon} size={15} color={selected ? C.accent : C.muted} />
-                        <Text style={[styles.metierChipText, { color: selected ? C.accent : C.text }]}>{m.label}</Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-
-                {rows.map((row, i) => (
-                  <View key={row.id ?? `new-${i}`} style={styles.row}>
-                    <TextInput
-                      style={[styles.input, styles.labelInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                      placeholder="Type (ex. Kiné)"
-                      placeholderTextColor={C.muted}
-                      value={row.label}
-                      onChangeText={(v) => updateRow(i, { label: v })}
-                    />
-                    <TextInput
-                      style={[styles.input, styles.durationInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                      placeholder="Min"
-                      placeholderTextColor={C.muted}
-                      value={row.duration_minutes}
-                      onChangeText={(v) => updateRow(i, { duration_minutes: v.replace(/[^0-9]/g, "") })}
-                      keyboardType="number-pad"
-                    />
-                    <TouchableOpacity
-                      onPress={() => removeRow(i)}
-                      disabled={rows.length === 1}
-                      style={[styles.removeBtn, rows.length === 1 && { opacity: 0.3 }]}
-                    >
-                      <Text style={{ color: C.danger, fontSize: 18 }}>✕</Text>
-                    </TouchableOpacity>
-                  </View>
-                ))}
-
-                <TouchableOpacity onPress={addRow} style={styles.addBtn}>
-                  <Text style={[styles.addBtnText, { color: C.accent }]}>+ Ajouter un type</Text>
+                <TouchableOpacity
+                  style={[styles.metierDropdown, { backgroundColor: C.bg, borderColor: C.border }]}
+                  onPress={() => setMetierPickerOpen(true)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={[styles.metierDropdownText, { color: ficheMetier ? C.text : C.muted }]}>
+                    {ficheMetier ? metierLabel(ficheMetier) : "Choisir un métier"}
+                  </Text>
+                  <Ionicons name="chevron-down" size={16} color={C.muted} />
                 </TouchableOpacity>
+
+                {mode === "create" ? (
+                  <>
+                    {rows.map((row, i) => (
+                      <View key={row.id ?? `new-${i}`} style={styles.row}>
+                        <TextInput
+                          style={[styles.input, styles.labelInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                          placeholder="Type (ex. Kiné)"
+                          placeholderTextColor={C.muted}
+                          value={row.label}
+                          onChangeText={(v) => updateRow(i, { label: v })}
+                        />
+                        <TextInput
+                          style={[styles.input, styles.durationInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                          placeholder="Min"
+                          placeholderTextColor={C.muted}
+                          value={row.duration_minutes}
+                          onChangeText={(v) => updateRow(i, { duration_minutes: v.replace(/[^0-9]/g, "") })}
+                          keyboardType="number-pad"
+                        />
+                        <TouchableOpacity
+                          onPress={() => removeRow(i)}
+                          disabled={rows.length === 1}
+                          style={[styles.removeBtn, rows.length === 1 && { opacity: 0.3 }]}
+                        >
+                          <Text style={{ color: C.danger, fontSize: 18 }}>✕</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+
+                    <TouchableOpacity onPress={addRow} style={styles.addBtn}>
+                      <Text style={[styles.addBtnText, { color: C.accent }]}>+ Ajouter un type</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  intervenantProfileId && (
+                    <>
+                      <View style={[styles.separator, { borderTopColor: C.border }]} />
+                      <Text style={[styles.metierLabel, { color: C.gold }]}>Mes soins</Text>
+                      <MesSoinsList intervenantProfileId={intervenantProfileId} C={C} />
+                    </>
+                  )
+                )}
                 </ScrollView>
 
                 <TouchableOpacity
@@ -550,6 +565,34 @@ export default function IntervenantFicheModal({
         </View>
       </KeyboardAvoidingView>
     </Modal>
+
+    <Modal visible={metierPickerOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setMetierPickerOpen(false)}>
+      <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => setMetierPickerOpen(false)}>
+        <TouchableOpacity activeOpacity={1} style={[styles.pickerCard, { backgroundColor: C.card, borderColor: C.border }]}>
+          <Text style={[styles.title, { color: C.text, marginBottom: 12 }]}>Métier / spécialisation</Text>
+          <ScrollView style={{ maxHeight: 400 }}>
+            {METIERS.map((m) => {
+              const selected = ficheMetier === m.key;
+              return (
+                <TouchableOpacity
+                  key={m.key}
+                  onPress={() => { setFicheMetier(m.key); setMetierPickerOpen(false); }}
+                  activeOpacity={0.8}
+                  style={[styles.pickerRow, { borderColor: selected ? C.accent : "transparent", backgroundColor: selected ? `${C.accent}22` : "transparent" }]}
+                >
+                  <Ionicons name={m.icon} size={17} color={selected ? C.accent : C.muted} />
+                  <Text style={[styles.pickerRowText, { color: selected ? C.accent : C.text }]}>{m.label}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+          <TouchableOpacity onPress={() => setMetierPickerOpen(false)} style={styles.cancelBtn}>
+            <Text style={[styles.cancelBtnText, { color: C.muted }]}>Fermer</Text>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    </Modal>
+    </>
   );
 }
 
@@ -611,9 +654,13 @@ const styles = StyleSheet.create({
   durationInput: { flex: 1, textAlign: "center" },
   fullInput: { marginBottom: 10 },
   metierLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 },
-  metierGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginBottom: 16 },
-  metierChip: { flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderRadius: 20, paddingVertical: 7, paddingHorizontal: 12 },
-  metierChipText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
+  metierDropdown: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 16 },
+  metierDropdownText: { fontFamily: "DM_Sans_400Regular", fontSize: 14 },
+  separator: { borderTopWidth: 1, marginVertical: 16 },
+  pickerOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "center", alignItems: "center", padding: 24 },
+  pickerCard: { width: "100%", maxWidth: 400, maxHeight: "80%", borderRadius: 20, borderWidth: 1, padding: 24 },
+  pickerRow: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 8 },
+  pickerRowText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
   removeBtn: {
     width: 32,
     height: 32,

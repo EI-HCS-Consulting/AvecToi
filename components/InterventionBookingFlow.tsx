@@ -8,6 +8,7 @@ import { useRouter } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { linkCalendarEvent, addToNativeCalendar, deleteLinkedCalendarEvent } from "@/lib/calendarSync";
 import { isReservationDatePast, isSlotFullyPast, toFrLong, toFrShort } from "@/lib/slotUtils";
+import { getSyncedInterventionTypes } from "@/lib/interventionTypesSync";
 import ConfirmModal from "@/components/ConfirmModal";
 import type { Reservation, SlotConfig, PatientSpace, InterventionType } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
@@ -58,12 +59,7 @@ function InterventionBookingFlow(
   const [types, setTypes] = useState<InterventionType[]>([]);
 
   useEffect(() => {
-    supabase
-      .from("intervention_types")
-      .select("*")
-      .eq("intervenant_profile_id", intervenantProfileId)
-      .order("created_at", { ascending: true })
-      .then(({ data }) => setTypes(data || []));
+    getSyncedInterventionTypes(intervenantProfileId).then(setTypes);
   }, [intervenantProfileId]);
 
   const [bookingTarget, setBookingTarget] = useState<{ iso: string; slot: string } | null>(null);
