@@ -1,4 +1,4 @@
-import { Fragment, useState, useEffect, useRef } from "react";
+import { Fragment, useState, useEffect, useRef, useCallback } from "react";
 import {
   View, Text, TouchableOpacity, ScrollView, StyleSheet,
   Alert, ActivityIndicator, Image, TextInput, Switch,
@@ -11,6 +11,7 @@ import {
 // so the ScrollView actually gets a bounded viewport to scroll within.
 const SHEET_MAX_HEIGHT = Dimensions.get("window").height * 0.85;
 import { useRouter } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
@@ -349,6 +350,18 @@ export default function SettingsScreen() {
   const displayPhotoUrl = localPhotoUrl !== undefined ? localPhotoUrl : (space?.patient_photo_url ?? null);
   const [prolonging, setProlonging] = useState(false);
   const [toast, setToast] = useState("");
+
+  // Restaure la position de scroll exacte au retour d'un écran poussé depuis
+  // ici (ex. "Planning des intervenants") — sans ça, revenir en arrière
+  // remonte l'utilisateur en haut de la page Paramètres au lieu de le
+  // laisser là où il en était.
+  const scrollRef = useRef<ScrollView>(null);
+  const scrollOffsetRef = useRef(0);
+  useFocusEffect(
+    useCallback(() => {
+      scrollRef.current?.scrollTo({ y: scrollOffsetRef.current, animated: false });
+    }, []),
+  );
 
   // Section active de la barre de navigation des réglages — la roue ⚙️ n'est
   // plus cliquable (simple en-tête de rubrique), donc on ouvre toujours sur
@@ -1518,7 +1531,12 @@ export default function SettingsScreen() {
         <Text style={[styles.headerTitle, { color: C.text }]}>⚙️ Paramètres</Text>
       </View>
 
-      <ScrollView contentContainerStyle={[styles.scroll, { paddingBottom: 48 + SETTINGS_NAV_BAR_HEIGHT }]}>
+      <ScrollView
+        ref={scrollRef}
+        contentContainerStyle={[styles.scroll, { paddingBottom: 48 + SETTINGS_NAV_BAR_HEIGHT }]}
+        onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }}
+        scrollEventThrottle={16}
+      >
 
         {hasSpace && space ? (
           <>

@@ -6,13 +6,10 @@ import { isSlotFullyPast } from "@/lib/slotUtils";
 import type { Theme } from "@/lib/themes";
 import type { Reservation } from "@/lib/types";
 
-// Bloc "Soins planifiés" — même donnée/tri que le "Bloc 3bis" de
-// (admin)/settings.tsx (Historique > Soins planifiés) : toutes les
-// interventions à venir, tous intervenants confondus, triées du plus
-// tardif (haut) au plus proche (bas). Extrait ici en composant autonome
-// pour être réutilisé dans (admin)/intervenants.tsx sans dupliquer une
-// 3e fois la requête — settings.tsx garde sa propre copie inline
-// (accordéon Historique) inchangée.
+// Bloc "Soins planifiés" — triés anté-chronologiquement (le plus récent/
+// tardif en haut, le plus ancien tout en bas). Extrait ici en composant
+// autonome pour être réutilisé dans (admin)/intervenants.tsx et
+// (visitor)/soins.tsx sans dupliquer la requête.
 interface Props {
   spaceId: string;
   C: Theme;
@@ -23,9 +20,15 @@ interface Props {
   // Remplace la navigation par défaut vers (admin)/home/slots (réservée à
   // l'admin) — voir app/(visitor)/soins.tsx.
   onPressRow?: (date: string) => void;
+  // Historique complet (passés ET à venir) plutôt que les seuls soins à
+  // venir — utilisé par (admin)/intervenants.tsx (Paramètres > Planning des
+  // intervenants), même comportement que Paramètres > Historique. Par défaut
+  // false : app/(visitor)/soins.tsx (onglet "Mes soins" de l'intervenant)
+  // garde son comportement d'origine, tourné vers ce qui reste à faire.
+  includePast?: boolean;
 }
 
-export default function SoinsPlanifiesBlock({ spaceId, C, filterIntervenantProfileId, onPressRow }: Props) {
+export default function SoinsPlanifiesBlock({ spaceId, C, filterIntervenantProfileId, onPressRow, includePast = false }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [soins, setSoins] = useState<Reservation[]>([]);
@@ -43,9 +46,9 @@ export default function SoinsPlanifiesBlock({ spaceId, C, filterIntervenantProfi
     const { data } = await query
       .order("date", { ascending: false })
       .order("creneau", { ascending: false });
-    setSoins((data || []).filter((r) => !isSlotFullyPast(r.date, r.creneau)));
+    setSoins(includePast ? (data || []) : (data || []).filter((r) => !isSlotFullyPast(r.date, r.creneau)));
     setLoading(false);
-  }, [spaceId, filterIntervenantProfileId]);
+  }, [spaceId, filterIntervenantProfileId, includePast]);
 
   useEffect(() => { load(); }, [load]);
 
