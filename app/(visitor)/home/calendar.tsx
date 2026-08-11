@@ -8,6 +8,7 @@ import {
   toISO, toFrLong, addDays,
 } from "@/lib/slotUtils";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
+import { LOGO_GREEN, LOGO_PURPLE } from "@/lib/themes";
 import SpaceHeader from "@/components/SpaceHeader";
 import { useRouter } from "expo-router";
 
@@ -130,6 +131,12 @@ export default function VisitorCalendarScreen() {
               status === "partial" ? C.orange :
               status === "empty" ? C.success : "transparent";
 
+            // Cadre vert = visite/nuitée réservée ce jour, violet = créneau
+            // bloqué par un intervenant. Priorité au vert si les deux coexistent.
+            const familyBooked = reservations.some((r) => r.date === iso && (r.type === "Visite" || r.type === "Nuit"));
+            const interventionBooked = reservations.some((r) => r.date === iso && r.type === "Intervention");
+            const frameColor = familyBooked ? LOGO_GREEN : interventionBooked ? LOGO_PURPLE : null;
+
             return (
               <TouchableOpacity
                 key={iso}
@@ -153,6 +160,9 @@ export default function VisitorCalendarScreen() {
                 }}
                 activeOpacity={0.7}
               >
+                {!!frameColor && (
+                  <View pointerEvents="none" style={[styles.frameOverlay, { borderColor: frameColor }]} />
+                )}
                 <View style={styles.cellInner}>
                   <Text style={[styles.cellDate, { color: isSelected ? "#fff" : isToday ? C.gold : C.text }]}>
                     {day.getDate()}
@@ -171,6 +181,16 @@ export default function VisitorCalendarScreen() {
             ([color, label]) => (
               <View key={label} style={styles.legendItem}>
                 <View style={[styles.legendDot, { backgroundColor: color }]} />
+                <Text style={[styles.legendLabel, { color: C.muted }]}>{label}</Text>
+              </View>
+            ),
+          )}
+        </View>
+        <View style={[styles.legend, styles.legendRow2]}>
+          {([[LOGO_GREEN, "Visite/nuitée réservée"], [LOGO_PURPLE, "Intervenant"]] as [string, string][]).map(
+            ([color, label]) => (
+              <View key={label} style={styles.legendItem}>
+                <View style={[styles.legendFrame, { borderColor: color }]} />
                 <Text style={[styles.legendLabel, { color: C.muted }]}>{label}</Text>
               </View>
             ),
@@ -269,9 +289,12 @@ const styles = StyleSheet.create({
   cellInner: { flex: 1, width: "100%", alignItems: "center", justifyContent: "center", gap: 2 },
   cellDate: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, textAlignVertical: "center", includeFontPadding: false },
   dot: { width: 4, height: 4, borderRadius: 2 },
+  frameOverlay: { position: "absolute", top: -3, left: -3, right: -3, bottom: -3, borderWidth: 2, borderRadius: 10 },
   legend: { flexDirection: "row", justifyContent: "center", gap: 20 },
+  legendRow2: { marginTop: 8 },
   legendItem: { flexDirection: "row", alignItems: "center", gap: 5 },
   legendDot: { width: 8, height: 8, borderRadius: 4 },
+  legendFrame: { width: 8, height: 8, borderRadius: 3, borderWidth: 2 },
   legendLabel: { fontFamily: "DM_Sans_400Regular", fontSize: 11 },
 
   nightsBtn: { borderWidth: 1, borderRadius: 10, paddingVertical: 9, alignItems: "center", marginTop: 10 },
