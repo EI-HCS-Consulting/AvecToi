@@ -595,7 +595,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
             onPress={openImportPicker}
             activeOpacity={0.8}
           >
-            <Text style={[styles.importBannerText, { color: C.gold }]}>✨ Importer une checklist toute prête</Text>
+            <Text style={[styles.importBannerText, { color: C.gold }]}>✨ Checklists suggérées</Text>
           </TouchableOpacity>
         )}
       </View>
