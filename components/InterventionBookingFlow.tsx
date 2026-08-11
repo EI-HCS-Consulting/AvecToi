@@ -179,73 +179,74 @@ function InterventionBookingFlow(
       {/* ── MODAL RÉSERVATION ──────────────────────────────────────────────── */}
       <Modal visible={!!bookingTarget && !confirmed} transparent animationType="fade" onRequestClose={() => setBookingTarget(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-          <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !saving && setBookingTarget(null)}>
-            <ScrollView contentContainerStyle={styles.centeredOverlayScroll} keyboardShouldPersistTaps="handled">
-              <TouchableOpacity activeOpacity={1}>
-                <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.orange }]}>
-                  <Text style={[styles.sheetTitle, { color: C.text }]}>🩺 Intervention {bookingTarget?.slot}</Text>
-                  <Text style={[styles.sheetSub, { color: C.muted }]}>
-                    {bookingTarget && toFrLong(new Date(bookingTarget.iso + "T12:00:00"))}
-                  </Text>
+          <View style={styles.centeredOverlay}>
+            <TouchableOpacity
+              style={StyleSheet.absoluteFill}
+              activeOpacity={1}
+              onPress={() => !saving && setBookingTarget(null)}
+            />
+            <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.orange }]}>
+              <Text style={[styles.sheetTitle, { color: C.text }]}>🩺 Intervention {bookingTarget?.slot}</Text>
+              <Text style={[styles.sheetSub, { color: C.muted }]}>
+                {bookingTarget && toFrLong(new Date(bookingTarget.iso + "T12:00:00"))}
+              </Text>
 
-                  {types.length === 0 ? (
-                    <Text style={[styles.sheetSub, { color: C.muted }]}>
-                      Ajoute au moins un type d'intervention depuis "Mon compte → Ma fiche intervenant" avant de pouvoir réserver.
-                    </Text>
-                  ) : (
-                    <>
-                      <Text style={[styles.fieldLabel, { color: C.gold }]}>Type d'intervention</Text>
-                      <View style={styles.typeGrid}>
-                        {types.map((t) => {
-                          const selected = selectedTypeId === t.id;
-                          return (
-                            <TouchableOpacity
-                              key={t.id}
-                              style={[
-                                styles.typeOption,
-                                { backgroundColor: selected ? C.orange : C.bg, borderColor: selected ? C.orange : C.border },
-                              ]}
-                              onPress={() => setSelectedTypeId(t.id)}
-                              activeOpacity={0.75}
-                            >
-                              <Text style={[styles.typeOptionLabel, { color: selected ? "#fff" : C.text }]}>{t.label}</Text>
-                              <Text style={[styles.typeOptionDuration, { color: selected ? "rgba(255,255,255,0.85)" : C.muted }]}>
-                                {t.duration_minutes} min
-                              </Text>
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </View>
-
-                      <View style={[styles.priorityBox, { borderColor: C.orange, backgroundColor: "rgba(249,115,22,0.1)" }]}>
-                        <Text style={[styles.priorityText, { color: C.text }]}>
-                          ⚠️ Ton intervention est prioritaire sur les visites. Si une visite est déjà prévue sur ce créneau,
-                          elle sera automatiquement déplacée au créneau valide le plus proche.
-                        </Text>
-                      </View>
-                    </>
-                  )}
-
-                  <View style={styles.sheetBtns}>
-                    <TouchableOpacity
-                      onPress={() => setBookingTarget(null)}
-                      disabled={saving}
-                      style={[styles.btnSecondary, { borderColor: C.border }]}
-                    >
-                      <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={handleBook}
-                      disabled={saving || !selectedType}
-                      style={[styles.btnPrimary, { backgroundColor: C.orange }, (saving || !selectedType) && { opacity: 0.5 }]}
-                    >
-                      {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.btnPrimaryText}>Confirmer</Text>}
-                    </TouchableOpacity>
+              {types.length === 0 ? (
+                <Text style={[styles.sheetSub, { color: C.muted }]}>
+                  Ajoute au moins un type d'intervention depuis "Mon compte → Ma fiche intervenant" avant de pouvoir réserver.
+                </Text>
+              ) : (
+                <ScrollView style={styles.typeScroll} keyboardShouldPersistTaps="handled">
+                  <Text style={[styles.fieldLabel, { color: C.gold }]}>Type d'intervention</Text>
+                  <View style={styles.typeGrid}>
+                    {types.map((t) => {
+                      const selected = selectedTypeId === t.id;
+                      return (
+                        <TouchableOpacity
+                          key={t.id}
+                          style={[
+                            styles.typeOption,
+                            { backgroundColor: selected ? C.orange : C.bg, borderColor: selected ? C.orange : C.border },
+                          ]}
+                          onPress={() => setSelectedTypeId(t.id)}
+                          activeOpacity={0.75}
+                        >
+                          <Text style={[styles.typeOptionLabel, { color: selected ? "#fff" : C.text }]}>{t.label}</Text>
+                          <Text style={[styles.typeOptionDuration, { color: selected ? "rgba(255,255,255,0.85)" : C.muted }]}>
+                            {t.duration_minutes} min
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
-                </View>
-              </TouchableOpacity>
-            </ScrollView>
-          </TouchableOpacity>
+
+                  <View style={[styles.priorityBox, { borderColor: C.orange, backgroundColor: "rgba(249,115,22,0.1)" }]}>
+                    <Text style={[styles.priorityText, { color: C.text }]}>
+                      ⚠️ Ton intervention est prioritaire sur les visites. Si une visite est déjà prévue sur ce créneau,
+                      elle sera automatiquement déplacée au créneau valide le plus proche.
+                    </Text>
+                  </View>
+                </ScrollView>
+              )}
+
+              <View style={styles.sheetBtns}>
+                <TouchableOpacity
+                  onPress={() => setBookingTarget(null)}
+                  disabled={saving}
+                  style={[styles.btnSecondary, { borderColor: C.border }]}
+                >
+                  <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={handleBook}
+                  disabled={saving || !selectedType}
+                  style={[styles.btnPrimary, { backgroundColor: C.orange }, (saving || !selectedType) && { opacity: 0.5 }]}
+                >
+                  {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.btnPrimaryText}>Confirmer</Text>}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
         </KeyboardAvoidingView>
       </Modal>
 
@@ -361,8 +362,8 @@ const styles = StyleSheet.create({
   // Centered (non-bottom-sheet) overlay/sheet — used by all three modals in this file
   // (bookingTarget, confirmed, cancelTarget), which are small/medium popups, not large forms.
   centeredOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center", padding: 24 },
-  centeredOverlayScroll: { flexGrow: 1, justifyContent: "center", alignItems: "center" },
   centeredSheet: { width: "88%", maxWidth: 400, maxHeight: "82%", borderRadius: 20, borderWidth: 1, padding: 24 },
+  typeScroll: { maxHeight: 280 },
 
   sheetTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, marginBottom: 4 },
   sheetSub: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginBottom: 20 },
