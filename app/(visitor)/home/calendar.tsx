@@ -12,6 +12,7 @@ import { getVisitorSession } from "@/lib/visitorSession";
 import { LOGO_GREEN, LOGO_PURPLE } from "@/lib/themes";
 import SpaceHeader from "@/components/SpaceHeader";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
+import IntervenantPlanningPanel from "@/components/IntervenantPlanningPanel";
 import { useRouter } from "expo-router";
 
 const DAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
@@ -234,7 +235,7 @@ export default function VisitorCalendarScreen() {
           </View>
         )}
 
-        {space.intervenants_enabled && (
+        {space.intervenants_enabled && role === "visiteur" && (
           <TouchableOpacity
             style={[styles.nightsBtn, { borderColor: LOGO_PURPLE, marginTop: 8 }]}
             onPress={() => router.navigate("/(visitor)/home/planning" as any)}
@@ -242,6 +243,20 @@ export default function VisitorCalendarScreen() {
           >
             <Text style={[styles.nightsBtnText, { color: LOGO_PURPLE }]}>🩺 Voir le planning des intervenants</Text>
           </TouchableOpacity>
+        )}
+
+        {space.intervenants_enabled && role === "intervenant" && !!intervenantProfileId && (
+          <View style={{ marginTop: 16 }}>
+            <IntervenantPlanningPanel
+              C={C}
+              slotConfig={slotConfig}
+              reservations={reservations}
+              getSlotsForDate={getSlotsForDate}
+              getConfigForDate={getConfigForDate}
+              startDate={startDate}
+              intervenantProfileId={intervenantProfileId}
+            />
+          </View>
         )}
       </ScrollView>
 
