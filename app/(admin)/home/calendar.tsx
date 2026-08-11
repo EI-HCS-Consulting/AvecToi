@@ -193,7 +193,7 @@ export default function AdminCalendarScreen() {
           )}
         </View>
         <View style={[styles.legend, styles.legendRow2]}>
-          {([[LOGO_GREEN, "Visite/nuitée réservée"], [LOGO_PURPLE, "Intervenant"]] as [string, string][]).map(
+          {([[LOGO_GREEN, "Mes visites/nuitées"], [LOGO_PURPLE, "Intervenant"]] as [string, string][]).map(
             ([color, label]) => (
               <View key={label} style={styles.legendItem}>
                 <View style={[styles.legendFrame, { borderColor: color }]} />
