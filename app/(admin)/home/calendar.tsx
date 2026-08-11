@@ -145,13 +145,13 @@ export default function AdminCalendarScreen() {
               status === "partial" ? C.orange :
               status === "empty" ? C.success : "transparent";
 
-            // Cadre vert = visite/nuitée réservée ce jour, violet = créneau
-            // bloqué par un intervenant. Priorité au vert si les deux coexistent.
+            // Bande verte en bas de case = visite/nuitée réservée ce jour.
+            // Bordure violette = créneau bloqué par un intervenant (remplace
+            // la bordure grise par défaut, ne déborde jamais de la case).
             // En mode Soins, les visites/nuitées sont masquées (déjà visibles
-            // en mode Visites) : seul le cadre violet reste pertinent.
+            // en mode Visites) : seule la bordure violette reste pertinente.
             const familyBooked = !soinsMode && reservations.some((r) => r.date === iso && (r.type === "Visite" || r.type === "Nuit"));
             const interventionBooked = reservations.some((r) => r.date === iso && r.type === "Intervention");
-            const frameColor = familyBooked ? LOGO_GREEN : interventionBooked ? LOGO_PURPLE : null;
 
             return (
               <TouchableOpacity
@@ -160,8 +160,8 @@ export default function AdminCalendarScreen() {
                   styles.cell,
                   {
                     backgroundColor: isSelected ? C.accent : isPast ? "transparent" : C.card,
-                    borderColor: isSelected ? C.accent : isToday ? C.gold : C.border,
-                    borderWidth: isToday ? 2 : 1,
+                    borderColor: isSelected ? C.accent : interventionBooked ? LOGO_PURPLE : isToday ? C.gold : C.border,
+                    borderWidth: isToday || interventionBooked ? 2 : 1,
                     opacity: isPast ? 0.3 : 1,
                   },
                 ]}
@@ -175,15 +175,15 @@ export default function AdminCalendarScreen() {
                 }}
                 activeOpacity={0.7}
               >
-                {!!frameColor && (
-                  <View pointerEvents="none" style={[styles.frameOverlay, { borderColor: frameColor }]} />
-                )}
                 <View style={styles.cellInner}>
                   <Text style={[styles.cellDate, { color: isSelected ? "#fff" : isToday ? C.gold : C.text }]}>
                     {day.getDate()}
                   </Text>
                   <View style={[styles.dot, { backgroundColor: dotColor }]} />
                 </View>
+                {!!familyBooked && (
+                  <View pointerEvents="none" style={[styles.visitStripe, { backgroundColor: LOGO_GREEN }]} />
+                )}
               </TouchableOpacity>
             );
           })}
@@ -201,20 +201,26 @@ export default function AdminCalendarScreen() {
           )}
         </View>
         <View style={[styles.legend, styles.legendRow2]}>
-          {(soinsMode
-            ? [[LOGO_PURPLE, "Soin"]]
-            : [[LOGO_GREEN, "Mes visites/nuitées"], [LOGO_PURPLE, "Intervenant"]]
-          ).map(([color, label]) => (
-            <View key={label} style={styles.legendItem}>
-              <View style={[styles.legendFrame, { borderColor: color }]} />
-              <Text style={[styles.legendLabel, { color: C.muted }]}>{label}</Text>
+          {!soinsMode && (
+            <View style={styles.legendItem}>
+              <View style={[styles.legendStripeSwatch, { borderColor: C.border }]}>
+                <View style={[styles.legendStripeBar, { backgroundColor: LOGO_GREEN }]} />
+              </View>
+              <Text style={[styles.legendLabel, { color: C.muted }]}>Mes visites/nuitées</Text>
             </View>
-          ))}
+          )}
+          <View style={styles.legendItem}>
+            <View style={[styles.legendFrame, { borderColor: LOGO_PURPLE }]} />
+            <Text style={[styles.legendLabel, { color: C.muted }]}>{soinsMode ? "Soin" : "Intervenant"}</Text>
+          </View>
         </View>
 
         {space.intervenants_enabled && (
-          <View style={{ marginTop: 12 }}>
-            <SegmentedSwitch value={soinsMode} onChange={setSoinsMode} leftLabel="Visites" rightLabel="Soins" C={C} />
+          <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 12 }]}>
+            <Text style={[styles.viewModeLabel, { color: C.text }]}>
+              Vue {soinsMode ? "Soins" : "Visites"}
+            </Text>
+            <SegmentedSwitch value={soinsMode} onChange={setSoinsMode} leftLabel="Visites" rightLabel="Soins" C={C} minWidthRatio={0.55} />
           </View>
         )}
       </ScrollView>
@@ -289,17 +295,22 @@ const styles = StyleSheet.create({
   dayLabels: { flexDirection: "row", justifyContent: "center", gap: 3, marginBottom: 4 },
   dayLabel: { width: "13.5%", textAlign: "center", fontFamily: "DM_Sans_600SemiBold", fontSize: 10 },
   grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 3, marginBottom: 10 },
-  cell: { width: "13.5%", aspectRatio: 1, borderRadius: 8, borderWidth: 1 },
+  cell: { width: "13.5%", aspectRatio: 1, borderRadius: 8, borderWidth: 1, overflow: "hidden" },
   cellInner: { flex: 1, width: "100%", alignItems: "center", justifyContent: "center", gap: 2 },
   cellDate: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, textAlignVertical: "center", includeFontPadding: false },
   dot: { width: 4, height: 4, borderRadius: 2 },
-  frameOverlay: { position: "absolute", top: -3, left: -3, right: -3, bottom: -3, borderWidth: 2, borderRadius: 10 },
+  visitStripe: { position: "absolute", left: 0, right: 0, bottom: 0, height: 4 },
   legend: { flexDirection: "row", justifyContent: "center", gap: 20 },
   legendRow2: { marginTop: 8 },
   legendItem: { flexDirection: "row", alignItems: "center", gap: 5 },
   legendDot: { width: 8, height: 8, borderRadius: 4 },
-  legendFrame: { width: 8, height: 8, borderRadius: 3, borderWidth: 2 },
+  legendFrame: { width: 14, height: 14, borderRadius: 4, borderWidth: 2 },
+  legendStripeSwatch: { width: 14, height: 14, borderRadius: 4, borderWidth: 1, overflow: "hidden" },
+  legendStripeBar: { position: "absolute", left: 0, right: 0, bottom: 0, height: 3 },
   legendLabel: { fontFamily: "DM_Sans_400Regular", fontSize: 11 },
+
+  card: { borderWidth: 1, borderRadius: 14, padding: 16, gap: 10 },
+  viewModeLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15 },
 
 
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center", padding: 20 },
