@@ -227,7 +227,7 @@ export default function AdminIntervenantsScreen() {
           </>
         )}
 
-        <SoinsPlanifiesBlock spaceId={space.id} C={C} />
+        <SoinsPlanifiesBlock spaceId={space.id} C={C} includePast />
 
         <Text style={[styles.sectionTitle, { color: C.gold, marginTop: 24 }]}>Fiches intervenants</Text>
         <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
