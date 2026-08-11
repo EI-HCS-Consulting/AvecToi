@@ -178,30 +178,29 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [fUrgent, setFUrgent] = useState(false);
 
   // ── Checklists administratives suggérées (MVP) — voir CHECKLIST_TEMPLATES.
+  // Popup accessible à l'admin comme aux visiteurs, depuis le bouton
+  // "Créer une checklist" du formulaire Publier (catégorie Administratif) —
+  // voir openChecklistFromForm.
   const [checklistPicker, setChecklistPicker] = useState(false);
   const [checklistContext, setChecklistContext] = useState<ChecklistContext | null>(null);
   const [checklistChecked, setChecklistChecked] = useState<Record<number, boolean>>({});
   const [checklistSaving, setChecklistSaving] = useState(false);
-  // Champ texte libre pour ajouter un item perso (hors template) directement
-  // dans le même lot publié — un item par ligne.
-  const [checklistCustomText, setChecklistCustomText] = useState("");
+  // Items perso ajoutés au même lot qu'une checklist suggérée — liste de
+  // brouillon avec suppression individuelle (✕), même pattern que
+  // importCustomItems dans Ma Checklist (components/MyChecklist.tsx), plutôt
+  // qu'un textarea multi-lignes.
+  const [checklistCustomItems, setChecklistCustomItems] = useState<string[]>([]);
+  const [checklistItemDraft, setChecklistItemDraft] = useState("");
 
-  // Sélecteur repliable dans "Nouveau besoin" (catégorie Administratif) —
-  // même contenu que CHECKLIST_TEMPLATES mais affiché en 3 accordéons plutôt
-  // qu'en écran dédié, accessible aux visiteurs (filtré par sharedWithVisitors)
-  // comme à l'admin (liste complète). Voir publishInlineChecklist.
-  const [inlineOpenCtx, setInlineOpenCtx] = useState<ChecklistContext | null>(null);
-  const [inlineChecked, setInlineChecked] = useState<Partial<Record<ChecklistContext, Record<number, boolean>>>>({});
-  const [inlinePublishing, setInlinePublishing] = useState<ChecklistContext | null>(null);
-  const [inlineCustomText, setInlineCustomText] = useState<Partial<Record<ChecklistContext, string>>>({});
-
-  // Découpe un texte libre multi-lignes en items distincts (une ligne = un
-  // item), utilisé pour ajouter des items perso au même lot qu'une checklist
-  // suggérée (dédiée admin ou sélecteur repliable).
-  function customLinesToItems(text: string): ChecklistItem[] {
-    return text.split("\n").map((l) => l.trim()).filter(Boolean)
-      .map((title) => ({ title, description: "", sharedWithVisitors: true }));
-  }
+  // Popup "Créer une nouvelle checklist" (perso, hors templates) — ouvert
+  // depuis le popup de choix ci-dessus (voir openCustomChecklistModal),
+  // fermé puis rouvert après un court délai pour ne jamais empiler deux
+  // <Modal> sur Android (même contrainte que claimDuplicate plus bas).
+  const [customChecklistModal, setCustomChecklistModal] = useState(false);
+  const [customChecklistName, setCustomChecklistName] = useState("");
+  const [customChecklistItems, setCustomChecklistItems] = useState<string[]>([]);
+  const [customChecklistItemDraft, setCustomChecklistItemDraft] = useState("");
+  const [customChecklistSaving, setCustomChecklistSaving] = useState(false);
 
   // Annulation d'un lot ajouté d'un coup (checklist admin dédiée ou sélecteur
   // repliable ci-dessus) — capture les id insérés pour pouvoir tout supprimer
@@ -520,7 +519,6 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setFDateLimite(""); setFDLPickerOpen(false); setFUrgent(false);
     setFDLCalMonth(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
     autoTransportTitleRef.current = "";
-    setInlineOpenCtx(null); setInlineChecked({});
     setTaskForm(true);
   }
 
@@ -540,7 +538,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     const initial: Record<number, boolean> = {};
     items.forEach((_, i) => { initial[i] = true; });
     setChecklistChecked(initial);
-    setChecklistCustomText("");
+    setChecklistCustomItems([]);
+    setChecklistItemDraft("");
     setChecklistContext(ctx);
   }
 
@@ -556,18 +555,45 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setChecklistChecked(next);
   }
 
+  function addChecklistCustomItem() {
+    const title = checklistItemDraft.trim();
+    if (!title) return;
+    setChecklistCustomItems((prev) => [...prev, title]);
+    setChecklistItemDraft("");
+  }
+
+  function removeChecklistCustomItem(i: number) {
+    setChecklistCustomItems((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  // Auteur du lot à publier — admin (profil connecté) ou visiteur (session
+  // PIN), même branchement que le reste d'Entraide (voir toggleClaimOnCreate).
+  async function currentAuthor(): Promise<{ prenom: string; nom: string; pin: string }> {
+    if (isAdmin) {
+      const { data } = await supabase.auth.getUser();
+      return {
+        prenom: (data.user?.user_metadata?.firstname ?? "").trim(),
+        nom: (data.user?.user_metadata?.lastname ?? "").trim(),
+        pin: "ADMIN",
+      };
+    }
+    if (mySession) return { prenom: mySession.prenom, nom: mySession.nom, pin: mySession.pin };
+    return { prenom: "", nom: "", pin: "" };
+  }
+
   async function addChecklistItems() {
     if (!checklistContext) return;
     const items = CHECKLIST_TEMPLATES[checklistContext].groups.flatMap((g) => g.items);
+    const customItems: ChecklistItem[] = checklistCustomItems
+      .filter((title) => !findDuplicateAdminTask(title))
+      .map((title) => ({ title, description: "", sharedWithVisitors: true }));
     const selected = [
       ...items.filter((item, i) => checklistChecked[i] && !findDuplicateAdminTask(item.title)),
-      ...customLinesToItems(checklistCustomText).filter((item) => !findDuplicateAdminTask(item.title)),
+      ...customItems,
     ];
     if (!selected.length) return;
     setChecklistSaving(true);
-    const { data: userData } = await supabase.auth.getUser();
-    const authorPrenom = (userData.user?.user_metadata?.firstname ?? "").trim();
-    const authorNom = (userData.user?.user_metadata?.lastname ?? "").trim();
+    const author = await currentAuthor();
     const batchId = Crypto.randomUUID();
     const rows = selected.map((item) => ({
       space_id: spaceId,
@@ -575,10 +601,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       description: item.description,
       category: "administratif" as const,
       status: "ouvert" as const,
-      created_by: "admin",
-      author_prenom: authorPrenom || null,
-      author_nom: authorNom || null,
-      author_pin: "ADMIN",
+      created_by: isAdmin ? "admin" : "visiteur",
+      author_prenom: author.prenom || null,
+      author_nom: author.nom || null,
+      author_pin: author.pin || null,
       date_limite: item.dateOffsetDays ? addDaysIso(item.dateOffsetDays) : null,
       urgent: !!item.urgent,
       checklist_batch_id: batchId,
@@ -591,6 +617,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     }
     setChecklistContext(null);
     setChecklistPicker(false);
+    setChecklistCustomItems([]);
+    setChecklistItemDraft("");
     setActiveCat("administratif");
     triggerBatchUndo(inserted?.map((r) => r.id) ?? [], selected.length);
     loadTasks();
@@ -621,70 +649,71 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     loadTasks();
   }
 
-  function toggleInlineItem(ctx: ChecklistContext, i: number) {
-    setInlineChecked((prev) => {
-      const current = prev[ctx]?.[i] ?? true;
-      return { ...prev, [ctx]: { ...(prev[ctx] || {}), [i]: !current } };
-    });
+  // Ouvre le popup de choix de checklist (checklistPicker) depuis le
+  // formulaire "Nouveau besoin" (catégorie Administratif) — ferme d'abord
+  // taskForm, comme claimDuplicate plus bas, pour ne jamais empiler deux
+  // <Modal> sur Android.
+  function openChecklistFromForm() {
+    setTaskForm(false);
+    setTimeout(() => openChecklistPicker(), 300);
   }
 
-  // Tout coché par défaut à l'ouverture de chaque accordéon (voir
-  // inlineChecked) — utile pour publier la liste entière, mais oblige à
-  // décocher un par un pour n'en garder qu'un seul : ce bouton vide/remplit
-  // la sélection d'un coup, comme "Tout cocher/décocher" dans l'outil admin.
-  function toggleAllInline(ctx: ChecklistContext, items: ChecklistItem[], on: boolean) {
-    const next: Record<number, boolean> = {};
-    items.forEach((_, i) => { next[i] = on; });
-    setInlineChecked((prev) => ({ ...prev, [ctx]: next }));
+  // Ouvre le popup "Créer une nouvelle checklist" depuis le popup de choix —
+  // même contrainte Android que ci-dessus : on ferme checklistPicker avant
+  // de rouvrir customChecklistModal.
+  function openCustomChecklistModal() {
+    setChecklistPicker(false);
+    setCustomChecklistName("");
+    setCustomChecklistItems([]);
+    setCustomChecklistItemDraft("");
+    setTimeout(() => setCustomChecklistModal(true), 300);
   }
 
-  // Publie directement les items cochés d'un contexte comme autant de besoins
-  // "administratif" distincts, sans passer par les champs titre/description
-  // du formulaire (chaque item porte déjà les siens) — ferme le formulaire et
-  // déclenche le même bandeau "Annuler" que la checklist admin dédiée.
-  async function publishInlineChecklist(ctx: ChecklistContext, items: ChecklistItem[]) {
-    const checked = [
-      ...items.filter((item, i) => (inlineChecked[ctx]?.[i] ?? true) && !findDuplicateAdminTask(item.title)),
-      ...customLinesToItems(inlineCustomText[ctx] ?? "").filter((item) => !findDuplicateAdminTask(item.title)),
-    ];
-    if (!checked.length) return;
-    setInlinePublishing(ctx);
-    let authorPrenom = "", authorNom = "", authorPin = "";
-    if (isAdmin) {
-      const { data } = await supabase.auth.getUser();
-      authorPrenom = (data.user?.user_metadata?.firstname ?? "").trim();
-      authorNom = (data.user?.user_metadata?.lastname ?? "").trim();
-      authorPin = "ADMIN";
-    } else if (mySession) {
-      authorPrenom = mySession.prenom;
-      authorNom = mySession.nom;
-      authorPin = mySession.pin;
-    }
+  function addCustomChecklistItem() {
+    const title = customChecklistItemDraft.trim();
+    if (!title) return;
+    setCustomChecklistItems((prev) => [...prev, title]);
+    setCustomChecklistItemDraft("");
+  }
+
+  function removeCustomChecklistItem(i: number) {
+    setCustomChecklistItems((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  // Publie la checklist perso créée comme autant de besoins "administratif"
+  // distincts du même lot (checklist_batch_id) — même logique d'auteur et de
+  // dédoublonnage que addChecklistItems ; le nom donné à la checklist ne sert
+  // qu'à la saisie, il n'existe pas de colonne dédiée sur "tasks" (regroupées
+  // uniquement par checklist_batch_id, comme les checklists suggérées).
+  async function confirmCreateCustomChecklist() {
+    const items = customChecklistItems.filter((title) => !findDuplicateAdminTask(title));
+    if (!customChecklistName.trim() || !items.length) return;
+    setCustomChecklistSaving(true);
+    const author = await currentAuthor();
     const batchId = Crypto.randomUUID();
-    const rows = checked.map((item) => ({
+    const rows = items.map((title) => ({
       space_id: spaceId,
-      title: item.title,
-      description: item.description,
+      title,
+      description: "",
       category: "administratif" as const,
       status: "ouvert" as const,
       created_by: isAdmin ? "admin" : "visiteur",
-      author_prenom: authorPrenom || null,
-      author_nom: authorNom || null,
-      author_pin: authorPin || null,
-      date_limite: item.dateOffsetDays ? addDaysIso(item.dateOffsetDays) : null,
-      urgent: !!item.urgent,
+      author_prenom: author.prenom || null,
+      author_nom: author.nom || null,
+      author_pin: author.pin || null,
+      date_limite: null,
+      urgent: false,
       checklist_batch_id: batchId,
     }));
     const { data: inserted, error } = await supabase.from("tasks").insert(rows).select("id");
-    setInlinePublishing(null);
+    setCustomChecklistSaving(false);
     if (error) {
-      Alert.alert("Erreur", "Impossible d'ajouter : " + error.message);
+      Alert.alert("Erreur", "Impossible de créer la checklist : " + error.message);
       return;
     }
-    setInlineCustomText((prev) => ({ ...prev, [ctx]: "" }));
-    setTaskForm(false);
+    setCustomChecklistModal(false);
     setActiveCat("administratif");
-    triggerBatchUndo(inserted?.map((r) => r.id) ?? [], checked.length);
+    triggerBatchUndo(inserted?.map((r) => r.id) ?? [], items.length);
     loadTasks();
   }
 
@@ -1919,109 +1948,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                   </View>
 
                   {fCat === "administratif" && !editTask && (
-                    <View style={{ marginBottom: 10 }}>
-                      <Text style={[styles.checklistIntro, { color: C.muted, marginBottom: 10 }]}>
-                        Choisis un ou plusieurs besoins dans la liste ci-dessous, ou décris le tien au-dessus.
-                      </Text>
-                      {(Object.keys(CHECKLIST_TEMPLATES) as ChecklistContext[]).map((ctx) => {
-                        const tpl = CHECKLIST_TEMPLATES[ctx];
-                        const color = C[tpl.colorKey];
-                        const items = tpl.groups.flatMap((g) => g.items).filter((it) => isAdmin || it.sharedWithVisitors);
-                        if (!items.length) return null;
-                        const isOpen = inlineOpenCtx === ctx;
-                        const availableCount = items.filter((item) => !findDuplicateAdminTask(item.title)).length;
-                        const customCount = customLinesToItems(inlineCustomText[ctx] ?? "").filter((item) => !findDuplicateAdminTask(item.title)).length;
-                        const checkedCount = items.filter((item, i) => (inlineChecked[ctx]?.[i] ?? true) && !findDuplicateAdminTask(item.title)).length + customCount;
-                        return (
-                          <View key={ctx} style={[styles.inlineAccordion, { borderColor: color }]}>
-                            <TouchableOpacity
-                              style={styles.inlineAccordionHead}
-                              onPress={() => setInlineOpenCtx(isOpen ? null : ctx)}
-                              activeOpacity={0.75}
-                            >
-                              <Text style={styles.inlineAccordionIcon}>{tpl.icon}</Text>
-                              <Text style={[styles.inlineAccordionTitle, { color: C.text }]}>{tpl.label}</Text>
-                              <Text style={[styles.inlineAccordionCount, { color }]}>
-                                {checkedCount > 0 ? `${checkedCount} sélectionné${checkedCount > 1 ? "s" : ""}` : `${items.length} besoins`}
-                              </Text>
-                              <Text style={[styles.inlineAccordionChevron, { color }]}>{isOpen ? "▲" : "▼"}</Text>
-                            </TouchableOpacity>
-                            {isOpen && (
-                              <View style={styles.inlineAccordionBody}>
-                                {availableCount > 0 && (
-                                  <TouchableOpacity
-                                    onPress={() => toggleAllInline(ctx, items, checkedCount < availableCount)}
-                                    activeOpacity={0.7}
-                                  >
-                                    <Text style={[styles.checklistToggleAll, { color }]}>
-                                      {checkedCount === availableCount ? "Tout décocher" : "Tout cocher"}
-                                    </Text>
-                                  </TouchableOpacity>
-                                )}
-                                {items.map((item, i) => {
-                                  const checked = inlineChecked[ctx]?.[i] ?? true;
-                                  const dup = findDuplicateAdminTask(item.title);
-                                  return (
-                                    <TouchableOpacity
-                                      key={i}
-                                      style={[styles.checklistItemRow, !!dup && { opacity: 0.55 }]}
-                                      onPress={() => { if (dup) { setDuplicateTarget(dup); return; } toggleInlineItem(ctx, i); }}
-                                      activeOpacity={0.7}
-                                    >
-                                      <View
-                                        style={[
-                                          styles.checklistBox,
-                                          { borderColor: checked && !dup ? color : C.border, backgroundColor: checked && !dup ? color : "transparent" },
-                                        ]}
-                                      >
-                                        {checked && !dup && <Text style={styles.checklistBoxMark}>✓</Text>}
-                                      </View>
-                                      <View style={{ flex: 1 }}>
-                                        <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
-                                          <Text style={[styles.checklistItemTitle, { color: checked && !dup ? C.text : C.muted }]}>{item.title}</Text>
-                                          {item.urgent && !dup && (
-                                            <View style={[styles.checklistUrgentChip, { backgroundColor: C.danger + "22" }]}>
-                                              <Text style={[styles.checklistUrgentChipText, { color: C.danger }]}>urgent</Text>
-                                            </View>
-                                          )}
-                                          {!!dup && (
-                                            <View style={[styles.checklistUrgentChip, { backgroundColor: C.muted + "22" }]}>
-                                              <Text style={[styles.checklistUrgentChipText, { color: C.muted }]}>déjà ajouté</Text>
-                                            </View>
-                                          )}
-                                        </View>
-                                        {!!item.description && (
-                                          <Text style={[styles.checklistItemDesc, { color: C.muted }]}>{item.description}</Text>
-                                        )}
-                                      </View>
-                                    </TouchableOpacity>
-                                  );
-                                })}
-                                <TextInput
-                                  style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 8 }]}
-                                  placeholder="+ Ajouter un item perso (un par ligne)"
-                                  placeholderTextColor={C.muted}
-                                  value={inlineCustomText[ctx] ?? ""}
-                                  onChangeText={(v) => setInlineCustomText((prev) => ({ ...prev, [ctx]: v }))}
-                                  multiline
-                                />
-                                <TouchableOpacity
-                                  style={[styles.btnPrimary, { backgroundColor: color, flex: undefined, alignSelf: "stretch", marginTop: 10, opacity: checkedCount === 0 ? 0.5 : 1 }]}
-                                  disabled={checkedCount === 0 || inlinePublishing === ctx}
-                                  onPress={() => publishInlineChecklist(ctx, items)}
-                                  activeOpacity={0.85}
-                                >
-                                  {inlinePublishing === ctx
-                                    ? <ActivityIndicator color="#fff" />
-                                    : <Text style={styles.btnPrimaryText}>Publier {checkedCount > 0 ? `(${checkedCount})` : ""}</Text>
-                                  }
-                                </TouchableOpacity>
-                              </View>
-                            )}
-                          </View>
-                        );
-                      })}
-                    </View>
+                    <TouchableOpacity
+                      style={[styles.btnSecondary, { borderColor: C.gold, alignSelf: "stretch", marginBottom: 14 }]}
+                      onPress={openChecklistFromForm}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.btnSecondaryText, { color: C.gold }]}>🗂️ Créer une checklist</Text>
+                    </TouchableOpacity>
                   )}
 
                   {fCat === "repas" && !!allergies && (
@@ -2308,6 +2241,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             <Text style={[styles.checklistIntro, { color: C.muted }]}>
               Choisis la situation qui correspond — tu pourras décocher ce qui ne s'applique pas avant d'ajouter.
             </Text>
+            <TouchableOpacity
+              style={[styles.btnSecondary, { borderColor: C.gold, alignSelf: "stretch", marginBottom: 14 }]}
+              onPress={openCustomChecklistModal}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.btnSecondaryText, { color: C.gold }]}>+ Créer une nouvelle checklist</Text>
+            </TouchableOpacity>
             {(Object.keys(CHECKLIST_TEMPLATES) as ChecklistContext[]).map((ctx) => {
               const tpl = CHECKLIST_TEMPLATES[ctx];
               const count = tpl.groups.reduce((n, g) => n + g.items.length, 0);
@@ -2347,7 +2287,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               const tpl = CHECKLIST_TEMPLATES[checklistContext];
               const color = C[tpl.colorKey];
               const items = tpl.groups.flatMap((g) => g.items);
-              const customCount = customLinesToItems(checklistCustomText).filter((item) => !findDuplicateAdminTask(item.title)).length;
+              const customCount = checklistCustomItems.filter((title) => !findDuplicateAdminTask(title)).length;
               const checkedCount = items.filter((item, i) => checklistChecked[i] && !findDuplicateAdminTask(item.title)).length + customCount;
               let runningIndex = -1;
               return (
@@ -2406,16 +2346,43 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                         })}
                       </View>
                     ))}
+                    {checklistCustomItems.map((title, i) => (
+                      <View key={`custom-${i}`} style={styles.checklistItemRow}>
+                        <View style={[styles.checklistBox, { borderColor: color, backgroundColor: color }]}>
+                          <Text style={styles.checklistBoxMark}>✓</Text>
+                        </View>
+                        <Text style={[styles.checklistItemTitle, { color: C.text, flex: 1 }]}>{title}</Text>
+                        <TouchableOpacity onPress={() => removeChecklistCustomItem(i)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                          <Text style={{ color: C.muted, fontSize: 16 }}>✕</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
                   </ScrollView>
 
-                  <TextInput
-                    style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 8 }]}
-                    placeholder="+ Ajouter un item perso (un par ligne)"
-                    placeholderTextColor={C.muted}
-                    value={checklistCustomText}
-                    onChangeText={setChecklistCustomText}
-                    multiline
-                  />
+                  <View style={[styles.divider, { backgroundColor: color }]} />
+
+                  <View style={styles.groupAddRow}>
+                    <TextInput
+                      style={[styles.groupAddInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 0 }]}
+                      placeholder="Nom de l'item"
+                      placeholderTextColor={C.muted}
+                      value={checklistItemDraft}
+                      onChangeText={setChecklistItemDraft}
+                      onSubmitEditing={addChecklistCustomItem}
+                    />
+                    <TouchableOpacity
+                      style={[styles.groupAddBtn, { borderColor: color, opacity: checklistItemDraft.trim() ? 1 : 0.5 }]}
+                      onPress={addChecklistCustomItem}
+                      disabled={!checklistItemDraft.trim()}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.groupAddBtnText, { color }]}>+ Ajouter un item</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <Text style={[styles.publicNoticeText, { color: C.muted }]}>
+                    ℹ️ Cette checklist sera publiée dans le Mur d'Entraide et visible par tous les visiteurs de l'espace.
+                  </Text>
 
                   <View style={styles.sheetBtns}>
                     <TouchableOpacity
@@ -2438,6 +2405,100 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                 </>
               );
             })()}
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── MODAL CHECKLIST : créer une checklist perso ─────────────────────
+          Ouvert depuis le popup de choix (bouton "+ Créer une nouvelle
+          checklist") — même pattern de saisie que le popup de sélection des
+          besoins d'un contexte suggéré ci-dessus. */}
+      <Modal visible={customChecklistModal} transparent animationType="fade" onRequestClose={() => !customChecklistSaving && setCustomChecklistModal(false)}>
+        <View style={styles.centeredOverlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !customChecklistSaving && setCustomChecklistModal(false)} />
+          <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.gold, maxHeight: "82%" }]}>
+            <Text style={[styles.sheetTitle, { color: C.text }]}>📋 Créer une checklist</Text>
+            <Text style={[styles.checklistIntro, { color: C.muted }]}>
+              Donne-lui un nom, puis ajoute ses premiers besoins.
+            </Text>
+            <TextInput
+              style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+              placeholder="Nom de la checklist"
+              placeholderTextColor={C.muted}
+              value={customChecklistName}
+              onChangeText={setCustomChecklistName}
+            />
+
+            <ScrollView style={styles.checklistScroll} showsVerticalScrollIndicator nestedScrollEnabled>
+              {customChecklistItems.length === 0 ? (
+                <Text style={[styles.checklistItemDesc, { color: C.muted }]}>Aucun item pour le moment.</Text>
+              ) : customChecklistItems.map((title, i) => {
+                const dup = findDuplicateAdminTask(title);
+                return (
+                  <View key={i} style={styles.checklistItemRow}>
+                    <View style={[styles.checklistBox, { borderColor: dup ? C.border : C.gold, backgroundColor: dup ? "transparent" : C.gold }]}>
+                      {!dup && <Text style={styles.checklistBoxMark}>✓</Text>}
+                    </View>
+                    <Text style={[styles.checklistItemTitle, { color: dup ? C.muted : C.text, flex: 1 }]}>{title}</Text>
+                    {!!dup && (
+                      <View style={[styles.checklistUrgentChip, { backgroundColor: C.muted + "22" }]}>
+                        <Text style={[styles.checklistUrgentChipText, { color: C.muted }]}>déjà ajouté</Text>
+                      </View>
+                    )}
+                    <TouchableOpacity onPress={() => removeCustomChecklistItem(i)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <Text style={{ color: C.muted, fontSize: 16, marginLeft: 8 }}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+            </ScrollView>
+
+            <View style={[styles.divider, { backgroundColor: C.gold }]} />
+
+            <View style={styles.groupAddRow}>
+              <TextInput
+                style={[styles.groupAddInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 0 }]}
+                placeholder="Nom de l'item"
+                placeholderTextColor={C.muted}
+                value={customChecklistItemDraft}
+                onChangeText={setCustomChecklistItemDraft}
+                onSubmitEditing={addCustomChecklistItem}
+              />
+              <TouchableOpacity
+                style={[styles.groupAddBtn, { borderColor: C.gold, opacity: customChecklistItemDraft.trim() ? 1 : 0.5 }]}
+                onPress={addCustomChecklistItem}
+                disabled={!customChecklistItemDraft.trim()}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.groupAddBtnText, { color: C.gold }]}>+ Ajouter un item</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={[styles.publicNoticeText, { color: C.muted }]}>
+              ℹ️ Cette checklist sera publiée dans le Mur d'Entraide et visible par tous les visiteurs de l'espace.
+            </Text>
+
+            <View style={styles.sheetBtns}>
+              <TouchableOpacity
+                style={[styles.btnSecondary, { borderColor: C.border }]}
+                onPress={() => setCustomChecklistModal(false)}
+                disabled={customChecklistSaving}
+              >
+                <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.btnPrimary,
+                  { backgroundColor: C.gold, opacity: !customChecklistName.trim() || !customChecklistItems.length || customChecklistSaving ? 0.5 : 1 },
+                ]}
+                onPress={confirmCreateCustomChecklist}
+                disabled={!customChecklistName.trim() || !customChecklistItems.length || customChecklistSaving}
+              >
+                {customChecklistSaving
+                  ? <ActivityIndicator color="#fff" />
+                  : <Text style={styles.btnPrimaryText}>Créer et publier</Text>}
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -3241,17 +3302,15 @@ const styles = StyleSheet.create({
   checklistUrgentChip: { borderRadius: 5, paddingHorizontal: 6, paddingVertical: 1, marginLeft: 8 },
   checklistUrgentChipText: { fontFamily: "DM_Sans_700Bold", fontSize: 9.5, letterSpacing: 0.4, textTransform: "uppercase" },
 
-  // Accordéons "Besoins suggérés" repliés dans le formulaire de création
-  // (catégorie Administratif) — même contenu que le sélecteur admin dédié
-  // ci-dessus, présenté en 3 sections indépendantes plutôt qu'un écran par
-  // contexte, pour rester repérable au visiteur comme à l'admin.
-  inlineAccordion: { borderWidth: 1.5, borderRadius: 12, marginBottom: 8, overflow: "hidden" },
-  inlineAccordionHead: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 12, paddingHorizontal: 12 },
-  inlineAccordionIcon: { fontSize: 18 },
-  inlineAccordionTitle: { flex: 1, fontFamily: "DM_Sans_700Bold", fontSize: 14 },
-  inlineAccordionCount: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11.5 },
-  inlineAccordionChevron: { fontFamily: "DM_Sans_700Bold", fontSize: 12, marginLeft: 6 },
-  inlineAccordionBody: { paddingHorizontal: 12, paddingBottom: 12 },
+  // Ligne d'ajout d'item perso "brouillon" (checklist suggérée ou perso) —
+  // même gabarit que components/MyChecklist.tsx (groupAddRow et alentours),
+  // pour une fonction identique entre Mon Compte et Entraide.
+  divider: { height: 2, borderRadius: 1, marginVertical: 14, opacity: 0.6 },
+  groupAddRow: { padding: 6, paddingTop: 2 },
+  groupAddInput: { borderWidth: 1, borderRadius: 10, padding: 10, fontFamily: "DM_Sans_400Regular", fontSize: 13, marginTop: 6 },
+  groupAddBtn: { borderWidth: 1, borderRadius: 10, paddingVertical: 10, alignItems: "center", marginTop: 6 },
+  groupAddBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
+  publicNoticeText: { fontFamily: "DM_Sans_400Regular", fontSize: 12, lineHeight: 16, marginTop: 12, marginBottom: 4 },
 
   // Bandeau "Annuler" temporaire après un ajout groupé — remplace le toast
   // le temps où l'annulation reste possible (voir triggerBatchUndo).
