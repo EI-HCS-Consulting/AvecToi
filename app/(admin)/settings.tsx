@@ -351,22 +351,29 @@ export default function SettingsScreen() {
   const [prolonging, setProlonging] = useState(false);
   const [toast, setToast] = useState("");
 
-  // Restaure la position de scroll exacte au retour d'un écran poussé depuis
-  // ici (ex. "Planning des intervenants") — sans ça, revenir en arrière
-  // remonte l'utilisateur en haut de la page Paramètres au lieu de le
-  // laisser là où il en était.
-  const scrollRef = useRef<ScrollView>(null);
-  const scrollOffsetRef = useRef(0);
-  useFocusEffect(
-    useCallback(() => {
-      scrollRef.current?.scrollTo({ y: scrollOffsetRef.current, animated: false });
-    }, []),
-  );
-
   // Section active de la barre de navigation des réglages — la roue ⚙️ n'est
   // plus cliquable (simple en-tête de rubrique), donc on ouvre toujours sur
   // le premier onglet ("Lieux") plutôt que sur un état "aucune section".
   const [activeSection, setActiveSection] = useState<SectionKey | null>("coord");
+
+  // Retour déterministe depuis "Planning des intervenants" : le bouton qui y
+  // mène ne vit que dans la section Règles, tout en bas — donc au lieu de
+  // restaurer un scroll générique (fragile, dépend du dernier onScroll reçu),
+  // on force cette section et on scrolle en bas de page.
+  // pendingIntervenantsReturnRef est armé juste avant le router.push vers
+  // Planning des intervenants, et consommé au prochain focus (retour arrière)
+  // uniquement — jamais au premier montage ni lors d'une entrée directe.
+  const scrollRef = useRef<ScrollView>(null);
+  const pendingIntervenantsReturnRef = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      if (pendingIntervenantsReturnRef.current) {
+        pendingIntervenantsReturnRef.current = false;
+        setActiveSection("regles");
+        requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: false }));
+      }
+    }, []),
+  );
 
   // Admin notes
   const notesInit = useRef(false);
@@ -1534,8 +1541,6 @@ export default function SettingsScreen() {
       <ScrollView
         ref={scrollRef}
         contentContainerStyle={[styles.scroll, { paddingBottom: 48 + SETTINGS_NAV_BAR_HEIGHT }]}
-        onScroll={(e) => { scrollOffsetRef.current = e.nativeEvent.contentOffset.y; }}
-        scrollEventThrottle={16}
       >
 
         {hasSpace && space ? (
@@ -2330,7 +2335,10 @@ export default function SettingsScreen() {
                         <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
                         <TouchableOpacity
                           style={[styles.saveNotesBtn, { backgroundColor: C.orange }]}
-                          onPress={() => router.push("/(admin)/intervenants")}
+                          onPress={() => {
+                            pendingIntervenantsReturnRef.current = true;
+                            router.push("/(admin)/intervenants");
+                          }}
                         >
                           <Text style={styles.saveNotesBtnText}>🩺 Planning des intervenants →</Text>
                         </TouchableOpacity>
