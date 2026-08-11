@@ -3,10 +3,13 @@ import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from "react-nati
 import { useRouter } from "expo-router";
 import { useVisitorSpace } from "@/lib/VisitorContext";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
-import { toISO, toFrLong, toFrShort, addDays, getMonday } from "@/lib/slotUtils";
+import { toISO, toFrLong, toFrShort, addDays, getMonday, getDayStatus } from "@/lib/slotUtils";
 import MiniCalendar from "@/components/MiniCalendar";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import WeeklyPlanningGrid from "@/components/WeeklyPlanningGrid";
+import PlanningLegend from "@/components/PlanningLegend";
+import DaySlotGrid from "@/components/DaySlotGrid";
+import SlotOccupantsModal, { type SelectedSlot } from "@/components/SlotOccupantsModal";
 
 // Planning des intervenants, en lecture seule — miroir de
 // app/(admin)/intervenants.tsx (section "Planning" uniquement, sans les
@@ -27,6 +30,7 @@ export default function VisitorPlanningScreen() {
   const [calMonth, setCalMonth] = useState(() => ({ year: selectedDay.getFullYear(), month: selectedDay.getMonth() }));
   const [planningView, setPlanningView] = useState<"mensuel" | "hebdo">("mensuel");
   const [weekAnchor, setWeekAnchor] = useState(() => getMonday(new Date()));
+  const [selectedSlot, setSelectedSlot] = useState<SelectedSlot | null>(null);
 
   if (!space) return null;
 
@@ -35,6 +39,9 @@ export default function VisitorPlanningScreen() {
     .filter((r) => r.type === "Intervention" && r.date === iso)
     .sort((a, b) => a.creneau.localeCompare(b.creneau));
   const interventionDates = new Set(reservations.filter((r) => r.type === "Intervention").map((r) => r.date));
+  const dayConfig = getConfigForDate(iso) ?? slotConfig;
+  const daySlots = getSlotsForDate(iso);
+  const dayStatus = dayConfig ? getDayStatus(reservations, iso, selectedDay, dayConfig, daySlots, startDate) : "empty";
 
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
@@ -107,6 +114,23 @@ export default function VisitorPlanningScreen() {
               </TouchableOpacity>
             </View>
 
+            {dayConfig && (
+              <>
+                <PlanningLegend C={C} />
+                <DaySlotGrid
+                  C={C}
+                  iso={iso}
+                  day={selectedDay}
+                  config={dayConfig}
+                  daySlots={daySlots}
+                  reservations={reservations}
+                  status={dayStatus}
+                  showHeader={false}
+                  onSlotPress={(slotIso, slot, occupants) => setSelectedSlot({ iso: slotIso, slot, occupants })}
+                />
+              </>
+            )}
+
             {dayInterventions.length === 0 ? (
               <Text style={[styles.emptyText, { color: C.muted }]}>Aucune intervention ce jour-là.</Text>
             ) : (
@@ -123,6 +147,13 @@ export default function VisitorPlanningScreen() {
           </>
         )}
       </ScrollView>
+
+      <SlotOccupantsModal
+        C={C}
+        selected={selectedSlot}
+        onClose={() => setSelectedSlot(null)}
+        readOnly
+      />
     </View>
   );
 }

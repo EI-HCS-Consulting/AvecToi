@@ -22,16 +22,40 @@ interface Props {
   onPressRow?: (date: string) => void;
   // Historique complet (passés ET à venir) plutôt que les seuls soins à
   // venir — utilisé par (admin)/intervenants.tsx (Paramètres > Planning des
-  // intervenants), même comportement que Paramètres > Historique. Par défaut
-  // false : app/(visitor)/soins.tsx (onglet "Mes soins" de l'intervenant)
-  // garde son comportement d'origine, tourné vers ce qui reste à faire.
+  // intervenants), même comportement que Paramètres > Historique. Ajoute une
+  // sous-section repliable "Autres soins réalisés" pour les soins passés,
+  // sous la liste (sans sous-titre, on est déjà dans "Soins planifiés") des
+  // soins qui restent à faire. Par défaut false : app/(visitor)/soins.tsx
+  // (onglet "Mes soins" de l'intervenant) garde son comportement d'origine,
+  // une seule liste tournée vers ce qui reste à faire.
   includePast?: boolean;
+}
+
+function SoinRow({ r, isLast, C, onPress }: { r: Reservation; isLast: boolean; C: Theme; onPress: () => void }) {
+  return (
+    <TouchableOpacity
+      style={[styles.row, !isLast && { borderBottomWidth: 1, borderBottomColor: C.border }]}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
+      <View style={{ flex: 1 }}>
+        <Text style={[styles.rowLabel, { color: C.text }]}>
+          {r.prenom} {r.nom}{r.intervention_label ? ` — ${r.intervention_label}` : ""}
+        </Text>
+        <Text style={[styles.rowDate, { color: C.muted }]}>
+          {new Date(r.date + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })} · {r.creneau}
+        </Text>
+      </View>
+      <Text style={[styles.rowChevron, { color: C.muted }]}>›</Text>
+    </TouchableOpacity>
+  );
 }
 
 export default function SoinsPlanifiesBlock({ spaceId, C, filterIntervenantProfileId, onPressRow, includePast = false }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [soins, setSoins] = useState<Reservation[]>([]);
+  const [pastOpen, setPastOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -46,43 +70,58 @@ export default function SoinsPlanifiesBlock({ spaceId, C, filterIntervenantProfi
     const { data } = await query
       .order("date", { ascending: false })
       .order("creneau", { ascending: false });
-    setSoins(includePast ? (data || []) : (data || []).filter((r) => !isSlotFullyPast(r.date, r.creneau)));
+    setSoins(data || []);
     setLoading(false);
-  }, [spaceId, filterIntervenantProfileId, includePast]);
+  }, [spaceId, filterIntervenantProfileId]);
 
   useEffect(() => { load(); }, [load]);
+
+  function goTo(r: Reservation) {
+    return onPressRow ? () => onPressRow(r.date) : () => router.push({ pathname: "/(admin)/home/slots", params: { focusDate: r.date } } as any);
+  }
+
+  const upcoming = soins.filter((r) => !isSlotFullyPast(r.date, r.creneau));
+  const past = includePast ? soins.filter((r) => isSlotFullyPast(r.date, r.creneau)) : [];
 
   return (
     <>
       <Text style={[styles.sectionTitle, { color: C.gold }]}>
-        Soins planifiés{soins.length > 0 ? ` (${soins.length})` : ""}
+        Soins planifiés{upcoming.length > 0 ? ` (${upcoming.length})` : ""}
       </Text>
       <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
         {loading ? (
           <ActivityIndicator color={C.accent} style={{ marginVertical: 8 }} />
-        ) : soins.length === 0 ? (
+        ) : upcoming.length === 0 ? (
           <Text style={[styles.emptyText, { color: C.muted }]}>Aucun soin planifié.</Text>
         ) : (
-          soins.map((r, i) => (
-            <TouchableOpacity
-              key={r.id}
-              style={[styles.row, i < soins.length - 1 && { borderBottomWidth: 1, borderBottomColor: C.border }]}
-              onPress={() => (onPressRow ? onPressRow(r.date) : router.push({ pathname: "/(admin)/home/slots", params: { focusDate: r.date } } as any))}
-              activeOpacity={0.7}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.rowLabel, { color: C.text }]}>
-                  {r.prenom} {r.nom}{r.intervention_label ? ` — ${r.intervention_label}` : ""}
-                </Text>
-                <Text style={[styles.rowDate, { color: C.muted }]}>
-                  {new Date(r.date + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })} · {r.creneau}
-                </Text>
-              </View>
-              <Text style={[styles.rowChevron, { color: C.muted }]}>›</Text>
-            </TouchableOpacity>
+          upcoming.map((r, i) => (
+            <SoinRow key={r.id} r={r} isLast={i === upcoming.length - 1} C={C} onPress={goTo(r)} />
           ))
         )}
       </View>
+
+      {includePast && !loading && (
+        <View style={{ marginBottom: 10 }}>
+          <TouchableOpacity onPress={() => setPastOpen((o) => !o)} activeOpacity={0.7} style={styles.pastToggle}>
+            <Text style={[styles.pastToggleText, { color: C.muted }]}>
+              Autres soins réalisés{past.length > 0 ? ` (${past.length})` : ""}
+            </Text>
+            <Text style={[styles.toggleIcon, { color: C.muted }]}>{pastOpen ? "▾" : "▸"}</Text>
+          </TouchableOpacity>
+
+          {pastOpen && (
+            <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 8 }]}>
+              {past.length === 0 ? (
+                <Text style={[styles.emptyText, { color: C.muted }]}>Aucun soin réalisé.</Text>
+              ) : (
+                past.map((r, i) => (
+                  <SoinRow key={r.id} r={r} isLast={i === past.length - 1} C={C} onPress={goTo(r)} />
+                ))
+              )}
+            </View>
+          )}
+        </View>
+      )}
     </>
   );
 }
@@ -95,4 +134,7 @@ const styles = StyleSheet.create({
   rowLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14, marginBottom: 2 },
   rowDate: { fontFamily: "DM_Sans_400Regular", fontSize: 12 },
   rowChevron: { fontSize: 18, marginLeft: 8 },
+  pastToggle: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 6 },
+  pastToggleText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, letterSpacing: 0.4, flex: 1 },
+  toggleIcon: { fontSize: 14 },
 });

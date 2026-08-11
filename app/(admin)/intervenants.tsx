@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
 import { useSpace } from "@/lib/SpaceContext";
 import { supabase } from "@/lib/supabase";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
-import { toISO, toFrLong, toFrShort, addDays, getMonday } from "@/lib/slotUtils";
+import { toISO, toFrLong, toFrShort, addDays, getMonday, getDayStatus } from "@/lib/slotUtils";
 import { deleteLinkedCalendarEvent } from "@/lib/calendarSync";
 import AdminAddIntervention, { type AdminAddInterventionHandle } from "@/components/AdminAddIntervention";
 import AdminEditReservation, { type AdminEditReservationHandle } from "@/components/AdminEditReservation";
@@ -15,6 +15,9 @@ import SoinsPlanifiesBlock from "@/components/SoinsPlanifiesBlock";
 import MiniCalendar from "@/components/MiniCalendar";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import WeeklyPlanningGrid from "@/components/WeeklyPlanningGrid";
+import PlanningLegend from "@/components/PlanningLegend";
+import DaySlotGrid from "@/components/DaySlotGrid";
+import SlotOccupantsModal, { type SelectedSlot } from "@/components/SlotOccupantsModal";
 import { metierLabel } from "@/lib/metiers";
 import type { Reservation, IntervenantProfile, InterventionType } from "@/lib/types";
 
@@ -44,6 +47,7 @@ export default function AdminIntervenantsScreen() {
   const [weekAnchor, setWeekAnchor] = useState(() => getMonday(new Date()));
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [viewingProfile, setViewingProfile] = useState<IntervenantProfile | null>(null);
+  const [selectedSlot, setSelectedSlot] = useState<SelectedSlot | null>(null);
   // Replié par défaut — reléguée en bas d'écran, derrière Planning et Soins
   // planifiés (voir components/IntervenantsBlock.tsx pour le même pattern).
   const [fichesOpen, setFichesOpen] = useState(false);
@@ -101,6 +105,9 @@ export default function AdminIntervenantsScreen() {
     .filter((r) => r.type === "Intervention" && r.date === iso)
     .sort((a, b) => a.creneau.localeCompare(b.creneau));
   const interventionDates = new Set(reservations.filter((r) => r.type === "Intervention").map((r) => r.date));
+  const dayConfig = getConfigForDate(iso) ?? slotConfig;
+  const daySlots = getSlotsForDate(iso);
+  const dayStatus = dayConfig ? getDayStatus(reservations, iso, selectedDay, dayConfig, daySlots, startDate) : "empty";
 
   function handleDelete(r: Reservation) {
     deleteRef.current?.open(r);
@@ -191,6 +198,23 @@ export default function AdminIntervenantsScreen() {
                 <Text style={[styles.navBtnText, { color: C.text }]}>›</Text>
               </TouchableOpacity>
             </View>
+
+            {dayConfig && (
+              <>
+                <PlanningLegend C={C} />
+                <DaySlotGrid
+                  C={C}
+                  iso={iso}
+                  day={selectedDay}
+                  config={dayConfig}
+                  daySlots={daySlots}
+                  reservations={reservations}
+                  status={dayStatus}
+                  showHeader={false}
+                  onSlotPress={(slotIso, slot, occupants) => setSelectedSlot({ iso: slotIso, slot, occupants })}
+                />
+              </>
+            )}
 
             {dayInterventions.length === 0 ? (
               <Text style={[styles.emptyText, { color: C.muted, marginBottom: 12 }]}>Aucune intervention ce jour-là.</Text>
@@ -299,6 +323,15 @@ export default function AdminIntervenantsScreen() {
         reservations={reservations}
         onConfirm={handleConfirmDelete}
         C={C}
+      />
+
+      <SlotOccupantsModal
+        C={C}
+        selected={selectedSlot}
+        onClose={() => setSelectedSlot(null)}
+        readOnly={false}
+        onEdit={(r) => editRef.current?.open(r)}
+        onDelete={handleDelete}
       />
 
       {space && viewingProfile && (
