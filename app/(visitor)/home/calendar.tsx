@@ -207,6 +207,16 @@ export default function VisitorCalendarScreen() {
             <Text style={[styles.nightsBtnText, { color: C.gold }]}>🌙 Voir les nuitées</Text>
           </TouchableOpacity>
         )}
+
+        {space.intervenants_enabled && (
+          <TouchableOpacity
+            style={[styles.nightsBtn, { borderColor: LOGO_PURPLE, marginTop: 8 }]}
+            onPress={() => router.navigate("/(visitor)/home/planning" as any)}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.nightsBtnText, { color: LOGO_PURPLE }]}>🩺 Voir le planning des intervenants</Text>
+          </TouchableOpacity>
+        )}
       </ScrollView>
 
       {/* ── MODAL PROCHAINE DISPONIBILITÉ ──────────────────────────────────── */}
