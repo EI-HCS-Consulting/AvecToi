@@ -50,3 +50,8 @@ export const themeLabels: Record<ThemeKey, string> = {
   dark: "Sombre",
   light: "Clair",
 };
+
+// Couleurs des bonhommes du logo — fixes, identiques dans les deux thèmes
+// (contrairement à `accent`/`success`/etc. qui varient dark/light).
+export const LOGO_GREEN = "#0DABB6"; // bonhomme turquoise (haut-droite)
+export const LOGO_PURPLE = "#8458B5"; // bonhomme violet (bas-droite)
