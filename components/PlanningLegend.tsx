@@ -1,10 +1,9 @@
 import { View, Text, StyleSheet } from "react-native";
 import type { Theme } from "@/lib/themes";
-import { LOGO_PURPLE } from "@/lib/themes";
 
 // Légende partagée entre l'affichage mensuel et hebdomadaire du planning des
-// intervenants — pastilles de couleur pour l'occupation des créneaux
-// (visites) + cadre violet réservé aux soins (interventions).
+// intervenants — pastilles de couleur pour l'occupation des créneaux de
+// soins (interventions). Les visites ne sont plus affichées sur cet écran.
 export default function PlanningLegend({ C }: { C: Theme }) {
   return (
     <View style={styles.legend}>
@@ -14,10 +13,6 @@ export default function PlanningLegend({ C }: { C: Theme }) {
           <Text style={[styles.legendLabel, { color: C.muted }]}>{label}</Text>
         </View>
       ))}
-      <View style={styles.legendItem}>
-        <View style={[styles.legendFrame, { borderColor: LOGO_PURPLE }]} />
-        <Text style={[styles.legendLabel, { color: C.muted }]}>Soin</Text>
-      </View>
     </View>
   );
 }
@@ -26,6 +21,5 @@ const styles = StyleSheet.create({
   legend: { flexDirection: "row", justifyContent: "center", flexWrap: "wrap", gap: 16, marginBottom: 14 },
   legendItem: { flexDirection: "row", alignItems: "center", gap: 5 },
   legendDot: { width: 8, height: 8, borderRadius: 4 },
-  legendFrame: { width: 8, height: 8, borderRadius: 3, borderWidth: 2 },
   legendLabel: { fontFamily: "DM_Sans_400Regular", fontSize: 11 },
 });

@@ -9,7 +9,6 @@ import { deleteLinkedCalendarEvent } from "@/lib/calendarSync";
 import AdminAddIntervention, { type AdminAddInterventionHandle } from "@/components/AdminAddIntervention";
 import AdminEditReservation, { type AdminEditReservationHandle } from "@/components/AdminEditReservation";
 import DeleteReservationConfirm, { type DeleteReservationConfirmHandle } from "@/components/DeleteReservationConfirm";
-import IntervenantFicheModal from "@/components/IntervenantFicheModal";
 import IntervenantProfileModal from "@/components/IntervenantProfileModal";
 import SoinsPlanifiesBlock from "@/components/SoinsPlanifiesBlock";
 import MiniCalendar from "@/components/MiniCalendar";
@@ -45,7 +44,6 @@ export default function AdminIntervenantsScreen() {
   const [calMonth, setCalMonth] = useState(() => ({ year: selectedDay.getFullYear(), month: selectedDay.getMonth() }));
   const [planningView, setPlanningView] = useState<"mensuel" | "hebdo">("mensuel");
   const [weekAnchor, setWeekAnchor] = useState(() => getMonday(new Date()));
-  const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [viewingProfile, setViewingProfile] = useState<IntervenantProfile | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<SelectedSlot | null>(null);
   // Replié par défaut — reléguée en bas d'écran, derrière Planning et Soins
@@ -107,7 +105,7 @@ export default function AdminIntervenantsScreen() {
   const interventionDates = new Set(reservations.filter((r) => r.type === "Intervention").map((r) => r.date));
   const dayConfig = getConfigForDate(iso) ?? slotConfig;
   const daySlots = getSlotsForDate(iso);
-  const dayStatus = dayConfig ? getDayStatus(reservations, iso, selectedDay, dayConfig, daySlots, startDate) : "empty";
+  const dayStatus = dayConfig ? getDayStatus(reservations, iso, selectedDay, dayConfig, daySlots, startDate, "Intervention") : "empty";
 
   function handleDelete(r: Reservation) {
     deleteRef.current?.open(r);
@@ -274,9 +272,6 @@ export default function AdminIntervenantsScreen() {
                           <Text style={[styles.profileMetier, { color: C.muted }]}>{metierLabel(p.metier)}</Text>
                         )}
                       </TouchableOpacity>
-                      <TouchableOpacity style={[styles.editBtn, { borderColor: C.orange }]} onPress={() => setEditingProfileId(p.id)}>
-                        <Text style={[styles.editBtnText, { color: C.orange }]}>Modifier</Text>
-                      </TouchableOpacity>
                     </View>
                     {(typesByProfile[p.id] || []).length === 0 ? (
                       <Text style={[styles.emptyText, { color: C.muted }]}>Aucun type d'intervention renseigné.</Text>
@@ -347,21 +342,6 @@ export default function AdminIntervenantsScreen() {
         />
       )}
 
-      {space && (
-        <IntervenantFicheModal
-          visible={!!editingProfileId}
-          mode="edit"
-          spaceId={space.id}
-          prenom={profiles.find((p) => p.id === editingProfileId)?.prenom ?? ""}
-          nom={profiles.find((p) => p.id === editingProfileId)?.nom ?? ""}
-          pin=""
-          intervenantProfileId={editingProfileId}
-          theme={C}
-          onClose={() => setEditingProfileId(null)}
-          onSaved={async () => { setEditingProfileId(null); await refreshProfiles(); showToast("Fiche intervenant modifiée ✓"); }}
-        />
-      )}
-
       {!!toast && (
         <View style={[styles.toast, { backgroundColor: C.success }]}>
           <Text style={styles.toastText}>{toast}</Text>
@@ -389,8 +369,6 @@ const styles = StyleSheet.create({
   profileRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
   profileName: { fontFamily: "DM_Sans_700Bold", fontSize: 15 },
   profileMetier: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 1 },
-  editBtn: { borderWidth: 1, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 12 },
-  editBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
   typeChips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   typeChip: { borderWidth: 1, borderRadius: 8, paddingVertical: 5, paddingHorizontal: 10 },
   typeChipText: { fontFamily: "DM_Sans_400Regular", fontSize: 12 },

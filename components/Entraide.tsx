@@ -253,6 +253,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     if (cat === "transport" && !editTask && !fTitle.trim()) {
       autoTransportTitleRef.current = "Besoin covoiturage";
       setFTitle("Besoin covoiturage");
+    } else if (cat !== "transport" && !editTask && fTitle === autoTransportTitleRef.current) {
+      // Quitte la catégorie Transport : le titre auto-généré ("Besoin
+      // covoiturage" ou sa variante datée) n'a plus de sens ailleurs — on
+      // l'efface, sauf si la personne l'a modifié à la main entre-temps.
+      autoTransportTitleRef.current = "";
+      setFTitle("");
     }
   }
 
@@ -419,6 +425,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // complète le bandeau "Annuler" (8s seulement) pour un ménage fait plus tard.
   const [deleteBatchTarget, setDeleteBatchTarget] = useState<{ batchId: string; siblings: Task[] } | null>(null);
   const [deleteBatchSaving, setDeleteBatchSaving] = useState(false);
+
+  // Suppression définitive par l'auteur d'un besoin déjà supprimé par
+  // l'admin (bandeau rouge, voir renderTask) — toujours un vrai hard delete.
+  const [selfDeleteTaskTarget, setSelfDeleteTaskTarget] = useState<Task | null>(null);
+  const [selfDeleteTaskSaving, setSelfDeleteTaskSaving] = useState(false);
 
   // Sélection multiple (admin) : rester appuyé sur un bloc besoin l'entre en
   // mode sélection, un tap simple sur un autre bloc l'ajoute/l'enlève —
@@ -971,17 +982,37 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setDeleteTaskTarget(t);
   }
 
+  // Supprime réellement les besoins publiés par l'admin lui-même
+  // (author_pin === "ADMIN"), et marque juste deleted_by_admin sur les
+  // autres — ils restent visibles pour leur auteur avec un bandeau rouge.
+  // Utilisé par les 3 flux de suppression (unitaire, lot checklist, sélection
+  // multiple), qui peuvent chacun mélanger les deux cas.
+  async function deleteOrSoftDeleteTasks(list: Task[]): Promise<{ error?: string }> {
+    const mine = list.filter((t) => t.author_pin === "ADMIN");
+    const others = list.filter((t) => t.author_pin !== "ADMIN");
+
+    if (mine.length) {
+      const toRemove = mine.flatMap((t) => [t.photo, t.claimed_photo].filter((f): f is string => !!f));
+      if (toRemove.length) await supabase.storage.from(PHOTO_BUCKET).remove(toRemove.map((f) => `${spaceId}/${f}`));
+      const { error } = await supabase.from("tasks").delete().in("id", mine.map((t) => t.id));
+      if (error) return { error: error.message };
+    }
+    if (others.length) {
+      const { error } = await supabase.from("tasks").update({ deleted_by_admin: true }).in("id", others.map((t) => t.id));
+      if (error) return { error: error.message };
+    }
+    return {};
+  }
+
   async function confirmDeleteTask() {
     if (!deleteTaskTarget) return;
     const t = deleteTaskTarget;
     setDeleteTaskSaving(true);
-    const toRemove = [t.photo, t.claimed_photo].filter((f): f is string => !!f);
-    if (toRemove.length) await supabase.storage.from(PHOTO_BUCKET).remove(toRemove.map((f) => `${spaceId}/${f}`));
-    const { error } = await supabase.from("tasks").delete().eq("id", t.id);
+    const { error } = await deleteOrSoftDeleteTasks([t]);
     setDeleteTaskSaving(false);
     setDeleteTaskTarget(null);
     if (error) {
-      Alert.alert("Erreur", "Impossible de supprimer ce besoin : " + error.message);
+      Alert.alert("Erreur", "Impossible de supprimer ce besoin : " + error);
       return;
     }
     showToast("Besoin supprimé");
@@ -1001,16 +1032,31 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     if (!deleteBatchTarget) return;
     const siblings = deleteBatchTarget.siblings;
     setDeleteBatchSaving(true);
-    const toRemove = siblings.flatMap((s) => [s.photo, s.claimed_photo].filter((f): f is string => !!f));
-    if (toRemove.length) await supabase.storage.from(PHOTO_BUCKET).remove(toRemove.map((f) => `${spaceId}/${f}`));
-    const { error } = await supabase.from("tasks").delete().in("id", siblings.map((s) => s.id));
+    const { error } = await deleteOrSoftDeleteTasks(siblings);
     setDeleteBatchSaving(false);
     setDeleteBatchTarget(null);
     if (error) {
-      Alert.alert("Erreur", "Impossible de supprimer la liste : " + error.message);
+      Alert.alert("Erreur", "Impossible de supprimer la liste : " + error);
       return;
     }
     showToast("Liste supprimée");
+    loadTasks();
+  }
+
+  async function confirmSelfDeleteTask() {
+    if (!selfDeleteTaskTarget) return;
+    const t = selfDeleteTaskTarget;
+    setSelfDeleteTaskSaving(true);
+    const toRemove = [t.photo, t.claimed_photo].filter((f): f is string => !!f);
+    if (toRemove.length) await supabase.storage.from(PHOTO_BUCKET).remove(toRemove.map((f) => `${spaceId}/${f}`));
+    const { error } = await supabase.from("tasks").delete().eq("id", t.id);
+    setSelfDeleteTaskSaving(false);
+    setSelfDeleteTaskTarget(null);
+    if (error) {
+      Alert.alert("Erreur", "Impossible de supprimer ce besoin : " + error.message);
+      return;
+    }
+    showToast("Besoin supprimé définitivement");
     loadTasks();
   }
 
@@ -1034,13 +1080,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     const selected = tasks.filter((t) => selectedTaskIds.has(t.id));
     if (!selected.length) return;
     setBulkDeleteSaving(true);
-    const toRemove = selected.flatMap((t) => [t.photo, t.claimed_photo].filter((f): f is string => !!f));
-    if (toRemove.length) await supabase.storage.from(PHOTO_BUCKET).remove(toRemove.map((f) => `${spaceId}/${f}`));
-    const { error } = await supabase.from("tasks").delete().in("id", selected.map((t) => t.id));
+    const { error } = await deleteOrSoftDeleteTasks(selected);
     setBulkDeleteSaving(false);
     setBulkDeleteConfirm(false);
     if (error) {
-      Alert.alert("Erreur", "Impossible de supprimer la sélection : " + error.message);
+      Alert.alert("Erreur", "Impossible de supprimer la sélection : " + error);
       return;
     }
     showToast(`${selected.length} besoin${selected.length > 1 ? "s" : ""} supprimé${selected.length > 1 ? "s" : ""}`);
@@ -1544,7 +1588,18 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               )}
             </View>
           )}
+          {!isAdmin && t.deleted_by_admin && isAuthor(t) && (
+            <TouchableOpacity onPress={() => setSelfDeleteTaskTarget(t)} style={[styles.iconBtn, { borderColor: "rgba(233,69,96,0.3)" }]}>
+              <Text style={{ fontSize: 11, color: C.danger }}>🗑️ Suppr. définitivement</Text>
+            </TouchableOpacity>
+          )}
         </View>
+
+        {t.deleted_by_admin && (
+          <Text style={[styles.taskDeletedBanner, { color: C.danger }]}>
+            Votre publication a été supprimée par l'administrateur du compte. Elle n'est ainsi plus visible par les autres utilisateurs.
+          </Text>
+        )}
 
         <Text style={[styles.taskTitle, { color: t.status === "fait" ? C.muted : C.text }]}>{t.title}</Text>
         {t.description ? (
@@ -1750,14 +1805,15 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     );
   }
 
-  const visibleTasks = tasks.filter(
+  const undeletedTasks = tasks.filter((t) => !t.deleted_by_admin || (!isAdmin && isAuthor(t)));
+  const visibleTasks = undeletedTasks.filter(
     (t) =>
       (!activeCat || t.category === activeCat) &&
       (!openOnlyFilter || (t.status !== "fait" && t.status !== "ferme")) &&
       (!closedOnlyFilter || t.status === "ferme" || t.status === "fait")
   );
-  const openCount = tasks.filter((t) => t.status !== "fait" && t.status !== "ferme").length;
-  const closedCount = tasks.filter((t) => t.status === "ferme" || t.status === "fait").length;
+  const openCount = undeletedTasks.filter((t) => t.status !== "fait" && t.status !== "ferme").length;
+  const closedCount = undeletedTasks.filter((t) => t.status === "ferme" || t.status === "fait").length;
 
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
@@ -2988,7 +3044,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       <ConfirmModal
         visible={!!deleteTaskTarget}
         title="Supprimer ce besoin ?"
-        message={deleteTaskTarget?.title}
+        message={
+          deleteTaskTarget && deleteTaskTarget.author_pin !== "ADMIN" && deleteTaskTarget.author_prenom
+            ? `${deleteTaskTarget.title}\n\n${deleteTaskTarget.author_prenom} recevra un message l'informant que sa publication a été supprimée.`
+            : deleteTaskTarget?.title
+        }
         confirmLabel="Supprimer"
         saving={deleteTaskSaving}
         onCancel={() => setDeleteTaskTarget(null)}
@@ -2997,10 +3057,21 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       />
 
       <ConfirmModal
+        visible={!!selfDeleteTaskTarget}
+        title="Supprimer définitivement ce besoin ?"
+        message={selfDeleteTaskTarget?.title}
+        confirmLabel="Supprimer définitivement"
+        saving={selfDeleteTaskSaving}
+        onCancel={() => setSelfDeleteTaskTarget(null)}
+        onConfirm={confirmSelfDeleteTask}
+        C={C}
+      />
+
+      <ConfirmModal
         visible={!!deleteBatchTarget}
         icon="🗂️"
         title="Supprimer aussi le reste de la liste ?"
-        message={`Ce besoin faisait partie d'une checklist. ${deleteBatchTarget?.siblings.length} autre${deleteBatchTarget && deleteBatchTarget.siblings.length > 1 ? "s" : ""} item${deleteBatchTarget && deleteBatchTarget.siblings.length > 1 ? "s" : ""} de cette liste ${deleteBatchTarget && deleteBatchTarget.siblings.length > 1 ? "sont encore ouverts" : "est encore ouvert"} : les supprimer aussi ?`}
+        message={`Ce besoin faisait partie d'une checklist. ${deleteBatchTarget?.siblings.length} autre${deleteBatchTarget && deleteBatchTarget.siblings.length > 1 ? "s" : ""} item${deleteBatchTarget && deleteBatchTarget.siblings.length > 1 ? "s" : ""} de cette liste ${deleteBatchTarget && deleteBatchTarget.siblings.length > 1 ? "sont encore ouverts" : "est encore ouvert"} : les supprimer aussi ?${deleteBatchTarget?.siblings.some((s) => s.author_pin !== "ADMIN" && s.author_prenom) ? "\n\nLeurs auteurs recevront un message les informant de cette suppression." : ""}`}
         cancelLabel="Non, garder"
         confirmLabel={deleteBatchTarget ? `Supprimer les ${deleteBatchTarget.siblings.length}` : "Supprimer"}
         saving={deleteBatchSaving}
@@ -3023,6 +3094,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       <ConfirmModal
         visible={bulkDeleteConfirm}
         title={`Supprimer ${selectedTaskIds.size} besoin${selectedTaskIds.size > 1 ? "s" : ""} ?`}
+        message={
+          tasks.some((t) => selectedTaskIds.has(t.id) && t.author_pin !== "ADMIN" && t.author_prenom)
+            ? "Les auteurs concernés recevront un message les informant de cette suppression."
+            : undefined
+        }
         confirmLabel="Supprimer"
         saving={bulkDeleteSaving}
         onCancel={() => setBulkDeleteConfirm(false)}
@@ -3208,6 +3284,7 @@ const styles = StyleSheet.create({
   statusBadge: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4 },
   statusLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11 },
   iconBtn: { width: 30, height: 30, borderWidth: 1, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  taskDeletedBanner: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, lineHeight: 17, marginBottom: 6 },
   taskTitle: { fontFamily: "DM_Sans_700Bold", fontSize: 15, marginBottom: 4 },
   taskDesc: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 20, marginBottom: 6 },
   taskModified: { fontFamily: "DM_Sans_400Regular", fontSize: 11.5, fontStyle: "italic", marginBottom: 6 },

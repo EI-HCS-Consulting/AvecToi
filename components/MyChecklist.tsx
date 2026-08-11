@@ -466,10 +466,6 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
           <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
         ) : (
           <>
-            {items.length === 0 && (
-              <Text style={[styles.empty, { color: C.muted }]}>Ta checklist est vide pour le moment.</Text>
-            )}
-
             {selectionMode && (
               <View style={[styles.selectBar, { borderColor: C.border }]}>
                 <Text style={[styles.selectCount, { color: C.text }]}>

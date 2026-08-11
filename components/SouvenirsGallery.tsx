@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, Modal, Image, FlatList, Alert,
@@ -67,15 +67,24 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
   const [selectMode, setSelectMode] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
+  // Photos supprimées par l'admin (deleted_by_admin) : masquées pour tout le
+  // monde sauf leur auteur, qui les voit toujours avec un bandeau rouge (voir
+  // lightbox) — l'admin lui-même ne les revoit plus une fois la suppression
+  // faite, cohérent avec "elle n'est plus visible par les autres utilisateurs".
+  const visiblePhotos = useMemo(
+    () => photos.filter((p) => !p.deleted_by_admin || (!isAdmin && p.uploaded_by_pin === sessionPin)),
+    [photos, isAdmin, sessionPin],
+  );
+
   // Lightbox
   const [lightbox, setLightbox] = useState<(SouvenirPhoto & { url: string }) | null>(null);
-  const lightboxIndex = lightbox ? photos.findIndex((p) => p.id === lightbox.id) : -1;
+  const lightboxIndex = lightbox ? visiblePhotos.findIndex((p) => p.id === lightbox.id) : -1;
 
   function showPrevPhoto() {
-    if (lightboxIndex > 0) setLightbox(photos[lightboxIndex - 1]);
+    if (lightboxIndex > 0) setLightbox(visiblePhotos[lightboxIndex - 1]);
   }
   function showNextPhoto() {
-    if (lightboxIndex >= 0 && lightboxIndex < photos.length - 1) setLightbox(photos[lightboxIndex + 1]);
+    if (lightboxIndex >= 0 && lightboxIndex < visiblePhotos.length - 1) setLightbox(visiblePhotos[lightboxIndex + 1]);
   }
 
   // Fiche visiteur — ouverte en cliquant le nom de l'auteur (sauf admin)
@@ -282,11 +291,11 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
   }
 
   function selectAll() {
-    setSelected(new Set(photos.map((p) => p.id)));
+    setSelected(new Set(visiblePhotos.map((p) => p.id)));
   }
 
   async function downloadSelected() {
-    const targets = photos.filter((p) => selected.has(p.id));
+    const targets = visiblePhotos.filter((p) => selected.has(p.id));
     if (targets.length === 0) return;
 
     if (!(await Sharing.isAvailableAsync())) {
@@ -346,6 +355,17 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
     setDeleting(false);
   }
 
+  // Suppression par l'admin d'une photo publiée par quelqu'un d'autre : pas de
+  // suppression réelle, on marque juste deleted_by_admin — la photo reste
+  // visible pour son auteur avec un bandeau rouge, qui peut ensuite la
+  // supprimer définitivement lui-même (bouton dans la lightbox, via son PIN).
+  async function softDeleteByAdmin(photo: SouvenirPhoto & { url: string }) {
+    setLightbox(null);
+    await supabase.from("souvenirs").update({ deleted_by_admin: true }).eq("id", photo.id);
+    setPhotos((prev) => prev.map((p) => (p.id === photo.id ? { ...p, deleted_by_admin: true } : p)));
+    showToast("Photo supprimée ✓");
+  }
+
   // ── Voir l'original ────────────────────────────────────────────────────────
   function goToOrigin(photo: SouvenirPhoto & { url: string }) {
     if (!photo.source_type || !photo.source_id) return;
@@ -402,7 +422,7 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
               {selected.size} sélectionné{selected.size > 1 ? "s" : ""}
             </Text>
             <TouchableOpacity onPress={selectAll} style={[styles.selectBarBtn, { borderColor: C.border }]}>
-              <Text style={[styles.selectBarBtnText, { color: C.text }]}>Tout sélect. ({photos.length})</Text>
+              <Text style={[styles.selectBarBtnText, { color: C.text }]}>Tout sélect. ({visiblePhotos.length})</Text>
             </TouchableOpacity>
           </View>
           <View style={styles.selectBarRow}>
@@ -435,7 +455,7 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
         <View style={styles.centered}>
           <ActivityIndicator color={C.accent} size="large" />
         </View>
-      ) : photos.length === 0 ? (
+      ) : visiblePhotos.length === 0 ? (
         <View style={styles.centered}>
           <Text style={{ fontSize: 48, marginBottom: 16 }}>📷</Text>
           <Text style={[styles.emptyText, { color: C.muted }]}>Aucune photo pour l'instant.</Text>
@@ -443,7 +463,7 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
         </View>
       ) : (
         <FlatList
-          data={photos}
+          data={visiblePhotos}
           keyExtractor={(p) => p.id}
           numColumns={2}
           contentContainerStyle={styles.grid}
@@ -455,7 +475,7 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
               <TouchableOpacity
                 style={[
                   styles.cell,
-                  { width: CELL_SIZE, height: CELL_SIZE, borderColor: isSel ? C.gold : "transparent" },
+                  { width: CELL_SIZE, height: CELL_SIZE, borderColor: isSel ? C.gold : photo.deleted_by_admin ? C.danger : "transparent" },
                 ]}
                 onPress={() => {
                   if (selectMode) { toggleSelect(photo.id); }
@@ -494,6 +514,11 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
             <>
               <Image source={{ uri: lightbox.url }} style={styles.lightboxImg} resizeMode="contain" />
               <View style={[styles.lightboxInfo, { backgroundColor: "rgba(0,0,0,0.7)" }]}>
+                {lightbox.deleted_by_admin && (
+                  <Text style={[styles.lightboxDeletedBanner, { color: C.danger }]}>
+                    Votre publication a été supprimée par l'administrateur du compte. Elle n'est ainsi plus visible par les autres utilisateurs.
+                  </Text>
+                )}
                 {lightbox.caption ? (
                   <Text style={styles.lightboxCaption}>{lightbox.caption}</Text>
                 ) : null}
@@ -527,7 +552,9 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
                       style={[styles.lbBtn, { backgroundColor: "rgba(233,69,96,0.2)", borderWidth: 1, borderColor: "rgba(233,69,96,0.4)" }]}
                       onPress={() => confirmDelete(lightbox)}
                     >
-                      <Text style={[styles.lbBtnText, { color: C.danger }]}>🗑️ Supprimer</Text>
+                      <Text style={[styles.lbBtnText, { color: C.danger }]}>
+                        {lightbox.deleted_by_admin ? "🗑️ Supprimer définitivement" : "🗑️ Supprimer"}
+                      </Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -742,7 +769,9 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
         title="Supprimer la photo ?"
         message={
           adminDeleteTarget
-            ? `Photo de ${adminDeleteTarget.uploaded_by_prenom} ${adminDeleteTarget.uploaded_by_nom}.`
+            ? adminDeleteTarget.uploaded_by_pin === "ADMIN"
+              ? `Photo de ${adminDeleteTarget.uploaded_by_prenom} ${adminDeleteTarget.uploaded_by_nom}.`
+              : `Photo de ${adminDeleteTarget.uploaded_by_prenom} ${adminDeleteTarget.uploaded_by_nom}. ${adminDeleteTarget.uploaded_by_prenom} recevra un message l'informant que sa publication a été supprimée.`
             : undefined
         }
         confirmLabel="Supprimer"
@@ -751,7 +780,11 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
           if (!adminDeleteTarget) return;
           const photo = adminDeleteTarget;
           setAdminDeleteTarget(null);
-          doDelete(photo);
+          if (photo.uploaded_by_pin === "ADMIN") {
+            doDelete(photo);
+          } else {
+            softDeleteByAdmin(photo);
+          }
         }}
         C={C}
       />
@@ -812,6 +845,7 @@ const styles = StyleSheet.create({
   lightboxBg: { flex: 1, justifyContent: "center", alignItems: "center" },
   lightboxImg: { width: SCREEN_W, height: SCREEN_W * 1.1 },
   lightboxInfo: { position: "absolute", bottom: 0, left: 0, right: 0, padding: 20, paddingBottom: 36 },
+  lightboxDeletedBanner: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, marginBottom: 10 },
   lightboxCaption: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 16, color: "#fff", marginBottom: 6 },
   lightboxAuthor: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13, color: "rgba(255,255,255,0.85)" },
   lightboxDate: { fontFamily: "DM_Sans_400Regular", fontSize: 11, color: "rgba(255,255,255,0.55)", marginTop: 2, marginBottom: 14 },

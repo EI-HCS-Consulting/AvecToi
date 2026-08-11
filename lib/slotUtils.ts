@@ -78,6 +78,11 @@ export function getDayStatus(
   config: SlotConfig,
   slots: string[],
   startDate: Date,
+  // "Visite" (défaut) = occupation du planning global (visites). "Intervention"
+  // = occupation du planning des intervenants (soins) — un seul soin possible
+  // par créneau (contrainte SQL check_slot_capacity), donc le seuil "full" est
+  // le nombre de créneaux du jour plutôt que slots.length * max_visitors_per_slot.
+  type: "Visite" | "Intervention" = "Visite",
 ): DayStatus {
   const d = new Date(dateObj);
   d.setHours(0, 0, 0, 0);
@@ -95,7 +100,16 @@ export function getDayStatus(
   //
   // Les nuitées ont leur propre écran (Nuits) et n'influencent plus le point
   // de couleur du calendrier — uniquement basé sur l'occupation des
-  // créneaux "Visite" du jour.
+  // créneaux "Visite" (ou "Intervention") du jour.
+  if (type === "Intervention") {
+    const occupiedSlots = slots.filter((slot) =>
+      getInterventionOverlap(reservations, iso, slot, config.slot_duration_minutes),
+    );
+    if (occupiedSlots.length === 0) return "empty";
+    if (occupiedSlots.length >= slots.length) return "full";
+    return "partial";
+  }
+
   const visits = reservations.filter((r) => r.date === iso && r.type === "Visite");
 
   if (visits.length === 0) return "empty";

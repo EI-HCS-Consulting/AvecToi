@@ -178,7 +178,9 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
   // a explicitement ouvert la visibilité (voir toggleVisibility ci-dessus).
   // Intervenants et admin voient toujours tout.
   const visibleEntries = entries.filter(
-    (e) => effectiveRole !== "visiteur" || e.author_role === "visiteur" || visibleToVisitors,
+    (e) =>
+      (effectiveRole !== "visiteur" || e.author_role === "visiteur" || visibleToVisitors) &&
+      (!e.deleted_by_admin || (!isAdmin && e.author_pin === sessionPin)),
   );
 
   // Arrivée depuis Souvenirs ("Voir l'original") via un lien profond
@@ -476,6 +478,16 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
     showToast("Nouvelle supprimée ✓");
   }
 
+  // Suppression par l'admin d'une nouvelle publiée par quelqu'un d'autre :
+  // pas de suppression réelle, on marque juste deleted_by_admin — elle reste
+  // visible pour son auteur avec un bandeau rouge, qui peut ensuite la
+  // supprimer définitivement lui-même (même bouton, cf. canModify ci-dessous).
+  async function softDeleteByAdmin(entry: NewsEntryWithUrls) {
+    await supabase.from("news_entries").update({ deleted_by_admin: true }).eq("id", entry.id);
+    setEntries((prev) => prev.map((e) => (e.id === entry.id ? { ...e, deleted_by_admin: true } : e)));
+    showToast("Nouvelle supprimée ✓");
+  }
+
   async function requestDelete(entry: NewsEntryWithUrls) {
     // Le PIN enregistré dans "Mon compte" (ou choisi à la publication) fait
     // foi : s'il correspond (ou si admin), on évite de le redemander.
@@ -544,15 +556,23 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
           </View>
           {canModify && (
             <View style={styles.cardActions}>
-              <TouchableOpacity onPress={() => requestEdit(entry)} style={[styles.actionBtn, { borderColor: C.border }]}>
-                <Text style={[styles.actionBtnText, { color: C.muted }]}>✏️</Text>
-              </TouchableOpacity>
+              {!entry.deleted_by_admin && (
+                <TouchableOpacity onPress={() => requestEdit(entry)} style={[styles.actionBtn, { borderColor: C.border }]}>
+                  <Text style={[styles.actionBtnText, { color: C.muted }]}>✏️</Text>
+                </TouchableOpacity>
+              )}
               <TouchableOpacity onPress={() => requestDelete(entry)} style={[styles.actionBtn, { borderColor: "rgba(233,69,96,0.3)" }]}>
                 <Text style={[styles.actionBtnText, { color: C.danger }]}>🗑️</Text>
               </TouchableOpacity>
             </View>
           )}
         </View>
+
+        {entry.deleted_by_admin && (
+          <Text style={[styles.deletedBanner, { color: C.danger }]}>
+            Votre publication a été supprimée par l'administrateur du compte. Elle n'est ainsi plus visible par les autres utilisateurs.
+          </Text>
+        )}
 
         {/* Text */}
         <Text style={[styles.entryText, { color: C.text }]}>{entry.content}</Text>
@@ -842,7 +862,9 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
         title="Supprimer cette nouvelle ?"
         message={
           deleteConfirmTarget
-            ? `"${deleteConfirmTarget.content.slice(0, 60)}${deleteConfirmTarget.content.length > 60 ? "…" : ""}"`
+            ? isAdmin && deleteConfirmTarget.author_pin !== "ADMIN"
+              ? `"${deleteConfirmTarget.content.slice(0, 60)}${deleteConfirmTarget.content.length > 60 ? "…" : ""}"\n\n${deleteConfirmTarget.author_prenom} recevra un message l'informant que sa publication a été supprimée.`
+              : `"${deleteConfirmTarget.content.slice(0, 60)}${deleteConfirmTarget.content.length > 60 ? "…" : ""}"`
             : undefined
         }
         confirmLabel="Supprimer"
@@ -851,7 +873,11 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
           if (!deleteConfirmTarget) return;
           const entry = deleteConfirmTarget;
           setDeleteConfirmTarget(null);
-          doDelete(entry);
+          if (isAdmin && entry.author_pin !== "ADMIN") {
+            softDeleteByAdmin(entry);
+          } else {
+            doDelete(entry);
+          }
         }}
         C={C}
       />
@@ -948,6 +974,7 @@ const styles = StyleSheet.create({
   actionBtn: { width: 32, height: 32, borderWidth: 1, borderRadius: 8, alignItems: "center", justifyContent: "center" },
   actionBtnText: { fontSize: 14 },
   entryText: { fontFamily: "DM_Sans_400Regular", fontSize: 14, lineHeight: 22 },
+  deletedBanner: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, lineHeight: 17, marginBottom: 8 },
   photoStrip: { paddingTop: 10, gap: 6 },
   photoThumb: { width: 100, height: 100, borderRadius: 10, borderWidth: 1 },
   souvenirsBtn: { borderWidth: 1, borderRadius: 8, paddingVertical: 8, alignItems: "center", marginTop: 10 },

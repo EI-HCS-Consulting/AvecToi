@@ -1,15 +1,15 @@
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import type { Theme } from "@/lib/themes";
-import { LOGO_PURPLE } from "@/lib/themes";
 import type { Reservation, SlotConfig } from "@/lib/types";
-import { getSlotOccupancy, getInterventionOverlap, type DayStatus } from "@/lib/slotUtils";
+import { getInterventionOverlap, type DayStatus } from "@/lib/slotUtils";
 
 // Carte d'un jour du planning des intervenants — pastille par créneau selon
-// l'occupation des visites (vert/orange/rouge) + cadre violet dès qu'un soin
-// (intervention) chevauche le créneau. Réutilisée telle quelle par
-// WeeklyPlanningGrid (une carte par jour de la semaine) et par l'affichage
-// mensuel de (admin)/intervenants.tsx (une seule carte pour le jour
-// sélectionné) pour ne pas dupliquer cette logique deux fois.
+// la présence d'un soin (intervention) sur ce créneau (vert = libre, rouge =
+// occupé) + cadre violet assorti. Les visites ne sont plus affichées ici :
+// elles ont leur propre planning global en page d'accueil. Réutilisée telle
+// quelle par WeeklyPlanningGrid (une carte par jour de la semaine) et par
+// l'affichage mensuel de (admin)/intervenants.tsx (une seule carte pour le
+// jour sélectionné) pour ne pas dupliquer cette logique deux fois.
 interface Props {
   C: Theme;
   iso: string;
@@ -48,12 +48,10 @@ export default function DaySlotGrid({ C, iso, day, config, daySlots, reservation
       ) : (
         <View style={styles.slotsWrap}>
           {daySlots.map((slot) => {
-            const visits = getSlotOccupancy(reservations, iso, slot);
             const intervention = getInterventionOverlap(reservations, iso, slot, config.slot_duration_minutes);
-            const occupants = intervention ? [...visits, intervention] : visits;
-            const occupied = occupants.length > 0;
-            const full = !!intervention || visits.length >= config.max_visitors_per_slot;
-            const chipDotColor = !occupied ? C.success : full ? C.danger : C.orange;
+            const occupants = intervention ? [intervention] : [];
+            const occupied = !!intervention;
+            const chipDotColor = occupied ? C.danger : C.success;
 
             return (
               <TouchableOpacity
@@ -61,10 +59,7 @@ export default function DaySlotGrid({ C, iso, day, config, daySlots, reservation
                 disabled={!occupied}
                 activeOpacity={0.7}
                 onPress={() => onSlotPress(iso, slot, occupants)}
-                style={[
-                  styles.slotChip,
-                  { backgroundColor: C.bg, borderColor: intervention ? LOGO_PURPLE : C.border, borderWidth: intervention ? 2 : 1 },
-                ]}
+                style={[styles.slotChip, { backgroundColor: C.bg, borderColor: C.border, borderWidth: 1 }]}
               >
                 <Text style={[styles.slotChipText, { color: C.text }]}>{slot}</Text>
                 <View style={[styles.slotChipDot, { backgroundColor: chipDotColor }]} />
