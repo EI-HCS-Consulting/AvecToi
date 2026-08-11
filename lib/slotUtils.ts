@@ -278,3 +278,18 @@ export function getDaysInMonth(year: number, month: number): Date[] {
   }
   return days;
 }
+
+// Lundi de la semaine contenant `d` (getDay() renvoie 0 pour dimanche, d'où
+// le -6 plutôt que -0 dans ce cas — la semaine "planning" démarre toujours
+// un lundi, jamais un dimanche).
+export function getMonday(d: Date): Date {
+  const day = d.getDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  return addDays(d, diff);
+}
+
+// Les 7 jours (lundi -> dimanche) de la semaine contenant `anchor`.
+export function getWeekDates(anchor: Date): Date[] {
+  const monday = getMonday(anchor);
+  return Array.from({ length: 7 }, (_, i) => addDays(monday, i));
+}

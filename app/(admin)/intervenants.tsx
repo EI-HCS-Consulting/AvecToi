@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
 import { useSpace } from "@/lib/SpaceContext";
 import { supabase } from "@/lib/supabase";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
-import { toISO, toFrLong, toFrShort, addDays } from "@/lib/slotUtils";
+import { toISO, toFrLong, toFrShort, addDays, getMonday } from "@/lib/slotUtils";
 import { deleteLinkedCalendarEvent } from "@/lib/calendarSync";
 import AdminAddIntervention, { type AdminAddInterventionHandle } from "@/components/AdminAddIntervention";
 import AdminEditReservation, { type AdminEditReservationHandle } from "@/components/AdminEditReservation";
@@ -13,6 +13,8 @@ import IntervenantFicheModal from "@/components/IntervenantFicheModal";
 import IntervenantProfileModal from "@/components/IntervenantProfileModal";
 import SoinsPlanifiesBlock from "@/components/SoinsPlanifiesBlock";
 import MiniCalendar from "@/components/MiniCalendar";
+import SegmentedSwitch from "@/components/SegmentedSwitch";
+import WeeklyPlanningGrid from "@/components/WeeklyPlanningGrid";
 import { metierLabel } from "@/lib/metiers";
 import type { Reservation, IntervenantProfile, InterventionType } from "@/lib/types";
 
@@ -25,7 +27,7 @@ import type { Reservation, IntervenantProfile, InterventionType } from "@/lib/ty
 export default function AdminIntervenantsScreen() {
   const router = useRouter();
   const { theme: C } = useDisplayMode();
-  const { space, slotConfig, reservations, refreshReservations, getSlotsForDate } = useSpace();
+  const { space, slotConfig, reservations, refreshReservations, getSlotsForDate, getConfigForDate } = useSpace();
 
   const addRef = useRef<AdminAddInterventionHandle>(null);
   const editRef = useRef<AdminEditReservationHandle>(null);
@@ -38,6 +40,8 @@ export default function AdminIntervenantsScreen() {
     return d;
   });
   const [calMonth, setCalMonth] = useState(() => ({ year: selectedDay.getFullYear(), month: selectedDay.getMonth() }));
+  const [planningView, setPlanningView] = useState<"mensuel" | "hebdo">("mensuel");
+  const [weekAnchor, setWeekAnchor] = useState(() => getMonday(new Date()));
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null);
   const [viewingProfile, setViewingProfile] = useState<IntervenantProfile | null>(null);
   // Replié par défaut — reléguée en bas d'écran, derrière Planning et Soins
@@ -126,73 +130,102 @@ export default function AdminIntervenantsScreen() {
         <Text style={[styles.sectionTitle, { color: C.gold }]}>Planning</Text>
 
         <View style={{ marginBottom: 14 }}>
-          <MiniCalendar
-            selDate={iso}
-            onSelect={(newIso) => setSelectedDay(new Date(newIso + "T00:00:00"))}
-            calMonth={calMonth}
-            onMonthChange={setCalMonth}
-            startDate={startDate}
+          <SegmentedSwitch
+            value={planningView === "hebdo"}
+            onChange={(v) => setPlanningView(v ? "hebdo" : "mensuel")}
+            leftLabel="Mensuel"
+            rightLabel="Hebdo"
             C={C}
-            size="lg"
-            markedDates={interventionDates}
+            minWidthRatio={0.5}
           />
         </View>
 
-        <View style={[styles.dayNav, { backgroundColor: C.card, borderColor: C.border }]}>
-          <TouchableOpacity
-            onPress={() => {
-              const prev = addDays(selectedDay, -1);
-              if (prev >= startDate) setSelectedDay(prev);
-            }}
-            disabled={toISO(selectedDay) === toISO(startDate)}
-            style={[styles.navBtn, { borderColor: C.border }]}
-          >
-            <Text style={[styles.navBtnText, { color: C.text }]}>‹</Text>
-          </TouchableOpacity>
-          <View style={{ alignItems: "center" }}>
-            <Text style={[styles.dayTitle, { color: C.text }]}>{toFrLong(selectedDay)}</Text>
-            <Text style={[styles.daySub, { color: C.muted }]}>{toFrShort(selectedDay)}</Text>
-          </View>
-          <TouchableOpacity
-            onPress={() => setSelectedDay(addDays(selectedDay, 1))}
-            style={[styles.navBtn, { borderColor: C.border }]}
-          >
-            <Text style={[styles.navBtnText, { color: C.text }]}>›</Text>
-          </TouchableOpacity>
-        </View>
-
-        {dayInterventions.length === 0 ? (
-          <Text style={[styles.emptyText, { color: C.muted, marginBottom: 12 }]}>Aucune intervention ce jour-là.</Text>
+        {planningView === "hebdo" && slotConfig ? (
+          <WeeklyPlanningGrid
+            C={C}
+            slotConfig={slotConfig}
+            reservations={reservations}
+            getSlotsForDate={getSlotsForDate}
+            getConfigForDate={getConfigForDate}
+            startDate={startDate}
+            weekAnchor={weekAnchor}
+            onWeekChange={setWeekAnchor}
+            readOnly={false}
+            onEdit={(r) => editRef.current?.open(r)}
+            onDelete={handleDelete}
+          />
         ) : (
-          dayInterventions.map((r) => (
-            <View key={r.id} style={[styles.interventionCard, { backgroundColor: C.card, borderColor: C.orange }]}>
+          <>
+            <View style={{ marginBottom: 14 }}>
+              <MiniCalendar
+                selDate={iso}
+                onSelect={(newIso) => setSelectedDay(new Date(newIso + "T00:00:00"))}
+                calMonth={calMonth}
+                onMonthChange={setCalMonth}
+                startDate={startDate}
+                C={C}
+                size="lg"
+                markedDates={interventionDates}
+              />
+            </View>
+
+            <View style={[styles.dayNav, { backgroundColor: C.card, borderColor: C.border }]}>
               <TouchableOpacity
-                style={{ flex: 1 }}
-                activeOpacity={0.7}
-                onPress={() => router.push({ pathname: "/(admin)/home/slots", params: { focusDate: r.date } } as any)}
+                onPress={() => {
+                  const prev = addDays(selectedDay, -1);
+                  if (prev >= startDate) setSelectedDay(prev);
+                }}
+                disabled={toISO(selectedDay) === toISO(startDate)}
+                style={[styles.navBtn, { borderColor: C.border }]}
               >
-                <Text style={[styles.interventionTime, { color: C.orange }]}>
-                  {r.creneau} · {r.duration_minutes} min
-                </Text>
-                <Text style={[styles.interventionLabel, { color: C.text }]}>{r.intervention_label}</Text>
-                <Text style={[styles.interventionBy, { color: C.muted }]}>{r.prenom} {r.nom}</Text>
+                <Text style={[styles.navBtnText, { color: C.text }]}>‹</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={[styles.editResaBtn, { borderColor: C.border }]} onPress={() => editRef.current?.open(r)}>
-                <Text style={[styles.editResaBtnText, { color: C.muted }]}>Modifier</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.deleteResaBtn, { borderColor: "rgba(233,69,96,0.4)" }]} onPress={() => handleDelete(r)}>
-                <Text style={{ color: "#e94560", fontSize: 13 }}>✕</Text>
+              <View style={{ alignItems: "center" }}>
+                <Text style={[styles.dayTitle, { color: C.text }]}>{toFrLong(selectedDay)}</Text>
+                <Text style={[styles.daySub, { color: C.muted }]}>{toFrShort(selectedDay)}</Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setSelectedDay(addDays(selectedDay, 1))}
+                style={[styles.navBtn, { borderColor: C.border }]}
+              >
+                <Text style={[styles.navBtnText, { color: C.text }]}>›</Text>
               </TouchableOpacity>
             </View>
-          ))
-        )}
 
-        <TouchableOpacity
-          style={[styles.addBtn, { backgroundColor: C.orange }]}
-          onPress={() => addRef.current?.open(iso)}
-        >
-          <Text style={styles.addBtnText}>+ Ajouter une intervention</Text>
-        </TouchableOpacity>
+            {dayInterventions.length === 0 ? (
+              <Text style={[styles.emptyText, { color: C.muted, marginBottom: 12 }]}>Aucune intervention ce jour-là.</Text>
+            ) : (
+              dayInterventions.map((r) => (
+                <View key={r.id} style={[styles.interventionCard, { backgroundColor: C.card, borderColor: C.orange }]}>
+                  <TouchableOpacity
+                    style={{ flex: 1 }}
+                    activeOpacity={0.7}
+                    onPress={() => router.push({ pathname: "/(admin)/home/slots", params: { focusDate: r.date } } as any)}
+                  >
+                    <Text style={[styles.interventionTime, { color: C.orange }]}>
+                      {r.creneau} · {r.duration_minutes} min
+                    </Text>
+                    <Text style={[styles.interventionLabel, { color: C.text }]}>{r.intervention_label}</Text>
+                    <Text style={[styles.interventionBy, { color: C.muted }]}>{r.prenom} {r.nom}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.editResaBtn, { borderColor: C.border }]} onPress={() => editRef.current?.open(r)}>
+                    <Text style={[styles.editResaBtnText, { color: C.muted }]}>Modifier</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.deleteResaBtn, { borderColor: "rgba(233,69,96,0.4)" }]} onPress={() => handleDelete(r)}>
+                    <Text style={{ color: "#e94560", fontSize: 13 }}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              ))
+            )}
+
+            <TouchableOpacity
+              style={[styles.addBtn, { backgroundColor: C.orange }]}
+              onPress={() => addRef.current?.open(iso)}
+            >
+              <Text style={styles.addBtnText}>+ Ajouter une intervention</Text>
+            </TouchableOpacity>
+          </>
+        )}
 
         <SoinsPlanifiesBlock spaceId={space.id} C={C} />
 
