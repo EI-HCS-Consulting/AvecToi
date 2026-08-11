@@ -23,7 +23,7 @@ import VisitorsBlock from "@/components/VisitorsBlock";
 import IntervenantsBlock from "@/components/IntervenantsBlock";
 import IntervenantPriorityModal from "@/components/IntervenantPriorityModal";
 import { resolvePlaceFromMapsUrl } from "@/lib/address";
-import { generateSlots, formatHourMinute, isSlotFullyPast } from "@/lib/slotUtils";
+import { generateSlots, formatHourMinute } from "@/lib/slotUtils";
 import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
 import { canEnableIntervenants } from "@/lib/freemiumCap";
 import type { Theme } from "@/lib/themes";
@@ -786,10 +786,11 @@ export default function SettingsScreen() {
     setResaHistoryLoading(false);
   }
 
-  // Soins planifiés (tous intervenants confondus) — même donnée que la
-  // section "Soins planifiés" de IntervenantProfileModal, mais sans filtre
-  // sur un intervenant particulier. Tri du plus tardif (haut) au plus proche
-  // (bas du scroll), à l'inverse de la fiche intervenant.
+  // Soins planifiés (tous intervenants confondus, passés ET à venir) — même
+  // donnée que la section "Soins planifiés" de IntervenantProfileModal, mais
+  // sans filtre sur un intervenant particulier et sans exclure les soins déjà
+  // passés (c'est ici l'historique complet). Tri anté-chronologique : le plus
+  // tardif/récent en haut, le plus ancien tout en bas du scroll.
   async function loadSoinsPlanifies() {
     if (!space) return;
     setSoinsLoading(true);
@@ -800,7 +801,7 @@ export default function SettingsScreen() {
       .eq("type", "Intervention")
       .order("date", { ascending: false })
       .order("creneau", { ascending: false });
-    setSoinsPlanifies((data || []).filter((r) => !isSlotFullyPast(r.date, r.creneau)));
+    setSoinsPlanifies(data || []);
     setSoinsLoading(false);
   }
 
@@ -2461,9 +2462,9 @@ export default function SettingsScreen() {
 
               {/* Bloc 3bis : Soins planifiés — même donnée que la section
                   "Soins planifiés" de IntervenantProfileModal (tous
-                  intervenants confondus, hors soins déjà passés), mais
-                  triée à l'inverse : le plus tardif en haut, le plus proche
-                  tout en bas du scroll. */}
+                  intervenants confondus), mais historique complet (passés ET
+                  à venir) triée anté-chronologiquement : le plus récent/
+                  tardif en haut, le plus ancien tout en bas du scroll. */}
               <TouchableOpacity style={styles.historyBlockHeader} onPress={() => toggleHistoryBlock("soins")} activeOpacity={0.7}>
                 <View style={styles.historyBlockTitleRow}>
                   <Text style={[styles.fieldLabel, { color: C.gold, marginBottom: 0, flexShrink: 1 }]} numberOfLines={1} ellipsizeMode="tail">
