@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import {
   View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, Modal,
 } from "react-native";
@@ -8,6 +8,7 @@ import {
   toISO, toFrLong, addDays,
 } from "@/lib/slotUtils";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
+import { getVisitorSession } from "@/lib/visitorSession";
 import { LOGO_GREEN, LOGO_PURPLE } from "@/lib/themes";
 import SpaceHeader from "@/components/SpaceHeader";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
@@ -24,6 +25,17 @@ export default function VisitorCalendarScreen() {
   // l'occupation des soins (interventions) — remplace l'ancien raccourci
   // "Voir les nuitées".
   const [soinsMode, setSoinsMode] = useState(false);
+  // Un intervenant voit, en plus du cadre violet visible par tous (soin ce
+  // jour-là), l'intérieur de la case remplie en violet quand le soin lui est
+  // assigné à LUI précisément — voir home/slots.tsx pour role/intervenantProfileId.
+  const [role, setRole] = useState<"visiteur" | "intervenant" | null>(null);
+  const [intervenantProfileId, setIntervenantProfileId] = useState<string | null>(null);
+  useEffect(() => {
+    getVisitorSession().then((s) => {
+      setRole(s?.role ?? "visiteur");
+      setIntervenantProfileId(s?.intervenantProfileId ?? null);
+    });
+  }, []);
 
   const { theme: C } = useDisplayMode();
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
@@ -143,6 +155,11 @@ export default function VisitorCalendarScreen() {
             const familyBooked = !soinsMode && reservations.some((r) => r.date === iso && (r.type === "Visite" || r.type === "Nuit"));
             const interventionBooked = reservations.some((r) => r.date === iso && r.type === "Intervention");
             const frameColor = familyBooked ? LOGO_GREEN : interventionBooked ? LOGO_PURPLE : null;
+            // Case remplie en violet uniquement pour l'intervenant assigné à
+            // CE soin — les autres intervenants (comme les visiteurs/admin)
+            // ne voient que le cadre violet ci-dessus.
+            const myInterventionToday = role === "intervenant" && !!intervenantProfileId &&
+              reservations.some((r) => r.date === iso && r.type === "Intervention" && r.intervenant_profile_id === intervenantProfileId);
 
             return (
               <TouchableOpacity
@@ -150,7 +167,7 @@ export default function VisitorCalendarScreen() {
                 style={[
                   styles.cell,
                   {
-                    backgroundColor: isSelected ? C.accent : dimmed ? "transparent" : C.card,
+                    backgroundColor: isSelected ? C.accent : dimmed ? "transparent" : myInterventionToday ? LOGO_PURPLE : C.card,
                     borderColor: isSelected ? C.accent : isToday ? C.gold : C.border,
                     borderWidth: isToday ? 2 : 1,
                     opacity: dimmed ? 0.3 : 1,
@@ -171,7 +188,7 @@ export default function VisitorCalendarScreen() {
                   <View pointerEvents="none" style={[styles.frameOverlay, { borderColor: frameColor }]} />
                 )}
                 <View style={styles.cellInner}>
-                  <Text style={[styles.cellDate, { color: isSelected ? "#fff" : isToday ? C.gold : C.text }]}>
+                  <Text style={[styles.cellDate, { color: isSelected || myInterventionToday ? "#fff" : isToday ? C.gold : C.text }]}>
                     {day.getDate()}
                   </Text>
                   <View style={[styles.dot, { backgroundColor: dotColor }]} />

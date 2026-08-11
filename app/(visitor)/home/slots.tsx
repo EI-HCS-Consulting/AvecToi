@@ -29,7 +29,7 @@ export default function SlotsScreen() {
   // Un intervenant réutilise cet écran (même vue que le visiteur), mais son
   // bouton "Réserver" ouvre InterventionBookingFlow au lieu de BookingFlow —
   // voir lib/visitorSession.ts pour role/intervenantProfileId.
-  const [role, setRole] = useState<"visiteur" | "intervenant">("visiteur");
+  const [role, setRole] = useState<"visiteur" | "intervenant" | null>(null);
   const [intervenantProfileId, setIntervenantProfileId] = useState<string | null>(null);
   useEffect(() => {
     getVisitorSession().then((s) => {
@@ -41,16 +41,25 @@ export default function SlotsScreen() {
   const isMine = (r: Reservation) => !!myPin && r.pin === myPin;
 
   // Arrivée via "Prochaine disponibilité → Réserver" (Calendrier) : ouvre
-  // directement la modale de réservation sur le créneau ciblé.
+  // directement la modale de réservation sur le créneau ciblé — celle de
+  // l'intervenant (InterventionBookingFlow) ou celle du visiteur/famille
+  // (BookingFlow) selon le rôle, une fois celui-ci chargé (voir role ci-
+  // dessus, initialisé à null pour distinguer "pas encore chargé" de
+  // "visiteur"). Un ref pour ne déclencher qu'une seule fois.
+  const pendingBookingHandled = useRef(false);
   useEffect(() => {
-    getVisitorSession().then((s) => {
-      if (pendingBookingSlot) {
-        flowRef.current?.openBooking(toISO(selectedDay), pendingBookingSlot, s ? { prenom: s.prenom, nom: s.nom } : undefined);
-        setPendingBookingSlot(null);
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (pendingBookingHandled.current || role === null || !pendingBookingSlot) return;
+    pendingBookingHandled.current = true;
+    const slot = pendingBookingSlot;
+    setPendingBookingSlot(null);
+    if (role === "intervenant") {
+      interventionFlowRef.current?.openBooking(toISO(selectedDay), slot);
+    } else {
+      getVisitorSession().then((s) => {
+        flowRef.current?.openBooking(toISO(selectedDay), slot, s ? { prenom: s.prenom, nom: s.nom } : undefined);
+      });
+    }
+  }, [role, pendingBookingSlot, selectedDay, setPendingBookingSlot]);
 
   // Arrivée via RebookingAlertModal (recasage/annulation suite à un
   // changement de règles admin) : rouvre la modale PIN/modification

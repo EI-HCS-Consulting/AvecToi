@@ -1,8 +1,8 @@
 import { useState, useCallback, useEffect } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from "react-native";
-import { supabase } from "@/lib/supabase";
 import SoinAvatar from "@/components/SoinAvatar";
 import SoinFormModal from "@/components/SoinFormModal";
+import { getSyncedInterventionTypes } from "@/lib/interventionTypesSync";
 import type { InterventionType } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -22,14 +22,8 @@ export default function MesSoinsList({ intervenantProfileId, C }: Props) {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("intervention_types")
-      .select("*")
-      .eq("intervenant_profile_id", intervenantProfileId)
-      .order("created_at", { ascending: true });
-
-    if (error) console.error("[MesSoinsList] intervention_types select failed:", error);
-    setSoins(data || []);
+    const synced = await getSyncedInterventionTypes(intervenantProfileId);
+    setSoins(synced);
     setLoading(false);
   }, [intervenantProfileId]);
 
