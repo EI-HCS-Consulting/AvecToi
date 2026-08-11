@@ -127,7 +127,7 @@ export default function AdminIntervenantsScreen() {
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
       <View style={[styles.header, { backgroundColor: C.card, borderBottomColor: C.border }]}>
-        <TouchableOpacity style={styles.back} onPress={() => router.back()}>
+        <TouchableOpacity style={styles.back} onPress={() => router.push("/(admin)/settings")}>
           <Text style={[styles.backText, { color: C.orange }]}>← Retour</Text>
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: C.text }]}>🩺 Planning des intervenants</Text>
