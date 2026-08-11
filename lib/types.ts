@@ -239,6 +239,10 @@ export interface SouvenirPhoto {
   source_id: string | null;
   created_at: string;
   url?: string;
+  // Suppression "douce" par l'admin (photo d'un autre utilisateur que lui) :
+  // reste visible avec un bandeau rouge pour l'auteur uniquement, masqué pour
+  // tous les autres. Voir supabase/migrations/20260811_content_deleted_by_admin.sql.
+  deleted_by_admin: boolean;
 }
 
 export interface NewsEntry {
@@ -258,6 +262,10 @@ export interface NewsEntry {
   // visibles de tous, comme avant cette fonctionnalité.
   author_role: "visiteur" | "intervenant" | "admin";
   created_at: string;
+  // Suppression "douce" par l'admin (contenu d'un autre utilisateur que lui) :
+  // reste visible avec un bandeau rouge pour l'auteur uniquement, masqué pour
+  // tous les autres. Voir supabase/migrations/20260811_content_deleted_by_admin.sql.
+  deleted_by_admin: boolean;
 }
 
 // Un aidant qui ne peut pas honorer l'horaire demandé pour un besoin
@@ -359,6 +367,10 @@ export interface Task {
   transport_confirmed_out_time: string | null;
   transport_confirmed_return_time: string | null;
   transport_proposals: TransportProposal[];
+  // Suppression "douce" par l'admin (besoin d'un autre utilisateur que lui) :
+  // reste visible avec un bandeau rouge pour l'auteur uniquement, masqué pour
+  // tous les autres. Voir supabase/migrations/20260811_content_deleted_by_admin.sql.
+  deleted_by_admin: boolean;
 }
 
 // Item de "Ma Checklist" (bloc dédié dans Mon Compte, admin + visiteur) —
@@ -410,6 +422,10 @@ export interface SupportMessage {
   author_pin: string | null;
   photo: string | null;
   created_at: string;
+  // Suppression "douce" par l'admin (message d'un autre utilisateur que lui) :
+  // reste visible avec un bandeau rouge pour l'auteur uniquement, masqué pour
+  // tous les autres. Voir supabase/migrations/20260811_content_deleted_by_admin.sql.
+  deleted_by_admin: boolean;
 }
 
 // Photo de profil visiteur, synchronisée depuis "Mon compte" (voir
@@ -436,4 +452,8 @@ export interface SupportMessageReply {
   author_nom: string;
   author_pin: string | null;
   created_at: string;
+  // Suppression "douce" par l'admin (réponse d'un autre utilisateur que lui) :
+  // reste visible avec un bandeau rouge pour l'auteur uniquement, masqué pour
+  // tous les autres. Voir supabase/migrations/20260811_content_deleted_by_admin.sql.
+  deleted_by_admin: boolean;
 }

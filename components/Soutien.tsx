@@ -379,10 +379,24 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
     loadMessages();
   }
 
+  // Suppression "douce" par l'admin d'un message publié par un autre
+  // utilisateur : reste visible avec un bandeau rouge pour son auteur
+  // uniquement, masqué pour tous les autres (y compris l'admin). Voir
+  // supabase/migrations/20260811_content_deleted_by_admin.sql.
+  async function softDeleteByAdminMessage(m: SupportMessage) {
+    await supabase.from("support_messages").update({ deleted_by_admin: true }).eq("id", m.id);
+    setMessages((prev) => prev.map((x) => (x.id === m.id ? { ...x, deleted_by_admin: true } : x)));
+    showToast("Message supprimé");
+  }
+
   async function confirmDeleteMessage() {
     if (!messageDeleteTarget) return;
     const m = messageDeleteTarget;
     setMessageDeleteTarget(null);
+    if (isAdmin && m.author_pin !== "ADMIN") {
+      await softDeleteByAdminMessage(m);
+      return;
+    }
     if (m.photo) await supabase.storage.from(PHOTO_BUCKET).remove([`${spaceId}/${m.photo}`]);
     await supabase.from("support_messages").delete().eq("id", m.id);
     loadMessages();
@@ -419,16 +433,45 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
     loadReplies();
   }
 
+  async function softDeleteByAdminReply(r: SupportMessageReply) {
+    await supabase.from("support_message_replies").update({ deleted_by_admin: true }).eq("id", r.id);
+    setReplies((prev) => ({
+      ...prev,
+      [r.message_id]: (prev[r.message_id] || []).map((x) => (x.id === r.id ? { ...x, deleted_by_admin: true } : x)),
+    }));
+    showToast("Réponse supprimée");
+  }
+
   async function confirmDeleteReply() {
     if (!replyDeleteTarget) return;
     const r = replyDeleteTarget;
     setReplyDeleteTarget(null);
+    if (isAdmin && r.author_pin !== "ADMIN") {
+      await softDeleteByAdminReply(r);
+      return;
+    }
     await supabase.from("support_message_replies").delete().eq("id", r.id);
     loadReplies();
     showToast("Réponse supprimée");
   }
 
   const pinReady = isAdmin || !!sessionPin || msgPin.length >= 4;
+
+  // Même règle de propriété que dans le rendu plus bas — extraite ici pour
+  // filtrer la visibilité avant le map().
+  function isOwnMessage(m: SupportMessage) {
+    return isAdmin
+      ? m.author_pin === "ADMIN"
+      : (!!sessionPin && m.author_pin === sessionPin && m.author_prenom === msgPrenom && m.author_nom === msgNom);
+  }
+  function isOwnReply(r: SupportMessageReply) {
+    return isAdmin ? r.author_pin === "ADMIN" : (!!sessionPin && r.author_pin === sessionPin);
+  }
+
+  // Modération admin : un message supprimé "en douceur" (deleted_by_admin)
+  // reste visible pour son auteur uniquement, avec un bandeau rouge — voir
+  // supabase/migrations/20260811_content_deleted_by_admin.sql.
+  const visibleMessages = messages.filter((m) => !m.deleted_by_admin || (!isAdmin && isOwnMessage(m)));
 
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
@@ -465,30 +508,25 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
       <ScrollView ref={scrollRef} contentContainerStyle={styles.listPad} keyboardShouldPersistTaps="handled">
         {msgsLoading ? (
           <ActivityIndicator color={C.accent} style={{ marginTop: 24 }} />
-        ) : messages.length === 0 ? (
+        ) : visibleMessages.length === 0 ? (
           <View style={[styles.centered, { marginTop: 32 }]}>
             <Text style={{ fontSize: 32, marginBottom: 10 }}>💛</Text>
             <Text style={[styles.emptyText, { color: C.muted }]}>Aucun message de soutien.</Text>
             <Text style={[styles.emptyHint, { color: C.muted }]}>Sois le premier à en laisser un !</Text>
           </View>
         ) : (
-          messages.map((m) => {
+          visibleMessages.map((m) => {
             const highlighted = highlightId === m.id;
-            // Propriété réelle du message : admin uniquement sur ses propres
-            // messages ("ADMIN"), visiteur uniquement si le PIN ET le
-            // prénom+nom de sa session correspondent à l'auteur. Le PIN seul
-            // ne suffit pas : deux personnes différentes choisissant le même
-            // code à 4 chiffres (ex. "1111") se retrouveraient sinon
-            // considérées comme le même auteur.
-            const isOwnMessage = isAdmin
-              ? m.author_pin === "ADMIN"
-              : (!!sessionPin && m.author_pin === sessionPin && m.author_prenom === msgPrenom && m.author_nom === msgNom);
+            const own = isOwnMessage(m);
             // Dès qu'une réponse existe, seul l'admin garde le droit de
             // supprimer le message (la suppression entraîne aussi celle de
             // toutes les réponses via on delete cascade en base) — un
             // visiteur ne doit pas pouvoir effacer une conversation à
-            // laquelle d'autres ont participé.
-            const canDeleteMessage = isAdmin || (isOwnMessage && !replies[m.id]?.length);
+            // laquelle d'autres ont participé. Cette règle ne s'applique
+            // plus une fois le message modéré par l'admin (deleted_by_admin) :
+            // seul son auteur le voit encore, donc plus aucune conversation
+            // à préserver, et "Supprimer définitivement" doit rester possible.
+            const canDeleteMessage = isAdmin || (own && (m.deleted_by_admin || !replies[m.id]?.length));
             return (
             <View
               key={m.id}
@@ -517,21 +555,28 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                     {new Date(m.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })}
                   </Text>
                 </View>
-                {(isOwnMessage || isAdmin) && (
+                {(own || isAdmin) && (
                   <View style={{ flexDirection: "row", gap: 6 }}>
-                    {isOwnMessage && (
+                    {own && !m.deleted_by_admin && (
                       <TouchableOpacity onPress={() => openEdit(m)} style={[styles.iconBtn, { borderColor: C.border }]}>
                         <Text style={{ fontSize: 13, color: C.muted }}>✏️</Text>
                       </TouchableOpacity>
                     )}
                     {canDeleteMessage && (
                       <TouchableOpacity onPress={() => setMessageDeleteTarget(m)} style={[styles.iconBtn, { borderColor: "rgba(233,69,96,0.3)" }]}>
-                        <Text style={{ fontSize: 13, color: "#e94560" }}>🗑️</Text>
+                        <Text style={{ fontSize: 13, color: "#e94560" }}>
+                          {m.deleted_by_admin ? "🗑️ Suppr. définitivement" : "🗑️"}
+                        </Text>
                       </TouchableOpacity>
                     )}
                   </View>
                 )}
               </View>
+              {m.deleted_by_admin && (
+                <Text style={[styles.msgDeletedBanner, { color: C.danger }]}>
+                  Votre publication a été supprimée par l'administrateur du compte. Elle n'est ainsi plus visible par les autres utilisateurs.
+                </Text>
+              )}
               <Text style={[styles.msgText, { color: C.text }]}>{m.message}</Text>
               {m.photo && (
                 <>
@@ -550,32 +595,41 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                 </>
               )}
 
-              {!!replies[m.id]?.length && (
-                <View style={styles.repliesWrap}>
-                  {replies[m.id].map((r) => {
-                    const canDeleteReply = isAdmin || (!!sessionPin && r.author_pin === sessionPin);
-                    return (
-                      <View key={r.id} style={[styles.replyItem, { borderLeftColor: C.gold }]}>
-                        <View style={{ flex: 1 }}>
-                          {r.author_pin !== "ADMIN" ? (
-                            <TouchableOpacity onPress={() => setProfileTarget({ prenom: r.author_prenom, nom: r.author_nom })} activeOpacity={0.7}>
+              {(() => {
+                const repliesForMsg = (replies[m.id] || []).filter((r) => !r.deleted_by_admin || (!isAdmin && isOwnReply(r)));
+                if (!repliesForMsg.length) return null;
+                return (
+                  <View style={styles.repliesWrap}>
+                    {repliesForMsg.map((r) => {
+                      const canDeleteReply = isAdmin || (!!sessionPin && r.author_pin === sessionPin);
+                      return (
+                        <View key={r.id} style={[styles.replyItem, { borderLeftColor: C.gold }]}>
+                          <View style={{ flex: 1 }}>
+                            {r.author_pin !== "ADMIN" ? (
+                              <TouchableOpacity onPress={() => setProfileTarget({ prenom: r.author_prenom, nom: r.author_nom })} activeOpacity={0.7}>
+                                <Text style={[styles.replyAuthor, { color: C.text }]}>{r.author_prenom} {r.author_nom}</Text>
+                              </TouchableOpacity>
+                            ) : (
                               <Text style={[styles.replyAuthor, { color: C.text }]}>{r.author_prenom} {r.author_nom}</Text>
+                            )}
+                            {r.deleted_by_admin && (
+                              <Text style={[styles.replyDeletedBanner, { color: C.danger }]}>
+                                Votre publication a été supprimée par l'administrateur du compte. Elle n'est ainsi plus visible par les autres utilisateurs.
+                              </Text>
+                            )}
+                            <Text style={[styles.replyText, { color: C.text }]}>{r.reply_text}</Text>
+                          </View>
+                          {canDeleteReply && (
+                            <TouchableOpacity onPress={() => setReplyDeleteTarget(r)} style={styles.replyDeleteBtn}>
+                              <Text style={{ fontSize: 12, color: C.muted }}>{r.deleted_by_admin ? "🗑️" : "✕"}</Text>
                             </TouchableOpacity>
-                          ) : (
-                            <Text style={[styles.replyAuthor, { color: C.text }]}>{r.author_prenom} {r.author_nom}</Text>
                           )}
-                          <Text style={[styles.replyText, { color: C.text }]}>{r.reply_text}</Text>
                         </View>
-                        {canDeleteReply && (
-                          <TouchableOpacity onPress={() => setReplyDeleteTarget(r)} style={styles.replyDeleteBtn}>
-                            <Text style={{ fontSize: 12, color: C.muted }}>✕</Text>
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                    );
-                  })}
-                </View>
-              )}
+                      );
+                    })}
+                  </View>
+                );
+              })()}
 
               <TouchableOpacity
                 style={[styles.replyBtn, { borderColor: C.border }]}
@@ -855,6 +909,11 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
               {replyDeleteTarget && (
                 <Text style={[styles.confirmSub, { color: C.muted }]}>"{replyDeleteTarget.reply_text.slice(0, 60)}…"</Text>
               )}
+              {replyDeleteTarget && isAdmin && replyDeleteTarget.author_pin !== "ADMIN" && (
+                <Text style={[styles.confirmSub, { color: C.muted, marginTop: 6 }]}>
+                  {replyDeleteTarget.author_prenom} recevra un message l'informant que sa publication a été supprimée.
+                </Text>
+              )}
               <View style={styles.confirmButtons}>
                 <TouchableOpacity style={[styles.confirmBtn, { borderColor: C.border }]} onPress={() => setReplyDeleteTarget(null)}>
                   <Text style={[styles.confirmBtnText, { color: C.muted }]}>Annuler</Text>
@@ -876,6 +935,11 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
               <Text style={[styles.confirmTitle, { color: C.text }]}>Supprimer ce message ?</Text>
               {messageDeleteTarget && (
                 <Text style={[styles.confirmSub, { color: C.muted }]}>"{messageDeleteTarget.message.slice(0, 60)}…"</Text>
+              )}
+              {messageDeleteTarget && isAdmin && messageDeleteTarget.author_pin !== "ADMIN" && (
+                <Text style={[styles.confirmSub, { color: C.muted, marginTop: 6 }]}>
+                  {messageDeleteTarget.author_prenom} recevra un message l'informant que sa publication a été supprimée.
+                </Text>
               )}
               <View style={styles.confirmButtons}>
                 <TouchableOpacity style={[styles.confirmBtn, { borderColor: C.border }]} onPress={() => setMessageDeleteTarget(null)}>
@@ -935,6 +999,8 @@ const styles = StyleSheet.create({
   postBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#0D1B2E" },
   msgCard: { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 },
   msgCardHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 8 },
+  msgDeletedBanner: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, lineHeight: 17, marginBottom: 6 },
+  replyDeletedBanner: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, lineHeight: 15, marginBottom: 3 },
   msgAvatar: { width: 36, height: 36, borderRadius: 18, alignItems: "center", justifyContent: "center" },
   msgAvatarText: { fontFamily: "DM_Sans_700Bold", fontSize: 15 },
   msgAuthor: { fontFamily: "DM_Sans_700Bold", fontSize: 13 },

@@ -8,6 +8,7 @@ import {
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { LOGO_GREEN, LOGO_PURPLE } from "@/lib/themes";
 import SpaceHeader from "@/components/SpaceHeader";
+import SegmentedSwitch from "@/components/SegmentedSwitch";
 import { isSpaceCapped } from "@/lib/freemiumCap";
 
 const DAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
@@ -18,6 +19,11 @@ export default function AdminCalendarScreen() {
   const { theme: C } = useDisplayMode();
   const [nextDispoModal, setNextDispoModal] = useState<{ date: Date; iso: string; slot: string } | null>(null);
   const [blockedDayModal, setBlockedDayModal] = useState<Date | null>(null);
+  // false = planning global (visites/nuitées), true = ne montre que
+  // l'occupation des soins (interventions) — remplace l'ancien raccourci
+  // "Voir les nuitées" (toujours accessible depuis Mes réservations / le
+  // détail d'un jour).
+  const [soinsMode, setSoinsMode] = useState(false);
 
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
   const startDate = useMemo(
@@ -125,7 +131,7 @@ export default function AdminCalendarScreen() {
             const iso = toISO(day);
             const dayConfig = getConfigForDate(iso) ?? slotConfig;
             const daySlots = getSlotsForDate(iso);
-            const status = getDayStatus(reservations, iso, day, dayConfig, daySlots, startDate);
+            const status = getDayStatus(reservations, iso, day, dayConfig, daySlots, startDate, soinsMode ? "Intervention" : "Visite");
             const isToday = toISO(day) === toISO(today);
             const isSelected = toISO(day) === toISO(selectedDay);
             const isPast = iso < toISO(today) || status === "past";
@@ -141,7 +147,9 @@ export default function AdminCalendarScreen() {
 
             // Cadre vert = visite/nuitée réservée ce jour, violet = créneau
             // bloqué par un intervenant. Priorité au vert si les deux coexistent.
-            const familyBooked = reservations.some((r) => r.date === iso && (r.type === "Visite" || r.type === "Nuit"));
+            // En mode Soins, les visites/nuitées sont masquées (déjà visibles
+            // en mode Visites) : seul le cadre violet reste pertinent.
+            const familyBooked = !soinsMode && reservations.some((r) => r.date === iso && (r.type === "Visite" || r.type === "Nuit"));
             const interventionBooked = reservations.some((r) => r.date === iso && r.type === "Intervention");
             const frameColor = familyBooked ? LOGO_GREEN : interventionBooked ? LOGO_PURPLE : null;
 
@@ -193,25 +201,21 @@ export default function AdminCalendarScreen() {
           )}
         </View>
         <View style={[styles.legend, styles.legendRow2]}>
-          {([[LOGO_GREEN, "Mes visites/nuitées"], [LOGO_PURPLE, "Intervenant"]] as [string, string][]).map(
-            ([color, label]) => (
-              <View key={label} style={styles.legendItem}>
-                <View style={[styles.legendFrame, { borderColor: color }]} />
-                <Text style={[styles.legendLabel, { color: C.muted }]}>{label}</Text>
-              </View>
-            ),
-          )}
+          {(soinsMode
+            ? [[LOGO_PURPLE, "Soin"]]
+            : [[LOGO_GREEN, "Mes visites/nuitées"], [LOGO_PURPLE, "Intervenant"]]
+          ).map(([color, label]) => (
+            <View key={label} style={styles.legendItem}>
+              <View style={[styles.legendFrame, { borderColor: color }]} />
+              <Text style={[styles.legendLabel, { color: C.muted }]}>{label}</Text>
+            </View>
+          ))}
         </View>
 
-        {/* Les nuitées n'apparaissent plus dans le calendrier — leur propre écran */}
-        {slotConfig.night_enabled && (
-          <TouchableOpacity
-            style={[styles.nightsBtn, { borderColor: C.gold }]}
-            onPress={() => router.navigate("/(admin)/home/nights")}
-            activeOpacity={0.8}
-          >
-            <Text style={[styles.nightsBtnText, { color: C.gold }]}>🌙 Voir les nuitées</Text>
-          </TouchableOpacity>
+        {space.intervenants_enabled && (
+          <View style={{ marginTop: 12 }}>
+            <SegmentedSwitch value={soinsMode} onChange={setSoinsMode} leftLabel="Visites" rightLabel="Soins" C={C} />
+          </View>
         )}
       </ScrollView>
 
@@ -297,8 +301,6 @@ const styles = StyleSheet.create({
   legendFrame: { width: 8, height: 8, borderRadius: 3, borderWidth: 2 },
   legendLabel: { fontFamily: "DM_Sans_400Regular", fontSize: 11 },
 
-  nightsBtn: { borderWidth: 1, borderRadius: 10, paddingVertical: 9, alignItems: "center", marginTop: 10 },
-  nightsBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
 
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center", padding: 20 },
   modal: { width: "100%", maxWidth: 340, borderRadius: 16, borderWidth: 1, padding: 24, alignItems: "center" },

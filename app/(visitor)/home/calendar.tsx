@@ -10,6 +10,7 @@ import {
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { LOGO_GREEN, LOGO_PURPLE } from "@/lib/themes";
 import SpaceHeader from "@/components/SpaceHeader";
+import SegmentedSwitch from "@/components/SegmentedSwitch";
 import { useRouter } from "expo-router";
 
 const DAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
@@ -19,6 +20,10 @@ export default function VisitorCalendarScreen() {
   const router = useRouter();
   const [nextDispoModal, setNextDispoModal] = useState<{ date: Date; iso: string; slot: string } | null>(null);
   const [blockedDayModal, setBlockedDayModal] = useState<Date | null>(null);
+  // false = planning global (visites/nuitées), true = ne montre que
+  // l'occupation des soins (interventions) — remplace l'ancien raccourci
+  // "Voir les nuitées".
+  const [soinsMode, setSoinsMode] = useState(false);
 
   const { theme: C } = useDisplayMode();
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
@@ -114,7 +119,7 @@ export default function VisitorCalendarScreen() {
             const iso = toISO(day);
             const dayConfig = getConfigForDate(iso) ?? slotConfig;
             const daySlots = getSlotsForDate(iso);
-            const status = getDayStatus(reservations, iso, day, dayConfig, daySlots, startDate);
+            const status = getDayStatus(reservations, iso, day, dayConfig, daySlots, startDate, soinsMode ? "Intervention" : "Visite");
             const isToday = toISO(day) === toISO(today);
             const isSelected = toISO(day) === toISO(selectedDay);
             // Un jour déjà passé reste consultable (lecture seule — la
@@ -133,7 +138,9 @@ export default function VisitorCalendarScreen() {
 
             // Cadre vert = visite/nuitée réservée ce jour, violet = créneau
             // bloqué par un intervenant. Priorité au vert si les deux coexistent.
-            const familyBooked = reservations.some((r) => r.date === iso && (r.type === "Visite" || r.type === "Nuit"));
+            // En mode Soins, les visites/nuitées sont masquées : seul le
+            // cadre violet reste pertinent.
+            const familyBooked = !soinsMode && reservations.some((r) => r.date === iso && (r.type === "Visite" || r.type === "Nuit"));
             const interventionBooked = reservations.some((r) => r.date === iso && r.type === "Intervention");
             const frameColor = familyBooked ? LOGO_GREEN : interventionBooked ? LOGO_PURPLE : null;
 
@@ -187,25 +194,21 @@ export default function VisitorCalendarScreen() {
           )}
         </View>
         <View style={[styles.legend, styles.legendRow2]}>
-          {([[LOGO_GREEN, "Mes visites/nuitées"], [LOGO_PURPLE, "Intervenant"]] as [string, string][]).map(
-            ([color, label]) => (
-              <View key={label} style={styles.legendItem}>
-                <View style={[styles.legendFrame, { borderColor: color }]} />
-                <Text style={[styles.legendLabel, { color: C.muted }]}>{label}</Text>
-              </View>
-            ),
-          )}
+          {(soinsMode
+            ? [[LOGO_PURPLE, "Soin"]]
+            : [[LOGO_GREEN, "Mes visites/nuitées"], [LOGO_PURPLE, "Intervenant"]]
+          ).map(([color, label]) => (
+            <View key={label} style={styles.legendItem}>
+              <View style={[styles.legendFrame, { borderColor: color }]} />
+              <Text style={[styles.legendLabel, { color: C.muted }]}>{label}</Text>
+            </View>
+          ))}
         </View>
 
-        {/* Les nuitées n'apparaissent plus dans le calendrier — leur propre écran */}
-        {slotConfig.night_enabled && (
-          <TouchableOpacity
-            style={[styles.nightsBtn, { borderColor: C.gold }]}
-            onPress={() => router.navigate("/(visitor)/home/nights")}
-            activeOpacity={0.8}
-          >
-            <Text style={[styles.nightsBtnText, { color: C.gold }]}>🌙 Voir les nuitées</Text>
-          </TouchableOpacity>
+        {space.intervenants_enabled && (
+          <View style={{ marginTop: 12 }}>
+            <SegmentedSwitch value={soinsMode} onChange={setSoinsMode} leftLabel="Visites" rightLabel="Soins" C={C} />
+          </View>
         )}
 
         {space.intervenants_enabled && (

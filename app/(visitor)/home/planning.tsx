@@ -41,7 +41,7 @@ export default function VisitorPlanningScreen() {
   const interventionDates = new Set(reservations.filter((r) => r.type === "Intervention").map((r) => r.date));
   const dayConfig = getConfigForDate(iso) ?? slotConfig;
   const daySlots = getSlotsForDate(iso);
-  const dayStatus = dayConfig ? getDayStatus(reservations, iso, selectedDay, dayConfig, daySlots, startDate) : "empty";
+  const dayStatus = dayConfig ? getDayStatus(reservations, iso, selectedDay, dayConfig, daySlots, startDate, "Intervention") : "empty";
 
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>

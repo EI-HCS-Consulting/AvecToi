@@ -73,7 +73,7 @@ export default function WeeklyPlanningGrid({
         const iso = toISO(day);
         const config = getConfigForDate(iso) ?? slotConfig;
         const daySlots = getSlotsForDate(iso);
-        const status = getDayStatus(reservations, iso, day, config, daySlots, startDate);
+        const status = getDayStatus(reservations, iso, day, config, daySlots, startDate, "Intervention");
 
         return (
           <DaySlotGrid
