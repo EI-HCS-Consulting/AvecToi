@@ -4,7 +4,6 @@ import type { Theme } from "@/lib/themes";
 import type { Reservation, SlotConfig } from "@/lib/types";
 import { toISO, toFrLong, toFrShort, addDays, getMonday, getDayStatus } from "@/lib/slotUtils";
 import MiniCalendar from "@/components/MiniCalendar";
-import SegmentedSwitch from "@/components/SegmentedSwitch";
 import WeeklyPlanningGrid from "@/components/WeeklyPlanningGrid";
 import PlanningLegend from "@/components/PlanningLegend";
 import DaySlotGrid from "@/components/DaySlotGrid";
@@ -15,7 +14,10 @@ import SlotOccupantsModal, { type SelectedSlot } from "@/components/SlotOccupant
 // aux visiteurs simples, voir home/calendar.tsx) par une vue Mensuel/Hebdo
 // embarquée (même schéma que home/planning.tsx), avec la liste du jour
 // filtrée aux seuls soins de CET intervenant, plus un historique global
-// anté-chronologique (tous intervenants, planifiés et effectués).
+// anté-chronologique (tous intervenants, planifiés et effectués). Le switch
+// Mensuel/Hebdo lui-même vit désormais en haut de home/calendar.tsx (à la
+// place du bouton "Prochaine disponibilité") — piloté ici via la prop
+// planningView pour éviter un second bouton redondant dans la page.
 interface Props {
   C: Theme;
   slotConfig: SlotConfig;
@@ -24,10 +26,11 @@ interface Props {
   getConfigForDate: (iso: string) => SlotConfig | null;
   startDate: Date;
   intervenantProfileId: string;
+  planningView: "mensuel" | "hebdo";
 }
 
 export default function IntervenantPlanningPanel({
-  C, slotConfig, reservations, getSlotsForDate, getConfigForDate, startDate, intervenantProfileId,
+  C, slotConfig, reservations, getSlotsForDate, getConfigForDate, startDate, intervenantProfileId, planningView,
 }: Props) {
   const [selectedDay, setSelectedDay] = useState<Date>(() => {
     const d = new Date();
@@ -35,7 +38,6 @@ export default function IntervenantPlanningPanel({
     return d;
   });
   const [calMonth, setCalMonth] = useState(() => ({ year: selectedDay.getFullYear(), month: selectedDay.getMonth() }));
-  const [planningView, setPlanningView] = useState<"mensuel" | "hebdo">("mensuel");
   const [weekAnchor, setWeekAnchor] = useState(() => getMonday(new Date()));
   const [selectedSlot, setSelectedSlot] = useState<SelectedSlot | null>(null);
 
@@ -61,16 +63,6 @@ export default function IntervenantPlanningPanel({
   return (
     <View>
       <Text style={[styles.sectionTitle, { color: C.gold }]}>Mon planning</Text>
-      <View style={{ marginBottom: 14 }}>
-        <SegmentedSwitch
-          value={planningView === "hebdo"}
-          onChange={(v) => setPlanningView(v ? "hebdo" : "mensuel")}
-          leftLabel="Mensuel"
-          rightLabel="Hebdo"
-          C={C}
-          minWidthRatio={0.5}
-        />
-      </View>
 
       {planningView === "hebdo" ? (
         <WeeklyPlanningGrid

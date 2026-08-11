@@ -31,6 +31,10 @@ export default function VisitorCalendarScreen() {
   // assigné à LUI précisément — voir home/slots.tsx pour role/intervenantProfileId.
   const [role, setRole] = useState<"visiteur" | "intervenant" | null>(null);
   const [intervenantProfileId, setIntervenantProfileId] = useState<string | null>(null);
+  // Côté intervenant, remplace le bouton "Prochaine disponibilité" (celui-ci
+  // reste affiché aux visiteurs simples) par ce switch, qui pilote aussi la
+  // vue mensuel/hebdo d'IntervenantPlanningPanel plus bas dans la page.
+  const [planningView, setPlanningView] = useState<"mensuel" | "hebdo">("mensuel");
   useEffect(() => {
     getVisitorSession().then((s) => {
       setRole(s?.role ?? "visiteur");
@@ -87,15 +91,28 @@ export default function VisitorCalendarScreen() {
       <SpaceHeader space={space} active="calendar" basePath="/(visitor)/home" C={C} />
 
       <ScrollView contentContainerStyle={styles.scroll}>
-        <TouchableOpacity
-          style={[styles.nextDispoBtn, { backgroundColor: C.accent }]}
-          onPress={handleNextDispo}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.nextDispoText}>⚡ Prochaine disponibilité</Text>
-        </TouchableOpacity>
+        {role === "intervenant" ? (
+          <View style={{ marginBottom: 12 }}>
+            <SegmentedSwitch
+              value={planningView === "hebdo"}
+              onChange={(v) => setPlanningView(v ? "hebdo" : "mensuel")}
+              leftLabel="Mensuel"
+              rightLabel="Hebdo"
+              C={C}
+              minWidthRatio={0.5}
+            />
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={[styles.nextDispoBtn, { backgroundColor: C.accent }]}
+            onPress={handleNextDispo}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.nextDispoText}>⚡ Prochaine disponibilité</Text>
+          </TouchableOpacity>
+        )}
 
-        {/* Month nav */}
+        {/* Month nav — affichage du calendrier commun, inchangé pour tous les rôles */}
         <View style={styles.monthNav}>
           <TouchableOpacity
             onPress={() => setCalMonth((m) => {
@@ -255,6 +272,7 @@ export default function VisitorCalendarScreen() {
               getConfigForDate={getConfigForDate}
               startDate={startDate}
               intervenantProfileId={intervenantProfileId}
+              planningView={planningView}
             />
           </View>
         )}
