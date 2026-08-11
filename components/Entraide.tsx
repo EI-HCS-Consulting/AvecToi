@@ -1819,7 +1819,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           activeOpacity={0.8}
         >
           <Text style={styles.checklistBannerIcon}>✨</Text>
-          <Text style={[styles.checklistBannerText, { color: C.text }]}>Ajoute une checklist toute prête</Text>
+          <Text style={[styles.checklistBannerText, { color: C.text }]}>Ajoute une checklist</Text>
           <Text style={[styles.checklistBannerArrow, { color: C.gold }]}>→</Text>
         </TouchableOpacity>
       )}
@@ -1884,7 +1884,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           </Text>
           <Text style={[styles.emptyHint, { color: C.muted }]}>
             {isAdmin && activeCat === "administratif"
-              ? "Ajoute une checklist toute prête juste au-dessus, ou crée un besoin."
+              ? "Ajoute une checklist juste au-dessus, ou crée un besoin."
               : "Crée un besoin si tu as besoin d'aide."}
           </Text>
         </View>
@@ -1949,11 +1949,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
                   {fCat === "administratif" && !editTask && (
                     <TouchableOpacity
-                      style={[styles.btnSecondary, { borderColor: C.gold, alignSelf: "stretch", marginBottom: 14 }]}
                       onPress={openChecklistFromForm}
                       activeOpacity={0.8}
+                      style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.gold, alignItems: "center", justifyContent: "center", marginBottom: 14 }}
                     >
-                      <Text style={[styles.btnSecondaryText, { color: C.gold }]}>🗂️ Créer une checklist</Text>
+                      <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.gold }}>🗂️ Créer une checklist</Text>
                     </TouchableOpacity>
                   )}
 
@@ -2242,11 +2242,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               Choisis la situation qui correspond — tu pourras décocher ce qui ne s'applique pas avant d'ajouter.
             </Text>
             <TouchableOpacity
-              style={[styles.btnSecondary, { borderColor: C.gold, alignSelf: "stretch", marginBottom: 14 }]}
               onPress={openCustomChecklistModal}
               activeOpacity={0.8}
+              style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.gold, alignItems: "center", justifyContent: "center", marginBottom: 14 }}
             >
-              <Text style={[styles.btnSecondaryText, { color: C.gold }]}>+ Créer une nouvelle checklist</Text>
+              <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.gold }}>+ Créer une nouvelle checklist</Text>
             </TouchableOpacity>
             {(Object.keys(CHECKLIST_TEMPLATES) as ChecklistContext[]).map((ctx) => {
               const tpl = CHECKLIST_TEMPLATES[ctx];
