@@ -576,7 +576,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
           onPress={() => setCreateModal(true)}
           activeOpacity={0.8}
         >
-          <Text style={[styles.btnSecondaryText, { color: C.gold }]}>+ Créer une checklist</Text>
+          <Text style={[styles.btnSecondaryText, { color: C.gold }]}>+ Créer une checklist privée</Text>
         </TouchableOpacity>
 
         {canUseTemplates && (
@@ -621,9 +621,9 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
         <View style={styles.overlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !creatingChecklist && setCreateModal(false)} />
           <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.gold }]}>
-            <Text style={[styles.sheetTitle, { color: C.text }]}>📋 Créer une checklist</Text>
+            <Text style={[styles.sheetTitle, { color: C.text }]}>📋 Créer une checklist privée</Text>
             <Text style={[styles.intro, { color: C.muted }]}>
-              Donne-lui un nom, puis ajoute ses premiers items.
+              Cette checklist est privée : elle n'est visible que par toi. Donne-lui un nom, puis ajoute ses premiers items.
             </Text>
             <TextInput
               style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 0 }]}
@@ -757,7 +757,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
           <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.gold }]}>
             <Text style={[styles.sheetTitle, { color: C.text }]}>✨ Checklists suggérées</Text>
             <Text style={[styles.intro, { color: C.muted }]}>
-              Choisis la situation qui correspond — tu pourras décocher ce qui ne s'applique pas avant d'importer.
+              Choisis la situation qui correspond — les items importés rejoignent ta checklist privée, visible de toi seul. Tu pourras décocher ce qui ne s'applique pas avant d'importer.
             </Text>
             {(Object.keys(CHECKLIST_TEMPLATES) as ChecklistContext[]).map((ctx) => {
               const tpl = CHECKLIST_TEMPLATES[ctx];

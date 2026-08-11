@@ -1819,7 +1819,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           activeOpacity={0.8}
         >
           <Text style={styles.checklistBannerIcon}>✨</Text>
-          <Text style={[styles.checklistBannerText, { color: C.text }]}>Ajoute une checklist</Text>
+          <Text style={[styles.checklistBannerText, { color: C.text }]}>Ajoute une checklist publique</Text>
           <Text style={[styles.checklistBannerArrow, { color: C.gold }]}>→</Text>
         </TouchableOpacity>
       )}
@@ -1884,7 +1884,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           </Text>
           <Text style={[styles.emptyHint, { color: C.muted }]}>
             {isAdmin && activeCat === "administratif"
-              ? "Ajoute une checklist juste au-dessus, ou crée un besoin."
+              ? "Ajoute une checklist publique juste au-dessus, ou crée un besoin."
               : "Crée un besoin si tu as besoin d'aide."}
           </Text>
         </View>
@@ -3283,7 +3283,7 @@ const styles = StyleSheet.create({
   // Checklists administratives suggérées (MVP)
   checklistBanner: { flexDirection: "row", alignItems: "center", gap: 10, marginHorizontal: 14, marginTop: 10, borderWidth: 1, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14 },
   checklistBannerIcon: { fontSize: 18 },
-  checklistBannerText: { flex: 1, fontFamily: "DM_Sans_600SemiBold", fontSize: 13.5 },
+  checklistBannerText: { flex: 1, fontFamily: "DM_Sans_600SemiBold", fontSize: 13.5, textAlign: "center" },
   checklistBannerArrow: { fontFamily: "DM_Sans_700Bold", fontSize: 16 },
   checklistIntro: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 18, marginBottom: 14 },
   checklistCard: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1.5, borderRadius: 14, padding: 14, marginBottom: 10 },
