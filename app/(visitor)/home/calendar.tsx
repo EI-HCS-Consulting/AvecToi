@@ -92,7 +92,11 @@ export default function VisitorCalendarScreen() {
 
       <ScrollView contentContainerStyle={styles.scroll}>
         {role === "intervenant" ? (
-          <View style={{ marginBottom: 12 }}>
+          // Bloc sans titre regroupant les 2 switches (Mensuel/Hebdo +
+          // Visites/Soins) juste sous le header, au-dessus du bloc planning —
+          // remplace les deux emplacements séparés précédents (l'un ici, l'autre
+          // après la grille mensuelle) pour donner une vue d'ensemble immédiate.
+          <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginBottom: 14 }]}>
             <SegmentedSwitch
               value={planningView === "hebdo"}
               onChange={(v) => setPlanningView(v ? "hebdo" : "mensuel")}
@@ -101,6 +105,14 @@ export default function VisitorCalendarScreen() {
               C={C}
               minWidthRatio={0.5}
             />
+            {space.intervenants_enabled && (
+              <View>
+                <Text style={[styles.viewModeLabel, { color: C.text }]}>
+                  Vue {soinsMode ? "Soins" : "Visites"}
+                </Text>
+                <SegmentedSwitch value={soinsMode} onChange={setSoinsMode} leftLabel="Visites" rightLabel="Soins" C={C} minWidthRatio={0.55} />
+              </View>
+            )}
           </View>
         ) : (
           <TouchableOpacity
@@ -112,7 +124,12 @@ export default function VisitorCalendarScreen() {
           </TouchableOpacity>
         )}
 
-        {/* Month nav — affichage du calendrier commun, inchangé pour tous les rôles */}
+        {/* Bloc planning — grille mensuelle familiale, commune à tous les
+            rôles. Côté intervenant en vue Hebdo, elle cède la place à la
+            WeeklyPlanningGrid affichée plus bas par IntervenantPlanningPanel
+            (comme côté Admin, un seul bloc planning visible à la fois). */}
+        {!(role === "intervenant" && planningView === "hebdo") && (
+        <>
         <View style={styles.monthNav}>
           <TouchableOpacity
             onPress={() => setCalMonth((m) => {
@@ -242,8 +259,14 @@ export default function VisitorCalendarScreen() {
             <Text style={[styles.legendLabel, { color: C.muted }]}>{soinsMode ? "Soin" : "Intervenant"}</Text>
           </View>
         </View>
+        </>
+        )}
 
-        {space.intervenants_enabled && (
+        {/* Vue Visites/Soins : regroupée avec le switch Mensuel/Hebdo en haut
+            de page côté intervenant (voir bloc sans titre ci-dessus) — reste
+            ici à sa place d'origine pour le rôle visiteur, qui n'a pas ce
+            second switch. */}
+        {space.intervenants_enabled && role !== "intervenant" && (
           <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 12 }]}>
             <Text style={[styles.viewModeLabel, { color: C.text }]}>
               Vue {soinsMode ? "Soins" : "Visites"}
