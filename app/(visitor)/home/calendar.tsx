@@ -1,24 +1,29 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import {
   View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, Modal,
 } from "react-native";
 import { useVisitorSpace } from "@/lib/VisitorContext";
 import {
-  getDayStatus, findNextAvailableSlot, getDaysInMonth,
-  toISO, toFrLong, addDays,
+  getDayStatus, findNextAvailableSlot, getDaysInMonth, getMonday,
+  toISO, toFrLong,
 } from "@/lib/slotUtils";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { getVisitorSession } from "@/lib/visitorSession";
 import { LOGO_GREEN, LOGO_PURPLE } from "@/lib/themes";
 import SpaceHeader from "@/components/SpaceHeader";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
+import WeekStrip from "@/components/WeekStrip";
+import VisitorSlotsList from "@/components/VisitorSlotsList";
+import SoinsDayDetail from "@/components/SoinsDayDetail";
 import IntervenantPlanningPanel from "@/components/IntervenantPlanningPanel";
+import BookingFlow, { type BookingFlowHandle } from "@/components/BookingFlow";
+import InterventionBookingFlow, { type InterventionBookingFlowHandle } from "@/components/InterventionBookingFlow";
 import { useRouter } from "expo-router";
 
 const DAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
 
 export default function VisitorCalendarScreen() {
-  const { space, slotConfig, slots, reservations, selectedDay, setSelectedDay, setPendingBookingSlot, getConfigForDate, getSlotsForDate } = useVisitorSpace();
+  const { space, slotConfig, slots, reservations, selectedDay, setSelectedDay, setPendingBookingSlot, token, refreshReservations, getConfigForDate, getSlotsForDate } = useVisitorSpace();
   const router = useRouter();
   const [nextDispoModal, setNextDispoModal] = useState<{ date: Date; iso: string; slot: string } | null>(null);
   const [blockedDayModal, setBlockedDayModal] = useState<Date | null>(null);
@@ -31,14 +36,17 @@ export default function VisitorCalendarScreen() {
   // assigné à LUI précisément — voir home/slots.tsx pour role/intervenantProfileId.
   const [role, setRole] = useState<"visiteur" | "intervenant" | null>(null);
   const [intervenantProfileId, setIntervenantProfileId] = useState<string | null>(null);
-  // Côté intervenant, remplace le bouton "Prochaine disponibilité" (celui-ci
-  // reste affiché aux visiteurs simples) par ce switch, qui pilote aussi la
-  // vue mensuel/hebdo d'IntervenantPlanningPanel plus bas dans la page.
+  const [myPin, setMyPin] = useState<string | null>(null);
+  // Mensuel/Hebdo — commun aux 3 rôles désormais. En Hebdo, une bande de 7
+  // jours (WeekStrip) remplace la grille mensuelle et permet de réserver
+  // directement un créneau du jour sélectionné (D), sans passer par l'écran
+  // dédié (home/slots.tsx), qui reste accessible en Mensuel (tap sur un jour).
   const [planningView, setPlanningView] = useState<"mensuel" | "hebdo">("mensuel");
   useEffect(() => {
     getVisitorSession().then((s) => {
       setRole(s?.role ?? "visiteur");
       setIntervenantProfileId(s?.intervenantProfileId ?? null);
+      setMyPin(s?.pin ?? null);
     });
   }, []);
 
@@ -51,6 +59,10 @@ export default function VisitorCalendarScreen() {
   const initialDay = useMemo(() => (today >= startDate ? today : startDate), [today, startDate]);
 
   const [calMonth, setCalMonth] = useState({ year: initialDay.getFullYear(), month: initialDay.getMonth() });
+  const [weekAnchor, setWeekAnchor] = useState(() => getMonday(initialDay));
+
+  const flowRef = useRef<BookingFlowHandle>(null);
+  const interventionFlowRef = useRef<InterventionBookingFlowHandle>(null);
 
   const monthDays = getDaysInMonth(calMonth.year, calMonth.month);
   const firstDow = (new Date(calMonth.year, calMonth.month, 1).getDay() + 6) % 7;
@@ -86,35 +98,44 @@ export default function VisitorCalendarScreen() {
 
   if (!space || !slotConfig) return null;
 
+  // Marqueurs hospitalisation (F) / sortie (G) et seuil de grisage/réservation
+  // (E) de la vue Hebdo — au format "YYYY-MM-DD", comparables directement aux
+  // iso des jours de la bande.
+  const admissionIso = space.patient_admission_date;
+  const dischargeIso = space.patient_discharge_date;
+
+  const selectedIso = toISO(selectedDay);
+  const selectedDayConfig = getConfigForDate(selectedIso) ?? slotConfig;
+  const selectedDaySlots = getSlotsForDate(selectedIso);
+  // Un jour antérieur à la date d'hospitalisation reste consultable dans la
+  // bande Hebdo, juste non réservable (E) — les jours déjà passés le sont
+  // aussi via les vérifications existantes de VisitorSlotsList/BookingFlow.
+  const weekDayBookable = !admissionIso || selectedIso >= admissionIso;
+
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
       <SpaceHeader space={space} active="calendar" basePath="/(visitor)/home" C={C} />
 
       <ScrollView contentContainerStyle={styles.scroll}>
-        {role === "intervenant" ? (
-          // Bloc sans titre regroupant les 2 switches (Mensuel/Hebdo +
-          // Visites/Soins) juste sous le header, au-dessus du bloc planning —
-          // remplace les deux emplacements séparés précédents (l'un ici, l'autre
-          // après la grille mensuelle) pour donner une vue d'ensemble immédiate.
-          <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginBottom: 14 }]}>
-            <SegmentedSwitch
-              value={planningView === "hebdo"}
-              onChange={(v) => setPlanningView(v ? "hebdo" : "mensuel")}
-              leftLabel="Mensuel"
-              rightLabel="Hebdo"
-              C={C}
-              minWidthRatio={0.5}
-            />
-            {space.intervenants_enabled && (
-              <View>
-                <Text style={[styles.viewModeLabel, { color: C.text }]}>
-                  Vue {soinsMode ? "Soins" : "Visites"}
-                </Text>
-                <SegmentedSwitch value={soinsMode} onChange={setSoinsMode} leftLabel="Visites" rightLabel="Soins" C={C} minWidthRatio={0.55} />
-              </View>
-            )}
-          </View>
-        ) : (
+        {/* Bloc sans titre regroupant les 2 switches (Mensuel/Hebdo +
+            Visites/Soins) juste sous le header, commun aux 3 rôles. */}
+        <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginBottom: 14 }]}>
+          <SegmentedSwitch
+            value={planningView === "hebdo"}
+            onChange={(v) => setPlanningView(v ? "hebdo" : "mensuel")}
+            leftLabel="Mensuel"
+            rightLabel="Hebdo"
+            C={C}
+            minWidthRatio={0.5}
+          />
+          {space.intervenants_enabled && (
+            <SegmentedSwitch value={soinsMode} onChange={setSoinsMode} leftLabel="Visites" rightLabel="Soins" C={C} minWidthRatio={0.55} />
+          )}
+        </View>
+
+        {/* "Prochaine disponibilité" reste réservé aux visiteurs (l'intervenant
+            n'a pas besoin de chercher un créneau libre côté famille). */}
+        {role !== "intervenant" && (
           <TouchableOpacity
             style={[styles.nextDispoBtn, { backgroundColor: C.accent }]}
             onPress={handleNextDispo}
@@ -124,11 +145,7 @@ export default function VisitorCalendarScreen() {
           </TouchableOpacity>
         )}
 
-        {/* Bloc planning — grille mensuelle familiale, commune à tous les
-            rôles. Côté intervenant en vue Hebdo, elle cède la place à la
-            WeeklyPlanningGrid affichée plus bas par IntervenantPlanningPanel
-            (comme côté Admin, un seul bloc planning visible à la fois). */}
-        {!(role === "intervenant" && planningView === "hebdo") && (
+        {planningView === "mensuel" ? (
         <>
         <View style={styles.monthNav}>
           <TouchableOpacity
@@ -260,19 +277,72 @@ export default function VisitorCalendarScreen() {
           </View>
         </View>
         </>
-        )}
+        ) : (
+        <>
+        {/* Vue Hebdo (D) — bande de 7 jours commune aux 3 rôles, avec
+            marqueurs hospitalisation/sortie (F/G) et grisage avant la date
+            d'hospitalisation (E). Le détail du jour sélectionné juste en
+            dessous permet de réserver directement un créneau (soin pour un
+            intervenant, visite pour un visiteur/admin en mode Visites) sans
+            quitter la page. */}
+        <WeekStrip
+          C={C}
+          slotConfig={slotConfig}
+          reservations={reservations}
+          getSlotsForDate={getSlotsForDate}
+          getConfigForDate={getConfigForDate}
+          startDate={startDate}
+          weekAnchor={weekAnchor}
+          onWeekChange={setWeekAnchor}
+          selectedIso={selectedIso}
+          onSelectDay={(iso) => setSelectedDay(new Date(iso + "T00:00:00"))}
+          soinsMode={soinsMode}
+          role={role}
+          intervenantProfileId={intervenantProfileId}
+          admissionIso={admissionIso}
+          dischargeIso={dischargeIso}
+        />
 
-        {/* Vue Visites/Soins : regroupée avec le switch Mensuel/Hebdo en haut
-            de page côté intervenant (voir bloc sans titre ci-dessus) — reste
-            ici à sa place d'origine pour le rôle visiteur, qui n'a pas ce
-            second switch. */}
-        {space.intervenants_enabled && role !== "intervenant" && (
-          <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 12 }]}>
-            <Text style={[styles.viewModeLabel, { color: C.text }]}>
-              Vue {soinsMode ? "Soins" : "Visites"}
-            </Text>
-            <SegmentedSwitch value={soinsMode} onChange={setSoinsMode} leftLabel="Visites" rightLabel="Soins" C={C} minWidthRatio={0.55} />
-          </View>
+        <Text style={[styles.weekDayTitle, { color: C.text }]}>{toFrLong(selectedDay)}</Text>
+
+        {role === "intervenant" ? (
+          <VisitorSlotsList
+            iso={selectedIso}
+            C={C}
+            role={role}
+            intervenantProfileId={intervenantProfileId}
+            myPin={myPin}
+            bookable={weekDayBookable}
+            onReserveVisit={() => {}}
+            onEditVisit={() => {}}
+            onReserveIntervention={(iso, slot) => interventionFlowRef.current?.openBooking(iso, slot)}
+            onCancelIntervention={(r) => interventionFlowRef.current?.openCancel(r)}
+          />
+        ) : soinsMode ? (
+          <SoinsDayDetail
+            C={C}
+            iso={selectedIso}
+            day={selectedDay}
+            config={selectedDayConfig}
+            daySlots={selectedDaySlots}
+            reservations={reservations}
+            status={getDayStatus(reservations, selectedIso, selectedDay, selectedDayConfig, selectedDaySlots, startDate, "Intervention")}
+          />
+        ) : (
+          <VisitorSlotsList
+            iso={selectedIso}
+            C={C}
+            role={role}
+            intervenantProfileId={intervenantProfileId}
+            myPin={myPin}
+            bookable={weekDayBookable}
+            onReserveVisit={(iso, slot) => flowRef.current?.openBooking(iso, slot)}
+            onEditVisit={(r) => flowRef.current?.openPinModal(r)}
+            onReserveIntervention={() => {}}
+            onCancelIntervention={() => {}}
+          />
+        )}
+        </>
         )}
 
         {space.intervenants_enabled && role === "visiteur" && (
@@ -285,21 +355,41 @@ export default function VisitorCalendarScreen() {
           </TouchableOpacity>
         )}
 
-        {space.intervenants_enabled && role === "intervenant" && !!intervenantProfileId && (
+        {role === "intervenant" && (
           <View style={{ marginTop: 16 }}>
-            <IntervenantPlanningPanel
-              C={C}
-              slotConfig={slotConfig}
-              reservations={reservations}
-              getSlotsForDate={getSlotsForDate}
-              getConfigForDate={getConfigForDate}
-              startDate={startDate}
-              intervenantProfileId={intervenantProfileId}
-              planningView={planningView}
-            />
+            <IntervenantPlanningPanel C={C} reservations={reservations} />
           </View>
         )}
       </ScrollView>
+
+      <BookingFlow
+        ref={flowRef}
+        type="Visite"
+        space={space}
+        slotConfig={slotConfig}
+        slots={slots}
+        reservations={reservations}
+        startDate={startDate}
+        token={token}
+        refreshReservations={refreshReservations}
+        homeCalendarPath="/(visitor)/home/calendar"
+        C={C}
+      />
+
+      {role === "intervenant" && intervenantProfileId && myPin && (
+        <InterventionBookingFlow
+          ref={interventionFlowRef}
+          space={space}
+          slotConfig={slotConfig}
+          slots={slots}
+          reservations={reservations}
+          intervenantProfileId={intervenantProfileId}
+          pin={myPin}
+          refreshReservations={refreshReservations}
+          homeCalendarPath="/(visitor)/home/calendar"
+          C={C}
+        />
+      )}
 
       {/* ── MODAL PROCHAINE DISPONIBILITÉ ──────────────────────────────────── */}
       <Modal transparent visible={!!nextDispoModal} animationType="fade" onRequestClose={() => setNextDispoModal(null)}>
@@ -344,7 +434,7 @@ export default function VisitorCalendarScreen() {
               </Text>
             ) : (
               <Text style={[styles.modalMeta, { color: C.muted, marginTop: 4 }]}>
-                Aucune visite n'est possible ce jour-là.
+                Aucune visite n&apos;est possible ce jour-là.
               </Text>
             )}
             <TouchableOpacity
@@ -392,8 +482,9 @@ const styles = StyleSheet.create({
   legendStripeBar: { position: "absolute", left: 0, right: 0, bottom: 0, height: 3 },
   legendLabel: { fontFamily: "DM_Sans_400Regular", fontSize: 11 },
 
-  card: { borderWidth: 1, borderRadius: 14, padding: 16, gap: 10 },
-  viewModeLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15 },
+  card: { borderWidth: 1, borderRadius: 14, padding: 16, gap: 6 },
+
+  weekDayTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 16, textTransform: "capitalize", textAlign: "center", marginBottom: 10 },
 
   nightsBtn: { borderWidth: 1, borderRadius: 10, paddingVertical: 9, alignItems: "center", marginTop: 10 },
   nightsBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },

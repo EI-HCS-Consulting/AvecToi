@@ -1,0 +1,163 @@
+import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
+import { useVisitorSpace } from "@/lib/VisitorContext";
+import { getSlotOccupancy, getInterventionOverlap, isSlotFullyPast } from "@/lib/slotUtils";
+import type { Reservation } from "@/lib/types";
+import type { Theme } from "@/lib/themes";
+
+// Liste des créneaux horaires "Visite" du jour, côté visiteur/intervenant —
+// extraite de app/(visitor)/home/slots.tsx pour être réutilisée telle quelle
+// par la vue Hebdo du calendrier (app/(visitor)/home/calendar.tsx), qui
+// affiche le détail du jour sélectionné dans la bande de 7 jours au lieu de
+// sa propre page. Pulls `reservations`/`getConfigForDate`/`getSlotsForDate`
+// from context directly to keep the parent component's JSX uncluttered.
+// Limité aux créneaux "Visite"/"Intervention" — la nuitée garde son propre
+// écran (home/nights.tsx), non concernée par la réservation depuis la bande
+// Hebdo.
+export default function VisitorSlotsList({
+  iso, C, role, intervenantProfileId, myPin, bookable = true, onReserveVisit, onEditVisit, onReserveIntervention, onCancelIntervention,
+}: {
+  iso: string;
+  C: Theme;
+  role: "visiteur" | "intervenant" | null;
+  intervenantProfileId: string | null;
+  myPin: string | null;
+  // Faux uniquement pour un jour antérieur à la date d'hospitalisation, vue
+  // Hebdo du calendrier (E) — le jour reste consultable, seule la
+  // réservation est masquée (Modifier/Annuler restent visibles).
+  bookable?: boolean;
+  onReserveVisit: (iso: string, slot: string) => void;
+  onEditVisit: (r: Reservation) => void;
+  onReserveIntervention: (iso: string, slot: string) => void;
+  onCancelIntervention: (r: Reservation) => void;
+}) {
+  const { reservations, getConfigForDate, getSlotsForDate } = useVisitorSpace();
+  const dayConfig = getConfigForDate(iso);
+  const allDaySlots = getSlotsForDate(iso);
+  if (!dayConfig) return null;
+
+  const isMine = (r: Reservation) => !!myPin && r.pin === myPin;
+
+  // Mode "1 visite / jour" : même filtrage que app/(visitor)/home/slots.tsx.
+  const dayVisitBooking = dayConfig.one_visit_per_day
+    ? reservations.find((r) => r.type === "Visite" && r.date === iso && r.alert_type !== "day_cap_suspended")
+    : undefined;
+  const daySlots = dayVisitBooking ? allDaySlots.filter((s) => s === dayVisitBooking.creneau) : allDaySlots;
+
+  return (
+    <>
+      {daySlots.map((slot) => {
+        const occ = getSlotOccupancy(reservations, iso, slot);
+        const full = occ.length >= dayConfig.max_visitors_per_slot;
+        const past = isSlotFullyPast(iso, slot);
+        const mine = occ.find(isMine);
+        const intervention = getInterventionOverlap(reservations, iso, slot, dayConfig.slot_duration_minutes);
+        const myInterventionHere = intervention && role === "intervenant" && intervention.intervenant_profile_id === intervenantProfileId;
+
+        return (
+          <View
+            key={slot}
+            style={[
+              styles.slotCard,
+              {
+                backgroundColor: C.card,
+                borderColor: intervention ? C.orange : full ? "rgba(233,69,96,0.3)" : C.border,
+                opacity: past ? 0.5 : 1,
+              },
+            ]}
+          >
+            <View style={styles.slotLeft}>
+              <Text style={[styles.slotTime, { color: C.gold }]}>{slot}</Text>
+              <Text style={[styles.slotCount, { color: C.muted }]}>{occ.length}/{dayConfig.max_visitors_per_slot} inscrits</Text>
+              {occ.length === 0
+                ? <Text style={[styles.slotEmpty, { color: C.muted }]}>——</Text>
+                : occ.map((r) => (
+                  <View key={r.id} style={styles.visitorRow}>
+                    <Text style={[styles.visitorName, { color: C.success }]}>● {r.prenom} {r.nom}</Text>
+                  </View>
+                ))
+              }
+              {intervention && (
+                <View style={[styles.interventionBanner, { backgroundColor: "rgba(249,115,22,0.12)", borderColor: C.orange }]}>
+                  <Text style={[styles.interventionText, { color: C.orange }]}>
+                    🩺 {intervention.intervention_label} ({intervention.duration_minutes} min) — prioritaire sur les visites
+                  </Text>
+                </View>
+              )}
+              {mine?.alert_message && !mine.alert_seen && (
+                <View style={[styles.alertBanner, { backgroundColor: "rgba(233,69,96,0.12)", borderColor: "rgba(233,69,96,0.4)" }]}>
+                  <Text style={[styles.alertText, { color: C.danger }]}>{mine.alert_message}</Text>
+                </View>
+              )}
+            </View>
+            <View style={styles.slotRight}>
+              {role === "intervenant" ? (
+                <>
+                  {myInterventionHere && !past && (
+                    <TouchableOpacity
+                      onPress={() => onCancelIntervention(intervention!)}
+                      style={[styles.editBtn, { borderColor: C.border }]}
+                    >
+                      <Text style={[styles.editBtnText, { color: C.muted }]}>Annuler</Text>
+                    </TouchableOpacity>
+                  )}
+                  {!intervention && !past && bookable && (
+                    <TouchableOpacity
+                      style={[styles.reserveBtn, { backgroundColor: C.orange }]}
+                      onPress={() => onReserveIntervention(iso, slot)}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={styles.reserveBtnText}>Réserver</Text>
+                    </TouchableOpacity>
+                  )}
+                </>
+              ) : (
+                <>
+                  {!full && !past && !intervention && bookable && (
+                    <TouchableOpacity
+                      style={[styles.reserveBtn, { backgroundColor: C.accent }]}
+                      onPress={() => onReserveVisit(iso, slot)}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={styles.reserveBtnText}>Réserver</Text>
+                    </TouchableOpacity>
+                  )}
+                  {(full || intervention) && !past && (
+                    <View style={[styles.fullBadge, { borderColor: C.border }]}>
+                      <Text style={[styles.fullBadgeText, { color: C.muted }]}>{intervention ? "Bloqué" : "Complet"}</Text>
+                    </View>
+                  )}
+                  {mine && !past && (
+                    <TouchableOpacity onPress={() => onEditVisit(mine)} style={[styles.editBtn, { borderColor: C.border }]}>
+                      <Text style={[styles.editBtnText, { color: C.muted }]}>Modifier</Text>
+                    </TouchableOpacity>
+                  )}
+                </>
+              )}
+            </View>
+          </View>
+        );
+      })}
+    </>
+  );
+}
+
+const styles = StyleSheet.create({
+  slotCard: { borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 10, flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" },
+  slotLeft: { flex: 1 },
+  slotRight: { alignItems: "center", gap: 8 },
+  slotTime: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 22 },
+  slotCount: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 2 },
+  slotEmpty: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginTop: 4 },
+  visitorRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
+  visitorName: { fontFamily: "DM_Sans_400Regular", fontSize: 13, flex: 1 },
+  alertBanner: { borderWidth: 1, borderRadius: 8, padding: 8, marginTop: 8 },
+  alertText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, lineHeight: 16 },
+  interventionBanner: { borderWidth: 1, borderRadius: 8, padding: 8, marginTop: 8 },
+  interventionText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11.5, lineHeight: 15 },
+  editBtn: { borderWidth: 1, borderRadius: 7, paddingVertical: 6, paddingHorizontal: 10 },
+  editBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
+  reserveBtn: { borderRadius: 8, paddingHorizontal: 14, paddingVertical: 9, alignSelf: "center" },
+  reserveBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 13, color: "#fff" },
+  fullBadge: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 9 },
+  fullBadgeText: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
+});
