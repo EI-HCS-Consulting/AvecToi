@@ -5,7 +5,8 @@ import { getVisitorSession } from "@/lib/visitorSession";
 import SpaceHeader from "@/components/SpaceHeader";
 import BookingFlow, { type BookingFlowHandle } from "@/components/BookingFlow";
 import InterventionBookingFlow, { type InterventionBookingFlowHandle } from "@/components/InterventionBookingFlow";
-import { getSlotOccupancy, getNightReservation, getInterventionOverlap, isReservationDatePast, isSlotFullyPast, toISO, toFrLong, toFrShort, addDays, nightStartSlot, nightRangeLabel } from "@/lib/slotUtils";
+import VisitorSlotsList from "@/components/VisitorSlotsList";
+import { getNightReservation, isReservationDatePast, isSlotFullyPast, toISO, toFrLong, toFrShort, addDays, nightStartSlot, nightRangeLabel } from "@/lib/slotUtils";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import type { Reservation, SlotConfig } from "@/lib/types";
 
@@ -13,7 +14,7 @@ import type { Reservation, SlotConfig } from "@/lib/types";
 // a son propre écran (home/nights.tsx). La logique de réservation/PIN/édition
 // elle-même vit dans components/BookingFlow.tsx, partagée entre les deux.
 export default function SlotsScreen() {
-  const { space, slotConfig, slots, reservations, selectedDay, setSelectedDay, refreshReservations, token, pendingBookingSlot, setPendingBookingSlot, pendingEditReservationId, setPendingEditReservationId, getConfigForDate, getSlotsForDate } = useVisitorSpace();
+  const { space, slotConfig, slots, reservations, selectedDay, setSelectedDay, refreshReservations, token, pendingBookingSlot, setPendingBookingSlot, pendingEditReservationId, setPendingEditReservationId, getConfigForDate } = useVisitorSpace();
   const { theme: C } = useDisplayMode();
   const flowRef = useRef<BookingFlowHandle>(null);
   const nightFlowRef = useRef<BookingFlowHandle>(null);
@@ -106,17 +107,6 @@ export default function SlotsScreen() {
 
   const iso = toISO(selectedDay);
   const dayConfig = getConfigForDate(iso) ?? slotConfig;
-  const allDaySlots = getSlotsForDate(iso);
-  // Mode "1 visite / jour" : une fois qu'un créneau "Visite" est réservé ce
-  // jour-là, tous les autres disparaissent de la liste — pour tout le monde,
-  // y compris l'auteur de la réservation (qui garde la main pour la déplacer
-  // via "Modifier", dont le sélecteur interne à BookingFlow.tsx n'est pas
-  // concerné par ce filtrage). Les "Nuit"/"Intervention" ne sont pas soumis
-  // à ce mode (voir check_slot_capacity côté serveur).
-  const dayVisitBooking = dayConfig.one_visit_per_day
-    ? reservations.find((r) => r.type === "Visite" && r.date === iso && r.alert_type !== "day_cap_suspended")
-    : undefined;
-  const daySlots = dayVisitBooking ? allDaySlots.filter((s) => s === dayVisitBooking.creneau) : allDaySlots;
 
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
@@ -145,101 +135,17 @@ export default function SlotsScreen() {
         </View>
 
         {/* Slots */}
-        {daySlots.map((slot) => {
-          const occ = getSlotOccupancy(reservations, iso, slot);
-          const full = occ.length >= dayConfig.max_visitors_per_slot;
-          const past = isSlotFullyPast(iso, slot);
-          const mine = occ.find(isMine);
-          // Intervention (infirmier·ère, kiné, aide à domicile…) prioritaire
-          // sur les visites — voir lib/slotUtils.ts. Bloque la réservation
-          // visiteur sur ce créneau, distinguée par un bandeau coloré.
-          const intervention = getInterventionOverlap(reservations, iso, slot, dayConfig.slot_duration_minutes);
-          const myInterventionHere = intervention && role === "intervenant" && intervention.intervenant_profile_id === intervenantProfileId;
-
-          return (
-            <View
-              key={slot}
-              style={[
-                styles.slotCard,
-                {
-                  backgroundColor: C.card,
-                  borderColor: intervention ? C.orange : full ? "rgba(233,69,96,0.3)" : C.border,
-                  opacity: past ? 0.5 : 1,
-                },
-              ]}
-            >
-              <View style={styles.slotLeft}>
-                <Text style={[styles.slotTime, { color: C.gold }]}>{slot}</Text>
-                <Text style={[styles.slotCount, { color: C.muted }]}>{occ.length}/{dayConfig.max_visitors_per_slot} inscrits</Text>
-                {occ.length === 0
-                  ? <Text style={[styles.slotEmpty, { color: C.muted }]}>——</Text>
-                  : occ.map((r) => (
-                    <View key={r.id} style={styles.visitorRow}>
-                      <Text style={[styles.visitorName, { color: C.success }]}>● {r.prenom} {r.nom}</Text>
-                    </View>
-                  ))
-                }
-                {intervention && (
-                  <View style={[styles.interventionBanner, { backgroundColor: "rgba(249,115,22,0.12)", borderColor: C.orange }]}>
-                    <Text style={[styles.interventionText, { color: C.orange }]}>
-                      🩺 {intervention.intervention_label} ({intervention.duration_minutes} min) — prioritaire sur les visites
-                    </Text>
-                  </View>
-                )}
-                {mine?.alert_message && !mine.alert_seen && (
-                  <View style={[styles.alertBanner, { backgroundColor: "rgba(233,69,96,0.12)", borderColor: "rgba(233,69,96,0.4)" }]}>
-                    <Text style={[styles.alertText, { color: C.danger }]}>{mine.alert_message}</Text>
-                  </View>
-                )}
-              </View>
-              <View style={styles.slotRight}>
-                {role === "intervenant" ? (
-                  <>
-                    {myInterventionHere && !past && (
-                      <TouchableOpacity
-                        onPress={() => interventionFlowRef.current?.openCancel(intervention!)}
-                        style={[styles.editBtn, { borderColor: C.border }]}
-                      >
-                        <Text style={[styles.editBtnText, { color: C.muted }]}>Annuler</Text>
-                      </TouchableOpacity>
-                    )}
-                    {!intervention && !past && (
-                      <TouchableOpacity
-                        style={[styles.reserveBtn, { backgroundColor: C.orange }]}
-                        onPress={() => interventionFlowRef.current?.openBooking(iso, slot)}
-                        activeOpacity={0.85}
-                      >
-                        <Text style={styles.reserveBtnText}>Réserver</Text>
-                      </TouchableOpacity>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    {!full && !past && !intervention && (
-                      <TouchableOpacity
-                        style={[styles.reserveBtn, { backgroundColor: C.accent }]}
-                        onPress={() => flowRef.current?.openBooking(iso, slot)}
-                        activeOpacity={0.85}
-                      >
-                        <Text style={styles.reserveBtnText}>Réserver</Text>
-                      </TouchableOpacity>
-                    )}
-                    {(full || intervention) && !past && (
-                      <View style={[styles.fullBadge, { borderColor: C.border }]}>
-                        <Text style={[styles.fullBadgeText, { color: C.muted }]}>{intervention ? "Bloqué" : "Complet"}</Text>
-                      </View>
-                    )}
-                    {mine && !past && (
-                      <TouchableOpacity onPress={() => flowRef.current?.openPinModal(mine)} style={[styles.editBtn, { borderColor: C.border }]}>
-                        <Text style={[styles.editBtnText, { color: C.muted }]}>Modifier</Text>
-                      </TouchableOpacity>
-                    )}
-                  </>
-                )}
-              </View>
-            </View>
-          );
-        })}
+        <VisitorSlotsList
+          iso={iso}
+          C={C}
+          role={role}
+          intervenantProfileId={intervenantProfileId}
+          myPin={myPin}
+          onReserveVisit={(slotIso, slot) => flowRef.current?.openBooking(slotIso, slot)}
+          onEditVisit={(r) => flowRef.current?.openPinModal(r)}
+          onReserveIntervention={(slotIso, slot) => interventionFlowRef.current?.openBooking(slotIso, slot)}
+          onCancelIntervention={(r) => interventionFlowRef.current?.openCancel(r)}
+        />
 
         {/* Nuitée du jour — ajoutée à la fin de la liste des créneaux, même
             écran et même interaction que les créneaux "Visite" (Lot demandé
@@ -355,10 +261,6 @@ const styles = StyleSheet.create({
   slotEmpty: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginTop: 4 },
   visitorRow: { flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 },
   visitorName: { fontFamily: "DM_Sans_400Regular", fontSize: 13, flex: 1 },
-  alertBanner: { borderWidth: 1, borderRadius: 8, padding: 8, marginTop: 8 },
-  alertText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, lineHeight: 16 },
-  interventionBanner: { borderWidth: 1, borderRadius: 8, padding: 8, marginTop: 8 },
-  interventionText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11.5, lineHeight: 15 },
   editBtn: { borderWidth: 1, borderRadius: 7, paddingVertical: 6, paddingHorizontal: 10 },
   editBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
   reserveBtn: { borderRadius: 8, paddingHorizontal: 14, paddingVertical: 9, alignSelf: "center" },

@@ -1,20 +1,29 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, Modal } from "react-native";
 import { useRouter } from "expo-router";
 import { useSpace } from "@/lib/SpaceContext";
+import { supabase } from "@/lib/supabase";
 import {
-  getDayStatus, findNextAvailableSlot, getDaysInMonth, toISO, toFrLong,
+  getDayStatus, findNextAvailableSlot, getDaysInMonth, getMonday, toISO, toFrLong,
 } from "@/lib/slotUtils";
+import { deleteLinkedCalendarEvent } from "@/lib/calendarSync";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { LOGO_GREEN, LOGO_PURPLE } from "@/lib/themes";
 import SpaceHeader from "@/components/SpaceHeader";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
+import WeekStrip from "@/components/WeekStrip";
+import AdminSlotsList from "@/components/AdminSlotsList";
+import SoinsDayDetail from "@/components/SoinsDayDetail";
+import AdminAddReservation, { type AdminAddReservationHandle } from "@/components/AdminAddReservation";
+import AdminEditReservation, { type AdminEditReservationHandle } from "@/components/AdminEditReservation";
+import DeleteReservationConfirm, { type DeleteReservationConfirmHandle } from "@/components/DeleteReservationConfirm";
 import { isSpaceCapped } from "@/lib/freemiumCap";
+import type { Reservation } from "@/lib/types";
 
 const DAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
 
 export default function AdminCalendarScreen() {
-  const { space, slotConfig, slots, reservations, loading, hasSpace, selectedDay, setSelectedDay, setPendingBookingSlot, getConfigForDate, getSlotsForDate } = useSpace();
+  const { space, slotConfig, slots, reservations, loading, hasSpace, selectedDay, setSelectedDay, setPendingBookingSlot, refreshReservations, getConfigForDate, getSlotsForDate } = useSpace();
   const router = useRouter();
   const { theme: C } = useDisplayMode();
   const [nextDispoModal, setNextDispoModal] = useState<{ date: Date; iso: string; slot: string } | null>(null);
@@ -24,6 +33,15 @@ export default function AdminCalendarScreen() {
   // "Voir les nuitées" (toujours accessible depuis Mes réservations / le
   // détail d'un jour).
   const [soinsMode, setSoinsMode] = useState(false);
+  // Mensuel/Hebdo — la vue Hebdo permet de réserver directement un créneau
+  // du jour sélectionné (D) sans passer par l'écran dédié (home/slots.tsx),
+  // qui reste accessible en Mensuel (tap sur un jour).
+  const [planningView, setPlanningView] = useState<"mensuel" | "hebdo">("mensuel");
+  const [toast, setToast] = useState("");
+  function showToast(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(""), 3000);
+  }
 
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
   const startDate = useMemo(
@@ -33,6 +51,11 @@ export default function AdminCalendarScreen() {
   const initialDay = useMemo(() => (today >= startDate ? today : startDate), [today, startDate]);
 
   const [calMonth, setCalMonth] = useState({ year: initialDay.getFullYear(), month: initialDay.getMonth() });
+  const [weekAnchor, setWeekAnchor] = useState(() => getMonday(initialDay));
+
+  const addRef = useRef<AdminAddReservationHandle>(null);
+  const editRef = useRef<AdminEditReservationHandle>(null);
+  const deleteRef = useRef<DeleteReservationConfirmHandle>(null);
 
   function handleNextDispo() {
     if (!slotConfig) return;
@@ -68,6 +91,21 @@ export default function AdminCalendarScreen() {
     router.navigate("/(admin)/home/slots");
   }
 
+  function handleDeleteResa(r: Reservation) {
+    deleteRef.current?.open(r);
+  }
+
+  async function handleConfirmDelete(ids: string[]) {
+    const { error, count } = await supabase.from("reservations").delete({ count: "exact" }).in("id", ids);
+    if (error || count !== ids.length) {
+      showToast("Erreur : suppression non enregistrée en base.");
+      return;
+    }
+    await deleteLinkedCalendarEvent(ids[0]);
+    await refreshReservations();
+    showToast(ids.length > 1 ? "Réservations supprimées ✓" : "Réservation supprimée ✓");
+  }
+
   if (loading) return null;
 
   if (!hasSpace || !space || !slotConfig) {
@@ -84,11 +122,43 @@ export default function AdminCalendarScreen() {
   const monthName = new Date(calMonth.year, calMonth.month, 1)
     .toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
 
+  // Marqueurs hospitalisation (F) / sortie (G) et seuil de grisage/réservation
+  // (E) de la vue Hebdo — au format "YYYY-MM-DD", comparables directement aux
+  // iso des jours de la bande.
+  const admissionIso = space.patient_admission_date;
+  const dischargeIso = space.patient_discharge_date;
+
+  const capped = isSpaceCapped(space, reservations);
+  const selectedIso = toISO(selectedDay);
+  const selectedDayConfig = getConfigForDate(selectedIso) ?? slotConfig;
+  const selectedDaySlots = getSlotsForDate(selectedIso);
+  const selectedDayIsPast = selectedIso < toISO(today);
+  // Un jour antérieur à la date d'hospitalisation reste consultable dans la
+  // bande Hebdo, juste non réservable (E) — les jours déjà passés le sont
+  // aussi via dayIsPast/slotPast, déjà gérés par AdminSlotsList.
+  const weekDayBookable = !admissionIso || selectedIso >= admissionIso;
+
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
       <SpaceHeader space={space} active="calendar" basePath="/(admin)/home" C={C} />
 
       <ScrollView contentContainerStyle={styles.scroll}>
+        {/* Bloc sans titre regroupant les 2 switches (Mensuel/Hebdo +
+            Visites/Soins) juste sous le header. */}
+        <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginBottom: 14 }]}>
+          <SegmentedSwitch
+            value={planningView === "hebdo"}
+            onChange={(v) => setPlanningView(v ? "hebdo" : "mensuel")}
+            leftLabel="Mensuel"
+            rightLabel="Hebdo"
+            C={C}
+            minWidthRatio={0.5}
+          />
+          {space.intervenants_enabled && (
+            <SegmentedSwitch value={soinsMode} onChange={setSoinsMode} leftLabel="Visites" rightLabel="Soins" C={C} minWidthRatio={0.55} />
+          )}
+        </View>
+
         <TouchableOpacity
           style={[styles.nextDispoBtn, { backgroundColor: C.accent }]}
           onPress={handleNextDispo}
@@ -97,6 +167,8 @@ export default function AdminCalendarScreen() {
           <Text style={styles.nextDispoText}>⚡ Prochaine disponibilité</Text>
         </TouchableOpacity>
 
+        {planningView === "mensuel" ? (
+        <>
         <View style={styles.monthNav}>
           <TouchableOpacity
             onPress={() => setCalMonth((m) => {
@@ -214,16 +286,91 @@ export default function AdminCalendarScreen() {
             <Text style={[styles.legendLabel, { color: C.muted }]}>{soinsMode ? "Soin" : "Intervenant"}</Text>
           </View>
         </View>
+        </>
+        ) : (
+        <>
+        {/* Vue Hebdo (D) — bande de 7 jours avec marqueurs hospitalisation/
+            sortie (F/G) et grisage avant la date d'hospitalisation (E). Le
+            détail du jour sélectionné juste en dessous permet d'ajouter
+            directement une réservation (visite) sans quitter la page ; en
+            mode Soins, lecture seule (c'est à l'intervenant de gérer son
+            propre planning). */}
+        <WeekStrip
+          C={C}
+          slotConfig={slotConfig}
+          reservations={reservations}
+          getSlotsForDate={getSlotsForDate}
+          getConfigForDate={getConfigForDate}
+          startDate={startDate}
+          weekAnchor={weekAnchor}
+          onWeekChange={setWeekAnchor}
+          selectedIso={selectedIso}
+          onSelectDay={(iso) => setSelectedDay(new Date(iso + "T00:00:00"))}
+          soinsMode={soinsMode}
+          role={null}
+          intervenantProfileId={null}
+          admissionIso={admissionIso}
+          dischargeIso={dischargeIso}
+        />
 
-        {space.intervenants_enabled && (
-          <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 12 }]}>
-            <Text style={[styles.viewModeLabel, { color: C.text }]}>
-              Vue {soinsMode ? "Soins" : "Visites"}
-            </Text>
-            <SegmentedSwitch value={soinsMode} onChange={setSoinsMode} leftLabel="Visites" rightLabel="Soins" C={C} minWidthRatio={0.55} />
-          </View>
+        <Text style={[styles.weekDayTitle, { color: C.text }]}>{toFrLong(selectedDay)}</Text>
+
+        {soinsMode ? (
+          <SoinsDayDetail
+            C={C}
+            iso={selectedIso}
+            day={selectedDay}
+            config={selectedDayConfig}
+            daySlots={selectedDaySlots}
+            reservations={reservations}
+            status={getDayStatus(reservations, selectedIso, selectedDay, selectedDayConfig, selectedDaySlots, startDate, "Intervention")}
+          />
+        ) : (
+          <AdminSlotsList
+            iso={selectedIso}
+            reservations={reservations}
+            C={C}
+            dayIsPast={selectedDayIsPast}
+            capped={capped}
+            bookable={weekDayBookable}
+            onAdd={(slot, maxAdditional) => addRef.current?.open(selectedIso, slot, "Visite", maxAdditional)}
+            onEdit={(r) => editRef.current?.open(r)}
+            onAckAlert={async (rs) => { await supabase.from("reservations").update({ alert_seen: true }).in("id", rs.map((r) => r.id)); await refreshReservations(); }}
+          />
+        )}
+        </>
         )}
       </ScrollView>
+
+      <AdminAddReservation
+        ref={addRef}
+        spaceId={space.id}
+        space={space}
+        slotConfig={slotConfig}
+        reservations={reservations}
+        onAdded={async () => { await refreshReservations(); showToast("Réservation ajoutée ✓"); }}
+        C={C}
+      />
+
+      <AdminEditReservation
+        ref={editRef}
+        onSaved={async () => { await refreshReservations(); showToast("Réservation modifiée ✓"); }}
+        onDelete={handleDeleteResa}
+        C={C}
+      />
+
+      <DeleteReservationConfirm
+        ref={deleteRef}
+        reservations={reservations}
+        onConfirm={handleConfirmDelete}
+        C={C}
+      />
+
+      {!!toast && (
+        <View style={[styles.toast, { backgroundColor: C.success }]}>
+          <Text style={styles.toastText}>{toast}</Text>
+        </View>
+      )}
 
       {/* ── MODAL PROCHAINE DISPONIBILITÉ ──────────────────────────────────── */}
       <Modal transparent visible={!!nextDispoModal} animationType="fade" onRequestClose={() => setNextDispoModal(null)}>
@@ -268,7 +415,7 @@ export default function AdminCalendarScreen() {
               </Text>
             ) : (
               <Text style={[styles.modalMeta, { color: C.muted, marginTop: 4 }]}>
-                Aucune visite n'est possible ce jour-là.
+                Aucune visite n&apos;est possible ce jour-là.
               </Text>
             )}
             <TouchableOpacity style={[styles.modalBtnSecondary, { flex: 0, borderColor: C.border, width: "100%", marginTop: 16 }]} onPress={() => setBlockedDayModal(null)}>
@@ -309,9 +456,12 @@ const styles = StyleSheet.create({
   legendStripeBar: { position: "absolute", left: 0, right: 0, bottom: 0, height: 3 },
   legendLabel: { fontFamily: "DM_Sans_400Regular", fontSize: 11 },
 
-  card: { borderWidth: 1, borderRadius: 14, padding: 16, gap: 10 },
-  viewModeLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15 },
+  card: { borderWidth: 1, borderRadius: 14, padding: 16, gap: 6 },
 
+  weekDayTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 16, textTransform: "capitalize", textAlign: "center", marginBottom: 10 },
+
+  toast: { position: "absolute", bottom: 24, alignSelf: "center", paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10 },
+  toastText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13, color: "#fff" },
 
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center", padding: 20 },
   modal: { width: "100%", maxWidth: 340, borderRadius: 16, borderWidth: 1, padding: 24, alignItems: "center" },
