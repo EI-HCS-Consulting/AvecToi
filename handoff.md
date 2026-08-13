@@ -1,75 +1,140 @@
 # Handoff — AvecToi
-_Généré le : 2026-07-04 16:39_
+_Généré le : 2026-08-14_
 
 ## 1. Objectif de la session
-Implémenter le plan approuvé `dossier_code + cap freemium (8 visites) + PIN visiteur` (le chantier "migration Supabase Auth visiteur" avait été abandonné en amont, cf. `HANDOFF_migration_auth.md` conservé comme trace historique), puis déployer l'infra Supabase correspondante, et enfin traiter une amélioration UI signalée par l'utilisateur sur la galerie Souvenirs.
 
-État "done" :
-- Code app + migrations SQL écrits, `tsc --noEmit` propre.
-- Migrations exécutées en prod (SQL Editor Supabase), Edge Function `notify-cap-reached` déployée, secrets `CRON_SECRET`/`RESEND_API_KEY` configurés.
-- Popup caméra/galerie de Souvenirs remplacé par une bottom-sheet cohérente avec le design de l'app.
-- Vérification manuelle end-to-end (checklist du plan) **pas encore faite** — reste à la charge de l'utilisateur.
+Suite d'itérations sur l'écran calendrier visiteur (`app/(visitor)/home/calendar.tsx`),
+demandées au fil de l'eau après retours utilisateur sur build de dev :
+
+1. **Round A (PR #174)** : la bande verte "mes créneaux" d'un intervenant pouvait
+   s'afficher sur le soin d'un **autre** intervenant partageant le même PIN à 4
+   chiffres (PIN choisi librement, pas garanti unique dans un espace) → identifier
+   un soin via `intervenant_profile_id` (fiable, unique par fiche) plutôt que le
+   PIN seul. Au passage : calendrier repositionné avant les blocs de réglages,
+   tri anté-chronologique des listes "à venir" du panneau perso, panneau
+   intervenant qui bascule Soins/Visites avec le switch du calendrier.
+2. **Round B (PR #175)** : repasser le switch Mensuel/Hebdo seul avant le
+   calendrier, ajouter le bouton "Afficher mes créneaux" sous le switch
+   Visites/Soins (puisqu'eux seuls règlent l'affichage qui suit), masquer le
+   détail du jour sélectionné sous la bande Hebdo (même comportement qu'en
+   Mensuel : un tap navigue vers l'écran dédié des créneaux au lieu d'afficher
+   inline).
+3. **Round C (PR #176)** : dissocier le bloc à 2 switchs — Mensuel/Hebdo seul
+   avant le calendrier, Visites/Soins regroupé avec "Afficher mes créneaux"
+   dans un même bloc (bouton sous le switch). Corriger le fait que le
+   panneau perso visiteur (`MesVisitesPanel`, titres figés) ne suivait pas le
+   switch Visites/Soins → remplacé par `IntervenantPlanningPanel` (déjà
+   piloté par `soinsMode`) pour tous les rôles, ce qui fait aussi basculer les
+   titres "Visites planifiées"/"Soins planifiés" et "Historique des
+   visites"/"Historique des soins". Renommage "Visites à venir" →
+   "Visites planifiées". Correction d'un 2ᵉ cas de bande verte erronée : cette
+   fois sur une visite/nuitée d'un **visiteur** partageant le même PIN qu'un
+   autre visiteur (le PIN n'a pas d'équivalent `intervenant_profile_id` côté
+   visiteur) → `isMyReservation` exige désormais aussi la correspondance
+   prénom+nom de la session quand elle est disponible.
+
+État "done" — tout est mergé sur `main`, vérifié par l'utilisateur au fil des
+rounds ("mergé" confirmé après chaque PR) :
+- PR #174, #175, #176 : les 3 rounds ci-dessus, mergés sur `main`.
 
 ## 2. État actuel
 
-**Ce qui fonctionne déjà (implémenté + déployé) :**
-- `dossier_code` : colonne ajoutée, génération à l'onboarding + lazy backfill dans `ShareSpace.tsx`, entrée par code dans `visitor-entry.tsx` (en plus du lien/token existant).
-- Changement de PIN sécurisé dans "Mon compte" visiteur (vérif ancien PIN → nouveau → confirmation), `PinPad` a une prop `readOnly`.
-- Cap freemium à 8 réservations "Visite" par espace, appliqué **serveur** via triggers Postgres (`check_visite_cap` BEFORE INSERT, `notify_cap_reached` AFTER INSERT) car `reservations` n'a aucune RLS — comble le trou qui rendait l'admin non soumis au cap. Blocage total écrans admin (calendrier/créneaux/nuitées) et visiteur (tous les onglets sauf "Compte", qui reste volontairement accessible) via `lib/freemiumCap.ts` + `CapBlockScreen.tsx`.
-- Email admin "cap atteint" envoyé une seule fois (garanti par `UPDATE ... WHERE cap_email_sent_at IS NULL` + `GET DIAGNOSTICS`), via nouvelle Edge Function `notify-cap-reached` (calque de `rgpd-purge`/`notify-cancel`), lien externe `https://avectoi.care/upgrade` (placeholder, cf. §4).
-- Infra déployée : migrations SQL lancées dans le SQL Editor, `supabase functions deploy notify-cap-reached` fait, secrets `CRON_SECRET` (déjà existant) et `RESEND_API_KEY` (nouvellement configuré par l'utilisateur) confirmés présents via `supabase secrets list`.
-- Auth admin (Supabase Auth email/mdp) auditée — déjà complète, aucune modif nécessaire.
-- Amélioration UI : dans `components/SouvenirsGallery.tsx`, le choix caméra/galerie utilisait un `Alert.alert` natif du système (incohérent avec le reste de l'app) → remplacé par une bottom-sheet custom (`pickerVisible` state) avec le même style que les autres modales du composant (fond `C.card`, bordure `C.accent`, titre Playfair). Un bug de suivi a été corrigé : le bouton "Annuler" de cette sheet héritait `flex: 1` de `styles.btnSecondary` (pensé pour une rangée à 2 boutons) qui l'écrasait à hauteur quasi nulle en layout colonne → texte invisible. Fixé avec un style dédié `pickerCancel: { flex: 0, alignSelf: "stretch", marginTop: 6 }`.
+**Ce qui fonctionne / est déployé :**
+- Ordre des blocs : bloc "Mensuel/Hebdo" seul, puis bloc "Visites/Soins +
+  Afficher mes créneaux" (switch au-dessus du bouton), puis (visiteurs
+  uniquement) "Prochaine disponibilité", puis le calendrier (Mensuel ou
+  Hebdo selon le switch).
+- Vue Hebdo (`WeekStrip`) : un tap sur un jour navigue vers l'écran dédié des
+  créneaux, exactement comme la grille Mensuel — plus aucun détail inline.
+- Panneau sous le calendrier unifié (`IntervenantPlanningPanel`) pour les 3
+  rôles : titres et filtre basculent avec `soinsMode` ("Visites
+  planifiées"/"Soins planifiés", "Historique des visites"/"Historique des
+  soins"). `MesVisitesPanel.tsx` supprimé (devenu redondant).
+- Bande verte "mes créneaux" fiable dans les deux cas de collision de PIN
+  identifiés : soins (via `intervenant_profile_id`) et visites/nuitées (via
+  PIN + prénom+nom de la session, `isMyReservation` dans `lib/slotUtils.ts`).
 
-**Ce qui est en cours / pas encore fait :**
-- Aucun commit git depuis le housekeeping initial (renommage de branche + conservation de `HANDOFF_migration_auth.md`) — tout le travail de cette session (dossier_code, PIN, cap freemium, fix Souvenirs) est **non commité**, en attente d'une demande explicite de l'utilisateur.
-- Vérification manuelle end-to-end du cap freemium (créer 8 réservations test, vérifier blocage/déblocage réel, vérifier réception de l'email, tester l'entrée par dossier_code) — pas encore faite.
-- Deux points "avant prod" du plan explicitement **mis de côté par décision utilisateur**, pas à traiter maintenant :
-  - Vérifier qu'aucun espace réel n'a déjà dépassé l'ancien seuil de 5 sans email envoyé → utilisateur : "on se fiche d'avoir dépassé les limites pour l'instant".
-  - Remplacer l'URL placeholder `https://avectoi.care/upgrade` → utilisateur : "on verra plus tard, je n'ai aucune idée de comment faire ce chantier".
-- Webhook Stripe pour positionner `premium=true` : confirmé hors scope de ce chantier (la colonne `stripe_payment_id` existe déjà sur `patient_spaces` mais est inutilisée).
-- Multi-patient (plusieurs espaces par admin) : confirmé hors scope V1, schéma déjà compatible (`admin_id` sans contrainte d'unicité).
+**Pas encore vérifié :**
+- Rien en attente de vérification côté utilisateur à ce stade — le dernier
+  "mergé" (PR #176) a été confirmé sans réserve.
 
 **Dernière action effectuée avant ce handoff :**
-Correction du bug de visibilité du bouton "Annuler" dans la nouvelle bottom-sheet de sélection de source photo (`components/SouvenirsGallery.tsx`), suivie d'une vérification `tsc --noEmit` ciblée sur ce fichier (propre).
+Génération de ce handoff, `main` local synchronisé avec `origin/main`
+(fast-forward, PR #176 inclus, commit `73a7b25`).
 
 ## 3. Fichiers concernés
 
-**Modifiés :**
-- `app/(admin)/home/calendar.tsx`, `slots.tsx`, `nights.tsx` → garde `isSpaceCapped` + `CapBlockScreen` ajoutée.
-- `app/(visitor)/_layout.tsx` → masquage des onglets (`href: null`) + redirection vers `/account` quand l'espace est capped.
-- `app/(visitor)/account.tsx` → PIN en lecture seule + modale de changement de PIN sécurisée.
-- `app/auth/visitor-entry.tsx` → nouvelle carte de saisie du `dossier_code`, refactorée pour utiliser `lib/visitorEntry.ts`.
-- `app/invite.tsx` → refactoré pour utiliser `lib/visitorEntry.ts`.
-- `components/AdminAddReservation.tsx` → soumis au cap serveur, mapping `FREEMIUM_CAP_REACHED` → message neutre.
-- `components/BookingFlow.tsx` → cap remonté à 8 via `isSpaceCapped`, mapping `FREEMIUM_CAP_REACHED`.
-- `components/PatientOnboarding.tsx` → génération + retry du `dossier_code` à la création d'espace.
-- `components/PinPad.tsx` → nouvelle prop `readOnly`.
-- `components/ShareSpace.tsx` → affichage/copie du `dossier_code`, backfill paresseux pour les espaces existants.
-- `components/SouvenirsGallery.tsx` → bottom-sheet custom pour le choix caméra/galerie (remplace `Alert.alert`), state `pickerVisible`, fonction `choosePickerSource`, styles `pickerSheet`/`pickerOption`/`pickerOptionIcon`/`pickerOptionText`/`pickerCancel`.
-- `lib/types.ts` → `PatientSpace` : ajout de `dossier_code: string | null` et `cap_email_sent_at: string | null`.
+**Modifiés (PR #174, mergé) :**
+- `app/(visitor)/home/calendar.tsx`, `components/IntervenantPlanningPanel.tsx`,
+  `components/MesVisitesPanel.tsx`, `components/WeekStrip.tsx`,
+  `lib/slotUtils.ts` — bande verte via `intervenant_profile_id`, réordonnancement,
+  tri anté-chronologique.
 
-**Nouveaux :**
-- `components/CapBlockScreen.tsx` → écran neutre de blocage (aucun wording prix/upgrade, conforme reader-app).
-- `lib/dossierCode.ts` → générateur + normaliseur de code dossier.
-- `lib/freemiumCap.ts` → `FREE_VISIT_LIMIT = 8` + `isSpaceCapped()`, source unique de vérité côté client.
-- `lib/visitorEntry.ts` → helper partagé lookup token/dossier_code → session visiteur.
-- `supabase/functions/notify-cap-reached/index.ts` → Edge Function d'email admin, déployée.
-- `supabase/migrations/20260704_dossier_code.sql` → exécutée en prod.
-- `supabase/migrations/20260704_freemium_cap_trigger.sql` → exécutée en prod (avec `<CRON_SECRET>` remplacé par la vraie valeur avant exécution).
+**Modifiés (PR #175, mergé) :**
+- `app/(visitor)/home/calendar.tsx`, `components/WeekStrip.tsx` (nouvelle prop
+  `onDayPress`, distincte de `onSelectDay` qui reste un housekeeping interne),
+  `app/(admin)/home/calendar.tsx` (ajustement minimal pour rester compatible
+  avec la nouvelle prop `onDayPress` requise sur `WeekStrip`, comportement
+  admin inchangé).
 
-**Non modifié mais pertinent :**
-- `HANDOFF_migration_auth.md` (racine) → conservé comme trace historique, committé tel quel.
-- `supabase/functions/rgpd-purge/index.ts`, `notify-cancel/index.ts` → patrons copiés pour `notify-cap-reached`.
+**Modifiés (PR #176, mergé) :**
+- `app/(visitor)/home/calendar.tsx` → split des 2 cartes de réglages,
+  `panelReservations`/`familyBooked` passent `myPrenom`/`myNom`, panneau
+  unifié sur `IntervenantPlanningPanel`.
+- `components/IntervenantPlanningPanel.tsx` → commentaire d'en-tête corrigé
+  (composant commun aux 3 rôles, plus seulement "pour le rôle intervenant").
+- `components/MesVisitesPanel.tsx` → **supprimé** (dernier usage retiré,
+  aucune autre référence dans le repo).
+- `components/WeekStrip.tsx` → props optionnelles `myPrenom`/`myNom`
+  transmises à `isMyReservation`.
+- `lib/slotUtils.ts` → `isMyReservation(r, myPin, intervenantProfileId, myPrenom?, myNom?)` :
+  pour les types `Visite`/`Nuit`, exige en plus prénom+nom quand disponibles.
+
+**Non touché (hors scope, vérifié) :**
+- `app/(admin)/home/calendar.tsx` — écran calendrier admin, architecturalement
+  séparé ; sa logique `familyBooked` (occupation du jour, pas d'identité
+  filtrée) n'appelle pas `isMyReservation` et n'a pas eu besoin d'évoluer au-delà
+  du point PR #175 ci-dessus.
 
 ## 4. Ce qui a échoué / pièges rencontrés
-- **Copier-coller du SQL dans le SQL Editor Supabase** : deux échecs successifs (`syntax error near "nul"` puis `near "get"`) causés par des copier-coller partiels/tronqués — pas un problème du script lui-même. Le SQL Editor Supabase doit recevoir le script **en un seul bloc complet** (sélection entière + Run), jamais ligne par ligne ni par fragment. ⚠️ Si l'utilisateur redemande d'exécuter un script SQL, insister explicitement là-dessus.
-- **`npx expo start` lancé depuis `C:\Windows\System32`** au lieu du dossier projet → `ConfigError`. Cause : terminal PowerShell ouvert sans `cd` préalable vers le repo. Pas un bug du projet.
-- **`HANDOFF_migration_auth.md` a disparu du working tree** alors qu'il était committé (`git status` l'affichait en `D`) — cause exacte non identifiée (pas une action explicite de ma part), restauré via `git checkout HEAD -- HANDOFF_migration_auth.md` sans perte. ⚠️ Si ce fichier disparaît à nouveau, ce n'est pas normal — creuser la cause plutôt que re-restaurer aveuglément.
-- **`btnSecondary` réutilisé tel quel dans un layout colonne** (nouvelle sheet picker Souvenirs) → son `flex: 1` (pensé pour une rangée à 2 boutons) rendait le bouton "Annuler" quasi invisible. Leçon : ne pas réutiliser un style de bouton "de rangée" (`flex:1`) dans un contexte où le bouton est seul en colonne — soit un style dédié, soit override `flex: 0`.
+
+- **PIN à 4 chiffres non garanti unique dans un espace** : racine commune des
+  deux bugs de bande verte (PR #174 pour les soins, PR #176 pour les
+  visites/nuitées). Le PIN est choisi librement par chaque utilisateur et
+  n'est vérifié en unicité que ponctuellement (ré-appairage d'un intervenant
+  existant via prénom+nom). ⚠️ Réflexe à garder pour tout futur filtrage
+  "par identité" dans ce repo : ne jamais se fier au seul PIN, préférer un
+  identifiant de fiche stable (`intervenant_profile_id`) quand il existe, ou
+  ajouter prénom+nom en filtre secondaire quand ce n'est pas le cas (visiteurs,
+  qui n'ont pas de compte/fiche).
+- **Narrowing TypeScript et `function` déclarée vs `const` fléchée** : une
+  garde de nullabilité en début de composant (`if (!space || !slotConfig)
+  return null;`) ne narrowe pas le type à l'intérieur d'une `function`
+  déclarée plus bas (hoisting), mais narrowe correctement dans une expression
+  `const maFonction = (iso: string) => { ... }` définie positionnellement
+  après la garde. ⚠️ Toujours préférer les `const` fléchées pour les helpers
+  internes d'un composant qui dépendent d'un early-return de nullabilité.
+- **Piège d'accolade lors d'un split de bloc JSX** : en séparant le bloc à 2
+  switchs en 2 cartes distinctes (PR #176), une première tentative a englobé
+  par erreur "Afficher mes créneaux", "Prochaine disponibilité" et tout le
+  calendrier à l'intérieur du `{space.intervenants_enabled && (...)}` du 2ᵉ
+  bloc — repéré et corrigé avant commit en relisant le fichier complet après
+  l'édition, pas seulement le diff local de l'edit. ⚠️ Après toute
+  restructuration de JSX imbriqué (ajout/déplacement de `&&` conditionnels),
+  relire la zone entière (pas juste la portion éditée) pour vérifier que les
+  parenthèses/accolades ferment bien là où c'était prévu.
 
 ## 5. Prochaine étape
-1. **Commit** : rien n'est commité depuis le housekeeping initial. Demander confirmation à l'utilisateur avant de committer (règle stricte de la session : jamais de commit sans demande explicite).
-2. **Tests manuels end-to-end** (à faire par l'utilisateur dans l'app, checklist du plan `drifting-inventing-brook.md`) : créer 8 réservations "Visite" → vérifier blocage de la 9ᵉ des deux côtés, réception unique de l'email, blocage écrans admin/visiteur, déblocage instantané via Realtime en basculant `premium=true`, entrée par `dossier_code`, affichage dans `ShareSpace.tsx`.
-3. **Continuer les améliorations UI** demandées au fil de l'eau par l'utilisateur (celle du popup Souvenirs vient d'être traitée) — attendre la prochaine demande.
-4. Points différés explicitement par l'utilisateur, à reprendre plus tard seulement sur sa demande : espaces déjà au-dessus de l'ancien seuil de 5, URL réelle de `https://avectoi.care/upgrade`, webhook Stripe pour `premium`.
+
+1. Pas de tâche en attente à ce stade — attendre la prochaine demande de
+   l'utilisateur.
+2. Fichiers exclus du repo par consigne explicite de session (ne jamais les
+   stager/committer) : `Documentation/Documentation Fonctionnalités.docx`,
+   `AUDIT_RLS_TAILLE_CODE_MORT.md`, `PRD_ClaudeCode_Site_avectoi_care_v3.md`,
+   `eslint.config.js` — pré-existants localement, sans lien avec ce chantier.
+3. Un plan existant (non démarré) attend une éventuelle reprise : refonte de
+   la fiche intervenant en popups enchaînées + gestion des soins en 2 popups
+   (pick → durée), 2ᵉ spécialisation métier — plan détaillé sauvegardé côté
+   outil (`joyful-swimming-snowglobe.md`), à relancer explicitement par
+   l'utilisateur si souhaité (implique une migration SQL à faire exécuter
+   manuellement dans le SQL Editor Supabase).
