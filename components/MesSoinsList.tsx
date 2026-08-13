@@ -12,10 +12,14 @@ import type { Theme } from "@/lib/themes";
 // enregistrer ou supprimer. Voir app/(visitor)/soins.tsx.
 interface Props {
   intervenantProfileId: string;
+  // Clé du métier de l'intervenant (voir lib/metiers.ts) — détermine la
+  // liste de soins suggérés dans SoinFormModal (famille/métier), null si pas
+  // encore renseigné (repli sur la saisie libre uniquement).
+  metier: string | null;
   C: Theme;
 }
 
-export default function MesSoinsList({ intervenantProfileId, C }: Props) {
+export default function MesSoinsList({ intervenantProfileId, metier, C }: Props) {
   const [loading, setLoading] = useState(true);
   const [soins, setSoins] = useState<InterventionType[]>([]);
   const [formTarget, setFormTarget] = useState<InterventionType | null | undefined>(undefined);
@@ -71,6 +75,7 @@ export default function MesSoinsList({ intervenantProfileId, C }: Props) {
         visible={formTarget !== undefined}
         intervenantProfileId={intervenantProfileId}
         soin={formTarget ?? null}
+        metier={metier}
         C={C}
         onClose={closeForm}
         onSaved={async () => { closeForm(); await load(); }}

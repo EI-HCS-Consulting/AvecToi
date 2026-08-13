@@ -12,7 +12,7 @@ import PatientAvatar from "@/components/PatientAvatar";
 import MesSoinsList from "@/components/MesSoinsList";
 import { normalizePhone } from "@/lib/phone";
 import { propagateSoinChange } from "@/lib/interventionTypesSync";
-import { METIERS, metierLabel } from "@/lib/metiers";
+import { FAMILLES, METIERS, metiersByFamille, metierLabel } from "@/lib/metiers";
 import type { Theme } from "@/lib/themes";
 
 // updatedAt bust le cache CDN/<Image> — le fichier est uploadé sous un nom
@@ -539,7 +539,7 @@ export default function IntervenantFicheModal({
                     <>
                       <View style={[styles.separator, { borderTopColor: C.border }]} />
                       <Text style={[styles.metierLabel, { color: C.gold }]}>Mes soins</Text>
-                      <MesSoinsList intervenantProfileId={intervenantProfileId} C={C} />
+                      <MesSoinsList intervenantProfileId={intervenantProfileId} metier={ficheMetier} C={C} />
                     </>
                   )
                 )}
@@ -571,7 +571,29 @@ export default function IntervenantFicheModal({
         <TouchableOpacity activeOpacity={1} style={[styles.pickerCard, { backgroundColor: C.card, borderColor: C.border }]}>
           <Text style={[styles.title, { color: C.text, marginBottom: 12 }]}>Métier / spécialisation</Text>
           <ScrollView style={{ maxHeight: 400 }}>
-            {METIERS.map((m) => {
+            {FAMILLES.map((famille) => (
+              <View key={famille.key} style={{ marginBottom: 14 }}>
+                <View style={styles.familleHeader}>
+                  <Ionicons name={famille.icon} size={14} color={C.muted} />
+                  <Text style={[styles.familleHeaderText, { color: C.muted }]}>{famille.label}</Text>
+                </View>
+                {metiersByFamille(famille.key).map((m) => {
+                  const selected = ficheMetier === m.key;
+                  return (
+                    <TouchableOpacity
+                      key={m.key}
+                      onPress={() => { setFicheMetier(m.key); setMetierPickerOpen(false); }}
+                      activeOpacity={0.8}
+                      style={[styles.pickerRow, { borderColor: selected ? C.accent : "transparent", backgroundColor: selected ? `${C.accent}22` : "transparent" }]}
+                    >
+                      <Ionicons name={m.icon} size={17} color={selected ? C.accent : C.muted} />
+                      <Text style={[styles.pickerRowText, { color: selected ? C.accent : C.text }]}>{m.label}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ))}
+            {METIERS.filter((m) => m.familleKey === null).map((m) => {
               const selected = ficheMetier === m.key;
               return (
                 <TouchableOpacity
@@ -659,6 +681,8 @@ const styles = StyleSheet.create({
   separator: { borderTopWidth: 1, marginVertical: 16 },
   pickerOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "center", alignItems: "center", padding: 24 },
   pickerCard: { width: "100%", maxWidth: 400, maxHeight: "80%", borderRadius: 20, borderWidth: 1, padding: 24 },
+  familleHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6, paddingHorizontal: 2 },
+  familleHeaderText: { fontFamily: "DM_Sans_700Bold", fontSize: 11, letterSpacing: 0.6, textTransform: "uppercase" },
   pickerRow: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 8 },
   pickerRowText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
   removeBtn: {
