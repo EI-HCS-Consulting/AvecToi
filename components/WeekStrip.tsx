@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import type { Theme } from "@/lib/themes";
 import { LOGO_GREEN, LOGO_PURPLE } from "@/lib/themes";
 import type { Reservation, SlotConfig } from "@/lib/types";
-import { addDays, getWeekDates, toISO, getDayStatus } from "@/lib/slotUtils";
+import { addDays, getWeekDates, toISO, getDayStatus, isMyReservation } from "@/lib/slotUtils";
 
 // Bande de 7 jours pour la vue Hebdo du calendrier principal (visiteur/admin/
 // intervenant) — même code visuel que la grille mensuelle (pastille de statut
@@ -96,10 +96,9 @@ export default function WeekStrip({
             status === "full" ? C.danger : status === "partial" ? C.orange : status === "empty" ? C.success : "transparent";
           // Bande verte strictement personnelle (visite/nuitée réservée par
           // MOI, ou soin réservé par MOI si je suis intervenant) — jamais les
-          // réservations d'un autre visiteur/intervenant. Admin (role ===
-          // null) voit toutes les visites/nuitées/soins de l'espace, faute de
-          // PIN personnel.
-          const familyBooked = reservations.some((r) => r.date === iso && (r.type === "Visite" || r.type === "Nuit" || r.type === "Intervention") && (role === null || (!!myPin && r.pin === myPin)));
+          // réservations d'un autre visiteur/intervenant, ni de l'admin (role
+          // === null, sans PIN ni fiche : ne matche jamais isMyReservation).
+          const familyBooked = reservations.some((r) => r.date === iso && isMyReservation(r, myPin, intervenantProfileId));
           const myInterventionToday = role === "intervenant" && !!intervenantProfileId &&
             reservations.some((r) => r.date === iso && r.type === "Intervention" && r.intervenant_profile_id === intervenantProfileId);
           const interventionBooked = reservations.some((r) => r.date === iso && r.type === "Intervention");

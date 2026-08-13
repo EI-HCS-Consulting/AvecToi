@@ -143,6 +143,25 @@ export function isSlotFullyPast(iso: string, slot: string): boolean {
   return isReservationDatePast(iso) || isSlotPast(iso, slot);
 }
 
+// Une réservation "Intervention" est identifiée de façon fiable par
+// intervenant_profile_id (unique par fiche) — contrairement au PIN à 4
+// chiffres, choisi librement par chacun et donc pas garanti unique dans un
+// espace (deux personnes différentes peuvent avoir pris le même code, ce qui
+// faisait apparaître la bande verte d'un intervenant sur les soins d'un
+// autre). Pour une visite/nuitée, aucun identifiant de fiche n'existe (les
+// visiteurs n'ont pas de compte) : le PIN reste alors le seul signal
+// disponible.
+export function isMyReservation(
+  r: Reservation,
+  myPin: string | null,
+  intervenantProfileId: string | null,
+): boolean {
+  if (r.type === "Intervention") {
+    return !!intervenantProfileId && r.intervenant_profile_id === intervenantProfileId;
+  }
+  return !!myPin && r.pin === myPin;
+}
+
 export function getSlotOccupancy(
   reservations: Reservation[],
   iso: string,
