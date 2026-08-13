@@ -41,8 +41,12 @@ interface Props {
   intervenantProfileId: string | null;
   // PIN de la session courante — restreint la bande verte (familyBooked) aux
   // seules réservations de la personne qui regarde, jamais celles d'un autre
-  // membre de la famille ou prises par l'admin en son nom.
+  // membre de la famille ou prises par l'admin en son nom. Prénom/nom
+  // désambiguïsent deux visiteurs ayant choisi le même PIN — voir
+  // isMyReservation (lib/slotUtils.ts).
   myPin: string | null;
+  myPrenom?: string | null;
+  myNom?: string | null;
   // Marqueurs hospitalisation (F) / sortie (G) et seuil de grisage (E) — au
   // format "YYYY-MM-DD" comme PatientSpace.patient_admission_date, ou null si
   // non renseigné côté fiche patient.
@@ -53,7 +57,7 @@ interface Props {
 export default function WeekStrip({
   C, slotConfig, reservations, getSlotsForDate, getConfigForDate, startDate,
   weekAnchor, onWeekChange, selectedIso, onSelectDay, onDayPress, soinsMode, role,
-  intervenantProfileId, myPin, admissionIso, dischargeIso,
+  intervenantProfileId, myPin, myPrenom, myNom, admissionIso, dischargeIso,
 }: Props) {
   const weekDates = getWeekDates(weekAnchor);
   const first = weekDates[0];
@@ -104,7 +108,7 @@ export default function WeekStrip({
           // MOI, ou soin réservé par MOI si je suis intervenant) — jamais les
           // réservations d'un autre visiteur/intervenant, ni de l'admin (role
           // === null, sans PIN ni fiche : ne matche jamais isMyReservation).
-          const familyBooked = reservations.some((r) => r.date === iso && isMyReservation(r, myPin, intervenantProfileId));
+          const familyBooked = reservations.some((r) => r.date === iso && isMyReservation(r, myPin, intervenantProfileId, myPrenom, myNom));
           const myInterventionToday = role === "intervenant" && !!intervenantProfileId &&
             reservations.some((r) => r.date === iso && r.type === "Intervention" && r.intervenant_profile_id === intervenantProfileId);
           const interventionBooked = reservations.some((r) => r.date === iso && r.type === "Intervention");

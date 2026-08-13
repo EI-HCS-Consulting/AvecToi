@@ -14,7 +14,6 @@ import SpaceHeader from "@/components/SpaceHeader";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import WeekStrip from "@/components/WeekStrip";
 import IntervenantPlanningPanel from "@/components/IntervenantPlanningPanel";
-import MesVisitesPanel from "@/components/MesVisitesPanel";
 import BookingFlow, { type BookingFlowHandle } from "@/components/BookingFlow";
 import InterventionBookingFlow, { type InterventionBookingFlowHandle } from "@/components/InterventionBookingFlow";
 import { useRouter } from "expo-router";
@@ -36,6 +35,11 @@ export default function VisitorCalendarScreen() {
   const [role, setRole] = useState<"visiteur" | "intervenant" | null>(null);
   const [intervenantProfileId, setIntervenantProfileId] = useState<string | null>(null);
   const [myPin, setMyPin] = useState<string | null>(null);
+  // Prénom/nom de la session — désambiguïsent deux visiteurs ayant choisi le
+  // même PIN à 4 chiffres (pas garanti unique dans un espace) lors du calcul
+  // de la bande verte "mes créneaux" — voir isMyReservation (lib/slotUtils.ts).
+  const [myPrenom, setMyPrenom] = useState<string | null>(null);
+  const [myNom, setMyNom] = useState<string | null>(null);
   // Mensuel/Hebdo — commun aux 3 rôles désormais. En Hebdo, une bande de 7
   // jours (WeekStrip) remplace la grille mensuelle et permet de réserver
   // directement un créneau du jour sélectionné (D), sans passer par l'écran
@@ -46,10 +50,9 @@ export default function VisitorCalendarScreen() {
   // disponible pour tous les rôles. La grille (pastille, cadre violet, bande
   // verte) affiche TOUJOURS la vérité complète, quel que soit ce réglage —
   // voir familyBooked/interventionBooked plus bas. Son seul effet : filtrer
-  // le panneau perso en dessous du calendrier (IntervenantPlanningPanel pour
-  // un intervenant, MesVisitesPanel pour un visiteur) sur les seules
-  // réservations de LA PERSONNE QUI REGARDE (comparées à son PIN) plutôt que
-  // celles de tout le monde — voir panelReservations.
+  // le panneau perso en dessous du calendrier (IntervenantPlanningPanel,
+  // commun aux 3 rôles) sur les seules réservations de LA PERSONNE QUI
+  // REGARDE plutôt que celles de tout le monde — voir panelReservations.
   // Les 2 switches du bloc de réglages doivent avoir des pastilles de même
   // taille et des libellés alignés à la même position — le switch Visites/
   // Soins reprend la largeur naturelle calculée par Mensuel/Hebdo au lieu
@@ -60,6 +63,8 @@ export default function VisitorCalendarScreen() {
       setRole(s?.role ?? "visiteur");
       setIntervenantProfileId(s?.intervenantProfileId ?? null);
       setMyPin(s?.pin ?? null);
+      setMyPrenom(s?.prenom ?? null);
+      setMyNom(s?.nom ?? null);
     });
   }, []);
 
@@ -122,15 +127,16 @@ export default function VisitorCalendarScreen() {
   // visiteurs, vue Soins = tous les soins de tous les intervenants —
   // "Afficher mes créneaux" ne filtre plus ces éléments, voir plus bas
   // pour son seul effet restant : le panneau perso sous le calendrier
-  // (IntervenantPlanningPanel/MesVisitesPanel), qui s'auto-filtre déjà par
-  // type de réservation — voir isMyReservation (lib/slotUtils.ts) pour le
-  // détail : PIN pour une visite/nuitée, intervenant_profile_id (fiable, pas
-  // de collision possible contrairement au PIN à 4 chiffres) pour un soin.
-  // Tant que l'identité de session n'est pas encore chargée, on retombe sur
-  // la liste complète plutôt que sur un panneau vide le temps du fetch.
+  // (IntervenantPlanningPanel, commun aux 3 rôles), qui s'auto-filtre déjà
+  // par type de réservation selon soinsMode — voir isMyReservation
+  // (lib/slotUtils.ts) pour le détail : PIN + prénom/nom pour une visite/
+  // nuitée, intervenant_profile_id (fiable, pas de collision possible) pour
+  // un soin. Tant que l'identité de session n'est pas encore chargée, on
+  // retombe sur la liste complète plutôt que sur un panneau vide le temps du
+  // fetch.
   const identityReady = !!myPin || !!intervenantProfileId;
   const panelReservations = mesCreneauxOnly && identityReady
-    ? reservations.filter((r) => isMyReservation(r, myPin, intervenantProfileId))
+    ? reservations.filter((r) => isMyReservation(r, myPin, intervenantProfileId, myPrenom, myNom))
     : reservations;
 
   const selectedIso = toISO(selectedDay);
@@ -159,9 +165,8 @@ export default function VisitorCalendarScreen() {
       <SpaceHeader space={space} active="calendar" basePath="/(visitor)/home" C={C} />
 
       <ScrollView contentContainerStyle={styles.scroll}>
-        {/* Bloc sans titre regroupant les 2 switches (Mensuel/Hebdo +
-            Visites/Soins), commun aux 3 rôles — placé avant le calendrier
-            car ce sont eux qui règlent ce qui s'affiche en dessous. */}
+        {/* Switch Mensuel/Hebdo seul — règle uniquement la forme du
+            calendrier juste en dessous, placé avant lui pour ça. */}
         <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginBottom: 14 }]}>
           <SegmentedSwitch
             value={planningView === "hebdo"}
@@ -172,18 +177,22 @@ export default function VisitorCalendarScreen() {
             minWidthRatio={0.5}
             onThumbWidth={setViewThumbWidth}
           />
+        </View>
+
+        {/* Switch Visites/Soins + "Afficher mes créneaux" regroupés dans un
+            même bloc : eux seuls règlent l'affichage qui suit en dessous
+            (pastilles/cadre violet du calendrier et panneau perso). Le
+            bouton est placé sous le switch, disponible pour tous les rôles,
+            commun aux vues Mensuel/Hebdo. Ne filtre que le panneau perso sous
+            le calendrier (voir panelReservations ci-dessus) ; la grille reste
+            toujours une vérité complète. Le switch Visites/Soins n'existe
+            que si les intervenants sont activés dans l'espace ; le bouton
+            "Afficher mes créneaux" reste utile même sans eux (filtre
+            visites/nuitées), donc le bloc reste affiché dans tous les cas. */}
+        <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginBottom: 14 }]}>
           {space.intervenants_enabled && (
             <SegmentedSwitch value={soinsMode} onChange={setSoinsMode} leftLabel="Visites" rightLabel="Soins" C={C} thumbWidth={viewThumbWidth || undefined} />
           )}
-        </View>
-
-        {/* "Afficher mes créneaux" — juste sous le switch Visites/Soins,
-            puisque ces 2 switches règlent ensemble l'affichage qui suit
-            (calendrier + panneau perso). Disponible pour tous les rôles,
-            commun aux vues Mensuel/Hebdo. Ne filtre que le panneau perso sous
-            le calendrier (voir panelReservations ci-dessus) ; la grille reste
-            toujours une vérité complète. */}
-        <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginBottom: 14 }]}>
           <View style={styles.toggleRow}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.toggleLabel, { color: C.text }]}>👁️ Afficher mes créneaux</Text>
@@ -278,7 +287,7 @@ export default function VisitorCalendarScreen() {
             // de la case) — un intervenant voit donc les deux ensemble sur
             // ses propres jours de soin : bande verte (perso) + cadre violet
             // (soin planifié, visible de tous).
-            const familyBooked = reservations.some((r) => r.date === iso && isMyReservation(r, myPin, intervenantProfileId));
+            const familyBooked = reservations.some((r) => r.date === iso && isMyReservation(r, myPin, intervenantProfileId, myPrenom, myNom));
             // Case remplie en violet uniquement pour l'intervenant assigné à
             // CE soin — les autres intervenants (comme les visiteurs/admin)
             // ne voient que le cadre violet ci-dessous.
@@ -374,6 +383,8 @@ export default function VisitorCalendarScreen() {
           role={role}
           intervenantProfileId={intervenantProfileId}
           myPin={myPin}
+          myPrenom={myPrenom}
+          myNom={myNom}
           admissionIso={admissionIso}
           dischargeIso={dischargeIso}
         />
@@ -390,15 +401,9 @@ export default function VisitorCalendarScreen() {
           </TouchableOpacity>
         )}
 
-        {role === "intervenant" ? (
-          <View style={{ marginTop: 16 }}>
-            <IntervenantPlanningPanel C={C} reservations={panelReservations} soinsMode={soinsMode} />
-          </View>
-        ) : (
-          <View style={{ marginTop: 16 }}>
-            <MesVisitesPanel C={C} reservations={panelReservations} />
-          </View>
-        )}
+        <View style={{ marginTop: 16 }}>
+          <IntervenantPlanningPanel C={C} reservations={panelReservations} soinsMode={soinsMode} />
+        </View>
       </ScrollView>
 
       <BookingFlow
