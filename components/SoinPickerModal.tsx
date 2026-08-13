@@ -3,7 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, Modal, ScrollView, StyleSheet 
 import { Ionicons } from "@expo/vector-icons";
 import {
   FAMILLES, METIERS, metiersByFamille, metierByKey,
-  soinsForMetier,
+  soinsForMetier, soinsForMetiers,
 } from "@/lib/metiers";
 import type { MetierSoin } from "@/lib/metiers";
 import type { Theme } from "@/lib/themes";
@@ -19,7 +19,10 @@ import { LOGO_GREEN } from "@/lib/themes";
 // brut sous le champ.
 interface Props {
   visible: boolean;
-  metier: string | null;
+  // Un ou plusieurs métiers (principal + éventuelle 2ᵉ spécialisation) —
+  // une section "Soins de {métier}" par métier valide du catalogue, voir
+  // soinsForMetiers() dans lib/metiers.ts.
+  metiers: (string | null | undefined)[];
   value: string;
   C: Theme;
   onClose: () => void;
@@ -43,7 +46,7 @@ const ALL_SOINS = allCatalogSoins();
 
 type Screen = "main" | "browse-familles" | "browse-metier" | "custom";
 
-export default function SoinPickerModal({ visible, metier, value, C, onClose, onPick }: Props) {
+export default function SoinPickerModal({ visible, metiers, value, C, onClose, onPick }: Props) {
   const [screen, setScreen] = useState<Screen>("main");
   const [browseMetier, setBrowseMetier] = useState<string | null>(null);
   const [browseFamilleOpen, setBrowseFamilleOpen] = useState<string | null>(null);
@@ -58,8 +61,7 @@ export default function SoinPickerModal({ visible, metier, value, C, onClose, on
     setCustomText(value && !known ? value : "");
   }, [visible, value]);
 
-  const ownSoins = soinsForMetier(metier);
-  const metierLabelText = metierByKey(metier)?.label ?? "";
+  const ownSoinsByMetier = soinsForMetiers(metiers);
 
   function pick(label: string) {
     onPick(label);
@@ -85,16 +87,14 @@ export default function SoinPickerModal({ visible, metier, value, C, onClose, on
             <>
               <Text style={[styles.title, { color: C.text }]}>Type d'intervention</Text>
               <ScrollView style={{ maxHeight: 400 }}>
-                {ownSoins.length > 0 && (
-                  <View style={{ marginBottom: 4 }}>
-                    <Text style={[styles.sectionHeader, { color: C.muted }]}>
-                      {metierLabelText ? `Soins de ${metierLabelText}` : "Soins"}
-                    </Text>
-                    {ownSoins.map((s) => (
+                {ownSoinsByMetier.map(({ metier, soins }) => (
+                  <View key={metier.key} style={{ marginBottom: 4 }}>
+                    <Text style={[styles.sectionHeader, { color: C.muted }]}>Soins de {metier.label}</Text>
+                    {soins.map((s) => (
                       <SoinRow key={s.label} soin={s} selected={value === s.label} C={C} onPress={() => pick(s.label)} />
                     ))}
                   </View>
-                )}
+                ))}
                 <AutreRow C={C} onPress={() => setScreen("custom")} />
               </ScrollView>
               <TouchableOpacity onPress={openBrowse} style={[styles.otherSoinsBtn, { borderTopColor: C.border }]}>

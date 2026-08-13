@@ -10,10 +10,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import PatientAvatar from "@/components/PatientAvatar";
 import MesSoinsList from "@/components/MesSoinsList";
+import MetierPickerModal from "@/components/MetierPickerModal";
 import SoinPickerModal from "@/components/SoinPickerModal";
+import SoinDurationModal from "@/components/SoinDurationModal";
 import { normalizePhone } from "@/lib/phone";
 import { propagateSoinChange } from "@/lib/interventionTypesSync";
-import { FAMILLES, METIERS, metiersByFamille, metierLabel } from "@/lib/metiers";
+import { metierLabel } from "@/lib/metiers";
 import type { Theme } from "@/lib/themes";
 import { LOGO_GREEN } from "@/lib/themes";
 
@@ -25,36 +27,13 @@ function intervenantPhotoUrl(filename: string, updatedAt?: string | null) {
   return updatedAt ? `${data.publicUrl}?v=${new Date(updatedAt).getTime()}` : data.publicUrl;
 }
 
-interface TypeRow {
-  // undefined tant que la ligne n'a jamais été sauvegardée (mode edit,
-  // nouvelle ligne ajoutée) — sert à distinguer insert/update/delete au
-  // moment d'enregistrer, sans avoir à tout recréer depuis zéro.
-  id?: string;
-  // Clé stable côté client (= id une fois connu, sinon générée à la
-  // création de la ligne) — sert de `key` React (contrairement à un index de
-  // tableau, qui change quand une ligne du milieu est supprimée).
-  clientKey: string;
-  label: string;
-  duration_minutes: string;
-}
-
-let rowKeySeq = 0;
-function newRowClientKey() {
-  return `row-${Date.now()}-${rowKeySeq++}`;
-}
-
 interface Props {
   visible: boolean;
-  mode: "create" | "edit";
-  spaceId: string;
   prenom: string;
   nom: string;
-  pin: string;
-  intervenantProfileId?: string | null;
+  intervenantProfileId: string;
   theme: Theme;
-  // Uniquement en mode "edit" — le mode "create" est bloquant (première
-  // connexion d'un intervenant, voir app/(visitor)/_layout.tsx).
-  onClose?: () => void;
+  onClose: () => void;
   // Tout ce qui est renvoyé ici est tel qu'enregistré dans
   // intervenant_profiles — l'appelant doit le répercuter sur son propre état
   // (et la session locale via saveVisitorSession) pour rester la source
@@ -70,64 +49,59 @@ interface Props {
   ) => void;
 }
 
-// Fiche intervenant : liste ajoutable/supprimable de types d'intervention
-// (label + durée), rattachée à intervenant_profiles. Utilisé en mode
-// "create" (bloquant, première connexion) et "edit" (depuis Mon compte).
+// Fiche intervenant (édition) — photo, identité, coordonnées, métier
+// principal, 2ᵉ spécialisation optionnelle et liste des soins pratiqués
+// (rattachée à intervenant_profiles). La création (première connexion) est
+// désormais un flux séparé, voir components/IntervenantOnboardingFlow.tsx.
 // Pas de FK reservations -> intervention_types (voir migration
 // 20260722_reservations_intervention_columns.sql) : supprimer/recréer les
 // types ici ne touche jamais les interventions déjà réservées, dont le
 // libellé/durée est copié au moment de la réservation.
 export default function IntervenantFicheModal({
-  visible, mode, spaceId, prenom, nom, pin, intervenantProfileId, theme: C, onClose, onSaved,
+  visible, prenom, nom, intervenantProfileId, theme: C, onClose, onSaved,
 }: Props) {
   const [ficheePrenom, setFichePrenom] = useState(prenom);
   const [ficheNom, setFicheNom] = useState(nom);
-  // Téléphone et phrase totem : facultatifs, comme visitor_profiles.motto
-  // côté visiteur — vides tant que l'intervenant ne les a pas remplis.
   const [ficheTelephone, setFicheTelephone] = useState("");
   const [fichePhraseTotem, setFichePhraseTotem] = useState("");
-  // Clé du métier (voir lib/metiers.ts) — demandé dès la création (première
-  // connexion), sert aussi d'icône de repli pour l'avatar sans photo.
+  // Clé du métier (voir lib/metiers.ts) — sert aussi d'icône de repli pour
+  // l'avatar sans photo.
   const [ficheMetier, setFicheMetier] = useState<string | null>(null);
   const [metierPickerOpen, setMetierPickerOpen] = useState(false);
-  // Mode création : aucune ligne au départ (contrairement à l'ancien champ de
-  // saisie libre par ligne), une ligne n'existe que si un type d'intervention
-  // a effectivement été choisi via le bouton vert "Ajouter un type" ci-dessous.
-  const [rows, setRows] = useState<TypeRow[]>([]);
-  // Index de la ligne en cours d'édition dans SoinPickerModal (voir
-  // openSoinPickerForRow) — null tant qu'on ajoute une nouvelle ligne plutôt
-  // que d'en modifier une existante.
-  const [soinPickerOpen, setSoinPickerOpen] = useState(false);
-  const [soinPickerRowIndex, setSoinPickerRowIndex] = useState<number | null>(null);
-  const [removedIds, setRemovedIds] = useState<string[]>([]);
-  const [loading, setLoading] = useState(mode === "edit");
+  // 2ᵉ spécialisation optionnelle — persistée immédiatement au choix (pas
+  // liée au bouton "Enregistrer" ci-dessous), voir handleAddSpecialisation.
+  const [ficheMetierSecondaire, setFicheMetierSecondaire] = useState<string | null>(null);
+  const [metierSecondairePickerOpen, setMetierSecondairePickerOpen] = useState(false);
+  const [secondarySoinPickerOpen, setSecondarySoinPickerOpen] = useState(false);
+  const [secondaryPendingLabel, setSecondaryPendingLabel] = useState<string | null>(null);
+  const [savingSecondarySoin, setSavingSecondarySoin] = useState(false);
+  // Incrémenté après l'ajout d'un soin via le flux 2ᵉ spécialisation
+  // ci-dessus (hors MesSoinsList) — sert de `key` pour forcer MesSoinsList à
+  // recharger sa liste depuis la base plutôt que d'ajouter une prop dédiée.
+  const [soinsVersion, setSoinsVersion] = useState(0);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   // Nom "source de vérité" pour la comparaison avant/après à l'enregistrement
   // (voir handleSave) — ne peut pas se fier aux props prenom/nom : l'appelant
   // admin (app/(admin)/intervenants.tsx) ne les connaît pas forcément à jour
   // et passe des chaînes vides, d'où le rechargement systématique depuis
-  // intervenant_profiles ci-dessous en mode edit.
+  // intervenant_profiles ci-dessous.
   const [loadedPrenom, setLoadedPrenom] = useState(prenom);
   const [loadedNom, setLoadedNom] = useState(nom);
   const [loadedTelephone, setLoadedTelephone] = useState("");
   const [loadedPhraseTotem, setLoadedPhraseTotem] = useState("");
   const [loadedMetier, setLoadedMetier] = useState<string | null>(null);
-  // existingPhoto : nom de fichier déjà enregistré (mode edit). pickedPhotoUri :
-  // uri locale fraîchement choisie, pas encore uploadée (aperçu immédiat,
-  // upload effectif seulement au clic sur "Enregistrer" — voir handleSave).
+  // existingPhoto : nom de fichier déjà enregistré. pickedPhotoUri : uri
+  // locale fraîchement choisie, pas encore uploadée (aperçu immédiat, upload
+  // effectif seulement au clic sur "Enregistrer" — voir handleSave).
   const [existingPhoto, setExistingPhoto] = useState<string | null>(null);
   const [existingPhotoUpdatedAt, setExistingPhotoUpdatedAt] = useState<string | null>(null);
   const [pickedPhotoUri, setPickedPhotoUri] = useState<string | null>(null);
-  // true si intervenantProfileId a été fourni (mode edit) mais ne correspond
-  // à aucune ligne intervenant_profiles — session locale orpheline (profil
-  // supprimé, ou rattachement jamais confirmé). Bloque la modale plutôt que
-  // de laisser l'utilisateur "éditer" une fiche fantôme.
+  // true si intervenantProfileId ne correspond à aucune ligne
+  // intervenant_profiles — session locale orpheline (profil supprimé, ou
+  // rattachement jamais confirmé). Bloque la modale plutôt que de laisser
+  // l'utilisateur "éditer" une fiche fantôme.
   const [orphaned, setOrphaned] = useState(false);
-  // true si ce téléphone (normalisé) est déjà utilisé par une fiche sur un
-  // autre espace — simple message de réassurance en mode create, ne
-  // préremplit rien (chaque espace garde sa propre fiche indépendante,
-  // voir "Mes espaces" dans app/(visitor)/account.tsx).
-  const [knownElsewhere, setKnownElsewhere] = useState(false);
 
   useEffect(() => {
     if (!visible) return;
@@ -137,21 +111,6 @@ export default function IntervenantFicheModal({
     setLoadedNom(nom);
     setPickedPhotoUri(null);
     setOrphaned(false);
-    setKnownElsewhere(false);
-    if (mode === "create") {
-      setRows([]);
-      setRemovedIds([]);
-      setExistingPhoto(null);
-      setFicheTelephone("");
-      setFichePhraseTotem("");
-      setFicheMetier(null);
-      setLoadedTelephone("");
-      setLoadedPhraseTotem("");
-      setLoadedMetier(null);
-      setLoading(false);
-      return;
-    }
-    if (!intervenantProfileId) return;
     setLoading(true);
     Promise.all([
       supabase
@@ -161,21 +120,15 @@ export default function IntervenantFicheModal({
         .order("created_at", { ascending: true }),
       supabase
         .from("intervenant_profiles")
-        .select("prenom, nom, photo, photo_updated_at, telephone, phrase_totem, metier")
+        .select("prenom, nom, photo, photo_updated_at, telephone, phrase_totem, metier, metier_secondaire")
         .eq("id", intervenantProfileId)
         .maybeSingle(),
-    ]).then(([{ data }, { data: profileData }]) => {
+    ]).then(([, { data: profileData }]) => {
       if (!profileData) {
         setOrphaned(true);
         setLoading(false);
         return;
       }
-      setRows(
-        (data && data.length > 0)
-          ? data.map((t) => ({ id: t.id, clientKey: t.id, label: t.label, duration_minutes: String(t.duration_minutes) }))
-          : [{ clientKey: newRowClientKey(), label: "", duration_minutes: "" }],
-      );
-      setRemovedIds([]);
       setExistingPhoto(profileData?.photo ?? null);
       setExistingPhotoUpdatedAt(profileData?.photo_updated_at ?? null);
       if (profileData?.prenom) {
@@ -192,9 +145,10 @@ export default function IntervenantFicheModal({
       setLoadedPhraseTotem(profileData?.phrase_totem ?? "");
       setFicheMetier(profileData?.metier ?? null);
       setLoadedMetier(profileData?.metier ?? null);
+      setFicheMetierSecondaire(profileData?.metier_secondaire ?? null);
       setLoading(false);
     });
-  }, [visible, mode, intervenantProfileId]);
+  }, [visible, intervenantProfileId]);
 
   async function pickPhoto() {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -228,57 +182,54 @@ export default function IntervenantFicheModal({
     setPickedPhotoUri(persistedUri);
   }
 
-  // Détection légère "déjà connu ailleurs" — mode create uniquement, pour
-  // rassurer l'intervenant que son rattachement va fonctionner. Ne copie
-  // aucune donnée (photo/phrase totem/PIN restent propres à chaque espace).
-  async function checkKnownElsewhere() {
-    if (mode !== "create") return;
-    const normalized = normalizePhone(ficheTelephone);
-    if (normalized.length < 6) {
-      setKnownElsewhere(false);
+  // Persisté immédiatement (pas via le bouton "Enregistrer" plus bas) : une
+  // fois choisie, la spécialisation ouvre tout de suite le picker de soins
+  // liés à ce nouveau métier, comme demandé.
+  async function handleAddSpecialisation(value: string) {
+    const { error } = await supabase
+      .from("intervenant_profiles")
+      .update({ metier_secondaire: value })
+      .eq("id", intervenantProfileId);
+    if (error) {
+      Alert.alert("Erreur", "Impossible d'enregistrer cette spécialisation.");
       return;
     }
-    const { count } = await supabase
+    setFicheMetierSecondaire(value);
+    setSecondarySoinPickerOpen(true);
+  }
+
+  async function handleClearSpecialisation() {
+    const { error } = await supabase
       .from("intervenant_profiles")
-      .select("id", { count: "exact", head: true })
-      .eq("telephone", normalized)
-      .neq("space_id", spaceId);
-    setKnownElsewhere(!!count && count > 0);
+      .update({ metier_secondaire: null })
+      .eq("id", intervenantProfileId);
+    if (error) {
+      Alert.alert("Erreur", "Impossible de retirer cette spécialisation.");
+      return;
+    }
+    setFicheMetierSecondaire(null);
   }
 
-  function updateRow(index: number, patch: Partial<TypeRow>) {
-    setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
-  }
-
-  // Ouvre SoinPickerModal soit pour ajouter une nouvelle ligne (index null,
-  // bouton vert "Ajouter un type"), soit pour modifier le type d'une ligne
-  // déjà présente (tap sur la ligne elle-même).
-  function openSoinPickerForRow(index: number | null) {
-    setSoinPickerRowIndex(index);
-    setSoinPickerOpen(true);
-  }
-
-  function handleSoinPick(label: string) {
-    if (soinPickerRowIndex === null) {
-      setRows((prev) => [...prev, { clientKey: newRowClientKey(), label, duration_minutes: "" }]);
-    } else {
-      updateRow(soinPickerRowIndex, { label });
+  async function handleSecondarySoinDurationSave(minutes: number) {
+    if (!secondaryPendingLabel) return;
+    setSavingSecondarySoin(true);
+    try {
+      const payload = { label: secondaryPendingLabel, duration_minutes: minutes };
+      const { error } = await supabase
+        .from("intervention_types")
+        .insert({ intervenant_profile_id: intervenantProfileId, ...payload });
+      if (error) throw error;
+      await propagateSoinChange(intervenantProfileId, { type: "create", ...payload });
+      setSecondaryPendingLabel(null);
+      setSoinsVersion((v) => v + 1);
+    } catch (e: any) {
+      Alert.alert("Erreur", e?.message ?? "Impossible d'enregistrer ce soin.");
+    } finally {
+      setSavingSecondarySoin(false);
     }
   }
 
-  function removeRow(index: number) {
-    setRows((prev) => {
-      const row = prev[index];
-      if (row.id) setRemovedIds((ids) => [...ids, row.id!]);
-      return prev.filter((_, i) => i !== index);
-    });
-  }
-
-  const validRows = rows
-    .map((r) => ({ label: r.label.trim(), duration_minutes: parseInt(r.duration_minutes, 10) }))
-    .filter((r) => r.label.length > 0 && Number.isFinite(r.duration_minutes) && r.duration_minutes > 0);
-  const canSave = (mode === "edit" || validRows.length > 0) && !!ficheePrenom.trim() && !!ficheNom.trim()
-    && (mode === "edit" || (!!ficheTelephone.trim() && !!ficheMetier)) && !saving;
+  const canSave = !!ficheePrenom.trim() && !!ficheNom.trim() && !saving;
 
   async function handleSave() {
     if (!canSave) return;
@@ -288,70 +239,27 @@ export default function IntervenantFicheModal({
       const trimmedNom = ficheNom.trim();
       const trimmedTelephone = normalizePhone(ficheTelephone);
       const trimmedPhraseTotem = fichePhraseTotem.trim();
-      let profileId = intervenantProfileId ?? null;
 
-      if (!profileId) {
-        const { data, error } = await supabase
+      const updatePayload: Record<string, string | null> = {};
+      if (trimmedPrenom !== loadedPrenom) updatePayload.prenom = trimmedPrenom;
+      if (trimmedNom !== loadedNom) updatePayload.nom = trimmedNom;
+      if (trimmedTelephone !== loadedTelephone) updatePayload.telephone = trimmedTelephone || null;
+      if (trimmedPhraseTotem !== loadedPhraseTotem) updatePayload.phrase_totem = trimmedPhraseTotem || null;
+      if (ficheMetier !== loadedMetier) updatePayload.metier = ficheMetier;
+      if (Object.keys(updatePayload).length > 0) {
+        const { error } = await supabase
           .from("intervenant_profiles")
-          .insert({
-            space_id: spaceId,
-            prenom: trimmedPrenom,
-            nom: trimmedNom,
-            pin,
-            telephone: trimmedTelephone || null,
-            phrase_totem: trimmedPhraseTotem || null,
-            metier: ficheMetier,
-          })
-          .select("id")
-          .single();
-        if (error && error.code === "23505") {
-          // Une fiche existe déjà pour ce prénom/nom dans cet espace
-          // (contrainte unique idx_intervenant_profiles_unique_identity) —
-          // même logique de rattachement que _layout.tsx handleSaveIdentity :
-          // si le PIN correspond on réutilise la fiche existante, sinon on
-          // prévient plutôt que de laisser croire à une création réussie.
-          const { data: existing } = await supabase
-            .from("intervenant_profiles")
-            .select("id, pin")
-            .eq("space_id", spaceId)
-            .ilike("prenom", trimmedPrenom)
-            .ilike("nom", trimmedNom)
-            .maybeSingle();
-          if (!existing) throw error;
-          if (existing.pin !== pin) {
-            throw new Error(
-              "Une fiche existe déjà pour ce prénom et ce nom, avec un code différent. Vérifie ton code ou contacte l'organisateur.",
-            );
-          }
-          profileId = existing.id;
-        } else if (error || !data) {
-          throw error ?? new Error("Création de la fiche impossible.");
-        } else {
-          profileId = data.id;
-        }
-      } else {
-        const updatePayload: Record<string, string | null> = {};
-        if (trimmedPrenom !== loadedPrenom) updatePayload.prenom = trimmedPrenom;
-        if (trimmedNom !== loadedNom) updatePayload.nom = trimmedNom;
-        if (trimmedTelephone !== loadedTelephone) updatePayload.telephone = trimmedTelephone || null;
-        if (trimmedPhraseTotem !== loadedPhraseTotem) updatePayload.phrase_totem = trimmedPhraseTotem || null;
-        if (ficheMetier !== loadedMetier) updatePayload.metier = ficheMetier;
-        if (Object.keys(updatePayload).length > 0) {
-          const { error } = await supabase
-            .from("intervenant_profiles")
-            .update(updatePayload)
-            .eq("id", profileId);
-          if (error) throw error;
-        }
+          .update(updatePayload)
+          .eq("id", intervenantProfileId);
+        if (error) throw error;
       }
 
       // Upload la photo seulement si une nouvelle a été choisie — best-effort,
-      // un échec ne doit pas bloquer l'enregistrement des types d'intervention
-      // qui, eux, ont déjà réussi ou vont suivre. finalPhoto/finalPhotoUpdatedAt
-      // suivent ce qui sera effectivement renvoyé via onSaved (voir plus bas).
+      // un échec ne doit pas bloquer l'enregistrement du reste de la fiche,
+      // déjà réussi juste au-dessus.
       let finalPhoto = existingPhoto;
       let finalPhotoUpdatedAt = existingPhotoUpdatedAt;
-      if (pickedPhotoUri && profileId) {
+      if (pickedPhotoUri) {
         try {
           const compressed = await ImageManipulator.manipulateAsync(
             pickedPhotoUri,
@@ -359,7 +267,7 @@ export default function IntervenantFicheModal({
             { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
           );
           const fileData = await new File(compressed.uri).arrayBuffer();
-          const filename = `${profileId}.jpg`;
+          const filename = `${intervenantProfileId}.jpg`;
           const { error: storageErr } = await supabase.storage
             .from("intervenant-photos")
             .upload(filename, fileData, { contentType: "image/jpeg", cacheControl: "3600", upsert: true });
@@ -370,7 +278,7 @@ export default function IntervenantFicheModal({
             const { error: photoErr } = await supabase
               .from("intervenant_profiles")
               .update({ photo: filename, photo_updated_at: photoUpdatedAtIso })
-              .eq("id", profileId);
+              .eq("id", intervenantProfileId);
             if (photoErr) {
               console.error("[IntervenantFicheModal] photo column update failed:", photoErr);
             } else {
@@ -383,42 +291,8 @@ export default function IntervenantFicheModal({
         }
       }
 
-      // Uniquement en mode "create" : en mode "edit", les soins sont gérés un
-      // par un via MesSoinsList/SoinFormModal (voir plus bas dans le rendu),
-      // qui appelle déjà propagateSoinChange lui-même.
-      if (mode === "create") {
-        if (removedIds.length > 0) {
-          const { error: delErr } = await supabase.from("intervention_types").delete().in("id", removedIds);
-          if (delErr) throw delErr;
-        }
-
-        const toInsert = rows.filter((r) => !r.id).map((r) => ({
-          intervenant_profile_id: profileId,
-          label: r.label.trim(),
-          duration_minutes: parseInt(r.duration_minutes, 10),
-        })).filter((r) => r.label.length > 0 && Number.isFinite(r.duration_minutes) && r.duration_minutes > 0);
-        if (toInsert.length > 0) {
-          const { error: insErr } = await supabase.from("intervention_types").insert(toInsert);
-          if (insErr) throw insErr;
-          for (const r of toInsert) {
-            await propagateSoinChange(profileId!, { type: "create", label: r.label, duration_minutes: r.duration_minutes });
-          }
-        }
-
-        const toUpdate = rows.filter((r) => r.id);
-        for (const r of toUpdate) {
-          const duration = parseInt(r.duration_minutes, 10);
-          if (!r.label.trim() || !Number.isFinite(duration) || duration <= 0) continue;
-          const { error: updErr } = await supabase
-            .from("intervention_types")
-            .update({ label: r.label.trim(), duration_minutes: duration })
-            .eq("id", r.id);
-          if (updErr) throw updErr;
-        }
-      }
-
       onSaved(
-        profileId!, trimmedPrenom, trimmedNom,
+        intervenantProfileId, trimmedPrenom, trimmedNom,
         trimmedTelephone || null, trimmedPhraseTotem || null,
         finalPhoto, finalPhotoUpdatedAt, ficheMetier,
       );
@@ -433,13 +307,15 @@ export default function IntervenantFicheModal({
     <>
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-        <View style={styles.overlay}>
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={[styles.overlay, { flexGrow: 1, justifyContent: "center", paddingVertical: 16 }]}
+          keyboardShouldPersistTaps="handled"
+        >
           <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
             <Text style={[styles.title, { color: C.text }]}>🩺 Fiche intervenant</Text>
             <Text style={[styles.subtitle, { color: C.muted }]}>
-              {mode === "create"
-                ? "Confirme ton prénom et ton nom, puis indique les types d'intervention que tu peux réaliser, et leur durée habituelle. Tu pourras tout modifier plus tard."
-                : "Modifie ton prénom, ton nom, ou tes types d'intervention et leur durée."}
+              Modifie ton prénom, ton nom, tes coordonnées, ton métier ou tes soins pratiqués.
             </Text>
 
             {loading ? (
@@ -452,19 +328,12 @@ export default function IntervenantFicheModal({
                   ton prénom, ton nom et ton code — tu seras automatiquement rattaché à ta
                   fiche si elle existe encore.
                 </Text>
-                {onClose && (
-                  <TouchableOpacity onPress={onClose} style={styles.cancelBtn}>
-                    <Text style={[styles.cancelBtnText, { color: C.muted }]}>Fermer</Text>
-                  </TouchableOpacity>
-                )}
+                <TouchableOpacity onPress={onClose} style={styles.cancelBtn}>
+                  <Text style={[styles.cancelBtnText, { color: C.muted }]}>Fermer</Text>
+                </TouchableOpacity>
               </>
             ) : (
               <>
-                {/* Champs dans un ScrollView à hauteur bornée (plutôt que
-                    toute la carte) : Enregistrer/Annuler restent toujours
-                    visibles sous la liste, sans dépendre du scroll pour les
-                    atteindre — voir styles.scroll. */}
-                <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: 4 }} keyboardShouldPersistTaps="handled">
                 <TouchableOpacity style={styles.photoPicker} onPress={pickPhoto} activeOpacity={0.8}>
                   <PatientAvatar
                     photoUrl={pickedPhotoUri ?? (existingPhoto ? intervenantPhotoUrl(existingPhoto, existingPhotoUpdatedAt) : null)}
@@ -498,18 +367,12 @@ export default function IntervenantFicheModal({
 
                 <TextInput
                   style={[styles.input, styles.fullInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                  placeholder={mode === "create" ? "Téléphone" : "Téléphone (optionnel)"}
+                  placeholder="Téléphone (optionnel)"
                   placeholderTextColor={C.muted}
                   value={ficheTelephone}
                   onChangeText={setFicheTelephone}
-                  onBlur={checkKnownElsewhere}
                   keyboardType="phone-pad"
                 />
-                {knownElsewhere && (
-                  <Text style={[styles.subtitle, { color: C.accent, marginTop: -6, marginBottom: 14, textAlign: "left" }]}>
-                    🔗 Ce numéro est déjà lié à un autre espace — tu pourras y accéder depuis Mon compte.
-                  </Text>
-                )}
                 <TextInput
                   style={[styles.input, styles.fullInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
                   placeholder="Phrase totem (optionnel)"
@@ -518,9 +381,7 @@ export default function IntervenantFicheModal({
                   onChangeText={setFichePhraseTotem}
                 />
 
-                <Text style={[styles.metierLabel, { color: C.gold }]}>
-                  Métier / spécialisation{mode === "create" ? "" : " (optionnel)"}
-                </Text>
+                <Text style={[styles.metierLabel, { color: C.gold }]}>Métier / spécialisation (optionnel)</Text>
                 <TouchableOpacity
                   style={[styles.metierBtn, { backgroundColor: C.orange }]}
                   onPress={() => setMetierPickerOpen(true)}
@@ -533,56 +394,40 @@ export default function IntervenantFicheModal({
                   <Ionicons name="chevron-down" size={16} color="#fff" />
                 </TouchableOpacity>
 
-                {mode === "create" ? (
-                  <>
-                    <Text style={[styles.metierLabel, { color: C.gold }]}>Types d'intervention</Text>
-                    {rows.map((row, i) => (
-                      <View key={row.clientKey} style={styles.soinRowBlock}>
-                        <TouchableOpacity
-                          style={[styles.soinChip, { backgroundColor: C.bg, borderColor: row.label ? LOGO_GREEN : C.border }]}
-                          onPress={() => openSoinPickerForRow(i)}
-                          activeOpacity={0.8}
-                        >
-                          <Text style={[styles.soinChipText, { color: row.label ? C.text : C.muted }]} numberOfLines={1}>
-                            {row.label || "Choisir un type d'intervention"}
-                          </Text>
-                          <Ionicons name={row.label ? "checkmark-circle" : "chevron-down"} size={16} color={row.label ? LOGO_GREEN : C.muted} />
-                        </TouchableOpacity>
-                        <View style={styles.soinRowMeta}>
-                          <TextInput
-                            style={[styles.input, styles.durationInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                            placeholder="Min"
-                            placeholderTextColor={C.muted}
-                            value={row.duration_minutes}
-                            onChangeText={(v) => updateRow(i, { duration_minutes: v.replace(/[^0-9]/g, "") })}
-                            keyboardType="number-pad"
-                          />
-                          <TouchableOpacity onPress={() => removeRow(i)} style={styles.removeBtn}>
-                            <Text style={{ color: C.danger, fontSize: 18 }}>✕</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    ))}
-
+                <Text style={[styles.metierLabel, { color: C.gold }]}>2ᵉ spécialisation</Text>
+                {ficheMetierSecondaire ? (
+                  <View style={[styles.row, { marginBottom: 16 }]}>
                     <TouchableOpacity
-                      onPress={() => openSoinPickerForRow(null)}
-                      style={[styles.addSoinBtn, { backgroundColor: LOGO_GREEN }]}
+                      style={[styles.metierBtn, { backgroundColor: C.orange, flex: 1, marginBottom: 0 }]}
+                      onPress={() => setMetierSecondairePickerOpen(true)}
                       activeOpacity={0.85}
                     >
-                      <Ionicons name="add-circle-outline" size={18} color="#fff" />
-                      <Text style={styles.addSoinBtnText}>Ajouter un type d'intervention</Text>
+                      <Ionicons name="briefcase-outline" size={16} color="#fff" />
+                      <Text style={styles.metierBtnText} numberOfLines={1}>{metierLabel(ficheMetierSecondaire)}</Text>
                     </TouchableOpacity>
-                  </>
+                    <TouchableOpacity onPress={handleClearSpecialisation} style={styles.removeBtn}>
+                      <Text style={{ color: C.danger, fontSize: 18 }}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
                 ) : (
-                  intervenantProfileId && (
-                    <>
-                      <View style={[styles.separator, { borderTopColor: C.border }]} />
-                      <Text style={[styles.metierLabel, { color: C.gold }]}>Mes soins</Text>
-                      <MesSoinsList intervenantProfileId={intervenantProfileId} metier={ficheMetier} C={C} />
-                    </>
-                  )
+                  <TouchableOpacity
+                    onPress={() => setMetierSecondairePickerOpen(true)}
+                    style={[styles.addSoinBtn, { backgroundColor: LOGO_GREEN }]}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons name="add-circle-outline" size={18} color="#fff" />
+                    <Text style={styles.addSoinBtnText}>Ajouter une spécialisation</Text>
+                  </TouchableOpacity>
                 )}
-                </ScrollView>
+
+                <View style={[styles.separator, { borderTopColor: C.border }]} />
+                <Text style={[styles.metierLabel, { color: C.gold }]}>Mes soins</Text>
+                <MesSoinsList
+                  key={soinsVersion}
+                  intervenantProfileId={intervenantProfileId}
+                  metiers={[ficheMetier, ficheMetierSecondaire]}
+                  C={C}
+                />
 
                 <TouchableOpacity
                   style={[styles.saveBtn, { backgroundColor: C.accent }, !canSave && { opacity: 0.5 }]}
@@ -593,74 +438,47 @@ export default function IntervenantFicheModal({
                   {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.saveBtnText}>Enregistrer</Text>}
                 </TouchableOpacity>
 
-                {mode === "edit" && onClose && (
-                  <TouchableOpacity onPress={onClose} style={styles.cancelBtn}>
-                    <Text style={[styles.cancelBtnText, { color: C.muted }]}>Annuler</Text>
-                  </TouchableOpacity>
-                )}
+                <TouchableOpacity onPress={onClose} style={styles.cancelBtn}>
+                  <Text style={[styles.cancelBtnText, { color: C.muted }]}>Annuler</Text>
+                </TouchableOpacity>
               </>
             )}
           </View>
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
 
-    <Modal visible={metierPickerOpen} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setMetierPickerOpen(false)}>
-      <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => setMetierPickerOpen(false)}>
-        <TouchableOpacity activeOpacity={1} style={[styles.pickerCard, { backgroundColor: C.card, borderColor: C.border }]}>
-          <Text style={[styles.title, { color: C.text, marginBottom: 12 }]}>Métier / spécialisation</Text>
-          <ScrollView style={{ maxHeight: 400 }}>
-            {FAMILLES.map((famille) => (
-              <View key={famille.key} style={{ marginBottom: 14 }}>
-                <View style={styles.familleHeader}>
-                  <Ionicons name={famille.icon} size={14} color={C.muted} />
-                  <Text style={[styles.familleHeaderText, { color: C.muted }]}>{famille.label}</Text>
-                </View>
-                {metiersByFamille(famille.key).map((m) => {
-                  const selected = ficheMetier === m.key;
-                  return (
-                    <TouchableOpacity
-                      key={m.key}
-                      onPress={() => { setFicheMetier(m.key); setMetierPickerOpen(false); }}
-                      activeOpacity={0.8}
-                      style={[styles.pickerRow, { borderColor: selected ? C.accent : "transparent", backgroundColor: selected ? `${C.accent}22` : "transparent" }]}
-                    >
-                      <Ionicons name={m.icon} size={17} color={selected ? C.accent : C.muted} />
-                      <Text style={[styles.pickerRowText, { color: selected ? C.accent : C.text }]}>{m.label}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            ))}
-            {METIERS.filter((m) => m.familleKey === null).map((m) => {
-              const selected = ficheMetier === m.key;
-              return (
-                <TouchableOpacity
-                  key={m.key}
-                  onPress={() => { setFicheMetier(m.key); setMetierPickerOpen(false); }}
-                  activeOpacity={0.8}
-                  style={[styles.pickerRow, { borderColor: selected ? C.accent : "transparent", backgroundColor: selected ? `${C.accent}22` : "transparent" }]}
-                >
-                  <Ionicons name={m.icon} size={17} color={selected ? C.accent : C.muted} />
-                  <Text style={[styles.pickerRowText, { color: selected ? C.accent : C.text }]}>{m.label}</Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-          <TouchableOpacity onPress={() => setMetierPickerOpen(false)} style={styles.cancelBtn}>
-            <Text style={[styles.cancelBtnText, { color: C.muted }]}>Fermer</Text>
-          </TouchableOpacity>
-        </TouchableOpacity>
-      </TouchableOpacity>
-    </Modal>
+    <MetierPickerModal
+      visible={metierPickerOpen}
+      C={C}
+      onClose={() => setMetierPickerOpen(false)}
+      onPick={setFicheMetier}
+    />
+
+    <MetierPickerModal
+      visible={metierSecondairePickerOpen}
+      C={C}
+      excludeKey={ficheMetier}
+      onClose={() => setMetierSecondairePickerOpen(false)}
+      onPick={handleAddSpecialisation}
+    />
 
     <SoinPickerModal
-      visible={soinPickerOpen}
-      metier={ficheMetier}
-      value={soinPickerRowIndex !== null ? (rows[soinPickerRowIndex]?.label ?? "") : ""}
+      visible={secondarySoinPickerOpen}
+      metiers={[ficheMetierSecondaire]}
+      value=""
       C={C}
-      onClose={() => setSoinPickerOpen(false)}
-      onPick={handleSoinPick}
+      onClose={() => setSecondarySoinPickerOpen(false)}
+      onPick={(label) => setSecondaryPendingLabel(label)}
+    />
+
+    <SoinDurationModal
+      visible={secondaryPendingLabel !== null}
+      label={secondaryPendingLabel ?? ""}
+      saving={savingSecondarySoin}
+      C={C}
+      onClose={() => setSecondaryPendingLabel(null)}
+      onSave={handleSecondarySoinDurationSave}
     />
     </>
   );
@@ -677,13 +495,9 @@ const styles = StyleSheet.create({
   card: {
     width: "100%",
     maxWidth: 400,
-    maxHeight: "88%",
     borderRadius: 20,
     borderWidth: 1,
     padding: 24,
-  },
-  scroll: {
-    maxHeight: 420,
   },
   title: {
     fontFamily: "PlayfairDisplay_700Bold",
@@ -713,8 +527,6 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     alignItems: "center",
   },
-  soinRowBlock: { marginBottom: 14, gap: 8 },
-  soinRowMeta: { flexDirection: "row", gap: 8, alignItems: "center" },
   input: {
     borderWidth: 1,
     borderRadius: 10,
@@ -723,22 +535,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   labelInput: { flex: 2 },
-  durationInput: { flex: 1, textAlign: "center" },
   fullInput: { marginBottom: 10 },
   metierLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 },
   metierBtn: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 10, padding: 12, marginBottom: 16 },
   metierBtnText: { flex: 1, fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: "#fff" },
-  soinChip: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderWidth: 1, borderRadius: 10, padding: 12 },
-  soinChipText: { flex: 1, fontFamily: "DM_Sans_400Regular", fontSize: 14, marginRight: 8 },
   addSoinBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 12, paddingVertical: 13, marginBottom: 20, marginTop: 4 },
   addSoinBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" },
   separator: { borderTopWidth: 1, marginVertical: 16 },
-  pickerOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "center", alignItems: "center", padding: 24 },
-  pickerCard: { width: "100%", maxWidth: 400, maxHeight: "80%", borderRadius: 20, borderWidth: 1, padding: 24 },
-  familleHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6, paddingHorizontal: 2 },
-  familleHeaderText: { fontFamily: "DM_Sans_700Bold", fontSize: 11, letterSpacing: 0.6, textTransform: "uppercase" },
-  pickerRow: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 8 },
-  pickerRowText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
   removeBtn: {
     width: 32,
     height: 32,

@@ -1516,11 +1516,8 @@ export default function VisitorAccountScreen() {
       {space && role === "intervenant" && intervenantProfileId && (
         <IntervenantFicheModal
           visible={ficheModalVisible}
-          mode="edit"
-          spaceId={space.id}
           prenom={prenom}
           nom={nom}
-          pin={pin}
           intervenantProfileId={intervenantProfileId}
           theme={C}
           onClose={() => setFicheModalVisible(false)}

@@ -196,6 +196,9 @@ export interface IntervenantProfile {
   // création de la fiche, sert à afficher la spécialisation et à choisir
   // l'icône de repli de l'avatar (IntervenantAvatar.tsx) sans photo.
   metier: string | null;
+  // 2ᵉ spécialisation optionnelle (même format de clé que metier) — voir
+  // IntervenantFicheModal.tsx, section "2ᵉ spécialisation".
+  metier_secondaire: string | null;
   // Créneaux d'intervention prioritaires sur les visites — n'a d'effet que
   // si slot_config.intervenant_priority_mode = "selected" (sinon tous les
   // intervenants sont prioritaires, voir IntervenantPriorityModal.tsx).

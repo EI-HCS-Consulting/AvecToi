@@ -42,6 +42,13 @@ export default function VisitorCalendarScreen() {
   // directement un créneau du jour sélectionné (D), sans passer par l'écran
   // dédié (home/slots.tsx), qui reste accessible en Mensuel (tap sur un jour).
   const [planningView, setPlanningView] = useState<"mensuel" | "hebdo">("mensuel");
+  // Bascule réservée au rôle intervenant, sous la légende du calendrier —
+  // "Afficher mes créneaux" (par défaut) ne montre le cadre violet qu'autour
+  // des jours où CET intervenant a un soin planifié, et masque le panneau
+  // "Soins planifiés"/"Historique des soins" (tous intervenants confondus) en
+  // dessous du calendrier. "Tous les soins" restaure le comportement
+  // d'origine (cadre violet pour tout intervenant, panneau complet).
+  const [tousLesSoins, setTousLesSoins] = useState(false);
   // Les 2 switches du bloc de réglages doivent avoir des pastilles de même
   // taille et des libellés alignés à la même position — le switch Visites/
   // Soins reprend la largeur naturelle calculée par Mensuel/Hebdo au lieu
@@ -212,12 +219,17 @@ export default function VisitorCalendarScreen() {
             // En mode Soins, les visites/nuitées sont masquées : seule la
             // bordure violette reste pertinente.
             const familyBooked = !soinsMode && reservations.some((r) => r.date === iso && (r.type === "Visite" || r.type === "Nuit"));
-            const interventionBooked = reservations.some((r) => r.date === iso && r.type === "Intervention");
             // Case remplie en violet uniquement pour l'intervenant assigné à
             // CE soin — les autres intervenants (comme les visiteurs/admin)
             // ne voient que le cadre violet ci-dessus.
             const myInterventionToday = role === "intervenant" && !!intervenantProfileId &&
               reservations.some((r) => r.date === iso && r.type === "Intervention" && r.intervenant_profile_id === intervenantProfileId);
+            // "Afficher mes créneaux" (intervenant, par défaut) : le cadre ne
+            // ressort que pour les jours de CET intervenant. "Tous les
+            // soins" : comportement d'origine, tout intervenant confondu.
+            const interventionBooked = role === "intervenant" && !tousLesSoins
+              ? myInterventionToday
+              : reservations.some((r) => r.date === iso && r.type === "Intervention");
 
             return (
               <TouchableOpacity
@@ -282,6 +294,18 @@ export default function VisitorCalendarScreen() {
             <Text style={[styles.legendLabel, { color: C.muted }]}>{soinsMode ? "Soin" : "Intervenant"}</Text>
           </View>
         </View>
+
+        {role === "intervenant" && (
+          <View style={{ marginTop: 12 }}>
+            <SegmentedSwitch
+              value={tousLesSoins}
+              onChange={setTousLesSoins}
+              leftLabel="Afficher mes créneaux"
+              rightLabel="Tous les soins"
+              C={C}
+            />
+          </View>
+        )}
         </>
         ) : (
         <>
@@ -307,6 +331,7 @@ export default function VisitorCalendarScreen() {
           intervenantProfileId={intervenantProfileId}
           admissionIso={admissionIso}
           dischargeIso={dischargeIso}
+          restrictToMine={role === "intervenant" && !tousLesSoins}
         />
 
         <Text style={[styles.weekDayTitle, { color: C.text }]}>{toFrLong(selectedDay)}</Text>
@@ -361,7 +386,7 @@ export default function VisitorCalendarScreen() {
           </TouchableOpacity>
         )}
 
-        {role === "intervenant" && (
+        {role === "intervenant" && tousLesSoins && (
           <View style={{ marginTop: 16 }}>
             <IntervenantPlanningPanel C={C} reservations={reservations} />
           </View>
