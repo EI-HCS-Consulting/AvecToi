@@ -13,8 +13,6 @@ import { LOGO_GREEN, LOGO_PURPLE } from "@/lib/themes";
 import SpaceHeader from "@/components/SpaceHeader";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import WeekStrip from "@/components/WeekStrip";
-import VisitorSlotsList from "@/components/VisitorSlotsList";
-import SoinsDayDetail from "@/components/SoinsDayDetail";
 import IntervenantPlanningPanel from "@/components/IntervenantPlanningPanel";
 import MesVisitesPanel from "@/components/MesVisitesPanel";
 import BookingFlow, { type BookingFlowHandle } from "@/components/BookingFlow";
@@ -136,21 +134,86 @@ export default function VisitorCalendarScreen() {
     : reservations;
 
   const selectedIso = toISO(selectedDay);
-  const selectedDayConfig = getConfigForDate(selectedIso) ?? slotConfig;
-  const selectedDaySlots = getSlotsForDate(selectedIso);
-  // Un jour antérieur à la date d'hospitalisation reste consultable dans la
-  // bande Hebdo, juste non réservable (E) — les jours déjà passés le sont
-  // aussi via les vérifications existantes de VisitorSlotsList/BookingFlow.
-  const weekDayBookable = !admissionIso || selectedIso >= admissionIso;
+
+  // Tap sur une case de la bande Hebdo — même comportement que le tap sur une
+  // case de la grille Mensuel (onPress ci-dessous) : jour bloqué par l'admin
+  // → modal, sinon navigation vers l'écran dédié des créneaux.
+  const handleWeekDayPress = (iso: string) => {
+    const day = new Date(iso + "T00:00:00");
+    const dayConfig = getConfigForDate(iso) ?? slotConfig;
+    const daySlots = getSlotsForDate(iso);
+    const status = getDayStatus(reservations, iso, day, dayConfig, daySlots, startDate, soinsMode ? "Intervention" : "Visite");
+    const isPast = iso < toISO(today);
+    const isBlocked = status === "past" && !isPast;
+    if (isBlocked) {
+      setBlockedDayModal(day);
+      return;
+    }
+    setSelectedDay(day);
+    setCalMonth({ year: day.getFullYear(), month: day.getMonth() });
+    router.navigate("/(visitor)/home/slots");
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
       <SpaceHeader space={space} active="calendar" basePath="/(visitor)/home" C={C} />
 
       <ScrollView contentContainerStyle={styles.scroll}>
-        {/* Le calendrier passe avant les blocs de réglage (switches,
-            "Afficher mes créneaux") pour que l'essentiel soit visible
-            immédiatement à l'ouverture de l'écran. */}
+        {/* Bloc sans titre regroupant les 2 switches (Mensuel/Hebdo +
+            Visites/Soins), commun aux 3 rôles — placé avant le calendrier
+            car ce sont eux qui règlent ce qui s'affiche en dessous. */}
+        <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginBottom: 14 }]}>
+          <SegmentedSwitch
+            value={planningView === "hebdo"}
+            onChange={(v) => setPlanningView(v ? "hebdo" : "mensuel")}
+            leftLabel="Mensuel"
+            rightLabel="Hebdo"
+            C={C}
+            minWidthRatio={0.5}
+            onThumbWidth={setViewThumbWidth}
+          />
+          {space.intervenants_enabled && (
+            <SegmentedSwitch value={soinsMode} onChange={setSoinsMode} leftLabel="Visites" rightLabel="Soins" C={C} thumbWidth={viewThumbWidth || undefined} />
+          )}
+        </View>
+
+        {/* "Afficher mes créneaux" — juste sous le switch Visites/Soins,
+            puisque ces 2 switches règlent ensemble l'affichage qui suit
+            (calendrier + panneau perso). Disponible pour tous les rôles,
+            commun aux vues Mensuel/Hebdo. Ne filtre que le panneau perso sous
+            le calendrier (voir panelReservations ci-dessus) ; la grille reste
+            toujours une vérité complète. */}
+        <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginBottom: 14 }]}>
+          <View style={styles.toggleRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.toggleLabel, { color: C.text }]}>👁️ Afficher mes créneaux</Text>
+              <Text style={[styles.toggleDesc, { color: C.muted }]}>
+                {mesCreneauxOnly
+                  ? `Le panneau ci-dessous ne liste que t${role === "intervenant" ? "es propres soins" : "es propres visites/nuitées"}. Le calendrier, lui, affiche toujours tout le monde.`
+                  : `Le panneau ci-dessous liste les ${role === "intervenant" ? "soins" : "visites/nuitées"} de tout le monde.`}
+              </Text>
+            </View>
+            <Switch
+              value={mesCreneauxOnly}
+              onValueChange={setMesCreneauxOnly}
+              trackColor={{ false: C.border, true: C.accent }}
+              thumbColor="#fff"
+            />
+          </View>
+        </View>
+
+        {/* "Prochaine disponibilité" reste réservé aux visiteurs (l'intervenant
+            n'a pas besoin de chercher un créneau libre côté famille). */}
+        {role !== "intervenant" && (
+          <TouchableOpacity
+            style={[styles.nextDispoBtn, { backgroundColor: C.accent }]}
+            onPress={handleNextDispo}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.nextDispoText}>⚡ Prochaine disponibilité</Text>
+          </TouchableOpacity>
+        )}
+
         {planningView === "mensuel" ? (
         <>
         <View style={styles.monthNav}>
@@ -292,10 +355,9 @@ export default function VisitorCalendarScreen() {
         <>
         {/* Vue Hebdo (D) — bande de 7 jours commune aux 3 rôles, avec
             marqueurs hospitalisation/sortie (F/G) et grisage avant la date
-            d'hospitalisation (E). Le détail du jour sélectionné juste en
-            dessous permet de réserver directement un créneau (soin pour un
-            intervenant, visite pour un visiteur/admin en mode Visites) sans
-            quitter la page. */}
+            d'hospitalisation (E). Un tap sur un jour navigue vers l'écran
+            dédié des créneaux, exactement comme la grille Mensuel — aucun
+            détail de jour affiché ici. */}
         <WeekStrip
           C={C}
           slotConfig={slotConfig}
@@ -307,6 +369,7 @@ export default function VisitorCalendarScreen() {
           onWeekChange={setWeekAnchor}
           selectedIso={selectedIso}
           onSelectDay={(iso) => setSelectedDay(new Date(iso + "T00:00:00"))}
+          onDayPress={handleWeekDayPress}
           soinsMode={soinsMode}
           role={role}
           intervenantProfileId={intervenantProfileId}
@@ -314,99 +377,7 @@ export default function VisitorCalendarScreen() {
           admissionIso={admissionIso}
           dischargeIso={dischargeIso}
         />
-
-        <Text style={[styles.weekDayTitle, { color: C.text }]}>{toFrLong(selectedDay)}</Text>
-
-        {role === "intervenant" ? (
-          <VisitorSlotsList
-            iso={selectedIso}
-            C={C}
-            role={role}
-            intervenantProfileId={intervenantProfileId}
-            myPin={myPin}
-            bookable={weekDayBookable}
-            onReserveVisit={() => {}}
-            onEditVisit={() => {}}
-            onReserveIntervention={(iso, slot) => interventionFlowRef.current?.openBooking(iso, slot)}
-            onCancelIntervention={(r) => interventionFlowRef.current?.openCancel(r)}
-          />
-        ) : soinsMode ? (
-          <SoinsDayDetail
-            C={C}
-            iso={selectedIso}
-            day={selectedDay}
-            config={selectedDayConfig}
-            daySlots={selectedDaySlots}
-            reservations={reservations}
-            status={getDayStatus(reservations, selectedIso, selectedDay, selectedDayConfig, selectedDaySlots, startDate, "Intervention")}
-          />
-        ) : (
-          <VisitorSlotsList
-            iso={selectedIso}
-            C={C}
-            role={role}
-            intervenantProfileId={intervenantProfileId}
-            myPin={myPin}
-            bookable={weekDayBookable}
-            onReserveVisit={(iso, slot) => flowRef.current?.openBooking(iso, slot)}
-            onEditVisit={(r) => flowRef.current?.openPinModal(r)}
-            onReserveIntervention={() => {}}
-            onCancelIntervention={() => {}}
-          />
-        )}
         </>
-        )}
-
-        {/* Bloc sans titre regroupant les 2 switches (Mensuel/Hebdo +
-            Visites/Soins), commun aux 3 rôles. */}
-        <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 16, marginBottom: 14 }]}>
-          <SegmentedSwitch
-            value={planningView === "hebdo"}
-            onChange={(v) => setPlanningView(v ? "hebdo" : "mensuel")}
-            leftLabel="Mensuel"
-            rightLabel="Hebdo"
-            C={C}
-            minWidthRatio={0.5}
-            onThumbWidth={setViewThumbWidth}
-          />
-          {space.intervenants_enabled && (
-            <SegmentedSwitch value={soinsMode} onChange={setSoinsMode} leftLabel="Visites" rightLabel="Soins" C={C} thumbWidth={viewThumbWidth || undefined} />
-          )}
-        </View>
-
-        {/* "Afficher mes créneaux" — disponible pour tous les rôles (visiteur
-            comme intervenant), commun aux vues Mensuel/Hebdo. Ne filtre que le
-            panneau perso sous le calendrier (voir panelReservations
-            ci-dessus) ; la grille reste toujours une vérité complète. */}
-        <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginBottom: 14 }]}>
-          <View style={styles.toggleRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.toggleLabel, { color: C.text }]}>👁️ Afficher mes créneaux</Text>
-              <Text style={[styles.toggleDesc, { color: C.muted }]}>
-                {mesCreneauxOnly
-                  ? `Le panneau ci-dessous ne liste que t${role === "intervenant" ? "es propres soins" : "es propres visites/nuitées"}. Le calendrier, lui, affiche toujours tout le monde.`
-                  : `Le panneau ci-dessous liste les ${role === "intervenant" ? "soins" : "visites/nuitées"} de tout le monde.`}
-              </Text>
-            </View>
-            <Switch
-              value={mesCreneauxOnly}
-              onValueChange={setMesCreneauxOnly}
-              trackColor={{ false: C.border, true: C.accent }}
-              thumbColor="#fff"
-            />
-          </View>
-        </View>
-
-        {/* "Prochaine disponibilité" reste réservé aux visiteurs (l'intervenant
-            n'a pas besoin de chercher un créneau libre côté famille). */}
-        {role !== "intervenant" && (
-          <TouchableOpacity
-            style={[styles.nextDispoBtn, { backgroundColor: C.accent }]}
-            onPress={handleNextDispo}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.nextDispoText}>⚡ Prochaine disponibilité</Text>
-          </TouchableOpacity>
         )}
 
         {space.intervenants_enabled && role === "visiteur" && (
@@ -554,8 +525,6 @@ const styles = StyleSheet.create({
   toggleRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   toggleLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14, marginBottom: 4 },
   toggleDesc: { fontFamily: "DM_Sans_400Regular", fontSize: 12, lineHeight: 17 },
-
-  weekDayTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 16, textTransform: "capitalize", textAlign: "center", marginBottom: 10 },
 
   nightsBtn: { borderWidth: 1, borderRadius: 10, paddingVertical: 9, alignItems: "center", marginTop: 10 },
   nightsBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
