@@ -33,6 +33,7 @@ Ce modèle est explicitement autorisé par Google Play et évite toute commissio
 - Format commit : "feat: description" / "fix: description" / "chore: description"
 - Pull Request sur GitHub avant tout merge sur main
 - **Chaque modification (même un correctif suite à un test) part sur une branche neuve et se termine par une PR poussée sur GitHub** — jamais de nouveau commit ajouté à une branche dont la PR est déjà mergée. L'utilisateur teste sur son téléphone (development build) avant de merger lui-même ; sans PR ouverte, il n'a aucun moyen de récupérer les changements dans ses updates. Ne jamais merger une PR sans confirmation explicite que le test téléphone est passé.
+- **Autorisation permanente : commit + push + PR sans redemander.** Dès qu'une tâche de code (fonctionnalité, correctif, ajustement) est terminée et vérifiée (typecheck / relecture), committer, pousser sur une branche neuve et ouvrir la PR automatiquement — ne pas attendre que l'utilisateur le demande explicitement à chaque fois. Avant de committer : vérifier que la branche courante n'a pas déjà sa PR mergée dans `main` (sinon en créer une nouvelle depuis `origin/main`, voir règle ci-dessus) et ne stager que les fichiers réellement modifiés pour la tâche en cours (ignorer les fichiers non liés qui traînent, ex. docs modifiées par ailleurs). Cette autorisation ne couvre pas le merge de la PR ni le push sur `main` : ça reste toujours à l'utilisateur, après son test téléphone.
 
 ## Structure de dossiers cible
 ```
