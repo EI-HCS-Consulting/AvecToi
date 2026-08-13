@@ -126,42 +126,46 @@ export default function NightIntervenantModal({
             </View>
           </TouchableOpacity>
 
-          {mode === "one" && (
-            loading ? (
-              <ActivityIndicator color={C.orange} style={{ marginVertical: 16 }} />
-            ) : intervenants.length === 0 ? (
-              <Text style={[styles.emptyText, { color: C.muted }]}>Aucun intervenant enregistré pour l'instant.</Text>
-            ) : (
-              <ScrollView style={styles.list} contentContainerStyle={{ paddingBottom: 4 }}>
-                {intervenants.map((it) => {
-                  const selected = it.id === selectedId;
-                  return (
-                    <TouchableOpacity
-                      key={it.id}
-                      style={[styles.row, { borderBottomColor: C.border }]}
-                      onPress={() => setSelectedId(it.id)}
-                      activeOpacity={0.8}
-                    >
-                      <View style={[styles.radio, { borderColor: selected ? C.orange : C.muted }]}>
-                        {selected && <View style={[styles.radioDot, { backgroundColor: C.orange }]} />}
-                      </View>
-                      <PatientAvatar
-                        photoUrl={it.photo ? intervenantPhotoUrl(it.photo, it.photo_updated_at) : null}
-                        firstname={it.prenom}
-                        lastname={it.nom}
-                        size={36}
-                        C={C}
-                        metier={it.metier}
-                      />
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.rowName, { color: C.text }]} numberOfLines={1}>{it.prenom} {it.nom}</Text>
-                        {!!it.metier && <Text style={[styles.rowMetier, { color: C.muted }]} numberOfLines={1}>{metierLabel(it.metier)}</Text>}
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            )
+          {loading ? (
+            <ActivityIndicator color={C.orange} style={{ marginVertical: 16 }} />
+          ) : intervenants.length === 0 ? (
+            <Text style={[styles.emptyText, { color: C.muted }]}>Aucun intervenant enregistré pour l'instant.</Text>
+          ) : (
+            <ScrollView style={styles.list} contentContainerStyle={{ paddingBottom: 4 }}>
+              {intervenants.map((it) => {
+                const selected = it.id === selectedId;
+                return (
+                  <TouchableOpacity
+                    key={it.id}
+                    style={[styles.row, { borderBottomColor: C.border }]}
+                    onPress={() => {
+                      setSelectedId(it.id);
+                      // Choisir quelqu'un dans la liste bascule directement en
+                      // mode "one" — la liste est toujours visible (voir
+                      // plus haut), inutile de forcer le choix du mode avant.
+                      setMode("one");
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <View style={[styles.radio, { borderColor: selected ? C.orange : C.muted }]}>
+                      {selected && <View style={[styles.radioDot, { backgroundColor: C.orange }]} />}
+                    </View>
+                    <PatientAvatar
+                      photoUrl={it.photo ? intervenantPhotoUrl(it.photo, it.photo_updated_at) : null}
+                      firstname={it.prenom}
+                      lastname={it.nom}
+                      size={36}
+                      C={C}
+                      metier={it.metier}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.rowName, { color: C.text }]} numberOfLines={1}>{it.prenom} {it.nom}</Text>
+                      {!!it.metier && <Text style={[styles.rowMetier, { color: C.muted }]} numberOfLines={1}>{metierLabel(it.metier)}</Text>}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
           )}
 
           <TouchableOpacity

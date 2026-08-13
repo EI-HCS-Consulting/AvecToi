@@ -2221,6 +2221,13 @@ export default function SettingsScreen() {
                     }
                   </View>
 
+                  <TouchableOpacity
+                    style={[styles.saveNotesBtn, { backgroundColor: C.card, borderWidth: 1, borderColor: C.accent, marginTop: 12 }]}
+                    onPress={() => setNightVisitorModalVisible(true)}
+                  >
+                    <Text style={[styles.saveNotesBtnText, { color: C.accent }]}>🌙 Nuitées visiteurs</Text>
+                  </TouchableOpacity>
+
                   <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
 
                   <Text style={[styles.fieldLabel, { color: C.gold }]}>⏰ Heures de nuitée</Text>
@@ -2306,13 +2313,6 @@ export default function SettingsScreen() {
                       : <Text style={styles.saveNotesBtnText}>Enregistrer les heures de nuitée</Text>
                     }
                   </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.saveNotesBtn, { backgroundColor: C.card, borderWidth: 1, borderColor: C.accent, marginTop: 8 }]}
-                    onPress={() => setNightVisitorModalVisible(true)}
-                  >
-                    <Text style={[styles.saveNotesBtnText, { color: C.accent }]}>🌙 Nuitées chez les visiteurs</Text>
-                  </TouchableOpacity>
                 </View>
 
                 {/* ── Bloc : Intervenants ───────────────────────────────────── */}
@@ -2357,7 +2357,7 @@ export default function SettingsScreen() {
                           style={[styles.saveNotesBtn, { backgroundColor: C.card, borderWidth: 1, borderColor: C.orange, marginTop: 8 }]}
                           onPress={() => setNightIntervenantModalVisible(true)}
                         >
-                          <Text style={[styles.saveNotesBtnText, { color: C.orange }]}>🌙 Nuitées chez les intervenants</Text>
+                          <Text style={[styles.saveNotesBtnText, { color: C.orange }]}>🌙 Nuitées intervenants</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={[styles.saveNotesBtn, { backgroundColor: C.card, borderWidth: 1, borderColor: C.orange, marginTop: 8 }]}

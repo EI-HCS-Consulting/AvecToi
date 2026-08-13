@@ -91,6 +91,10 @@ export default function NightVisitorModal({
       else next.add(key);
       return next;
     });
+    // Cocher un visiteur bascule directement en mode "some" — la liste est
+    // toujours visible (cf. plus bas), inutile de forcer un choix de mode
+    // avant de pouvoir cocher quelqu'un.
+    setMode("some");
   }
 
   async function handleSave() {
@@ -161,35 +165,33 @@ export default function NightVisitorModal({
             </View>
           </TouchableOpacity>
 
-          {mode === "some" && (
-            loading ? (
-              <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
-            ) : visitors.length === 0 ? (
-              <Text style={[styles.emptyText, { color: C.muted }]}>Aucun visiteur enregistré pour l'instant.</Text>
-            ) : (
-              <ScrollView style={styles.list} contentContainerStyle={{ paddingBottom: 4 }}>
-                {visitors.map((v) => {
-                  const key = identityKey(v.prenom, v.nom);
-                  const selected = selectedKeys.has(key);
-                  return (
-                    <TouchableOpacity
-                      key={key}
-                      style={[styles.row, { borderBottomColor: C.border }]}
-                      onPress={() => toggleSelected(v)}
-                      activeOpacity={0.8}
-                    >
-                      <View style={[styles.checkbox, { borderColor: selected ? C.accent : C.muted, backgroundColor: selected ? C.accent : "transparent" }]}>
-                        {selected && <Text style={styles.checkboxMark}>✓</Text>}
-                      </View>
-                      <PatientAvatar photoUrl={null} firstname={v.prenom} lastname={v.nom} size={36} C={C} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.rowName, { color: C.text }]} numberOfLines={1}>{v.prenom} {v.nom}</Text>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            )
+          {loading ? (
+            <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
+          ) : visitors.length === 0 ? (
+            <Text style={[styles.emptyText, { color: C.muted }]}>Aucun visiteur enregistré pour l'instant.</Text>
+          ) : (
+            <ScrollView style={styles.list} contentContainerStyle={{ paddingBottom: 4 }}>
+              {visitors.map((v) => {
+                const key = identityKey(v.prenom, v.nom);
+                const selected = selectedKeys.has(key);
+                return (
+                  <TouchableOpacity
+                    key={key}
+                    style={[styles.row, { borderBottomColor: C.border }]}
+                    onPress={() => toggleSelected(v)}
+                    activeOpacity={0.8}
+                  >
+                    <View style={[styles.checkbox, { borderColor: selected ? C.accent : C.muted, backgroundColor: selected ? C.accent : "transparent" }]}>
+                      {selected && <Text style={styles.checkboxMark}>✓</Text>}
+                    </View>
+                    <PatientAvatar photoUrl={null} firstname={v.prenom} lastname={v.nom} size={36} C={C} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.rowName, { color: C.text }]} numberOfLines={1}>{v.prenom} {v.nom}</Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
           )}
 
           <TouchableOpacity
