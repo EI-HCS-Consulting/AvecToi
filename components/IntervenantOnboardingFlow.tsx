@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, Modal, StyleSheet,
-  ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Alert,
+  ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Alert, Animated,
 } from "react-native";
 import * as ImageManipulator from "expo-image-manipulator";
 import { File } from "expo-file-system";
@@ -47,10 +47,27 @@ interface Props {
 
 type Step = "telephone" | "totem" | "metier" | "soins";
 
+const SLIDE_DISTANCE = 56;
+
 export default function IntervenantOnboardingFlow({
   visible, spaceId, prenom, nom, pin, pickedPhotoUri, theme: C, onCreated,
 }: Props) {
   const [step, setStep] = useState<Step>("telephone");
+  // Transition "droite → gauche" entre étapes : chaque nouvelle étape glisse
+  // depuis la droite (Suivant) ou la gauche (Retour) avec un léger fondu —
+  // RN Modal n'a pas de animationType directionnel, donc un seul Modal reste
+  // monté (voir le retour du composant) et c'est ce contenu qui s'anime.
+  const slideAnim = useRef(new Animated.Value(0)).current;
+  const directionRef = useRef<1 | -1>(1);
+  function goToStep(next: Step, direction: 1 | -1) {
+    directionRef.current = direction;
+    setStep(next);
+  }
+  useEffect(() => {
+    slideAnim.setValue(directionRef.current * SLIDE_DISTANCE);
+    Animated.timing(slideAnim, { toValue: 0, duration: 260, useNativeDriver: true }).start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step]);
   const [telephone, setTelephone] = useState("");
   const [knownElsewhere, setKnownElsewhere] = useState(false);
   const [phraseTotem, setPhraseTotem] = useState("");
@@ -200,146 +217,149 @@ export default function IntervenantOnboardingFlow({
 
   return (
     <>
-      <Modal visible={visible && step === "telephone"} transparent animationType="fade" statusBarTranslucent>
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-          <View style={styles.overlay}>
-            <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
-              <Text style={[styles.title, { color: C.text }]}>📞 Ton téléphone</Text>
-              <Text style={[styles.subtitle, { color: C.muted }]}>
-                Pour être joignable par l'administrateur ou les autres intervenants si besoin.
-              </Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                placeholder="Téléphone"
-                placeholderTextColor={C.muted}
-                value={telephone}
-                onChangeText={setTelephone}
-                onBlur={checkKnownElsewhere}
-                keyboardType="phone-pad"
-                autoFocus
-              />
-              {knownElsewhere && (
-                <Text style={[styles.subtitle, { color: C.accent, marginTop: 8, textAlign: "left" }]}>
-                  🔗 Ce numéro est déjà lié à un autre espace — tu pourras y accéder depuis Mon compte.
-                </Text>
-              )}
-              <TouchableOpacity
-                style={[styles.nextBtn, { backgroundColor: C.accent }, !telephone.trim() && { opacity: 0.5 }]}
-                onPress={() => telephone.trim() && setStep("totem")}
-                disabled={!telephone.trim()}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.nextBtnText}>Suivant</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-
-      <Modal visible={visible && step === "totem"} transparent animationType="fade" statusBarTranslucent>
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-          <View style={styles.overlay}>
-            <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
-              <TouchableOpacity onPress={() => setStep("telephone")} style={{ marginBottom: 8 }}>
-                <Text style={[styles.linkText, { color: C.accent }]}>‹ Retour</Text>
-              </TouchableOpacity>
-              <Text style={[styles.title, { color: C.text }]}>✨ Ta phrase totem</Text>
-              <Text style={[styles.subtitle, { color: C.muted }]}>
-                Une phrase ou une devise qui te représente, facultative — tu peux la laisser vide.
-              </Text>
-              <TextInput
-                style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                placeholder="Phrase totem (optionnel)"
-                placeholderTextColor={C.muted}
-                value={phraseTotem}
-                onChangeText={setPhraseTotem}
-                autoFocus
-              />
-              <TouchableOpacity
-                style={[styles.nextBtn, { backgroundColor: C.accent }]}
-                onPress={() => setStep("metier")}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.nextBtnText}>Suivant</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-
-      <Modal visible={visible && step === "metier"} transparent animationType="fade" statusBarTranslucent>
-        <View style={styles.overlay}>
-          <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
-            <TouchableOpacity onPress={() => setStep("totem")} style={{ marginBottom: 8 }}>
-              <Text style={[styles.linkText, { color: C.accent }]}>‹ Retour</Text>
-            </TouchableOpacity>
-            <Text style={[styles.title, { color: C.text }]}>🧑‍⚕️ Ton métier</Text>
-            <Text style={[styles.subtitle, { color: C.muted }]}>
-              Choisis ta spécialisation principale dans la liste, ou "Autre" pour la saisir toi-même.
-            </Text>
-            <TouchableOpacity
-              style={[styles.metierBtn, { backgroundColor: C.orange }]}
-              onPress={() => setMetierPickerOpen(true)}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.metierBtnText} numberOfLines={1}>
-                {metier ? metierLabel(metier) : "Choisir un métier"}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.nextBtn, { backgroundColor: C.accent }, !metier && { opacity: 0.5 }]}
-              onPress={() => metier && setStep("soins")}
-              disabled={!metier}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.nextBtnText}>Suivant</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={visible && step === "soins"} transparent animationType="fade" statusBarTranslucent>
+      <Modal visible={visible} transparent animationType="fade" statusBarTranslucent>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <ScrollView
             style={{ flex: 1 }}
             contentContainerStyle={[styles.overlay, { flexGrow: 1, justifyContent: "center", paddingVertical: 16 }]}
             keyboardShouldPersistTaps="handled"
           >
-            <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
-              <TouchableOpacity onPress={() => setStep("metier")} style={{ marginBottom: 8 }} disabled={submitting}>
-                <Text style={[styles.linkText, { color: C.accent }]}>‹ Retour</Text>
-              </TouchableOpacity>
-              <Text style={[styles.title, { color: C.text }]}>🩺 Tes soins</Text>
-              <Text style={[styles.subtitle, { color: C.muted }]}>
-                Ajoute les soins que tu pratiques, avec leur durée habituelle.
-              </Text>
-              {soins.map((s, i) => (
-                <View key={s.label} style={[styles.soinRow, { borderColor: C.border }]}>
-                  <Text style={[styles.soinRowText, { color: C.text }]} numberOfLines={1}>
-                    {s.label} — {s.duration_minutes} min
+            <Animated.View
+              style={[
+                styles.card,
+                { backgroundColor: C.card, borderColor: C.border, overflow: "hidden" },
+                { transform: [{ translateX: slideAnim }], opacity: slideAnim.interpolate({
+                  inputRange: [-SLIDE_DISTANCE, 0, SLIDE_DISTANCE],
+                  outputRange: [0, 1, 0],
+                }) },
+              ]}
+            >
+              {step === "telephone" && (
+                <>
+                  <Text style={[styles.title, { color: C.text }]}>📞 Ton téléphone</Text>
+                  <Text style={[styles.subtitle, { color: C.muted }]}>
+                    Pour être joignable par l'administrateur ou les autres intervenants si besoin.
                   </Text>
-                  <TouchableOpacity onPress={() => removeSoin(i)} style={styles.removeBtn}>
-                    <Text style={{ color: C.danger, fontSize: 18 }}>✕</Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                    placeholder="Téléphone"
+                    placeholderTextColor={C.muted}
+                    value={telephone}
+                    onChangeText={setTelephone}
+                    onBlur={checkKnownElsewhere}
+                    keyboardType="phone-pad"
+                    autoFocus
+                  />
+                  {knownElsewhere && (
+                    <Text style={[styles.subtitle, { color: C.accent, marginTop: 8, textAlign: "left" }]}>
+                      🔗 Ce numéro est déjà lié à un autre espace — tu pourras y accéder depuis Mon compte.
+                    </Text>
+                  )}
+                  <TouchableOpacity
+                    style={[styles.nextBtn, { backgroundColor: C.accent }, !telephone.trim() && { opacity: 0.5 }]}
+                    onPress={() => telephone.trim() && goToStep("totem", 1)}
+                    disabled={!telephone.trim()}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.nextBtnText}>Suivant</Text>
                   </TouchableOpacity>
-                </View>
-              ))}
-              <TouchableOpacity
-                onPress={() => setSoinPickerOpen(true)}
-                style={[styles.addSoinBtn, { backgroundColor: C.orange }]}
-                activeOpacity={0.85}
-              >
-                <Text style={styles.addSoinBtnText}>+ Ajouter un soin</Text>
-              </TouchableOpacity>
+                </>
+              )}
 
-              <TouchableOpacity
-                style={[styles.nextBtn, { backgroundColor: C.accent }, (soins.length === 0 || submitting) && { opacity: 0.5 }]}
-                onPress={handleCreateAccount}
-                disabled={soins.length === 0 || submitting}
-                activeOpacity={0.85}
-              >
-                {submitting ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.nextBtnText}>Créer mon compte</Text>}
-              </TouchableOpacity>
-            </View>
+              {step === "totem" && (
+                <>
+                  <TouchableOpacity onPress={() => goToStep("telephone", -1)} style={{ marginBottom: 8 }}>
+                    <Text style={[styles.linkText, { color: C.accent }]}>‹ Retour</Text>
+                  </TouchableOpacity>
+                  <Text style={[styles.title, { color: C.text }]}>✨ Ta phrase totem</Text>
+                  <Text style={[styles.subtitle, { color: C.muted }]}>
+                    Une phrase ou une devise qui te représente, facultative — tu peux la laisser vide.
+                  </Text>
+                  <TextInput
+                    style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                    placeholder="Phrase totem (optionnel)"
+                    placeholderTextColor={C.muted}
+                    value={phraseTotem}
+                    onChangeText={setPhraseTotem}
+                    autoFocus
+                  />
+                  <TouchableOpacity
+                    style={[styles.nextBtn, { backgroundColor: C.accent }]}
+                    onPress={() => goToStep("metier", 1)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.nextBtnText}>Suivant</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+
+              {step === "metier" && (
+                <>
+                  <TouchableOpacity onPress={() => goToStep("totem", -1)} style={{ marginBottom: 8 }}>
+                    <Text style={[styles.linkText, { color: C.accent }]}>‹ Retour</Text>
+                  </TouchableOpacity>
+                  <Text style={[styles.title, { color: C.text }]}>🧑‍⚕️ Ton métier</Text>
+                  <Text style={[styles.subtitle, { color: C.muted }]}>
+                    Choisis ta spécialisation principale dans la liste, ou "Autre" pour la saisir toi-même.
+                  </Text>
+                  <TouchableOpacity
+                    style={[styles.metierBtn, { backgroundColor: C.orange }]}
+                    onPress={() => setMetierPickerOpen(true)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.metierBtnText} numberOfLines={1}>
+                      {metier ? metierLabel(metier) : "Choisir un métier"}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.nextBtn, { backgroundColor: C.accent }, !metier && { opacity: 0.5 }]}
+                    onPress={() => metier && goToStep("soins", 1)}
+                    disabled={!metier}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.nextBtnText}>Suivant</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+
+              {step === "soins" && (
+                <>
+                  <TouchableOpacity onPress={() => goToStep("metier", -1)} style={{ marginBottom: 8 }} disabled={submitting}>
+                    <Text style={[styles.linkText, { color: C.accent }]}>‹ Retour</Text>
+                  </TouchableOpacity>
+                  <Text style={[styles.title, { color: C.text }]}>🩺 Tes soins</Text>
+                  <Text style={[styles.subtitle, { color: C.muted }]}>
+                    Ajoute les soins que tu pratiques, avec leur durée habituelle.
+                  </Text>
+                  {soins.map((s, i) => (
+                    <View key={s.label} style={[styles.soinRow, { borderColor: C.border }]}>
+                      <Text style={[styles.soinRowText, { color: C.text }]} numberOfLines={1}>
+                        {s.label} — {s.duration_minutes} min
+                      </Text>
+                      <TouchableOpacity onPress={() => removeSoin(i)} style={styles.removeBtn}>
+                        <Text style={{ color: C.danger, fontSize: 18 }}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                  <TouchableOpacity
+                    onPress={() => setSoinPickerOpen(true)}
+                    style={[styles.addSoinBtn, { backgroundColor: C.orange }]}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.addSoinBtnText}>+ Ajouter un soin</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.nextBtn, { backgroundColor: C.accent }, (soins.length === 0 || submitting) && { opacity: 0.5 }]}
+                    onPress={handleCreateAccount}
+                    disabled={soins.length === 0 || submitting}
+                    activeOpacity={0.85}
+                  >
+                    {submitting ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.nextBtnText}>Créer mon compte</Text>}
+                  </TouchableOpacity>
+                </>
+              )}
+            </Animated.View>
           </ScrollView>
         </KeyboardAvoidingView>
       </Modal>

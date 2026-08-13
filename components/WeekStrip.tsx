@@ -18,6 +18,10 @@ const WEEKDAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
 interface Props {
   C: Theme;
   slotConfig: SlotConfig;
+  // Déjà filtrée par le parent selon "Afficher mes créneaux" (rôle
+  // intervenant, home/calendar.tsx) : ne contient les réservations
+  // "Intervention" d'un AUTRE intervenant que si ce mode est désactivé — la
+  // bande n'a donc pas à connaître ce réglage elle-même.
   reservations: Reservation[];
   getSlotsForDate: (iso: string) => string[];
   getConfigForDate: (iso: string) => SlotConfig | null;
@@ -29,10 +33,6 @@ interface Props {
   soinsMode: boolean;
   role: "visiteur" | "intervenant" | null;
   intervenantProfileId: string | null;
-  // "Afficher mes créneaux" (calendar.tsx, rôle intervenant) : le cadre
-  // violet ne ressort que pour les jours de CET intervenant au lieu de tout
-  // intervenant confondu — voir home/calendar.tsx.
-  restrictToMine?: boolean;
   // Marqueurs hospitalisation (F) / sortie (G) et seuil de grisage (E) — au
   // format "YYYY-MM-DD" comme PatientSpace.patient_admission_date, ou null si
   // non renseigné côté fiche patient.
@@ -43,7 +43,7 @@ interface Props {
 export default function WeekStrip({
   C, slotConfig, reservations, getSlotsForDate, getConfigForDate, startDate,
   weekAnchor, onWeekChange, selectedIso, onSelectDay, soinsMode, role,
-  intervenantProfileId, admissionIso, dischargeIso, restrictToMine,
+  intervenantProfileId, admissionIso, dischargeIso,
 }: Props) {
   const weekDates = getWeekDates(weekAnchor);
   const first = weekDates[0];
@@ -93,9 +93,7 @@ export default function WeekStrip({
           const familyBooked = !soinsMode && reservations.some((r) => r.date === iso && (r.type === "Visite" || r.type === "Nuit"));
           const myInterventionToday = role === "intervenant" && !!intervenantProfileId &&
             reservations.some((r) => r.date === iso && r.type === "Intervention" && r.intervenant_profile_id === intervenantProfileId);
-          const interventionBooked = restrictToMine
-            ? myInterventionToday
-            : reservations.some((r) => r.date === iso && r.type === "Intervention");
+          const interventionBooked = reservations.some((r) => r.date === iso && r.type === "Intervention");
           const isSelected = iso === selectedIso;
           const isToday = iso === todayIso;
           // Grisage (E) : uniquement les jours strictement avant la date
