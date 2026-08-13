@@ -35,9 +35,11 @@ export default function MesVisitesPanel({ C, reservations }: Props) {
 
   const visites = reservations.filter((r) => r.type === "Visite" || r.type === "Nuit");
 
+  // Anté-chronologique : la date la plus lointaine en premier, y compris
+  // pour la liste "à venir" (comme pour l'historique, déjà dans ce sens).
   const upcoming = visites
     .filter((r) => !isSlotFullyPast(r.date, r.creneau))
-    .sort((a, b) => (a.date + a.creneau).localeCompare(b.date + b.creneau));
+    .sort((a, b) => (b.date + b.creneau).localeCompare(a.date + a.creneau));
   const past = visites
     .filter((r) => isSlotFullyPast(r.date, r.creneau))
     .sort((a, b) => (b.date + b.creneau).localeCompare(a.date + a.creneau));

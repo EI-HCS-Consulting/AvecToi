@@ -8,17 +8,22 @@ import { toFrShort, isSlotFullyPast } from "@/lib/slotUtils";
 // affiche les soins (tous intervenants) sous le calendrier familial
 // (Mensuel) ou la bande Hebdo (WeekStrip), qui couvrent déjà la vue du jour
 // courant/sélectionné pour tous les rôles (voir home/calendar.tsx) — plus
-// besoin d'une grille dédiée ici. Scindé en deux sous-sections : "Soins
-// planifiés" (à venir, toujours visible) et "Historique des soins" (déjà
-// effectués, repliée par défaut — même pattern que SoinsPlanifiesBlock). Le
-// bascule planifié/effectué est précise à la minute près via isSlotFullyPast,
-// pas seulement au jour près.
+// besoin d'une grille dédiée ici. Scindé en deux sous-sections : à venir
+// (toujours visible) et historique (déjà passé, repliée par défaut — même
+// pattern que SoinsPlanifiesBlock). Le bascule à venir/passé est précise à la
+// minute près via isSlotFullyPast, pas seulement au jour près.
+// soinsMode (vue Visites/Soins du calendrier, home/calendar.tsx) détermine ce
+// que ce panneau liste : soins réservés par des intervenants (soinsMode) ou
+// visites/nuitées réservées par des visiteurs (!soinsMode) — labels et filtre
+// de type basculent ensemble, même quand l'intervenant regarde la vue
+// Visites.
 interface Props {
   C: Theme;
   reservations: Reservation[];
+  soinsMode: boolean;
 }
 
-function SoinCard({ r, C, done }: { r: Reservation; C: Theme; done: boolean }) {
+function PlanningCard({ r, C, done, soinsMode }: { r: Reservation; C: Theme; done: boolean; soinsMode: boolean }) {
   return (
     <View style={[styles.historyCard, { backgroundColor: C.card, borderColor: C.border }]}>
       <View style={styles.historyHeader}>
@@ -26,48 +31,59 @@ function SoinCard({ r, C, done }: { r: Reservation; C: Theme; done: boolean }) {
           {toFrShort(new Date(r.date + "T12:00:00"))} · {r.creneau}
         </Text>
         <Text style={[styles.historyStatus, { color: done ? C.success : C.orange }]}>
-          {done ? "Effectué" : "Planifié"}
+          {soinsMode ? (done ? "Effectué" : "Planifié") : (done ? "Passée" : "À venir")}
         </Text>
       </View>
-      <Text style={[styles.historyLabel, { color: C.text }]}>{r.intervention_label}</Text>
+      <Text style={[styles.historyLabel, { color: C.text }]}>
+        {soinsMode ? r.intervention_label : (r.type === "Nuit" ? "Nuitée" : "Visite")}
+      </Text>
       <Text style={[styles.historyBy, { color: C.muted }]}>{r.prenom} {r.nom}</Text>
     </View>
   );
 }
 
-export default function IntervenantPlanningPanel({ C, reservations }: Props) {
+export default function IntervenantPlanningPanel({ C, reservations, soinsMode }: Props) {
   const [historyOpen, setHistoryOpen] = useState(false);
 
-  const interventions = reservations.filter((r) => r.type === "Intervention");
+  const filtered = reservations.filter((r) => (soinsMode ? r.type === "Intervention" : r.type === "Visite" || r.type === "Nuit"));
 
-  const upcoming = interventions
+  // Anté-chronologique : la date la plus lointaine en premier, y compris
+  // pour la liste "à venir" (comme pour l'historique, déjà dans ce sens).
+  const upcoming = filtered
     .filter((r) => !isSlotFullyPast(r.date, r.creneau))
-    .sort((a, b) => (a.date + a.creneau).localeCompare(b.date + b.creneau));
-  const past = interventions
+    .sort((a, b) => (b.date + b.creneau).localeCompare(a.date + a.creneau));
+  const past = filtered
     .filter((r) => isSlotFullyPast(r.date, r.creneau))
     .sort((a, b) => (b.date + b.creneau).localeCompare(a.date + a.creneau));
 
+  const upcomingTitle = soinsMode ? "Soins planifiés" : "Visites planifiées";
+  const historyTitle = soinsMode ? "Historique des soins" : "Historique des visites";
+
   return (
     <View>
-      <Text style={[styles.sectionTitle, { color: C.gold }]}>Soins planifiés</Text>
+      <Text style={[styles.sectionTitle, { color: C.gold }]}>{upcomingTitle}</Text>
       {upcoming.length === 0 ? (
-        <Text style={[styles.emptyText, { color: C.muted }]}>Aucun soin planifié pour l&apos;instant.</Text>
+        <Text style={[styles.emptyText, { color: C.muted }]}>
+          {soinsMode ? "Aucun soin planifié pour l'instant." : "Aucune visite planifiée pour l'instant."}
+        </Text>
       ) : (
-        upcoming.map((r) => <SoinCard key={r.id} r={r} C={C} done={false} />)
+        upcoming.map((r) => <PlanningCard key={r.id} r={r} C={C} done={false} soinsMode={soinsMode} />)
       )}
 
       <TouchableOpacity onPress={() => setHistoryOpen((o) => !o)} activeOpacity={0.7} style={styles.historyToggle}>
         <Text style={[styles.sectionTitle, { color: C.gold, marginBottom: 0 }]}>
-          Historique des soins{past.length > 0 ? ` (${past.length})` : ""}
+          {historyTitle}{past.length > 0 ? ` (${past.length})` : ""}
         </Text>
         <Text style={[styles.toggleIcon, { color: C.muted }]}>{historyOpen ? "▾" : "▸"}</Text>
       </TouchableOpacity>
 
       {historyOpen && (
         past.length === 0 ? (
-          <Text style={[styles.emptyText, { color: C.muted }]}>Aucun soin effectué pour l&apos;instant.</Text>
+          <Text style={[styles.emptyText, { color: C.muted }]}>
+            {soinsMode ? "Aucun soin effectué pour l'instant." : "Aucune visite passée pour l'instant."}
+          </Text>
         ) : (
-          past.map((r) => <SoinCard key={r.id} r={r} C={C} done={true} />)
+          past.map((r) => <PlanningCard key={r.id} r={r} C={C} done={true} soinsMode={soinsMode} />)
         )
       )}
     </View>
