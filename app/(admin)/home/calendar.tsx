@@ -37,6 +37,11 @@ export default function AdminCalendarScreen() {
   // du jour sélectionné (D) sans passer par l'écran dédié (home/slots.tsx),
   // qui reste accessible en Mensuel (tap sur un jour).
   const [planningView, setPlanningView] = useState<"mensuel" | "hebdo">("mensuel");
+  // Les 2 switches du bloc de réglages doivent avoir des pastilles de même
+  // taille et des libellés alignés à la même position — le switch Visites/
+  // Soins reprend la largeur naturelle calculée par Mensuel/Hebdo au lieu
+  // d'en calculer une indépendamment (même mécanisme que Entraide.tsx).
+  const [viewThumbWidth, setViewThumbWidth] = useState(0);
   const [toast, setToast] = useState("");
   function showToast(msg: string) {
     setToast(msg);
@@ -153,9 +158,10 @@ export default function AdminCalendarScreen() {
             rightLabel="Hebdo"
             C={C}
             minWidthRatio={0.5}
+            onThumbWidth={setViewThumbWidth}
           />
           {space.intervenants_enabled && (
-            <SegmentedSwitch value={soinsMode} onChange={setSoinsMode} leftLabel="Visites" rightLabel="Soins" C={C} minWidthRatio={0.55} />
+            <SegmentedSwitch value={soinsMode} onChange={setSoinsMode} leftLabel="Visites" rightLabel="Soins" C={C} thumbWidth={viewThumbWidth || undefined} />
           )}
         </View>
 
