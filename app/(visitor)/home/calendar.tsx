@@ -16,6 +16,7 @@ import WeekStrip from "@/components/WeekStrip";
 import VisitorSlotsList from "@/components/VisitorSlotsList";
 import SoinsDayDetail from "@/components/SoinsDayDetail";
 import IntervenantPlanningPanel from "@/components/IntervenantPlanningPanel";
+import MesVisitesPanel from "@/components/MesVisitesPanel";
 import BookingFlow, { type BookingFlowHandle } from "@/components/BookingFlow";
 import InterventionBookingFlow, { type InterventionBookingFlowHandle } from "@/components/InterventionBookingFlow";
 import { useRouter } from "expo-router";
@@ -42,14 +43,15 @@ export default function VisitorCalendarScreen() {
   // directement un créneau du jour sélectionné (D), sans passer par l'écran
   // dédié (home/slots.tsx), qui reste accessible en Mensuel (tap sur un jour).
   const [planningView, setPlanningView] = useState<"mensuel" | "hebdo">("mensuel");
-  // Bascule réservée au rôle intervenant (mesCreneauxOnly, partagée via
-  // VisitorContext — voir home/slots.tsx qui en tient compte aussi). La
-  // grille (pastille, cadre violet, bande verte) affiche TOUJOURS la vérité
-  // complète, quel que soit ce réglage — voir familyBooked/interventionBooked
-  // plus bas. Son seul effet : filtrer le panneau "Soins planifiés"/
-  // "Historique des soins" en dessous du calendrier sur les seuls soins de
-  // CET intervenant (voir panelReservations) plutôt que ceux de tous les
-  // intervenants.
+  // Bascule "Afficher mes créneaux" (mesCreneauxOnly, partagée via
+  // VisitorContext — voir home/slots.tsx qui en tient compte aussi),
+  // disponible pour tous les rôles. La grille (pastille, cadre violet, bande
+  // verte) affiche TOUJOURS la vérité complète, quel que soit ce réglage —
+  // voir familyBooked/interventionBooked plus bas. Son seul effet : filtrer
+  // le panneau perso en dessous du calendrier (IntervenantPlanningPanel pour
+  // un intervenant, MesVisitesPanel pour un visiteur) sur les seules
+  // réservations de LA PERSONNE QUI REGARDE (comparées à son PIN) plutôt que
+  // celles de tout le monde — voir panelReservations.
   // Les 2 switches du bloc de réglages doivent avoir des pastilles de même
   // taille et des libellés alignés à la même position — le switch Visites/
   // Soins reprend la largeur naturelle calculée par Mensuel/Hebdo au lieu
@@ -121,10 +123,13 @@ export default function VisitorCalendarScreen() {
   // toujours la vérité complète : vue Visites = toutes les visites des
   // visiteurs, vue Soins = tous les soins de tous les intervenants —
   // "Afficher mes créneaux" ne filtre plus ces éléments, voir plus bas
-  // (panelReservations) pour son seul effet restant : le panneau "Soins
-  // planifiés"/"Historique des soins".
-  const panelReservations = mesCreneauxOnly && intervenantProfileId
-    ? reservations.filter((r) => r.type === "Intervention" && r.intervenant_profile_id === intervenantProfileId)
+  // pour son seul effet restant : le panneau perso sous le calendrier
+  // (IntervenantPlanningPanel/MesVisitesPanel), qui s'auto-filtre déjà par
+  // type de réservation — un simple filtre par PIN suffit donc ici, valable
+  // pour tous les rôles/types (le PIN identifie aussi bien le réservataire
+  // d'une visite que l'intervenant d'un soin, voir book_intervention).
+  const panelReservations = mesCreneauxOnly && myPin
+    ? reservations.filter((r) => r.pin === myPin)
     : reservations;
 
   const selectedIso = toISO(selectedDay);
@@ -155,6 +160,29 @@ export default function VisitorCalendarScreen() {
           {space.intervenants_enabled && (
             <SegmentedSwitch value={soinsMode} onChange={setSoinsMode} leftLabel="Visites" rightLabel="Soins" C={C} thumbWidth={viewThumbWidth || undefined} />
           )}
+        </View>
+
+        {/* "Afficher mes créneaux" — disponible pour tous les rôles (visiteur
+            comme intervenant), commun aux vues Mensuel/Hebdo. Ne filtre que le
+            panneau perso sous le calendrier (voir panelReservations
+            ci-dessus) ; la grille reste toujours une vérité complète. */}
+        <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginBottom: 14 }]}>
+          <View style={styles.toggleRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.toggleLabel, { color: C.text }]}>👁️ Afficher mes créneaux</Text>
+              <Text style={[styles.toggleDesc, { color: C.muted }]}>
+                {mesCreneauxOnly
+                  ? `Le panneau ci-dessous ne liste que t${role === "intervenant" ? "es propres soins" : "es propres visites/nuitées"}. Le calendrier, lui, affiche toujours tout le monde.`
+                  : `Le panneau ci-dessous liste les ${role === "intervenant" ? "soins" : "visites/nuitées"} de tout le monde.`}
+              </Text>
+            </View>
+            <Switch
+              value={mesCreneauxOnly}
+              onValueChange={setMesCreneauxOnly}
+              trackColor={{ false: C.border, true: C.accent }}
+              thumbColor="#fff"
+            />
+          </View>
         </View>
 
         {/* "Prochaine disponibilité" reste réservé aux visiteurs (l'intervenant
@@ -305,27 +333,6 @@ export default function VisitorCalendarScreen() {
             <Text style={[styles.legendLabel, { color: C.muted }]}>{soinsMode ? "Soin" : "Intervenant"}</Text>
           </View>
         </View>
-
-        {role === "intervenant" && (
-          <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 12 }]}>
-            <View style={styles.toggleRow}>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.toggleLabel, { color: C.text }]}>👁️ Afficher mes créneaux</Text>
-                <Text style={[styles.toggleDesc, { color: C.muted }]}>
-                  {mesCreneauxOnly
-                    ? "Le panneau ci-dessous ne liste que tes propres soins. Le calendrier, lui, affiche toujours les soins de tous les intervenants."
-                    : "Le panneau ci-dessous liste les soins de tous les intervenants."}
-                </Text>
-              </View>
-              <Switch
-                value={mesCreneauxOnly}
-                onValueChange={setMesCreneauxOnly}
-                trackColor={{ false: C.border, true: C.accent }}
-                thumbColor="#fff"
-              />
-            </View>
-          </View>
-        )}
         </>
         ) : (
         <>
@@ -406,9 +413,13 @@ export default function VisitorCalendarScreen() {
           </TouchableOpacity>
         )}
 
-        {role === "intervenant" && (
+        {role === "intervenant" ? (
           <View style={{ marginTop: 16 }}>
             <IntervenantPlanningPanel C={C} reservations={panelReservations} />
+          </View>
+        ) : (
+          <View style={{ marginTop: 16 }}>
+            <MesVisitesPanel C={C} reservations={panelReservations} />
           </View>
         )}
       </ScrollView>
