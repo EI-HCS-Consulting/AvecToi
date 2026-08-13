@@ -30,6 +30,7 @@ import { generateSlots, formatHourMinute } from "@/lib/slotUtils";
 import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
 import { canEnableIntervenants } from "@/lib/freemiumCap";
 import type { Theme } from "@/lib/themes";
+import { LOGO_PURPLE } from "@/lib/themes";
 import type { NewsEntry, Task, SupportMessage, SlotConfig, ReservationChangeHistoryEntry, Reservation } from "@/lib/types";
 import { openAndroidTimePicker, openAndroidDatePicker } from "@/lib/androidTimePicker";
 
@@ -53,7 +54,13 @@ interface FieldHistoryEntry {
 }
 
 // ─── Chronologie (popup frise) ─────────────────────────────────────────────
-type ChronoEventKind = "hosp" | "regles" | "consignes" | "resa" | "soin" | "hospitalisation" | "sortie" | "besoin";
+// "resa" = réservation faite par un visiteur (ou l'admin, aussi visiteur) ;
+// "resa_intervenant" = même type de réservation (Visite/Nuit) mais faite par
+// un intervenant (distingué via reservations.intervenant_profile_id) ; "soin"
+// = intervention (toujours faite par un intervenant). Couleur : vert pour les
+// visiteurs, violet du bonhomme du logo (LOGO_PURPLE) pour les intervenants —
+// voir chronoKindColor() plus bas, appliqué au rendu de la frise.
+type ChronoEventKind = "hosp" | "regles" | "consignes" | "resa" | "resa_intervenant" | "soin" | "hospitalisation" | "sortie" | "besoin";
 interface ChronoEvent {
   id: string;
   kind: ChronoEventKind;
@@ -67,11 +74,17 @@ const CHRONO_KIND_COLOR: Record<ChronoEventKind, keyof Theme> = {
   regles: "gold",
   consignes: "accent",
   resa: "success",
+  resa_intervenant: "success",
   soin: "success",
   hospitalisation: "danger",
   sortie: "success",
   besoin: "orange",
 };
+// Couleur effective d'un événement de la frise — surcharge violette (logo)
+// pour les événements liés à un intervenant, vert (C.success) sinon.
+function chronoKindColor(kind: ChronoEventKind, C: Theme): string {
+  return kind === "soin" || kind === "resa_intervenant" ? LOGO_PURPLE : C[CHRONO_KIND_COLOR[kind]];
+}
 
 // Libellés des catégories de besoins réaffichés dans la frise Chronologie
 // (les icônes réutilisent TASK_CAT_ICONS, déjà défini plus bas pour le bloc
@@ -611,11 +624,13 @@ export default function SettingsScreen() {
   const [resaHistoryLoading, setResaHistoryLoading] = useState(false);
   const [soinsPlanifies, setSoinsPlanifies] = useState<Reservation[]>([]);
   const [soinsLoading, setSoinsLoading] = useState(false);
+  const [resaVisiteurs, setResaVisiteurs] = useState<Reservation[]>([]);
+  const [resaVisiteursLoading, setResaVisiteursLoading] = useState(false);
 
   // Sous-rubriques de l'historique en accordéon (repliées par défaut — trop
   // long à scroller sinon une fois l'espace utilisé depuis un moment).
   const [historyBlocksOpen, setHistoryBlocksOpen] = useState({
-    hosp: false, regles: false, consignes: false, soins: false, resa: false, pub: false,
+    hosp: false, regles: false, consignes: false, soins: false, resaVisiteurs: false, resa: false, pub: false,
   });
   function toggleHistoryBlock(key: keyof typeof historyBlocksOpen) {
     setHistoryBlocksOpen((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -829,6 +844,26 @@ export default function SettingsScreen() {
     setSoinsLoading(false);
   }
 
+  // Réservations visiteurs (type "Visite" ou "Nuit" faites par un visiteur ou
+  // par l'admin lui-même — qui est aussi un visiteur) : intervenant_profile_id
+  // n'est renseigné que lorsque la réservation a été faite par un intervenant
+  // (voir NightInterventionBookingFlow.tsx/InterventionBookingFlow.tsx), donc
+  // is null suffit à exclure aussi bien les soins (type "Intervention") que
+  // les nuitées réservées par un intervenant.
+  async function loadResaVisiteurs() {
+    if (!space) return;
+    setResaVisiteursLoading(true);
+    const { data } = await supabase
+      .from("reservations")
+      .select("*")
+      .eq("space_id", space.id)
+      .is("intervenant_profile_id", null)
+      .order("date", { ascending: false })
+      .order("creneau", { ascending: false });
+    setResaVisiteurs(data || []);
+    setResaVisiteursLoading(false);
+  }
+
   function openSection(key: SectionKey) {
     if (key === "hist") {
       setHistorySearch("");
@@ -836,6 +871,7 @@ export default function SettingsScreen() {
       loadPublicationsHistory();
       loadReservationChangeHistory();
       loadSoinsPlanifies();
+      loadResaVisiteurs();
     }
     setActiveSection(key);
   }
@@ -861,6 +897,9 @@ export default function SettingsScreen() {
   );
   const filteredSoinsPlanifies = soinsPlanifies.filter((r) =>
     matchesHistoryQuery(r.prenom, r.nom, r.intervention_label)
+  );
+  const filteredResaVisiteurs = resaVisiteurs.filter((r) =>
+    matchesHistoryQuery(r.prenom, r.nom, r.type)
   );
   const filteredPubNews = pubNews.filter((n) => matchesHistoryQuery(n.content, n.author_prenom, n.author_nom));
   const filteredPubTasks = pubTasks.filter((t) => matchesHistoryQuery(t.title, t.description, t.category));
@@ -900,7 +939,7 @@ export default function SettingsScreen() {
         };
       }
       return {
-        id: `resa-${r.id}`, kind: "resa", date: new Date(r.date + "T12:00:00"),
+        id: `resa-${r.id}`, kind: r.intervenant_profile_id ? "resa_intervenant" : "resa", date: new Date(r.date + "T12:00:00"),
         icon: r.type === "Nuit" ? "🌙" : "☀️",
         title: `${r.prenom} ${r.nom}`,
         detail: `${r.type === "Nuit" ? "Nuitée" : "Visite"} · ${r.creneau}`,
@@ -2550,6 +2589,53 @@ export default function SettingsScreen() {
 
               <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
 
+              {/* Bloc 3ter : Réservations visiteurs — visites et nuitées
+                  réservées par un visiteur ou par l'admin (aussi un visiteur),
+                  à l'exclusion des soins et des nuitées réservées par un
+                  intervenant (cf. loadResaVisiteurs). Historique complet,
+                  passées ET à venir, plus récent en haut. */}
+              <TouchableOpacity style={styles.historyBlockHeader} onPress={() => toggleHistoryBlock("resaVisiteurs")} activeOpacity={0.7}>
+                <View style={styles.historyBlockTitleRow}>
+                  <Text style={[styles.fieldLabel, { color: C.gold, marginBottom: 0, flexShrink: 1 }]} numberOfLines={1} ellipsizeMode="tail">
+                    🌙 Réservations visiteurs
+                  </Text>
+                  {filteredResaVisiteurs.length > 0 && (
+                    <Text style={[styles.fieldLabel, { color: C.gold, marginBottom: 0, marginLeft: 4, flexShrink: 0 }]}>
+                      ({filteredResaVisiteurs.length})
+                    </Text>
+                  )}
+                </View>
+                <Text style={[styles.historyToggleIcon, { color: C.muted }]}>{historyBlocksOpen.resaVisiteurs ? "▾" : "▸"}</Text>
+              </TouchableOpacity>
+              {historyBlocksOpen.resaVisiteurs && (
+                resaVisiteursLoading ? (
+                  <ActivityIndicator color={C.accent} style={{ marginVertical: 8 }} />
+                ) : filteredResaVisiteurs.length === 0 ? (
+                  <Text style={[styles.historyEmpty, { color: C.muted }]}>Aucune réservation visiteur.</Text>
+                ) : (
+                  filteredResaVisiteurs.map((r) => (
+                    <TouchableOpacity
+                      key={r.id}
+                      style={[styles.historyRow, styles.historyRowPressable, { borderLeftColor: C.accent }]}
+                      onPress={() => router.push({ pathname: r.type === "Nuit" ? "/(admin)/home/nights" : "/(admin)/home/slots", params: { focusDate: r.date } } as any)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.historyField, { color: C.text }]}>
+                          {r.prenom} {r.nom}{r.type === "Nuit" ? " — Nuitée" : ""}
+                        </Text>
+                        <Text style={[styles.historyDate, { color: C.muted }]}>
+                          {new Date(r.date + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })} · {r.creneau}
+                        </Text>
+                      </View>
+                      <Text style={[styles.historyRowChevron, { color: C.muted }]}>›</Text>
+                    </TouchableOpacity>
+                  ))
+                )
+              )}
+
+              <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
+
               {/* Bloc 4 : Modification de réservations — recasages/annulations
                   automatiques posés par apply_slot_rule_change() lors d'un
                   changement de règles. Historique permanent (reservation_change_history),
@@ -3393,9 +3479,8 @@ export default function SettingsScreen() {
           onClose={() => setNightIntervenantModalVisible(false)}
           spaceId={space.id}
           currentMode={slotConfig.night_intervenant_mode ?? "disabled"}
-          currentProfileId={slotConfig.night_intervenant_profile_id ?? null}
           C={C}
-          onSaved={() => { refreshSlotConfig(); showToast("Nuitées chez les intervenants enregistrées ✓"); }}
+          onSaved={() => { refreshSlotConfig(); showToast("Modification enregistrée"); }}
         />
       )}
 
@@ -3406,7 +3491,7 @@ export default function SettingsScreen() {
           spaceId={space.id}
           currentMode={slotConfig.night_visitor_mode ?? "all"}
           C={C}
-          onSaved={() => { refreshSlotConfig(); showToast("Nuitées chez les visiteurs enregistrées ✓"); }}
+          onSaved={() => { refreshSlotConfig(); showToast("Modification enregistrée"); }}
         />
       )}
 
@@ -3438,7 +3523,9 @@ export default function SettingsScreen() {
               <ScrollView style={styles.chronoScroll} showsVerticalScrollIndicator nestedScrollEnabled>
                 {chronoEvents.map((ev, i) => {
                   const isLast = i === chronoEvents.length - 1;
-                  const dotColor = C[CHRONO_KIND_COLOR[ev.kind]];
+                  const dotColor = chronoKindColor(ev.kind, C);
+                  const isIntervenantFrame = ev.kind === "soin" || ev.kind === "resa_intervenant";
+                  const isVisiteurFrame = ev.kind === "resa";
                   return (
                     <View key={ev.id} style={styles.chronoRow}>
                       <View style={styles.chronoRail}>
@@ -3450,7 +3537,8 @@ export default function SettingsScreen() {
                       <View
                         style={[
                           styles.chronoContent,
-                          ev.kind === "soin" && [styles.chronoSoinBox, { borderColor: C.success, backgroundColor: `${C.success}14` }],
+                          isIntervenantFrame && [styles.chronoSoinBox, { borderColor: LOGO_PURPLE, backgroundColor: `${LOGO_PURPLE}14` }],
+                          isVisiteurFrame && [styles.chronoSoinBox, { borderColor: C.success, backgroundColor: `${C.success}14` }],
                         ]}
                       >
                         <Text style={[styles.historyDate, { color: C.muted }]}>
@@ -3460,7 +3548,7 @@ export default function SettingsScreen() {
                           {ev.title}
                         </Text>
                         {ev.detail && (
-                          <Text style={[styles.historyOld, { color: ev.kind === "soin" ? C.success : C.muted }]}>
+                          <Text style={[styles.historyOld, { color: isIntervenantFrame ? LOGO_PURPLE : isVisiteurFrame ? C.success : C.muted }]}>
                             {ev.detail}
                           </Text>
                         )}
