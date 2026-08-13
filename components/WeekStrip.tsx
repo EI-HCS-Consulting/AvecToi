@@ -94,10 +94,12 @@ export default function WeekStrip({
           const status = getDayStatus(reservations, iso, day, config, daySlots, startDate, soinsMode ? "Intervention" : "Visite");
           const dotColor =
             status === "full" ? C.danger : status === "partial" ? C.orange : status === "empty" ? C.success : "transparent";
-          // Admin (role === null) voit toutes les visites/nuitées de l'espace
-          // — seuls les rôles visiteur/intervenant sont restreints à leurs
-          // propres réservations (comparaison par PIN).
-          const familyBooked = !soinsMode && reservations.some((r) => r.date === iso && (r.type === "Visite" || r.type === "Nuit") && (role === null || (!!myPin && r.pin === myPin)));
+          // Bande verte strictement personnelle (visite/nuitée réservée par
+          // MOI, ou soin réservé par MOI si je suis intervenant) — jamais les
+          // réservations d'un autre visiteur/intervenant. Admin (role ===
+          // null) voit toutes les visites/nuitées/soins de l'espace, faute de
+          // PIN personnel.
+          const familyBooked = reservations.some((r) => r.date === iso && (r.type === "Visite" || r.type === "Nuit" || r.type === "Intervention") && (role === null || (!!myPin && r.pin === myPin)));
           const myInterventionToday = role === "intervenant" && !!intervenantProfileId &&
             reservations.some((r) => r.date === iso && r.type === "Intervention" && r.intervenant_profile_id === intervenantProfileId);
           const interventionBooked = reservations.some((r) => r.date === iso && r.type === "Intervention");
@@ -150,12 +152,10 @@ export default function WeekStrip({
       </View>
 
       <View style={styles.stripLegend}>
-        {!soinsMode && (
-          <View style={styles.legendItem}>
-            <View style={[styles.legendStripeSwatch, { borderColor: C.border, backgroundColor: LOGO_GREEN }]} />
-            <Text style={[styles.stripLegendLabel, { color: C.muted }]}>Mes visites</Text>
-          </View>
-        )}
+        <View style={styles.legendItem}>
+          <View style={[styles.legendStripeSwatch, { borderColor: C.border, backgroundColor: LOGO_GREEN }]} />
+          <Text style={[styles.stripLegendLabel, { color: C.muted }]}>Mes créneaux</Text>
+        </View>
         <View style={styles.legendItem}>
           <View style={[styles.stripLegendFrame, { borderColor: LOGO_PURPLE }]} />
           <Text style={[styles.stripLegendLabel, { color: C.muted }]}>{soinsMode ? "Soin" : "Intervenant"}</Text>
