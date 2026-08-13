@@ -574,17 +574,44 @@ export default function VisitorAccountScreen() {
     }
   }
 
-  // Synchronise téléphone + phrase totem vers intervenant_profiles — même
-  // principe que syncProfileMotto ci-dessous, mais pour la fiche intervenant
-  // (partagée avec components/IntervenantFicheModal.tsx) plutôt que
-  // visitor_profiles.
-  async function syncIntervenantContact(profileId: string, telephoneValue: string, mottoValue: string) {
+  // Synchronise prénom + nom + téléphone + phrase totem vers
+  // intervenant_profiles — la fiche intervenant (components/IntervenantFicheModal.tsx)
+  // reste la source de vérité pour les soins, mais "Mes informations" doit
+  // pouvoir mettre à jour l'identité de la même fiche, sinon les deux écrans
+  // désynchronisent silencieusement (prénom/nom modifiés ici ne se
+  // répercutaient jamais sur intervenant_profiles). Même contrainte unique
+  // que IntervenantFicheModal.handleSave (idx_intervenant_profiles_unique_identity) :
+  // en cas de conflit, on retente sans prénom/nom pour ne pas perdre la sync
+  // téléphone/totem, et on prévient l'utilisateur.
+  async function syncIntervenantContact(
+    profileId: string,
+    prenomValue: string,
+    nomValue: string,
+    telephoneValue: string,
+    mottoValue: string,
+  ) {
+    const trimmedPrenom = prenomValue.trim();
+    const trimmedNom = nomValue.trim();
+    const payload: Record<string, string | null> = {
+      telephone: telephoneValue.trim() || null,
+      phrase_totem: mottoValue.trim() || null,
+    };
+    if (trimmedPrenom) payload.prenom = trimmedPrenom;
+    if (trimmedNom) payload.nom = trimmedNom;
     try {
-      const { error } = await supabase
-        .from("intervenant_profiles")
-        .update({ telephone: telephoneValue.trim() || null, phrase_totem: mottoValue.trim() || null })
-        .eq("id", profileId);
-      if (error) console.error("[syncIntervenantContact] update failed:", error);
+      const { error } = await supabase.from("intervenant_profiles").update(payload).eq("id", profileId);
+      if (error) {
+        if (error.code === "23505") {
+          const { prenom: _p, nom: _n, ...contactOnly } = payload;
+          await supabase.from("intervenant_profiles").update(contactOnly).eq("id", profileId);
+          Alert.alert(
+            "Nom déjà utilisé",
+            "Une fiche intervenant existe déjà avec ce prénom et ce nom dans cet espace. Téléphone et phrase totem ont été enregistrés, mais le prénom/nom n'a pas pu être modifié.",
+          );
+        } else {
+          console.error("[syncIntervenantContact] update failed:", error);
+        }
+      }
     } catch (e) {
       console.error("[syncIntervenantContact] unexpected error:", e);
     }
@@ -658,7 +685,7 @@ export default function VisitorAccountScreen() {
     setSaving(false);
     showToast("Enregistré ✓");
     if (role === "intervenant" && intervenantProfileId) {
-      syncIntervenantContact(intervenantProfileId, telephone, motto);
+      await syncIntervenantContact(intervenantProfileId, prenom, nom, telephone, motto);
     } else {
       if (photoUri) syncProfilePhoto(space.id, prenom.trim(), nom.trim(), photoUri);
       if (prenom.trim() && nom.trim()) syncProfileMotto(space.id, prenom.trim(), nom.trim(), motto);
