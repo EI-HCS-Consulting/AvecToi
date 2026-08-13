@@ -151,10 +151,18 @@ export function AdminSpaceProvider({ adminId, children }: { adminId: string; chi
       if (!slotConfig) return null;
       if (iso >= toISO(new Date())) return slotConfig;
       const entry = resolveConfigForDate(configHistory, iso);
-      // slot_config_history ne trace pas intervenant_priority_mode (pas de
+      // slot_config_history ne trace pas intervenant_priority_mode ni
+      // night_intervenant_mode/night_intervenant_profile_id (pas de
       // pertinence rétroactive, purement affichage) — on retombe sur la
       // valeur live pour compléter le type.
-      return entry ? { ...entry, intervenant_priority_mode: slotConfig?.intervenant_priority_mode ?? "all" } : slotConfig;
+      return entry
+        ? {
+            ...entry,
+            intervenant_priority_mode: slotConfig?.intervenant_priority_mode ?? "all",
+            night_intervenant_mode: slotConfig?.night_intervenant_mode ?? "disabled",
+            night_intervenant_profile_id: slotConfig?.night_intervenant_profile_id ?? null,
+          }
+        : slotConfig;
     },
     [slotConfig, configHistory],
   );
