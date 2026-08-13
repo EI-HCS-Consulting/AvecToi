@@ -10,11 +10,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import PatientAvatar from "@/components/PatientAvatar";
 import MesSoinsList from "@/components/MesSoinsList";
-import SoinLabelPicker from "@/components/SoinLabelPicker";
+import SoinPickerModal from "@/components/SoinPickerModal";
 import { normalizePhone } from "@/lib/phone";
 import { propagateSoinChange } from "@/lib/interventionTypesSync";
 import { FAMILLES, METIERS, metiersByFamille, metierLabel } from "@/lib/metiers";
 import type { Theme } from "@/lib/themes";
+import { LOGO_GREEN } from "@/lib/themes";
 
 // updatedAt bust le cache CDN/<Image> — le fichier est uploadé sous un nom
 // fixe (upsert), donc sans ce paramètre un ré-upload continuerait d'afficher
@@ -30,10 +31,8 @@ interface TypeRow {
   // moment d'enregistrer, sans avoir à tout recréer depuis zéro.
   id?: string;
   // Clé stable côté client (= id une fois connu, sinon générée à la
-  // création de la ligne) — sert de `key` React ET de `key` à
-  // SoinLabelPicker pour que son mode (liste/saisie libre) ne se réinitialise
-  // pas au gré des ajouts/suppressions d'autres lignes (contrairement à un
-  // index de tableau, qui change quand une ligne du milieu est supprimée).
+  // création de la ligne) — sert de `key` React (contrairement à un index de
+  // tableau, qui change quand une ligne du milieu est supprimée).
   clientKey: string;
   label: string;
   duration_minutes: string;
@@ -91,12 +90,15 @@ export default function IntervenantFicheModal({
   // connexion), sert aussi d'icône de repli pour l'avatar sans photo.
   const [ficheMetier, setFicheMetier] = useState<string | null>(null);
   const [metierPickerOpen, setMetierPickerOpen] = useState(false);
-  const [rows, setRows] = useState<TypeRow[]>([{ clientKey: newRowClientKey(), label: "", duration_minutes: "" }]);
-  // clientKey de la ligne ajoutée via "+ Ajouter un type" (voir addRow) — sa
-  // SoinLabelPicker s'ouvre directement sur le catalogue au montage, pour
-  // éviter le clic supplémentaire "ouvrir le menu déroulant" avant de
-  // pouvoir choisir un soin.
-  const [justAddedKey, setJustAddedKey] = useState<string | null>(null);
+  // Mode création : aucune ligne au départ (contrairement à l'ancien champ de
+  // saisie libre par ligne), une ligne n'existe que si un type d'intervention
+  // a effectivement été choisi via le bouton vert "Ajouter un type" ci-dessous.
+  const [rows, setRows] = useState<TypeRow[]>([]);
+  // Index de la ligne en cours d'édition dans SoinPickerModal (voir
+  // openSoinPickerForRow) — null tant qu'on ajoute une nouvelle ligne plutôt
+  // que d'en modifier une existante.
+  const [soinPickerOpen, setSoinPickerOpen] = useState(false);
+  const [soinPickerRowIndex, setSoinPickerRowIndex] = useState<number | null>(null);
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(mode === "edit");
   const [saving, setSaving] = useState(false);
@@ -137,8 +139,7 @@ export default function IntervenantFicheModal({
     setOrphaned(false);
     setKnownElsewhere(false);
     if (mode === "create") {
-      setRows([{ clientKey: newRowClientKey(), label: "", duration_minutes: "" }]);
-      setJustAddedKey(null);
+      setRows([]);
       setRemovedIds([]);
       setExistingPhoto(null);
       setFicheTelephone("");
@@ -249,10 +250,20 @@ export default function IntervenantFicheModal({
     setRows((prev) => prev.map((r, i) => (i === index ? { ...r, ...patch } : r)));
   }
 
-  function addRow() {
-    const clientKey = newRowClientKey();
-    setRows((prev) => [...prev, { clientKey, label: "", duration_minutes: "" }]);
-    setJustAddedKey(clientKey);
+  // Ouvre SoinPickerModal soit pour ajouter une nouvelle ligne (index null,
+  // bouton vert "Ajouter un type"), soit pour modifier le type d'une ligne
+  // déjà présente (tap sur la ligne elle-même).
+  function openSoinPickerForRow(index: number | null) {
+    setSoinPickerRowIndex(index);
+    setSoinPickerOpen(true);
+  }
+
+  function handleSoinPick(label: string) {
+    if (soinPickerRowIndex === null) {
+      setRows((prev) => [...prev, { clientKey: newRowClientKey(), label, duration_minutes: "" }]);
+    } else {
+      updateRow(soinPickerRowIndex, { label });
+    }
   }
 
   function removeRow(index: number) {
@@ -511,29 +522,32 @@ export default function IntervenantFicheModal({
                   Métier / spécialisation{mode === "create" ? "" : " (optionnel)"}
                 </Text>
                 <TouchableOpacity
-                  style={[styles.metierDropdown, { backgroundColor: C.bg, borderColor: C.border }]}
+                  style={[styles.metierBtn, { backgroundColor: C.orange }]}
                   onPress={() => setMetierPickerOpen(true)}
-                  activeOpacity={0.8}
+                  activeOpacity={0.85}
                 >
-                  <Text style={[styles.metierDropdownText, { color: ficheMetier ? C.text : C.muted }]}>
+                  <Ionicons name="briefcase-outline" size={16} color="#fff" />
+                  <Text style={styles.metierBtnText} numberOfLines={1}>
                     {ficheMetier ? metierLabel(ficheMetier) : "Choisir un métier"}
                   </Text>
-                  <Ionicons name="chevron-down" size={16} color={C.muted} />
+                  <Ionicons name="chevron-down" size={16} color="#fff" />
                 </TouchableOpacity>
 
                 {mode === "create" ? (
                   <>
+                    <Text style={[styles.metierLabel, { color: C.gold }]}>Types d'intervention</Text>
                     {rows.map((row, i) => (
                       <View key={row.clientKey} style={styles.soinRowBlock}>
-                        <SoinLabelPicker
-                          key={row.clientKey}
-                          metier={ficheMetier}
-                          value={row.label}
-                          onChange={(v) => updateRow(i, { label: v })}
-                          C={C}
-                          placeholder="Type (ex. Kiné)"
-                          autoOpen={row.clientKey === justAddedKey}
-                        />
+                        <TouchableOpacity
+                          style={[styles.soinChip, { backgroundColor: C.bg, borderColor: row.label ? LOGO_GREEN : C.border }]}
+                          onPress={() => openSoinPickerForRow(i)}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={[styles.soinChipText, { color: row.label ? C.text : C.muted }]} numberOfLines={1}>
+                            {row.label || "Choisir un type d'intervention"}
+                          </Text>
+                          <Ionicons name={row.label ? "checkmark-circle" : "chevron-down"} size={16} color={row.label ? LOGO_GREEN : C.muted} />
+                        </TouchableOpacity>
                         <View style={styles.soinRowMeta}>
                           <TextInput
                             style={[styles.input, styles.durationInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
@@ -543,19 +557,20 @@ export default function IntervenantFicheModal({
                             onChangeText={(v) => updateRow(i, { duration_minutes: v.replace(/[^0-9]/g, "") })}
                             keyboardType="number-pad"
                           />
-                          <TouchableOpacity
-                            onPress={() => removeRow(i)}
-                            disabled={rows.length === 1}
-                            style={[styles.removeBtn, rows.length === 1 && { opacity: 0.3 }]}
-                          >
+                          <TouchableOpacity onPress={() => removeRow(i)} style={styles.removeBtn}>
                             <Text style={{ color: C.danger, fontSize: 18 }}>✕</Text>
                           </TouchableOpacity>
                         </View>
                       </View>
                     ))}
 
-                    <TouchableOpacity onPress={addRow} style={styles.addBtn}>
-                      <Text style={[styles.addBtnText, { color: C.accent }]}>+ Ajouter un type</Text>
+                    <TouchableOpacity
+                      onPress={() => openSoinPickerForRow(null)}
+                      style={[styles.addSoinBtn, { backgroundColor: LOGO_GREEN }]}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons name="add-circle-outline" size={18} color="#fff" />
+                      <Text style={styles.addSoinBtnText}>Ajouter un type d'intervention</Text>
                     </TouchableOpacity>
                   </>
                 ) : (
@@ -638,6 +653,15 @@ export default function IntervenantFicheModal({
         </TouchableOpacity>
       </TouchableOpacity>
     </Modal>
+
+    <SoinPickerModal
+      visible={soinPickerOpen}
+      metier={ficheMetier}
+      value={soinPickerRowIndex !== null ? (rows[soinPickerRowIndex]?.label ?? "") : ""}
+      C={C}
+      onClose={() => setSoinPickerOpen(false)}
+      onPick={handleSoinPick}
+    />
     </>
   );
 }
@@ -702,8 +726,12 @@ const styles = StyleSheet.create({
   durationInput: { flex: 1, textAlign: "center" },
   fullInput: { marginBottom: 10 },
   metierLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 },
-  metierDropdown: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 16 },
-  metierDropdownText: { fontFamily: "DM_Sans_400Regular", fontSize: 14 },
+  metierBtn: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 10, padding: 12, marginBottom: 16 },
+  metierBtnText: { flex: 1, fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: "#fff" },
+  soinChip: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderWidth: 1, borderRadius: 10, padding: 12 },
+  soinChipText: { flex: 1, fontFamily: "DM_Sans_400Regular", fontSize: 14, marginRight: 8 },
+  addSoinBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 12, paddingVertical: 13, marginBottom: 20, marginTop: 4 },
+  addSoinBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" },
   separator: { borderTopWidth: 1, marginVertical: 16 },
   pickerOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "center", alignItems: "center", padding: 24 },
   pickerCard: { width: "100%", maxWidth: 400, maxHeight: "80%", borderRadius: 20, borderWidth: 1, padding: 24 },
@@ -716,15 +744,6 @@ const styles = StyleSheet.create({
     height: 32,
     alignItems: "center",
     justifyContent: "center",
-  },
-  addBtn: {
-    alignSelf: "flex-start",
-    marginBottom: 20,
-    marginTop: 4,
-  },
-  addBtnText: {
-    fontFamily: "DM_Sans_600SemiBold",
-    fontSize: 14,
   },
   saveBtn: {
     borderRadius: 12,
