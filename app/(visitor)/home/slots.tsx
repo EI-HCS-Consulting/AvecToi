@@ -5,6 +5,7 @@ import { getVisitorSession } from "@/lib/visitorSession";
 import SpaceHeader from "@/components/SpaceHeader";
 import BookingFlow, { type BookingFlowHandle } from "@/components/BookingFlow";
 import InterventionBookingFlow, { type InterventionBookingFlowHandle } from "@/components/InterventionBookingFlow";
+import NightInterventionBookingFlow, { type NightInterventionBookingFlowHandle } from "@/components/NightInterventionBookingFlow";
 import VisitorSlotsList from "@/components/VisitorSlotsList";
 import { getNightReservation, isReservationDatePast, isSlotFullyPast, toISO, toFrLong, toFrShort, addDays, nightStartSlot, nightRangeLabel } from "@/lib/slotUtils";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
@@ -19,6 +20,7 @@ export default function SlotsScreen() {
   const flowRef = useRef<BookingFlowHandle>(null);
   const nightFlowRef = useRef<BookingFlowHandle>(null);
   const interventionFlowRef = useRef<InterventionBookingFlowHandle>(null);
+  const nightInterventionFlowRef = useRef<NightInterventionBookingFlowHandle>(null);
 
   const startDate = space ? new Date(space.start_date + "T00:00:00") : new Date();
 
@@ -32,14 +34,27 @@ export default function SlotsScreen() {
   // voir lib/visitorSession.ts pour role/intervenantProfileId.
   const [role, setRole] = useState<"visiteur" | "intervenant" | null>(null);
   const [intervenantProfileId, setIntervenantProfileId] = useState<string | null>(null);
+  const [myPrenom, setMyPrenom] = useState("");
+  const [myNom, setMyNom] = useState("");
   useEffect(() => {
     getVisitorSession().then((s) => {
       setMyPin(s?.pin ?? null);
       setRole(s?.role ?? "visiteur");
       setIntervenantProfileId(s?.intervenantProfileId ?? null);
+      setMyPrenom(s?.prenom ?? "");
+      setMyNom(s?.nom ?? "");
     });
   }, []);
   const isMine = (r: Reservation) => !!myPin && r.pin === myPin;
+
+  // Un intervenant ne peut réserver une nuitée que si l'admin l'a
+  // explicitement autorisé (même règle que home/nights.tsx — voir
+  // slot_config.night_intervenant_mode, components/NightIntervenantModal.tsx).
+  // Les visiteurs "famille" ne sont pas concernés par cette restriction.
+  const canReserveNight =
+    role !== "intervenant"
+    || slotConfig?.night_intervenant_mode === "all"
+    || (slotConfig?.night_intervenant_mode === "one" && slotConfig?.night_intervenant_profile_id === intervenantProfileId);
 
   // Arrivée via "Prochaine disponibilité → Réserver" (Calendrier) : ouvre
   // directement la modale de réservation sur le créneau ciblé — celle de
@@ -172,10 +187,16 @@ export default function SlotsScreen() {
                 }
               </View>
               <View style={styles.slotRight}>
-                {!nightResa && !nightPast && (
+                {!nightResa && !nightPast && canReserveNight && (
                   <TouchableOpacity
                     style={[styles.reserveBtn, { backgroundColor: C.accent }]}
-                    onPress={() => nightFlowRef.current?.openBooking(iso, nightStartSlot(slotConfig))}
+                    onPress={() => {
+                      if (role === "intervenant") {
+                        nightInterventionFlowRef.current?.openBooking(iso);
+                      } else {
+                        nightFlowRef.current?.openBooking(iso, nightStartSlot(slotConfig));
+                      }
+                    }}
                     activeOpacity={0.85}
                   >
                     <Text style={styles.reserveBtnText}>Réserver</Text>
@@ -233,6 +254,21 @@ export default function SlotsScreen() {
           slots={slots}
           reservations={reservations}
           intervenantProfileId={intervenantProfileId}
+          pin={myPin}
+          refreshReservations={refreshReservations}
+          homeCalendarPath="/(visitor)/home/calendar"
+          C={C}
+        />
+      )}
+
+      {role === "intervenant" && intervenantProfileId && myPin && (
+        <NightInterventionBookingFlow
+          ref={nightInterventionFlowRef}
+          space={space}
+          slotConfig={slotConfig}
+          intervenantProfileId={intervenantProfileId}
+          prenom={myPrenom}
+          nom={myNom}
           pin={myPin}
           refreshReservations={refreshReservations}
           homeCalendarPath="/(visitor)/home/calendar"
