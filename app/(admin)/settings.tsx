@@ -23,6 +23,7 @@ import PatientAvatar from "@/components/PatientAvatar";
 import VisitorsBlock from "@/components/VisitorsBlock";
 import IntervenantsBlock from "@/components/IntervenantsBlock";
 import IntervenantPriorityModal from "@/components/IntervenantPriorityModal";
+import NightIntervenantModal from "@/components/NightIntervenantModal";
 import { resolvePlaceFromMapsUrl } from "@/lib/address";
 import { generateSlots, formatHourMinute } from "@/lib/slotUtils";
 import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
@@ -697,6 +698,7 @@ export default function SettingsScreen() {
   const [nightToggling, setNightToggling] = useState(false);
   const [intervenantsToggling, setIntervenantsToggling] = useState(false);
   const [priorityModalVisible, setPriorityModalVisible] = useState(false);
+  const [nightIntervenantModalVisible, setNightIntervenantModalVisible] = useState(false);
   const [oneVisitPerDayToggling, setOneVisitPerDayToggling] = useState(false);
   const nightHoursInit = useRef(false);
   const [nightStartHour, setNightStartHour] = useState(19);
@@ -2344,6 +2346,12 @@ export default function SettingsScreen() {
                         </TouchableOpacity>
                         <TouchableOpacity
                           style={[styles.saveNotesBtn, { backgroundColor: C.card, borderWidth: 1, borderColor: C.orange, marginTop: 8 }]}
+                          onPress={() => setNightIntervenantModalVisible(true)}
+                        >
+                          <Text style={[styles.saveNotesBtnText, { color: C.orange }]}>🌙 Nuitées chez les intervenants</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.saveNotesBtn, { backgroundColor: C.card, borderWidth: 1, borderColor: C.orange, marginTop: 8 }]}
                           onPress={() => setPriorityModalVisible(true)}
                         >
                           <Text style={[styles.saveNotesBtnText, { color: C.orange }]}>⚡ Priorité des créneaux intervenants</Text>
@@ -3367,6 +3375,18 @@ export default function SettingsScreen() {
           currentMode={slotConfig.intervenant_priority_mode ?? "all"}
           C={C}
           onSaved={() => { refreshSlotConfig(); showToast("Priorité des créneaux intervenants enregistrée ✓"); }}
+        />
+      )}
+
+      {space && slotConfig && (
+        <NightIntervenantModal
+          visible={nightIntervenantModalVisible}
+          onClose={() => setNightIntervenantModalVisible(false)}
+          spaceId={space.id}
+          currentMode={slotConfig.night_intervenant_mode ?? "disabled"}
+          currentProfileId={slotConfig.night_intervenant_profile_id ?? null}
+          C={C}
+          onSaved={() => { refreshSlotConfig(); showToast("Nuitées chez les intervenants enregistrées ✓"); }}
         />
       )}
 
