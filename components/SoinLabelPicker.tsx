@@ -2,9 +2,10 @@ import { useState } from "react";
 import { View, Text, TextInput, TouchableOpacity, Modal, ScrollView, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import {
-  FAMILLES, METIERS, metiersByFamille, metierByKey, familleByKey,
+  FAMILLES, METIERS, metiersByFamille, metierByKey,
   soinsForMetier, otherFamilleSoinsForMetier,
 } from "@/lib/metiers";
+import { soinIconName } from "@/lib/soinIcons";
 import type { MetierSoin } from "@/lib/metiers";
 import type { Theme } from "@/lib/themes";
 
@@ -12,15 +13,18 @@ import type { Theme } from "@/lib/themes";
 // et IntervenantFicheModal.tsx (lignes de la fiche en mode création)
 // partagent ce même composant pour rester cohérents. Trois façons de
 // renseigner un soin :
-//  1. Liste déroulante par défaut : soins du métier de l'intervenant, puis
-//     reste de sa famille (voir lib/metiers.ts).
+//  1. Liste déroulante par défaut : soins du métier de l'intervenant, "Autre"
+//     en dernière position de cette même liste (bascule en saisie libre), et
+//     un bouton "Autres soins" pour parcourir les autres familles/métiers.
 //  2. "Autre" -> saisie libre avec auto-complétion par mot-clé sur tout le
 //     catalogue (ex. taper "massage" propose tous les soins contenant ce mot,
 //     toutes familles confondues).
-//  3. Depuis la saisie libre, "Parcourir une autre famille / métier" ouvre un
-//     second picker (métier groupé par famille, puis ses soins) pour les cas
-//     où le soin recherché n'appartient ni au métier ni à la famille de
-//     l'intervenant.
+//  3. "Autres soins" (depuis la liste ou la saisie libre) -> familles en
+//     accordéon (une seule ouverte à la fois) puis métiers, puis soins de ce
+//     métier — "Autre" toujours en dernière position de chaque écran pour
+//     retomber sur la saisie libre.
+// Une fois une valeur choisie dans le catalogue, la liste déroulante affiche
+// son icône + une coche pour matérialiser la sélection comme "validée".
 // Remonter `key` (côté appelant) quand la cible change (nouveau soin, popup
 // rouverte…) pour réinitialiser proprement le mode (liste vs saisie libre).
 interface Props {
@@ -29,6 +33,11 @@ interface Props {
   onChange: (label: string) => void;
   C: Theme;
   placeholder?: string;
+  // Ouvre directement le picker au montage (liste catalogue) — utilisé par
+  // IntervenantFicheModal.tsx quand une ligne vient d'être ajoutée via
+  // "+ Ajouter un type", pour éviter le clic supplémentaire "ouvrir le
+  // menu déroulant" avant de pouvoir choisir un soin.
+  autoOpen?: boolean;
 }
 
 function allCatalogSoins(): MetierSoin[] {
@@ -46,21 +55,33 @@ function allCatalogSoins(): MetierSoin[] {
 }
 const ALL_SOINS = allCatalogSoins();
 
-export default function SoinLabelPicker({ metier, value, onChange, C, placeholder }: Props) {
+export default function SoinLabelPicker({ metier, value, onChange, C, placeholder, autoOpen }: Props) {
   const ownSoins = soinsForMetier(metier);
   const otherSoins = otherFamilleSoinsForMetier(metier);
   const hasCatalog = ownSoins.length > 0 || otherSoins.length > 0;
   const catalogLabelsLower = new Set([...ownSoins, ...otherSoins].map((s) => s.label.toLowerCase()));
 
-  const [customMode, setCustomMode] = useState(
-    () => !hasCatalog || (!!value && !catalogLabelsLower.has(value.toLowerCase())),
-  );
-  const [pickerOpen, setPickerOpen] = useState(false);
+  const initialCustomMode = !hasCatalog || (!!value && !catalogLabelsLower.has(value.toLowerCase()));
+  const [customMode, setCustomMode] = useState(initialCustomMode);
+  const [pickerOpen, setPickerOpen] = useState(() => !!autoOpen && !initialCustomMode);
   const [browseOpen, setBrowseOpen] = useState(false);
   const [browseMetier, setBrowseMetier] = useState<string | null>(null);
+  const [browseFamilleOpen, setBrowseFamilleOpen] = useState<string | null>(null);
 
   const metierLabelText = metierByKey(metier)?.label ?? "";
-  const familleLabelText = familleByKey(metierByKey(metier)?.familleKey)?.label ?? "";
+
+  function openBrowse() {
+    setBrowseMetier(null);
+    setBrowseFamilleOpen(null);
+    setBrowseOpen(true);
+  }
+
+  function pickCustom(fromModal: "picker" | "browse") {
+    setCustomMode(true);
+    onChange("");
+    if (fromModal === "picker") setPickerOpen(false);
+    else setBrowseOpen(false);
+  }
 
   const query = value.trim().toLowerCase();
   const suggestions = customMode && query.length >= 2
@@ -99,21 +120,24 @@ export default function SoinLabelPicker({ metier, value, onChange, C, placeholde
                 <Text style={[styles.linkText, { color: C.accent }]}>↩ Choisir dans la liste</Text>
               </TouchableOpacity>
             )}
-            <TouchableOpacity onPress={() => { setBrowseMetier(null); setBrowseOpen(true); }}>
-              <Text style={[styles.linkText, { color: C.accent }]}>🔍 Autre métier / famille</Text>
+            <TouchableOpacity onPress={openBrowse}>
+              <Text style={[styles.linkText, { color: C.accent }]}>🔍 Autres soins</Text>
             </TouchableOpacity>
           </View>
         </>
       ) : (
         <TouchableOpacity
-          style={[styles.input, styles.dropdown, { backgroundColor: C.bg, borderColor: C.border }]}
+          style={[styles.input, styles.dropdown, { backgroundColor: C.bg, borderColor: value ? C.accent : C.border }]}
           onPress={() => setPickerOpen(true)}
           activeOpacity={0.8}
         >
-          <Text style={[styles.dropdownText, { color: value ? C.text : C.muted }]}>
-            {value || "Choisir un soin"}
-          </Text>
-          <Ionicons name="chevron-down" size={16} color={C.muted} />
+          <View style={styles.dropdownLeft}>
+            {!!value && <Ionicons name={soinIconName(value)} size={18} color={C.accent} style={{ marginRight: 8 }} />}
+            <Text style={[styles.dropdownText, { color: value ? C.text : C.muted }]} numberOfLines={1}>
+              {value || "Choisir un soin"}
+            </Text>
+          </View>
+          <Ionicons name={value ? "checkmark-circle" : "chevron-down"} size={18} color={value ? C.accent : C.muted} />
         </TouchableOpacity>
       )}
 
@@ -122,33 +146,18 @@ export default function SoinLabelPicker({ metier, value, onChange, C, placeholde
           <TouchableOpacity activeOpacity={1} style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
             <Text style={[styles.title, { color: C.text }]}>Choisir un soin</Text>
             <ScrollView style={{ maxHeight: 400 }}>
-              {ownSoins.length > 0 && (
-                <View style={{ marginBottom: 14 }}>
-                  <Text style={[styles.sectionHeader, { color: C.muted }]}>Soins de {metierLabelText}</Text>
-                  {ownSoins.map((s) => (
-                    <SoinRow key={s.label} soin={s} selected={value === s.label} C={C}
-                      onPress={() => { onChange(s.label); setPickerOpen(false); }} />
-                  ))}
-                </View>
-              )}
-              {otherSoins.length > 0 && (
-                <View style={{ marginBottom: 14 }}>
-                  <Text style={[styles.sectionHeader, { color: C.muted }]}>Autres soins de {familleLabelText}</Text>
-                  {otherSoins.map((s) => (
-                    <SoinRow key={s.label} soin={s} selected={value === s.label} C={C}
-                      onPress={() => { onChange(s.label); setPickerOpen(false); }} />
-                  ))}
-                </View>
-              )}
-              <TouchableOpacity
-                onPress={() => { setCustomMode(true); onChange(""); setPickerOpen(false); }}
-                activeOpacity={0.8}
-                style={[styles.row, { borderColor: "transparent" }]}
-              >
-                <Ionicons name="create-outline" size={17} color={C.muted} />
-                <Text style={[styles.rowText, { color: C.text }]}>Autre (personnalisé)</Text>
-              </TouchableOpacity>
+              <View style={{ marginBottom: 4 }}>
+                <Text style={[styles.sectionHeader, { color: C.muted }]}>Soins de {metierLabelText}</Text>
+                {ownSoins.map((s) => (
+                  <SoinRow key={s.label} soin={s} selected={value === s.label} C={C}
+                    onPress={() => { onChange(s.label); setPickerOpen(false); }} />
+                ))}
+                <AutreRow C={C} onPress={() => pickCustom("picker")} />
+              </View>
             </ScrollView>
+            <TouchableOpacity onPress={() => { setPickerOpen(false); openBrowse(); }} style={[styles.otherSoinsBtn, { borderTopColor: C.border }]}>
+              <Text style={[styles.otherSoinsBtnText, { color: C.accent }]}>Autres soins</Text>
+            </TouchableOpacity>
             <TouchableOpacity onPress={() => setPickerOpen(false)} style={styles.closeBtn}>
               <Text style={[styles.closeBtnText, { color: C.muted }]}>Fermer</Text>
             </TouchableOpacity>
@@ -161,27 +170,42 @@ export default function SoinLabelPicker({ metier, value, onChange, C, placeholde
           <TouchableOpacity activeOpacity={1} style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
             {!browseMetier ? (
               <>
-                <Text style={[styles.title, { color: C.text }]}>Choisir un métier</Text>
+                <Text style={[styles.title, { color: C.text }]}>Autres soins</Text>
                 <ScrollView style={{ maxHeight: 400 }}>
-                  {FAMILLES.map((famille) => (
-                    <View key={famille.key} style={{ marginBottom: 14 }}>
-                      <View style={styles.familleHeader}>
-                        <Ionicons name={famille.icon} size={14} color={C.muted} />
-                        <Text style={[styles.sectionHeader, { color: C.muted, marginBottom: 0 }]}>{famille.label}</Text>
-                      </View>
-                      {metiersByFamille(famille.key).map((m) => (
+                  {FAMILLES.map((famille) => {
+                    const open = browseFamilleOpen === famille.key;
+                    return (
+                      <View key={famille.key} style={{ marginBottom: 8 }}>
                         <TouchableOpacity
-                          key={m.key}
-                          onPress={() => setBrowseMetier(m.key)}
+                          onPress={() => setBrowseFamilleOpen(open ? null : famille.key)}
                           activeOpacity={0.8}
-                          style={styles.row}
+                          style={[styles.familleAccordionRow, { borderColor: C.border }]}
                         >
-                          <Ionicons name={m.icon} size={17} color={C.muted} />
-                          <Text style={[styles.rowText, { color: C.text }]}>{m.label}</Text>
+                          <View style={styles.familleHeader}>
+                            <Ionicons name={famille.icon} size={16} color={C.muted} />
+                            <Text style={[styles.familleAccordionText, { color: C.text }]}>{famille.label}</Text>
+                          </View>
+                          <Ionicons name={open ? "chevron-up" : "chevron-down"} size={16} color={C.muted} />
                         </TouchableOpacity>
-                      ))}
-                    </View>
-                  ))}
+                        {open && (
+                          <View style={{ marginTop: 6 }}>
+                            {metiersByFamille(famille.key).map((m) => (
+                              <TouchableOpacity
+                                key={m.key}
+                                onPress={() => setBrowseMetier(m.key)}
+                                activeOpacity={0.8}
+                                style={styles.row}
+                              >
+                                <Ionicons name={m.icon} size={17} color={C.muted} />
+                                <Text style={[styles.rowText, { color: C.text }]}>{m.label}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })}
+                  <AutreRow C={C} onPress={() => pickCustom("browse")} />
                 </ScrollView>
               </>
             ) : (
@@ -191,14 +215,11 @@ export default function SoinLabelPicker({ metier, value, onChange, C, placeholde
                 </TouchableOpacity>
                 <Text style={[styles.title, { color: C.text }]}>Soins de {metierByKey(browseMetier)?.label}</Text>
                 <ScrollView style={{ maxHeight: 360 }}>
-                  {soinsForMetier(browseMetier).length === 0 ? (
-                    <Text style={[styles.emptyText, { color: C.muted }]}>Aucun soin répertorié pour ce métier.</Text>
-                  ) : (
-                    soinsForMetier(browseMetier).map((s) => (
-                      <SoinRow key={s.label} soin={s} selected={value === s.label} C={C}
-                        onPress={() => { onChange(s.label); setBrowseOpen(false); }} />
-                    ))
-                  )}
+                  {soinsForMetier(browseMetier).map((s) => (
+                    <SoinRow key={s.label} soin={s} selected={value === s.label} C={C}
+                      onPress={() => { onChange(s.label); setBrowseOpen(false); }} />
+                  ))}
+                  <AutreRow C={C} onPress={() => pickCustom("browse")} />
                 </ScrollView>
               </>
             )}
@@ -225,10 +246,20 @@ function SoinRow({ soin, selected, C, onPress }: { soin: MetierSoin; selected: b
   );
 }
 
+function AutreRow({ C, onPress }: { C: Theme; onPress: () => void }) {
+  return (
+    <TouchableOpacity onPress={onPress} activeOpacity={0.8} style={[styles.row, { borderColor: "transparent" }]}>
+      <Ionicons name="create-outline" size={17} color={C.muted} />
+      <Text style={[styles.rowText, { color: C.text }]}>Autre</Text>
+    </TouchableOpacity>
+  );
+}
+
 const styles = StyleSheet.create({
   input: { borderWidth: 1, borderRadius: 10, padding: 12, fontFamily: "DM_Sans_400Regular", fontSize: 14 },
   dropdown: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  dropdownText: { fontFamily: "DM_Sans_400Regular", fontSize: 14 },
+  dropdownLeft: { flexDirection: "row", alignItems: "center", flex: 1, marginRight: 8 },
+  dropdownText: { fontFamily: "DM_Sans_400Regular", fontSize: 14, flexShrink: 1 },
   suggestBox: { borderWidth: 1, borderRadius: 10, marginTop: 6, paddingVertical: 4 },
   suggestRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 8, paddingHorizontal: 12 },
   suggestText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, flex: 1 },
@@ -238,10 +269,13 @@ const styles = StyleSheet.create({
   card: { width: "100%", maxWidth: 400, maxHeight: "80%", borderRadius: 20, borderWidth: 1, padding: 24 },
   title: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, marginBottom: 12, textAlign: "center" },
   sectionHeader: { fontFamily: "DM_Sans_700Bold", fontSize: 11, letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 6, paddingHorizontal: 2 },
-  familleHeader: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6, paddingHorizontal: 2 },
+  familleHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
+  familleAccordionRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", borderWidth: 1, borderRadius: 10, padding: 12 },
+  familleAccordionText: { fontFamily: "DM_Sans_700Bold", fontSize: 13 },
   row: { flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 8 },
   rowText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
-  emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, textAlign: "center", paddingVertical: 12 },
+  otherSoinsBtn: { alignItems: "center", paddingTop: 12, marginTop: 8, borderTopWidth: 1 },
+  otherSoinsBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
   closeBtn: { alignItems: "center", marginTop: 8 },
   closeBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
 });

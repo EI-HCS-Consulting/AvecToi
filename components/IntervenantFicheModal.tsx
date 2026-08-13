@@ -92,6 +92,11 @@ export default function IntervenantFicheModal({
   const [ficheMetier, setFicheMetier] = useState<string | null>(null);
   const [metierPickerOpen, setMetierPickerOpen] = useState(false);
   const [rows, setRows] = useState<TypeRow[]>([{ clientKey: newRowClientKey(), label: "", duration_minutes: "" }]);
+  // clientKey de la ligne ajoutée via "+ Ajouter un type" (voir addRow) — sa
+  // SoinLabelPicker s'ouvre directement sur le catalogue au montage, pour
+  // éviter le clic supplémentaire "ouvrir le menu déroulant" avant de
+  // pouvoir choisir un soin.
+  const [justAddedKey, setJustAddedKey] = useState<string | null>(null);
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(mode === "edit");
   const [saving, setSaving] = useState(false);
@@ -133,6 +138,7 @@ export default function IntervenantFicheModal({
     setKnownElsewhere(false);
     if (mode === "create") {
       setRows([{ clientKey: newRowClientKey(), label: "", duration_minutes: "" }]);
+      setJustAddedKey(null);
       setRemovedIds([]);
       setExistingPhoto(null);
       setFicheTelephone("");
@@ -244,7 +250,9 @@ export default function IntervenantFicheModal({
   }
 
   function addRow() {
-    setRows((prev) => [...prev, { clientKey: newRowClientKey(), label: "", duration_minutes: "" }]);
+    const clientKey = newRowClientKey();
+    setRows((prev) => [...prev, { clientKey, label: "", duration_minutes: "" }]);
+    setJustAddedKey(clientKey);
   }
 
   function removeRow(index: number) {
@@ -524,6 +532,7 @@ export default function IntervenantFicheModal({
                           onChange={(v) => updateRow(i, { label: v })}
                           C={C}
                           placeholder="Type (ex. Kiné)"
+                          autoOpen={row.clientKey === justAddedKey}
                         />
                         <View style={styles.soinRowMeta}>
                           <TextInput
