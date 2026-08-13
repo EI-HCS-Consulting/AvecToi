@@ -149,17 +149,26 @@ export function isSlotFullyPast(iso: string, slot: string): boolean {
 // espace (deux personnes différentes peuvent avoir pris le même code, ce qui
 // faisait apparaître la bande verte d'un intervenant sur les soins d'un
 // autre). Pour une visite/nuitée, aucun identifiant de fiche n'existe (les
-// visiteurs n'ont pas de compte) : le PIN reste alors le seul signal
-// disponible.
+// visiteurs n'ont pas de compte) : le PIN seul peut aussi être choisi deux
+// fois par deux membres différents de la même famille — on exige donc en
+// plus la correspondance prénom+nom de la session (visitorSession.ts) quand
+// elle est disponible, pour éviter qu'une réservation d'un autre visiteur
+// n'allume la bande verte de quelqu'un d'autre.
 export function isMyReservation(
   r: Reservation,
   myPin: string | null,
   intervenantProfileId: string | null,
+  myPrenom?: string | null,
+  myNom?: string | null,
 ): boolean {
   if (r.type === "Intervention") {
     return !!intervenantProfileId && r.intervenant_profile_id === intervenantProfileId;
   }
-  return !!myPin && r.pin === myPin;
+  if (!myPin || r.pin !== myPin) return false;
+  if (myPrenom && myNom) {
+    return r.prenom === myPrenom && r.nom === myNom;
+  }
+  return true;
 }
 
 export function getSlotOccupancy(

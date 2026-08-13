@@ -4,8 +4,9 @@ import type { Theme } from "@/lib/themes";
 import type { Reservation } from "@/lib/types";
 import { toFrShort, isSlotFullyPast } from "@/lib/slotUtils";
 
-// Panneau planning intégré au calendrier visiteur pour le rôle intervenant —
-// affiche les soins (tous intervenants) sous le calendrier familial
+// Panneau planning intégré au calendrier visiteur, commun aux 3 rôles —
+// affiche les soins (tous intervenants) ou les visites/nuitées (selon
+// soinsMode, voir plus bas) sous le calendrier familial
 // (Mensuel) ou la bande Hebdo (WeekStrip), qui couvrent déjà la vue du jour
 // courant/sélectionné pour tous les rôles (voir home/calendar.tsx) — plus
 // besoin d'une grille dédiée ici. Scindé en deux sous-sections : à venir
