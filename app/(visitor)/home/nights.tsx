@@ -4,6 +4,7 @@ import { useVisitorSpace } from "@/lib/VisitorContext";
 import { getVisitorSession } from "@/lib/visitorSession";
 import SpaceHeader from "@/components/SpaceHeader";
 import BookingFlow, { type BookingFlowHandle } from "@/components/BookingFlow";
+import NightInterventionBookingFlow, { type NightInterventionBookingFlowHandle } from "@/components/NightInterventionBookingFlow";
 import { findNextAvailableNight, toISO, toFrLong, nightStartSlot } from "@/lib/slotUtils";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import type { Reservation } from "@/lib/types";
@@ -12,6 +13,7 @@ export default function VisitorNightsScreen() {
   const { space, slotConfig, reservations, token, refreshReservations, pendingEditReservationId, setPendingEditReservationId } = useVisitorSpace();
   const { theme: C } = useDisplayMode();
   const flowRef = useRef<BookingFlowHandle>(null);
+  const intervenantFlowRef = useRef<NightInterventionBookingFlowHandle>(null);
 
   // PIN de session de cet appareil — sert à ne montrer "Modifier" que sur
   // les nuitées faites depuis ce même appareil (y compris quand elles ont
@@ -24,11 +26,15 @@ export default function VisitorNightsScreen() {
   // concernés par cette restriction, seul night_enabled les gouverne.
   const [role, setRole] = useState<"visiteur" | "intervenant">("visiteur");
   const [intervenantProfileId, setIntervenantProfileId] = useState<string | null>(null);
+  const [myPrenom, setMyPrenom] = useState("");
+  const [myNom, setMyNom] = useState("");
   useEffect(() => {
     getVisitorSession().then((s) => {
       setMyPin(s?.pin ?? null);
       setRole(s?.role ?? "visiteur");
       setIntervenantProfileId(s?.intervenantProfileId ?? null);
+      setMyPrenom(s?.prenom ?? "");
+      setMyNom(s?.nom ?? "");
     });
   }, []);
   const isMine = (r: Reservation) => !!myPin && r.pin === myPin;
@@ -70,7 +76,11 @@ export default function VisitorNightsScreen() {
       Alert.alert("Aucune disponibilité", "Aucune nuitée libre dans les 90 prochains jours.");
       return;
     }
-    flowRef.current?.openBooking(next.iso, nightStartSlot(slotConfig));
+    if (role === "intervenant") {
+      intervenantFlowRef.current?.openBooking(next.iso);
+    } else {
+      flowRef.current?.openBooking(next.iso, nightStartSlot(slotConfig));
+    }
   }
 
   return (
@@ -162,6 +172,21 @@ export default function VisitorNightsScreen() {
         homeCalendarPath="/(visitor)/home/calendar"
         C={C}
       />
+
+      {role === "intervenant" && intervenantProfileId && myPin && (
+        <NightInterventionBookingFlow
+          ref={intervenantFlowRef}
+          space={space}
+          slotConfig={slotConfig}
+          intervenantProfileId={intervenantProfileId}
+          prenom={myPrenom}
+          nom={myNom}
+          pin={myPin}
+          refreshReservations={refreshReservations}
+          homeCalendarPath="/(visitor)/home/calendar"
+          C={C}
+        />
+      )}
     </View>
   );
 }
