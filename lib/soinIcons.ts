@@ -1,10 +1,12 @@
 import type { Ionicons } from "@expo/vector-icons";
+import { soinIconByExactLabel } from "@/lib/metiers";
 
 // Icône affichée à la place de l'avatar dans "Mes soins" (voir
-// components/MesSoinsList.tsx) — devinée depuis le libellé du soin (texte
-// libre saisi par l'intervenant, ex. "Kiné", "Pansement"). Liste volontairement
-// courte (métiers/actes les plus courants) ; tout le reste retombe sur l'icône
-// générique 🩺.
+// components/MesSoinsList.tsx). Priorité à l'icône exacte du catalogue
+// (lib/metiers.ts) quand le libellé correspond à un soin choisi dans la
+// liste ; sinon repli sur cette reconnaissance par mot-clé pour les soins
+// tapés librement (option "Autre", ou fiches créées avant ce catalogue).
+// Liste volontairement courte ; tout le reste retombe sur l'icône générique.
 const KEYWORD_ICONS: [RegExp, keyof typeof Ionicons.glyphMap][] = [
   [/kin[ée]/i, "body-outline"],
   [/infirm|piq[ûu]re|pansement|perfusion/i, "medical-outline"],
@@ -18,6 +20,8 @@ const KEYWORD_ICONS: [RegExp, keyof typeof Ionicons.glyphMap][] = [
 ];
 
 export function soinIconName(label: string): keyof typeof Ionicons.glyphMap {
+  const exact = soinIconByExactLabel(label);
+  if (exact) return exact;
   for (const [pattern, icon] of KEYWORD_ICONS) {
     if (pattern.test(label)) return icon;
   }
