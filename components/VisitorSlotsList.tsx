@@ -1,6 +1,7 @@
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { useVisitorSpace } from "@/lib/VisitorContext";
 import { getSlotOccupancy, getInterventionOverlap, isSlotFullyPast } from "@/lib/slotUtils";
+import { metierLabel } from "@/lib/metiers";
 import type { Reservation } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -30,17 +31,12 @@ export default function VisitorSlotsList({
   onReserveIntervention: (iso: string, slot: string) => void;
   onCancelIntervention: (r: Reservation) => void;
 }) {
-  const { reservations, getConfigForDate, getSlotsForDate, mesCreneauxOnly } = useVisitorSpace();
+  const { reservations, getConfigForDate, getSlotsForDate, intervenantProfiles } = useVisitorSpace();
   const dayConfig = getConfigForDate(iso);
   const allDaySlots = getSlotsForDate(iso);
   if (!dayConfig) return null;
 
   const isMine = (r: Reservation) => !!myPin && r.pin === myPin;
-  // "Afficher mes créneaux" (rôle intervenant, home/calendar.tsx) : le
-  // créneau reste marqué "bloqué" pour tout le monde (la disponibilité doit
-  // rester exacte), mais le libellé/durée du soin d'un AUTRE intervenant
-  // n'est plus affiché — seul le sien reste détaillé.
-  const restrictToMine = role === "intervenant" && mesCreneauxOnly;
 
   // Mode "1 visite / jour" : même filtrage que app/(visitor)/home/slots.tsx.
   const dayVisitBooking = dayConfig.one_visit_per_day
@@ -81,20 +77,17 @@ export default function VisitorSlotsList({
                   </View>
                 ))
               }
-              {intervention && (!restrictToMine || myInterventionHere) && (
-                <View style={[styles.interventionBanner, { backgroundColor: "rgba(249,115,22,0.12)", borderColor: C.orange }]}>
-                  <Text style={[styles.interventionText, { color: C.orange }]}>
-                    🩺 {intervention.intervention_label} ({intervention.duration_minutes} min) — prioritaire sur les visites
-                  </Text>
-                </View>
-              )}
-              {intervention && restrictToMine && !myInterventionHere && (
-                <View style={[styles.interventionBanner, { backgroundColor: "rgba(148,163,184,0.12)", borderColor: C.border }]}>
-                  <Text style={[styles.interventionText, { color: C.muted }]}>
-                    🔒 Créneau réservé par un autre intervenant
-                  </Text>
-                </View>
-              )}
+              {intervention && (() => {
+                const byMetier = metierLabel(intervenantProfiles.find((p) => p.id === intervention.intervenant_profile_id)?.metier);
+                return (
+                  <View style={[styles.interventionBanner, { backgroundColor: "rgba(249,115,22,0.12)", borderColor: C.orange }]}>
+                    <Text style={[styles.interventionText, { color: C.orange }]}>
+                      🩺 {intervention.intervention_label} ({intervention.duration_minutes} min) — prioritaire sur les visites
+                      {!myInterventionHere && ` · ${intervention.prenom} ${intervention.nom}${byMetier ? ` (${byMetier})` : ""}`}
+                    </Text>
+                  </View>
+                );
+              })()}
               {mine?.alert_message && !mine.alert_seen && (
                 <View style={[styles.alertBanner, { backgroundColor: "rgba(233,69,96,0.12)", borderColor: "rgba(233,69,96,0.4)" }]}>
                   <Text style={[styles.alertText, { color: C.danger }]}>{mine.alert_message}</Text>

@@ -1,13 +1,17 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from "react";
 import { supabase } from "./supabase";
 import { generateSlots, resolveConfigForDate, toISO } from "./slotUtils";
-import type { PatientSpace, SlotConfig, SlotConfigHistoryEntry, Reservation } from "./types";
+import type { PatientSpace, SlotConfig, SlotConfigHistoryEntry, Reservation, IntervenantProfile } from "./types";
 
 interface VisitorContextValue {
   space: PatientSpace | null;
   slotConfig: SlotConfig | null;
   slots: string[];
   reservations: Reservation[];
+  // Fiches de tous les intervenants de l'espace (pas seulement la session
+  // courante) — sert à afficher le métier de l'intervenant qui a réservé un
+  // soin dans VisitorSlotsList, même quand ce n'est pas "le mien".
+  intervenantProfiles: IntervenantProfile[];
   loading: boolean;
   token: string;
   selectedDay: Date;
@@ -45,6 +49,7 @@ const VisitorContext = createContext<VisitorContextValue>({
   slotConfig: null,
   slots: [],
   reservations: [],
+  intervenantProfiles: [],
   loading: true,
   token: "",
   selectedDay: new Date(),
@@ -70,6 +75,7 @@ export function VisitorSpaceProvider({ token, children }: { token: string; child
   const [slots, setSlots] = useState<string[]>([]);
   const [configHistory, setConfigHistory] = useState<SlotConfigHistoryEntry[]>([]);
   const [reservations, setReservations] = useState<Reservation[]>([]);
+  const [intervenantProfiles, setIntervenantProfiles] = useState<IntervenantProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const pastSlotsCache = useRef<Map<string, string[]>>(new Map());
   const [selectedDay, setSelectedDay] = useState<Date>(() => {
@@ -167,14 +173,32 @@ export function VisitorSpaceProvider({ token, children }: { token: string; child
     setReservations(data || []);
   }, [space]);
 
+  const refreshIntervenantProfiles = useCallback(async () => {
+    if (!space) return;
+    const { data } = await supabase
+      .from("intervenant_profiles")
+      .select("*")
+      .eq("space_id", space.id);
+    setIntervenantProfiles(data || []);
+  }, [space]);
+
   useEffect(() => {
     if (!space) return;
     refreshReservations();
+    refreshIntervenantProfiles();
 
     // Reservations realtime
     const ch1 = supabase
       .channel(`visitor-reservations:${space.id}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "reservations", filter: `space_id=eq.${space.id}` }, refreshReservations)
+      .subscribe();
+
+    // Intervenant profiles realtime — le métier affiché dans le détail d'un
+    // soin (VisitorSlotsList) doit rester à jour si un intervenant modifie sa
+    // fiche ou si un nouveau intervenant rejoint l'espace.
+    const ch4 = supabase
+      .channel(`visitor-intervenant-profiles:${space.id}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "intervenant_profiles", filter: `space_id=eq.${space.id}` }, refreshIntervenantProfiles)
       .subscribe();
 
     // Space realtime — re-fetch on any admin update to get the full row
@@ -213,11 +237,12 @@ export function VisitorSpaceProvider({ token, children }: { token: string; child
       supabase.removeChannel(ch1);
       supabase.removeChannel(ch2);
       supabase.removeChannel(ch3);
+      supabase.removeChannel(ch4);
     };
-  }, [space?.id, refreshReservations, fetchSpace]);
+  }, [space?.id, refreshReservations, refreshIntervenantProfiles, fetchSpace]);
 
   return (
-    <VisitorContext.Provider value={{ space, slotConfig, slots, reservations, loading, token, selectedDay, setSelectedDay, pendingBookingSlot, setPendingBookingSlot, pendingEditReservationId, setPendingEditReservationId, refreshReservations, getConfigForDate, getSlotsForDate, mesCreneauxOnly, setMesCreneauxOnly }}>
+    <VisitorContext.Provider value={{ space, slotConfig, slots, reservations, intervenantProfiles, loading, token, selectedDay, setSelectedDay, pendingBookingSlot, setPendingBookingSlot, pendingEditReservationId, setPendingEditReservationId, refreshReservations, getConfigForDate, getSlotsForDate, mesCreneauxOnly, setMesCreneauxOnly }}>
       {children}
     </VisitorContext.Provider>
   );

@@ -43,15 +43,13 @@ export default function VisitorCalendarScreen() {
   // dédié (home/slots.tsx), qui reste accessible en Mensuel (tap sur un jour).
   const [planningView, setPlanningView] = useState<"mensuel" | "hebdo">("mensuel");
   // Bascule réservée au rôle intervenant (mesCreneauxOnly, partagée via
-  // VisitorContext — voir home/slots.tsx et VisitorSlotsList qui en tiennent
-  // compte aussi) — "Afficher mes créneaux" (par défaut) ne montre le cadre
-  // violet qu'autour des jours où CET intervenant a un soin planifié, masque
-  // le libellé des soins des autres intervenants dans le détail du jour, et
-  // masque le panneau "Soins planifiés"/"Historique des soins" (tous
-  // intervenants confondus) en dessous du calendrier. "Tous les soins"
-  // restaure le comportement d'origine (cadre violet pour tout intervenant,
-  // libellés et panneau complets).
-  const tousLesSoins = !mesCreneauxOnly;
+  // VisitorContext — voir home/slots.tsx qui en tient compte aussi). La
+  // grille (pastille, cadre violet, bande verte) affiche TOUJOURS la vérité
+  // complète, quel que soit ce réglage — voir familyBooked/interventionBooked
+  // plus bas. Son seul effet : filtrer le panneau "Soins planifiés"/
+  // "Historique des soins" en dessous du calendrier sur les seuls soins de
+  // CET intervenant (voir panelReservations) plutôt que ceux de tous les
+  // intervenants.
   // Les 2 switches du bloc de réglages doivent avoir des pastilles de même
   // taille et des libellés alignés à la même position — le switch Visites/
   // Soins reprend la largeur naturelle calculée par Mensuel/Hebdo au lieu
@@ -119,13 +117,14 @@ export default function VisitorCalendarScreen() {
   const admissionIso = space.patient_admission_date;
   const dischargeIso = space.patient_discharge_date;
 
-  // "Afficher mes créneaux" (intervenant, !tousLesSoins) : toute réservation
-  // "Intervention" d'un AUTRE intervenant est retirée avant tout calcul
-  // d'affichage (pastille de statut, cadre violet, bande Hebdo) — les
-  // visites/nuitées familiales ne sont jamais concernées, elles restent
-  // partagées entre tous. Source unique de vérité pour la grille ET WeekStrip.
-  const calendarReservations = role === "intervenant" && !tousLesSoins && intervenantProfileId
-    ? reservations.filter((r) => r.type !== "Intervention" || r.intervenant_profile_id === intervenantProfileId)
+  // La grille (pastille de statut, cadre violet, bande Hebdo) affiche
+  // toujours la vérité complète : vue Visites = toutes les visites des
+  // visiteurs, vue Soins = tous les soins de tous les intervenants —
+  // "Afficher mes créneaux" ne filtre plus ces éléments, voir plus bas
+  // (panelReservations) pour son seul effet restant : le panneau "Soins
+  // planifiés"/"Historique des soins".
+  const panelReservations = mesCreneauxOnly && intervenantProfileId
+    ? reservations.filter((r) => r.type === "Intervention" && r.intervenant_profile_id === intervenantProfileId)
     : reservations;
 
   const selectedIso = toISO(selectedDay);
@@ -208,7 +207,7 @@ export default function VisitorCalendarScreen() {
             const iso = toISO(day);
             const dayConfig = getConfigForDate(iso) ?? slotConfig;
             const daySlots = getSlotsForDate(iso);
-            const status = getDayStatus(calendarReservations, iso, day, dayConfig, daySlots, startDate, soinsMode ? "Intervention" : "Visite");
+            const status = getDayStatus(reservations, iso, day, dayConfig, daySlots, startDate, soinsMode ? "Intervention" : "Visite");
             const isToday = toISO(day) === toISO(today);
             const isSelected = toISO(day) === toISO(selectedDay);
             // Un jour déjà passé reste consultable (lecture seule — la
@@ -225,23 +224,25 @@ export default function VisitorCalendarScreen() {
               status === "partial" ? C.orange :
               status === "empty" ? C.success : "transparent";
 
-            // Bande verte en bas de case = MA visite/nuitée réservée ce jour
-            // (comparée au PIN de la session courante) — pas celle d'un autre
-            // membre de la famille ni celle prise par l'admin en son nom.
-            // Bordure violette = créneau bloqué par un intervenant (remplace
-            // la bordure grise par défaut, ne déborde jamais de la case).
-            // En mode Soins, les visites/nuitées sont masquées : seule la
-            // bordure violette reste pertinente.
-            const familyBooked = !soinsMode && !!myPin && calendarReservations.some((r) => r.date === iso && (r.type === "Visite" || r.type === "Nuit") && r.pin === myPin);
+            // Bande verte en bas de case = strictement personnelle (comparée
+            // au PIN de la session courante) : visite/nuitée réservée par MOI
+            // ou, si je suis intervenant, soin réservé par MOI — jamais les
+            // réservations d'un autre visiteur/intervenant ni de l'admin.
+            // Bordure violette = un soin existe ce jour-là, pour TOUT le
+            // monde (remplace la bordure grise par défaut, ne déborde jamais
+            // de la case) — un intervenant voit donc les deux ensemble sur
+            // ses propres jours de soin : bande verte (perso) + cadre violet
+            // (soin planifié, visible de tous).
+            const familyBooked = !!myPin && reservations.some((r) => r.date === iso && (r.type === "Visite" || r.type === "Nuit" || r.type === "Intervention") && r.pin === myPin);
             // Case remplie en violet uniquement pour l'intervenant assigné à
             // CE soin — les autres intervenants (comme les visiteurs/admin)
             // ne voient que le cadre violet ci-dessous.
             const myInterventionToday = role === "intervenant" && !!intervenantProfileId &&
-              calendarReservations.some((r) => r.date === iso && r.type === "Intervention" && r.intervenant_profile_id === intervenantProfileId);
-            // calendarReservations est déjà restreinte à "mes" interventions
-            // quand "Afficher mes créneaux" est actif — pas besoin d'un
-            // second filtrage ici.
-            const interventionBooked = calendarReservations.some((r) => r.date === iso && r.type === "Intervention");
+              reservations.some((r) => r.date === iso && r.type === "Intervention" && r.intervenant_profile_id === intervenantProfileId);
+            // Cadre violet : tous les soins de tous les intervenants, sans
+            // filtrage — la vue Soins doit rester une vérité complète pour
+            // tout le monde, "Afficher mes créneaux" ne le concerne pas.
+            const interventionBooked = reservations.some((r) => r.date === iso && r.type === "Intervention");
 
             return (
               <TouchableOpacity
@@ -293,14 +294,12 @@ export default function VisitorCalendarScreen() {
           )}
         </View>
         <View style={[styles.legend, styles.legendRow2]}>
-          {!soinsMode && (
-            <View style={styles.legendItem}>
-              <View style={[styles.legendStripeSwatch, { borderColor: C.border }]}>
-                <View style={[styles.legendStripeBar, { backgroundColor: LOGO_GREEN }]} />
-              </View>
-              <Text style={[styles.legendLabel, { color: C.muted }]}>Mes visites/nuitées</Text>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendStripeSwatch, { borderColor: C.border }]}>
+              <View style={[styles.legendStripeBar, { backgroundColor: LOGO_GREEN }]} />
             </View>
-          )}
+            <Text style={[styles.legendLabel, { color: C.muted }]}>Mes créneaux</Text>
+          </View>
           <View style={styles.legendItem}>
             <View style={[styles.legendFrame, { borderColor: LOGO_PURPLE }]} />
             <Text style={[styles.legendLabel, { color: C.muted }]}>{soinsMode ? "Soin" : "Intervenant"}</Text>
@@ -314,8 +313,8 @@ export default function VisitorCalendarScreen() {
                 <Text style={[styles.toggleLabel, { color: C.text }]}>👁️ Afficher mes créneaux</Text>
                 <Text style={[styles.toggleDesc, { color: C.muted }]}>
                   {mesCreneauxOnly
-                    ? "Le calendrier ne met en avant que tes propres soins — les créneaux pris par d'autres intervenants restent marqués indisponibles, sans détail."
-                    : "Tous les soins de tous les intervenants sont affichés, avec leur détail."}
+                    ? "Le panneau ci-dessous ne liste que tes propres soins. Le calendrier, lui, affiche toujours les soins de tous les intervenants."
+                    : "Le panneau ci-dessous liste les soins de tous les intervenants."}
                 </Text>
               </View>
               <Switch
@@ -339,7 +338,7 @@ export default function VisitorCalendarScreen() {
         <WeekStrip
           C={C}
           slotConfig={slotConfig}
-          reservations={calendarReservations}
+          reservations={reservations}
           getSlotsForDate={getSlotsForDate}
           getConfigForDate={getConfigForDate}
           startDate={startDate}
@@ -407,9 +406,9 @@ export default function VisitorCalendarScreen() {
           </TouchableOpacity>
         )}
 
-        {role === "intervenant" && tousLesSoins && (
+        {role === "intervenant" && (
           <View style={{ marginTop: 16 }}>
-            <IntervenantPlanningPanel C={C} reservations={reservations} />
+            <IntervenantPlanningPanel C={C} reservations={panelReservations} />
           </View>
         )}
       </ScrollView>
