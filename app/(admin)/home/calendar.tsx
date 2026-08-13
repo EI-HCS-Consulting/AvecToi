@@ -312,6 +312,7 @@ export default function AdminCalendarScreen() {
           onWeekChange={setWeekAnchor}
           selectedIso={selectedIso}
           onSelectDay={(iso) => setSelectedDay(new Date(iso + "T00:00:00"))}
+          onDayPress={(iso) => setSelectedDay(new Date(iso + "T00:00:00"))}
           soinsMode={soinsMode}
           role={null}
           intervenantProfileId={null}

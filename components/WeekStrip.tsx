@@ -10,9 +10,9 @@ import { addDays, getWeekDates, toISO, getDayStatus, isMyReservation } from "@/l
 // + cadre violet + bande verte) et que WeeklyPlanningGrid (planning des
 // intervenants), mais commune aux 3 rôles et enrichie des marqueurs
 // hospitalisation/sortie (F/G) et du grisage des jours antérieurs à la date
-// d'hospitalisation (E). Ne gère que la bande elle-même : le détail du jour
-// sélectionné (créneaux) est affiché par le parent juste en dessous, via
-// VisitorSlotsList/AdminSlotsList selon le rôle.
+// d'hospitalisation (E). Un tap sur une case navigue vers l'écran dédié des
+// créneaux (onDayPress), exactement comme la grille Mensuel — aucun détail de
+// jour affiché inline ici.
 const WEEKDAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
 
 interface Props {
@@ -29,7 +29,13 @@ interface Props {
   weekAnchor: Date;
   onWeekChange: (anchor: Date) => void;
   selectedIso: string;
+  // Housekeeping interne uniquement (recalage du jour sélectionné après un
+  // changement de semaine ‹ › via le useEffect ci-dessous) — jamais déclenché
+  // par un tap utilisateur, voir onDayPress pour ça.
   onSelectDay: (iso: string) => void;
+  // Tap explicite sur une case du jour — navigue vers l'écran dédié des
+  // créneaux (home/slots.tsx), exactement comme la grille Mensuel.
+  onDayPress: (iso: string) => void;
   soinsMode: boolean;
   role: "visiteur" | "intervenant" | null;
   intervenantProfileId: string | null;
@@ -46,7 +52,7 @@ interface Props {
 
 export default function WeekStrip({
   C, slotConfig, reservations, getSlotsForDate, getConfigForDate, startDate,
-  weekAnchor, onWeekChange, selectedIso, onSelectDay, soinsMode, role,
+  weekAnchor, onWeekChange, selectedIso, onSelectDay, onDayPress, soinsMode, role,
   intervenantProfileId, myPin, admissionIso, dischargeIso,
 }: Props) {
   const weekDates = getWeekDates(weekAnchor);
@@ -113,7 +119,7 @@ export default function WeekStrip({
           return (
             <TouchableOpacity
               key={iso}
-              onPress={() => onSelectDay(iso)}
+              onPress={() => onDayPress(iso)}
               activeOpacity={0.7}
               style={[
                 styles.stripCell,
