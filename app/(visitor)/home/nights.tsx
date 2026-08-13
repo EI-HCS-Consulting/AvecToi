@@ -18,10 +18,25 @@ export default function VisitorNightsScreen() {
   // été faites pour quelqu'un d'autre, cf. booked_by_prenom/nom), jamais
   // sur celles des autres visiteurs.
   const [myPin, setMyPin] = useState<string | null>(null);
+  // Rôle + fiche de la session — un intervenant ne peut réserver une nuitée
+  // que si l'admin l'a explicitement autorisé (voir slot_config.night_intervenant_mode,
+  // components/NightIntervenantModal.tsx). Les visiteurs "famille" ne sont pas
+  // concernés par cette restriction, seul night_enabled les gouverne.
+  const [role, setRole] = useState<"visiteur" | "intervenant">("visiteur");
+  const [intervenantProfileId, setIntervenantProfileId] = useState<string | null>(null);
   useEffect(() => {
-    getVisitorSession().then((s) => setMyPin(s?.pin ?? null));
+    getVisitorSession().then((s) => {
+      setMyPin(s?.pin ?? null);
+      setRole(s?.role ?? "visiteur");
+      setIntervenantProfileId(s?.intervenantProfileId ?? null);
+    });
   }, []);
   const isMine = (r: Reservation) => !!myPin && r.pin === myPin;
+
+  const canReserveNight =
+    role !== "intervenant"
+    || slotConfig?.night_intervenant_mode === "all"
+    || (slotConfig?.night_intervenant_mode === "one" && slotConfig?.night_intervenant_profile_id === intervenantProfileId);
 
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
   const startDate = space ? new Date(space.start_date + "T00:00:00") : today;
@@ -72,7 +87,7 @@ export default function VisitorNightsScreen() {
           </View>
         )}
 
-        {slotConfig.night_enabled && (
+        {slotConfig.night_enabled && canReserveNight && (
           <TouchableOpacity
             style={[styles.reserveNextBtn, { backgroundColor: C.gold }]}
             onPress={handleReserveNext}
