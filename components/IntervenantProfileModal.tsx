@@ -7,8 +7,9 @@ import { useRouter } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { isSlotFullyPast } from "@/lib/slotUtils";
 import PatientAvatar from "@/components/PatientAvatar";
+import SoinAvatar from "@/components/SoinAvatar";
 import { metierLabel } from "@/lib/metiers";
-import type { Reservation } from "@/lib/types";
+import type { Reservation, InterventionType } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
 // Fiche intervenant en lecture seule — ouverte en cliquant un intervenant
@@ -52,12 +53,13 @@ export default function IntervenantProfileModal({
   const [loading, setLoading] = useState(true);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [metier, setMetier] = useState<string | null>(null);
+  const [soinsProposes, setSoinsProposes] = useState<InterventionType[]>([]);
   const [planifies, setPlanifies] = useState<Reservation[]>([]);
   const [faits, setFaits] = useState<Reservation[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [{ data }, { data: profileData }] = await Promise.all([
+    const [{ data }, { data: profileData }, { data: typesData }] = await Promise.all([
       supabase
         .from("reservations")
         .select("*")
@@ -71,6 +73,11 @@ export default function IntervenantProfileModal({
         .select("photo, photo_updated_at, metier")
         .eq("id", intervenantProfileId)
         .maybeSingle(),
+      supabase
+        .from("intervention_types")
+        .select("*")
+        .eq("intervenant_profile_id", intervenantProfileId)
+        .order("created_at", { ascending: true }),
     ]);
 
     const soins: Reservation[] = data || [];
@@ -78,6 +85,7 @@ export default function IntervenantProfileModal({
     setFaits(soins.filter((r) => isSlotFullyPast(r.date, r.creneau)).reverse());
     setPhotoUrl(profileData?.photo ? intervenantPhotoUrl(profileData.photo, profileData.photo_updated_at) : null);
     setMetier(profileData?.metier ?? null);
+    setSoinsProposes(typesData || []);
     setLoading(false);
   }, [spaceId, intervenantProfileId]);
 
@@ -112,6 +120,17 @@ export default function IntervenantProfileModal({
             <ActivityIndicator color={C.accent} style={{ marginVertical: 32 }} />
           ) : (
             <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: 4 }}>
+              <Section title="✨ Soins proposés" C={C} empty={soinsProposes.length === 0} emptyText="Aucun soin renseigné pour l'instant.">
+                <View style={styles.soinsChips}>
+                  {soinsProposes.map((s) => (
+                    <View key={s.id} style={[styles.soinChip, { borderColor: C.border, backgroundColor: C.bg }]}>
+                      <SoinAvatar label={s.label} size={26} C={C} />
+                      <Text style={[styles.soinChipText, { color: C.text }]} numberOfLines={1}>{s.label}</Text>
+                    </View>
+                  ))}
+                </View>
+              </Section>
+
               <Section title={`🩺 Soins planifiés (${planifies.length})`} C={C} empty={planifies.length === 0} emptyText="Aucun soin planifié.">
                 {planifies.map((r) => (
                   <TouchableOpacity
@@ -184,4 +203,8 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", paddingVertical: 6, gap: 8 },
   rowText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 19 },
   chevron: { fontFamily: "DM_Sans_700Bold", fontSize: 16 },
+
+  soinsChips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  soinChip: { flexDirection: "row", alignItems: "center", gap: 6, borderWidth: 1, borderRadius: 20, paddingVertical: 5, paddingHorizontal: 10, maxWidth: "100%" },
+  soinChipText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
 });

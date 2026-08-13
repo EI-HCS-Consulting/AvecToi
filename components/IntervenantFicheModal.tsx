@@ -10,6 +10,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import PatientAvatar from "@/components/PatientAvatar";
 import MesSoinsList from "@/components/MesSoinsList";
+import SoinLabelPicker from "@/components/SoinLabelPicker";
 import { normalizePhone } from "@/lib/phone";
 import { propagateSoinChange } from "@/lib/interventionTypesSync";
 import { FAMILLES, METIERS, metiersByFamille, metierLabel } from "@/lib/metiers";
@@ -28,8 +29,19 @@ interface TypeRow {
   // nouvelle ligne ajoutée) — sert à distinguer insert/update/delete au
   // moment d'enregistrer, sans avoir à tout recréer depuis zéro.
   id?: string;
+  // Clé stable côté client (= id une fois connu, sinon générée à la
+  // création de la ligne) — sert de `key` React ET de `key` à
+  // SoinLabelPicker pour que son mode (liste/saisie libre) ne se réinitialise
+  // pas au gré des ajouts/suppressions d'autres lignes (contrairement à un
+  // index de tableau, qui change quand une ligne du milieu est supprimée).
+  clientKey: string;
   label: string;
   duration_minutes: string;
+}
+
+let rowKeySeq = 0;
+function newRowClientKey() {
+  return `row-${Date.now()}-${rowKeySeq++}`;
 }
 
 interface Props {
@@ -79,7 +91,7 @@ export default function IntervenantFicheModal({
   // connexion), sert aussi d'icône de repli pour l'avatar sans photo.
   const [ficheMetier, setFicheMetier] = useState<string | null>(null);
   const [metierPickerOpen, setMetierPickerOpen] = useState(false);
-  const [rows, setRows] = useState<TypeRow[]>([{ label: "", duration_minutes: "" }]);
+  const [rows, setRows] = useState<TypeRow[]>([{ clientKey: newRowClientKey(), label: "", duration_minutes: "" }]);
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(mode === "edit");
   const [saving, setSaving] = useState(false);
@@ -120,7 +132,7 @@ export default function IntervenantFicheModal({
     setOrphaned(false);
     setKnownElsewhere(false);
     if (mode === "create") {
-      setRows([{ label: "", duration_minutes: "" }]);
+      setRows([{ clientKey: newRowClientKey(), label: "", duration_minutes: "" }]);
       setRemovedIds([]);
       setExistingPhoto(null);
       setFicheTelephone("");
@@ -153,8 +165,8 @@ export default function IntervenantFicheModal({
       }
       setRows(
         (data && data.length > 0)
-          ? data.map((t) => ({ id: t.id, label: t.label, duration_minutes: String(t.duration_minutes) }))
-          : [{ label: "", duration_minutes: "" }],
+          ? data.map((t) => ({ id: t.id, clientKey: t.id, label: t.label, duration_minutes: String(t.duration_minutes) }))
+          : [{ clientKey: newRowClientKey(), label: "", duration_minutes: "" }],
       );
       setRemovedIds([]);
       setExistingPhoto(profileData?.photo ?? null);
@@ -232,7 +244,7 @@ export default function IntervenantFicheModal({
   }
 
   function addRow() {
-    setRows((prev) => [...prev, { label: "", duration_minutes: "" }]);
+    setRows((prev) => [...prev, { clientKey: newRowClientKey(), label: "", duration_minutes: "" }]);
   }
 
   function removeRow(index: number) {
@@ -504,29 +516,32 @@ export default function IntervenantFicheModal({
                 {mode === "create" ? (
                   <>
                     {rows.map((row, i) => (
-                      <View key={row.id ?? `new-${i}`} style={styles.row}>
-                        <TextInput
-                          style={[styles.input, styles.labelInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                          placeholder="Type (ex. Kiné)"
-                          placeholderTextColor={C.muted}
+                      <View key={row.clientKey} style={styles.soinRowBlock}>
+                        <SoinLabelPicker
+                          key={row.clientKey}
+                          metier={ficheMetier}
                           value={row.label}
-                          onChangeText={(v) => updateRow(i, { label: v })}
+                          onChange={(v) => updateRow(i, { label: v })}
+                          C={C}
+                          placeholder="Type (ex. Kiné)"
                         />
-                        <TextInput
-                          style={[styles.input, styles.durationInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                          placeholder="Min"
-                          placeholderTextColor={C.muted}
-                          value={row.duration_minutes}
-                          onChangeText={(v) => updateRow(i, { duration_minutes: v.replace(/[^0-9]/g, "") })}
-                          keyboardType="number-pad"
-                        />
-                        <TouchableOpacity
-                          onPress={() => removeRow(i)}
-                          disabled={rows.length === 1}
-                          style={[styles.removeBtn, rows.length === 1 && { opacity: 0.3 }]}
-                        >
-                          <Text style={{ color: C.danger, fontSize: 18 }}>✕</Text>
-                        </TouchableOpacity>
+                        <View style={styles.soinRowMeta}>
+                          <TextInput
+                            style={[styles.input, styles.durationInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                            placeholder="Min"
+                            placeholderTextColor={C.muted}
+                            value={row.duration_minutes}
+                            onChangeText={(v) => updateRow(i, { duration_minutes: v.replace(/[^0-9]/g, "") })}
+                            keyboardType="number-pad"
+                          />
+                          <TouchableOpacity
+                            onPress={() => removeRow(i)}
+                            disabled={rows.length === 1}
+                            style={[styles.removeBtn, rows.length === 1 && { opacity: 0.3 }]}
+                          >
+                            <Text style={{ color: C.danger, fontSize: 18 }}>✕</Text>
+                          </TouchableOpacity>
+                        </View>
                       </View>
                     ))}
 
@@ -665,6 +680,8 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     alignItems: "center",
   },
+  soinRowBlock: { marginBottom: 14, gap: 8 },
+  soinRowMeta: { flexDirection: "row", gap: 8, alignItems: "center" },
   input: {
     borderWidth: 1,
     borderRadius: 10,
