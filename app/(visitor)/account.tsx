@@ -583,13 +583,18 @@ export default function VisitorAccountScreen() {
   // que IntervenantFicheModal.handleSave (idx_intervenant_profiles_unique_identity) :
   // en cas de conflit, on retente sans prénom/nom pour ne pas perdre la sync
   // téléphone/totem, et on prévient l'utilisateur.
+  // Renvoie true si la synchronisation a réussi — handleSave s'en sert pour
+  // ne montrer "Enregistré ✓" que si la fiche intervenant a effectivement
+  // été mise à jour, plutôt que de l'afficher inconditionnellement alors
+  // qu'un échec silencieux (réseau, erreur inattendue) ne laissait avant
+  // aucune trace visible pour l'utilisateur.
   async function syncIntervenantContact(
     profileId: string,
     prenomValue: string,
     nomValue: string,
     telephoneValue: string,
     mottoValue: string,
-  ) {
+  ): Promise<boolean> {
     const trimmedPrenom = prenomValue.trim();
     const trimmedNom = nomValue.trim();
     const payload: Record<string, string | null> = {
@@ -608,12 +613,23 @@ export default function VisitorAccountScreen() {
             "Nom déjà utilisé",
             "Une fiche intervenant existe déjà avec ce prénom et ce nom dans cet espace. Téléphone et phrase totem ont été enregistrés, mais le prénom/nom n'a pas pu être modifié.",
           );
-        } else {
-          console.error("[syncIntervenantContact] update failed:", error);
+          return false;
         }
+        console.error("[syncIntervenantContact] update failed:", error);
+        Alert.alert(
+          "Erreur d'enregistrement",
+          "Tes informations n'ont pas pu être synchronisées avec ta fiche intervenant. Vérifie ta connexion et réessaie.",
+        );
+        return false;
       }
+      return true;
     } catch (e) {
       console.error("[syncIntervenantContact] unexpected error:", e);
+      Alert.alert(
+        "Erreur d'enregistrement",
+        "Tes informations n'ont pas pu être synchronisées avec ta fiche intervenant. Vérifie ta connexion et réessaie.",
+      );
+      return false;
     }
   }
 
@@ -682,14 +698,15 @@ export default function VisitorAccountScreen() {
       motto,
       telephone,
     });
-    setSaving(false);
-    showToast("Enregistré ✓");
+    let ok = true;
     if (role === "intervenant" && intervenantProfileId) {
-      await syncIntervenantContact(intervenantProfileId, prenom, nom, telephone, motto);
+      ok = await syncIntervenantContact(intervenantProfileId, prenom, nom, telephone, motto);
     } else {
       if (photoUri) syncProfilePhoto(space.id, prenom.trim(), nom.trim(), photoUri);
       if (prenom.trim() && nom.trim()) syncProfileMotto(space.id, prenom.trim(), nom.trim(), motto);
     }
+    setSaving(false);
+    if (ok) showToast("Enregistré ✓");
     loadActivity(space.id, prenom, nom);
   }
 
@@ -921,17 +938,22 @@ export default function VisitorAccountScreen() {
                         keyboardType="phone-pad"
                       />
                     )}
-                    {role === "intervenant" && (
-                      <View style={styles.metierInfoRow}>
-                        <Text style={[styles.metierInfoLabel, { color: C.muted }]}>Métier / spécialisation</Text>
-                        <TouchableOpacity onPress={() => setFicheModalVisible(true)} activeOpacity={0.7}>
-                          <Text style={[styles.metierInfoValue, { color: C.gold }]}>
-                            {metier ? metierLabel(metier) : "À renseigner ›"}
-                          </Text>
-                        </TouchableOpacity>
-                      </View>
-                    )}
                   </View>
+
+                  {role === "intervenant" && (
+                    <>
+                      <Text style={[styles.sectionTitle, { color: C.gold, marginTop: 8 }]}>Métier / Spécialisation</Text>
+                      <TouchableOpacity
+                        style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}
+                        onPress={() => setFicheModalVisible(true)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.metierInfoValue, { color: C.gold }]}>
+                          {metier ? metierLabel(metier) : "À renseigner ›"}
+                        </Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
 
                   <Text style={[styles.sectionTitle, { color: C.gold, marginTop: 8 }]}>💬 Ma phrase totem (optionnel)</Text>
                   <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
@@ -1566,8 +1588,6 @@ const styles = StyleSheet.create({
   card: { borderWidth: 1, borderRadius: 14, padding: 16, marginBottom: 4, gap: 10 },
   cardDesc: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 19, marginBottom: 4 },
   input: { borderWidth: 1, borderRadius: 10, padding: 13, fontFamily: "DM_Sans_400Regular", fontSize: 15 },
-  metierInfoRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 4, paddingTop: 2 },
-  metierInfoLabel: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
   metierInfoValue: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
 
   displayModeLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15 },
