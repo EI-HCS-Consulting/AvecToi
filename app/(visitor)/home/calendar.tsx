@@ -43,14 +43,15 @@ export default function VisitorCalendarScreen() {
   // dédié (home/slots.tsx), qui reste accessible en Mensuel (tap sur un jour).
   const [planningView, setPlanningView] = useState<"mensuel" | "hebdo">("mensuel");
   // Bascule réservée au rôle intervenant (mesCreneauxOnly, partagée via
-  // VisitorContext — voir home/slots.tsx et VisitorSlotsList qui en tiennent
-  // compte aussi) — "Afficher mes créneaux" (par défaut) ne montre le cadre
-  // violet qu'autour des jours où CET intervenant a un soin planifié, masque
-  // le libellé des soins des autres intervenants dans le détail du jour, et
-  // masque le panneau "Soins planifiés"/"Historique des soins" (tous
-  // intervenants confondus) en dessous du calendrier. "Tous les soins"
-  // restaure le comportement d'origine (cadre violet pour tout intervenant,
-  // libellés et panneau complets).
+  // VisitorContext — voir home/slots.tsx qui en tient compte aussi) —
+  // "Afficher mes créneaux" (par défaut) ne montre le cadre violet qu'autour
+  // des jours où CET intervenant a un soin planifié, et masque le panneau
+  // "Soins planifiés"/"Historique des soins" (tous intervenants confondus)
+  // en dessous du calendrier. "Tous les soins" restaure le cadre violet pour
+  // tout intervenant et affiche le panneau complet. Le détail d'un soin dans
+  // VisitorSlotsList (qui, quand, quel intervenant) reste TOUJOURS affiché en
+  // entier, quel que soit ce réglage — seule la mise en avant visuelle du
+  // calendrier est concernée.
   const tousLesSoins = !mesCreneauxOnly;
   // Les 2 switches du bloc de réglages doivent avoir des pastilles de même
   // taille et des libellés alignés à la même position — le switch Visites/
@@ -314,8 +315,8 @@ export default function VisitorCalendarScreen() {
                 <Text style={[styles.toggleLabel, { color: C.text }]}>👁️ Afficher mes créneaux</Text>
                 <Text style={[styles.toggleDesc, { color: C.muted }]}>
                   {mesCreneauxOnly
-                    ? "Le calendrier ne met en avant que tes propres soins — les créneaux pris par d'autres intervenants restent marqués indisponibles, sans détail."
-                    : "Tous les soins de tous les intervenants sont affichés, avec leur détail."}
+                    ? "Le calendrier ne met en avant que tes propres soins. Le détail des soins des autres intervenants reste visible en tapant sur un jour."
+                    : "Tous les soins de tous les intervenants sont mis en avant sur le calendrier."}
                 </Text>
               </View>
               <Switch
