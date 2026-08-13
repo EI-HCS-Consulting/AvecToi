@@ -91,10 +91,10 @@ export interface SlotConfig {
   // components/IntervenantPriorityModal.tsx.
   intervenant_priority_mode: "all" | "selected";
   // Autorisation des intervenants à réserver des nuitées : "disabled" (aucun,
-  // défaut), "one" (seul night_intervenant_profile_id le peut), "all" (tous)
-  // — voir components/NightIntervenantModal.tsx et (visitor)/home/nights.tsx.
-  night_intervenant_mode: "disabled" | "one" | "all";
-  night_intervenant_profile_id: string | null;
+  // défaut), "some" (seuls ceux listés dans night_authorized_intervenants),
+  // "all" (tous) — voir components/NightIntervenantModal.tsx et
+  // (visitor)/home/nights.tsx.
+  night_intervenant_mode: "disabled" | "some" | "all";
   // Autorisation des visiteurs à réserver des nuitées : "all" (tous, défaut
   // — comportement historique) ou "some" (seuls ceux listés dans
   // night_authorized_visitors) — voir components/NightVisitorModal.tsx.

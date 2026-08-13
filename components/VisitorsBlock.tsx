@@ -36,11 +36,9 @@ function identityKey(prenom: string, nom: string) {
 interface Props {
   spaceId: string;
   C: Theme;
-  // L'admin est aussi un proche qui peut rendre visite au patient — son nom
-  // et sa photo (stockés à part : auth.updateUser/user_metadata.photo_url,
-  // voir app/(admin)/account.tsx, jamais dans visitor_profiles puisqu'il n'a
-  // pas de compte "visiteur") sont ajoutés à la liste au même titre que les
-  // autres.
+  // Utilisés uniquement pour exclure l'admin de la liste (voir plus bas) —
+  // il a son propre espace "Mes contributions" côté admin et n'a pas à
+  // apparaître dans le bloc Visiteurs.
   adminFirstname?: string | null;
   adminLastname?: string | null;
 }
@@ -55,7 +53,7 @@ export default function VisitorsBlock({ spaceId, C, adminFirstname, adminLastnam
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [resv, resvGuestOf, news, tasksAuthor, tasksClaimed, tasksReturnClaimed, souv, msgs, profiles, authUser] = await Promise.all([
+    const [resv, resvGuestOf, news, tasksAuthor, tasksClaimed, tasksReturnClaimed, souv, msgs, profiles, intervenants] = await Promise.all([
       supabase.from("reservations").select("prenom,nom").eq("space_id", spaceId),
       supabase.from("reservations").select("booked_by_prenom,booked_by_nom").eq("space_id", spaceId),
       supabase.from("news_entries").select("author_prenom,author_nom").eq("space_id", spaceId),
@@ -65,15 +63,23 @@ export default function VisitorsBlock({ spaceId, C, adminFirstname, adminLastnam
       supabase.from("souvenirs").select("uploaded_by_prenom,uploaded_by_nom").eq("space_id", spaceId),
       supabase.from("support_messages").select("author_prenom,author_nom").eq("space_id", spaceId),
       supabase.from("visitor_profiles").select("prenom,nom,photo,motto").eq("space_id", spaceId),
-      supabase.auth.getUser(),
+      supabase.from("intervenant_profiles").select("prenom,nom").eq("space_id", spaceId),
     ]);
 
     if (profiles.error) console.error("[VisitorsBlock] visitor_profiles select failed:", profiles.error);
+    if (intervenants.error) console.error("[VisitorsBlock] intervenant_profiles select failed:", intervenants.error);
+
+    // Ce bloc ne doit lister que les visiteurs : ni les intervenants (qui
+    // laissent eux aussi des traces — réservations, tâches...), ni l'admin
+    // lui-même (qui a son propre suivi côté "Mon Compte").
+    const excludedKeys = new Set((intervenants.data || []).map((i) => identityKey(i.prenom, i.nom)));
+    if (adminFirstname && adminLastname) excludedKeys.add(identityKey(adminFirstname, adminLastname));
 
     const byKey = new Map<string, VisitorRow>();
     function add(prenom?: string | null, nom?: string | null) {
       if (!prenom?.trim() || !nom?.trim()) return;
       const key = identityKey(prenom, nom);
+      if (excludedKeys.has(key)) return;
       if (!byKey.has(key)) byKey.set(key, { prenom: prenom.trim(), nom: nom.trim(), photoUrl: null, motto: null });
     }
     (resv.data || []).forEach((r) => add(r.prenom, r.nom));
@@ -85,23 +91,12 @@ export default function VisitorsBlock({ spaceId, C, adminFirstname, adminLastnam
     (souv.data || []).forEach((s) => add(s.uploaded_by_prenom, s.uploaded_by_nom));
     (msgs.data || []).forEach((m) => add(m.author_prenom, m.author_nom));
     (profiles.data || []).forEach((p) => add(p.prenom, p.nom));
-    add(adminFirstname, adminLastname);
 
     for (const p of profiles.data || []) {
       const row = byKey.get(identityKey(p.prenom, p.nom));
       if (!row) continue;
       if (p.photo) row.photoUrl = visitorPhotoUrl(spaceId, p.photo);
       if (p.motto) row.motto = p.motto;
-    }
-
-    const adminPhotoUrl = authUser.data.user?.user_metadata?.photo_url as string | undefined;
-    const adminMotto = authUser.data.user?.user_metadata?.motto as string | undefined;
-    if (adminFirstname && adminLastname) {
-      const adminRow = byKey.get(identityKey(adminFirstname, adminLastname));
-      if (adminRow) {
-        if (adminPhotoUrl) adminRow.photoUrl = adminPhotoUrl;
-        if (adminMotto) adminRow.motto = adminMotto;
-      }
     }
 
     setVisitors(

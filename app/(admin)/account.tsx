@@ -256,19 +256,37 @@ export default function AdminAccountScreen() {
   }
 
   useEffect(() => {
-    if (!space) return;
-    loadActivity(space.id);
-  }, [space?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!space || profileLoading) return;
+    loadActivity(space.id, adminFirstname, adminLastname);
+  }, [space?.id, profileLoading, adminFirstname, adminLastname]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function loadActivity(spaceId: string) {
+  // L'admin est aussi un visiteur (il peut réserver des créneaux comme
+  // n'importe qui) : "Mes réservations" ne doit montrer que les siennes,
+  // même principe que côté visiteur (app/(visitor)/account.tsx) — matching
+  // par prénom/nom, plus booked_by_* pour les réservations faites par
+  // l'admin au nom d'un proche.
+  async function loadActivity(spaceId: string, p: string, n: string) {
     setActivityLoading(true);
-    const [resv, newsData, msgs, tasksData] = await Promise.all([
-      supabase.from("reservations").select("*").eq("space_id", spaceId).order("date", { ascending: false }),
+    const hasIdentity = !!p.trim() && !!n.trim();
+    const [resv, resvBookedFor, newsData, msgs, tasksData] = await Promise.all([
+      hasIdentity
+        ? supabase.from("reservations").select("*").eq("space_id", spaceId)
+            .ilike("prenom", p.trim()).ilike("nom", n.trim()).order("date", { ascending: false })
+        : Promise.resolve({ data: [] as Reservation[] }),
+      hasIdentity
+        ? supabase.from("reservations").select("*").eq("space_id", spaceId)
+            .ilike("booked_by_prenom", p.trim()).ilike("booked_by_nom", n.trim()).order("date", { ascending: false })
+        : Promise.resolve({ data: [] as Reservation[] }),
       supabase.from("news_entries").select("*").eq("space_id", spaceId).eq("author_pin", "ADMIN").order("created_at", { ascending: false }),
       supabase.from("support_messages").select("*").eq("space_id", spaceId).eq("author_pin", "ADMIN").order("created_at", { ascending: false }),
       supabase.from("tasks").select("*").eq("space_id", spaceId).eq("created_by", "admin").order("created_at", { ascending: false }),
     ]);
-    setReservations(resv.data || []);
+    const bookedForIds = new Set((resv.data || []).map((r: Reservation) => r.id));
+    const myResv = [
+      ...(resv.data || []),
+      ...((resvBookedFor.data || []).filter((r: Reservation) => !bookedForIds.has(r.id))),
+    ].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+    setReservations(myResv);
     setNews(newsData.data || []);
     setMessages(msgs.data || []);
     setTasks(tasksData.data || []);

@@ -48,19 +48,27 @@ export default function NightVisitorModal({
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [resv, profiles, authorized] = await Promise.all([
+    const [resv, profiles, authorized, intervenants] = await Promise.all([
       supabase.from("reservations").select("prenom,nom").eq("space_id", spaceId),
       supabase.from("visitor_profiles").select("prenom,nom").eq("space_id", spaceId),
       supabase.from("night_authorized_visitors").select("prenom,nom").eq("space_id", spaceId),
+      supabase.from("intervenant_profiles").select("prenom,nom").eq("space_id", spaceId),
     ]);
     if (resv.error) console.error("[NightVisitorModal] reservations select failed:", resv.error);
     if (profiles.error) console.error("[NightVisitorModal] visitor_profiles select failed:", profiles.error);
     if (authorized.error) console.error("[NightVisitorModal] night_authorized_visitors select failed:", authorized.error);
+    if (intervenants.error) console.error("[NightVisitorModal] intervenant_profiles select failed:", intervenants.error);
+
+    // Les intervenants ont aussi des lignes dans reservations/visitor_profiles
+    // (ils réservent des créneaux comme les visiteurs) — on les exclut ici
+    // pour ne garder que les vrais visiteurs.
+    const intervenantKeys = new Set((intervenants.data || []).map((i) => identityKey(i.prenom, i.nom)));
 
     const byKey = new Map<string, VisitorRow>();
     function add(prenom?: string | null, nom?: string | null) {
       if (!prenom?.trim() || !nom?.trim()) return;
       const key = identityKey(prenom, nom);
+      if (intervenantKeys.has(key)) return;
       if (!byKey.has(key)) byKey.set(key, { prenom: prenom.trim(), nom: nom.trim() });
     }
     (resv.data || []).forEach((r) => add(r.prenom, r.nom));
@@ -132,7 +140,7 @@ export default function NightVisitorModal({
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={[styles.card, { backgroundColor: C.card, borderColor: C.accent }]}>
-          <Text style={[styles.title, { color: C.text }]}>Nuitées chez les visiteurs</Text>
+          <Text style={[styles.title, { color: C.text }]}>Nuitées visiteurs</Text>
           <Text style={[styles.desc, { color: C.muted }]}>
             Autorise tous les visiteurs, ou seulement certains, à réserver une nuitée.
           </Text>

@@ -8,6 +8,7 @@ import NightInterventionBookingFlow, { type NightInterventionBookingFlowHandle }
 import { findNextAvailableNight, toISO, toFrLong, nightStartSlot } from "@/lib/slotUtils";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { isVisitorAuthorizedForNight } from "@/lib/nightVisitorAuth";
+import { isIntervenantAuthorizedForNight } from "@/lib/nightIntervenantAuth";
 import type { Reservation } from "@/lib/types";
 
 export default function VisitorNightsScreen() {
@@ -53,10 +54,23 @@ export default function VisitorNightsScreen() {
     isVisitorAuthorizedForNight(space.id, myPrenom, myNom).then(setNightVisitorAuthorized);
   }, [role, space, slotConfig?.night_visitor_mode, myPrenom, myNom]);
 
+  // Autorisation des intervenants (voir slot_config.night_intervenant_mode,
+  // components/NightIntervenantModal.tsx) — même principe que les visiteurs
+  // ci-dessus, mais matché par intervenant_profiles.id (compte stable) via
+  // night_authorized_intervenants plutôt que par prénom/nom.
+  const [nightIntervenantAuthorized, setNightIntervenantAuthorized] = useState(true);
+  useEffect(() => {
+    if (role !== "intervenant" || !space || slotConfig?.night_intervenant_mode !== "some" || !intervenantProfileId) {
+      setNightIntervenantAuthorized(false);
+      return;
+    }
+    isIntervenantAuthorizedForNight(space.id, intervenantProfileId).then(setNightIntervenantAuthorized);
+  }, [role, space, slotConfig?.night_intervenant_mode, intervenantProfileId]);
+
   const canReserveNight =
     (role !== "intervenant"
       || slotConfig?.night_intervenant_mode === "all"
-      || (slotConfig?.night_intervenant_mode === "one" && slotConfig?.night_intervenant_profile_id === intervenantProfileId))
+      || (slotConfig?.night_intervenant_mode === "some" && nightIntervenantAuthorized))
     && (role !== "visiteur" || nightVisitorAuthorized);
 
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);

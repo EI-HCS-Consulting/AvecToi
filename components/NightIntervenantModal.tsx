@@ -5,13 +5,12 @@ import PatientAvatar from "@/components/PatientAvatar";
 import { metierLabel } from "@/lib/metiers";
 import type { Theme } from "@/lib/themes";
 
-// Popup admin (Paramètres > bloc Intervenants) — autorise les intervenants à
-// réserver des nuitées (type "Nuit"), désactivé par défaut : "disabled"
-// (comportement historique, aucun intervenant ne voit le bouton Réserver sur
-// (visitor)/home/nights.tsx), "one" (un seul intervenant désigné ici) ou
-// "all" (tous). Même principe que IntervenantPriorityModal.tsx : écrit
-// directement dans slot_config, pas de passage par apply_slot_rule_change ni
-// de suivi dans slot_config_history (réglage live).
+// Popup admin (Paramètres > bloc Intervenants) — autorise un ou plusieurs
+// intervenants à réserver des nuitées (type "Nuit"), désactivé par défaut :
+// "disabled" (comportement historique, aucun intervenant ne voit le bouton
+// Réserver sur (visitor)/home/nights.tsx), "some" (seuls ceux cochés
+// ci-dessous, via la table de liaison night_authorized_intervenants) ou
+// "all" (tous). Même principe que NightVisitorModal.tsx côté visiteurs.
 
 interface IntervenantRow {
   id: string;
@@ -27,75 +26,96 @@ function intervenantPhotoUrl(filename: string, updatedAt?: string | null) {
   return updatedAt ? `${data.publicUrl}?v=${new Date(updatedAt).getTime()}` : data.publicUrl;
 }
 
-type NightIntervenantMode = "disabled" | "one" | "all";
+type NightIntervenantMode = "disabled" | "some" | "all";
 
 interface Props {
   visible: boolean;
   onClose: () => void;
   spaceId: string;
   currentMode: NightIntervenantMode;
-  currentProfileId: string | null;
   C: Theme;
-  onSaved: (mode: NightIntervenantMode, profileId: string | null) => void;
+  onSaved: (mode: NightIntervenantMode) => void;
 }
 
 export default function NightIntervenantModal({
-  visible, onClose, spaceId, currentMode, currentProfileId, C, onSaved,
+  visible, onClose, spaceId, currentMode, C, onSaved,
 }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [mode, setMode] = useState<NightIntervenantMode>(currentMode);
-  const [selectedId, setSelectedId] = useState<string | null>(currentProfileId);
   const [intervenants, setIntervenants] = useState<IntervenantRow[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from("intervenant_profiles")
-      .select("id, prenom, nom, photo, photo_updated_at, metier")
-      .eq("space_id", spaceId)
-      .order("prenom", { ascending: true });
-    if (error) console.error("[NightIntervenantModal] intervenant_profiles select failed:", error);
-    setIntervenants(data || []);
+    const [profiles, authorized] = await Promise.all([
+      supabase.from("intervenant_profiles").select("id, prenom, nom, photo, photo_updated_at, metier").eq("space_id", spaceId).order("prenom", { ascending: true }),
+      supabase.from("night_authorized_intervenants").select("intervenant_profile_id").eq("space_id", spaceId),
+    ]);
+    if (profiles.error) console.error("[NightIntervenantModal] intervenant_profiles select failed:", profiles.error);
+    if (authorized.error) console.error("[NightIntervenantModal] night_authorized_intervenants select failed:", authorized.error);
+    setIntervenants(profiles.data || []);
+    setSelectedIds(new Set((authorized.data || []).map((a) => a.intervenant_profile_id)));
     setLoading(false);
   }, [spaceId]);
 
   useEffect(() => {
     if (visible) {
       setMode(currentMode);
-      setSelectedId(currentProfileId);
       load();
     }
-  }, [visible, currentMode, currentProfileId, load]);
+  }, [visible, currentMode, load]);
+
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+    // Cocher un intervenant bascule directement en mode "some" — la liste
+    // est toujours visible (cf. plus bas), inutile de forcer un choix de
+    // mode avant de pouvoir cocher quelqu'un.
+    setMode("some");
+  }
 
   async function handleSave() {
     setSaving(true);
-    const { error } = await supabase
+    const { error: configError } = await supabase
       .from("slot_config")
-      .update({
-        night_intervenant_mode: mode,
-        night_intervenant_profile_id: mode === "one" ? selectedId : null,
-      })
+      .update({ night_intervenant_mode: mode })
       .eq("space_id", spaceId);
-    setSaving(false);
-    if (error) {
-      console.error("[NightIntervenantModal] save failed:", error);
+    if (configError) {
+      console.error("[NightIntervenantModal] slot_config update failed:", configError);
+      setSaving(false);
       return;
     }
-    onSaved(mode, mode === "one" ? selectedId : null);
+
+    if (mode === "some") {
+      const { error: deleteError } = await supabase.from("night_authorized_intervenants").delete().eq("space_id", spaceId);
+      if (deleteError) console.error("[NightIntervenantModal] night_authorized_intervenants delete failed:", deleteError);
+      if (selectedIds.size > 0) {
+        const { error: insertError } = await supabase
+          .from("night_authorized_intervenants")
+          .insert(Array.from(selectedIds).map((id) => ({ space_id: spaceId, intervenant_profile_id: id })));
+        if (insertError) console.error("[NightIntervenantModal] night_authorized_intervenants insert failed:", insertError);
+      }
+    }
+
+    setSaving(false);
+    onSaved(mode);
     onClose();
   }
 
-  const canSave = mode !== "one" || !!selectedId;
+  const canSave = mode !== "some" || selectedIds.size > 0;
 
   return (
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={[styles.card, { backgroundColor: C.card, borderColor: C.orange }]}>
-          <Text style={[styles.title, { color: C.text }]}>Nuitées chez les intervenants</Text>
+          <Text style={[styles.title, { color: C.text }]}>Nuitées intervenants</Text>
           <Text style={[styles.desc, { color: C.muted }]}>
-            Autorise un ou plusieurs intervenants à réserver des nuitées. Tant qu'aucun choix n'est fait, le bouton
-            "Réserver" reste invisible côté intervenant.
+            Autorise tous les intervenants, ou seulement certains, à réserver une nuitée.
           </Text>
 
           <TouchableOpacity
@@ -113,16 +133,30 @@ export default function NightIntervenantModal({
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.option, { borderColor: mode === "one" ? C.orange : C.border, backgroundColor: mode === "one" ? `${C.orange}18` : "transparent" }]}
-            onPress={() => setMode("one")}
+            style={[styles.option, { borderColor: mode === "all" ? C.orange : C.border, backgroundColor: mode === "all" ? `${C.orange}18` : "transparent" }]}
+            onPress={() => setMode("all")}
             activeOpacity={0.8}
           >
-            <View style={[styles.radio, { borderColor: mode === "one" ? C.orange : C.muted }]}>
-              {mode === "one" && <View style={[styles.radioDot, { backgroundColor: C.orange }]} />}
+            <View style={[styles.radio, { borderColor: mode === "all" ? C.orange : C.muted }]}>
+              {mode === "all" && <View style={[styles.radioDot, { backgroundColor: C.orange }]} />}
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.optionLabel, { color: C.text }]}>Un seul intervenant</Text>
-              <Text style={[styles.optionDesc, { color: C.muted }]}>Choisis-le ci-dessous.</Text>
+              <Text style={[styles.optionLabel, { color: C.text }]}>Tous les intervenants</Text>
+              <Text style={[styles.optionDesc, { color: C.muted }]}>Chaque intervenant peut réserver une nuitée.</Text>
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.option, { borderColor: mode === "some" ? C.orange : C.border, backgroundColor: mode === "some" ? `${C.orange}18` : "transparent" }]}
+            onPress={() => setMode("some")}
+            activeOpacity={0.8}
+          >
+            <View style={[styles.radio, { borderColor: mode === "some" ? C.orange : C.muted }]}>
+              {mode === "some" && <View style={[styles.radioDot, { backgroundColor: C.orange }]} />}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.optionLabel, { color: C.text }]}>Certains intervenants seulement</Text>
+              <Text style={[styles.optionDesc, { color: C.muted }]}>Coche-les ci-dessous — plusieurs choix possibles.</Text>
             </View>
           </TouchableOpacity>
 
@@ -133,22 +167,16 @@ export default function NightIntervenantModal({
           ) : (
             <ScrollView style={styles.list} contentContainerStyle={{ paddingBottom: 4 }}>
               {intervenants.map((it) => {
-                const selected = it.id === selectedId;
+                const selected = selectedIds.has(it.id);
                 return (
                   <TouchableOpacity
                     key={it.id}
                     style={[styles.row, { borderBottomColor: C.border }]}
-                    onPress={() => {
-                      setSelectedId(it.id);
-                      // Choisir quelqu'un dans la liste bascule directement en
-                      // mode "one" — la liste est toujours visible (voir
-                      // plus haut), inutile de forcer le choix du mode avant.
-                      setMode("one");
-                    }}
+                    onPress={() => toggleSelected(it.id)}
                     activeOpacity={0.8}
                   >
-                    <View style={[styles.radio, { borderColor: selected ? C.orange : C.muted }]}>
-                      {selected && <View style={[styles.radioDot, { backgroundColor: C.orange }]} />}
+                    <View style={[styles.checkbox, { borderColor: selected ? C.orange : C.muted, backgroundColor: selected ? C.orange : "transparent" }]}>
+                      {selected && <Text style={styles.checkboxMark}>✓</Text>}
                     </View>
                     <PatientAvatar
                       photoUrl={it.photo ? intervenantPhotoUrl(it.photo, it.photo_updated_at) : null}
@@ -167,20 +195,6 @@ export default function NightIntervenantModal({
               })}
             </ScrollView>
           )}
-
-          <TouchableOpacity
-            style={[styles.option, { borderColor: mode === "all" ? C.orange : C.border, backgroundColor: mode === "all" ? `${C.orange}18` : "transparent" }]}
-            onPress={() => setMode("all")}
-            activeOpacity={0.8}
-          >
-            <View style={[styles.radio, { borderColor: mode === "all" ? C.orange : C.muted }]}>
-              {mode === "all" && <View style={[styles.radioDot, { backgroundColor: C.orange }]} />}
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.optionLabel, { color: C.text }]}>Tous les intervenants</Text>
-              <Text style={[styles.optionDesc, { color: C.muted }]}>Chaque intervenant peut réserver une nuitée.</Text>
-            </View>
-          </TouchableOpacity>
 
           <TouchableOpacity
             style={[styles.saveBtn, { backgroundColor: C.orange }, (saving || !canSave) && { opacity: 0.6 }]}
@@ -213,6 +227,8 @@ const styles = StyleSheet.create({
 
   list: { maxHeight: 220, marginTop: -2, marginBottom: 10 },
   row: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingLeft: 4, borderBottomWidth: 1 },
+  checkbox: { width: 20, height: 20, borderRadius: 5, borderWidth: 2, alignItems: "center", justifyContent: "center" },
+  checkboxMark: { color: "#fff", fontSize: 12, fontFamily: "DM_Sans_700Bold" },
   rowName: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
   rowMetier: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 1 },
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginVertical: 12 },
