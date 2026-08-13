@@ -5,17 +5,20 @@
 -- devient "some" (plusieurs intervenants possibles) ; les réglages existants
 -- sont migrés automatiquement vers la nouvelle table.
 
--- La contrainte doit être élargie à 'some' AVANT la migration des données
--- ci-dessous, sinon l'UPDATE viole l'ancienne contrainte ('disabled','one','all').
+-- La contrainte doit être retirée AVANT l'UPDATE (sinon il viole l'ancienne
+-- contrainte 'disabled'/'one'/'all' dès qu'une ligne vaut encore 'one'), et
+-- rajoutée seulement APRÈS l'UPDATE (sinon ADD CONSTRAINT la valide contre les
+-- lignes encore à 'one', qui ne sont pas dans la nouvelle liste autorisée).
 alter table public.slot_config
   drop constraint if exists slot_config_night_intervenant_mode_check;
-alter table public.slot_config
-  add constraint slot_config_night_intervenant_mode_check
-  check (night_intervenant_mode in ('disabled', 'some', 'all'));
 
 update public.slot_config
   set night_intervenant_mode = 'some'
   where night_intervenant_mode = 'one';
+
+alter table public.slot_config
+  add constraint slot_config_night_intervenant_mode_check
+  check (night_intervenant_mode in ('disabled', 'some', 'all'));
 
 create table if not exists public.night_authorized_intervenants (
   id uuid primary key default gen_random_uuid(),
