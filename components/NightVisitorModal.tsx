@@ -45,6 +45,7 @@ export default function NightVisitorModal({
   const [mode, setMode] = useState<NightVisitorMode>(currentMode);
   const [visitors, setVisitors] = useState<VisitorRow[]>([]);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set());
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -107,12 +108,14 @@ export default function NightVisitorModal({
 
   async function handleSave() {
     setSaving(true);
+    setSaveError(null);
     const { error: configError } = await supabase
       .from("slot_config")
       .update({ night_visitor_mode: mode })
       .eq("space_id", spaceId);
     if (configError) {
       console.error("[NightVisitorModal] slot_config update failed:", configError);
+      setSaveError(configError.message);
       setSaving(false);
       return;
     }
@@ -120,12 +123,22 @@ export default function NightVisitorModal({
     if (mode === "some") {
       const selected = visitors.filter((v) => selectedKeys.has(identityKey(v.prenom, v.nom)));
       const { error: deleteError } = await supabase.from("night_authorized_visitors").delete().eq("space_id", spaceId);
-      if (deleteError) console.error("[NightVisitorModal] night_authorized_visitors delete failed:", deleteError);
+      if (deleteError) {
+        console.error("[NightVisitorModal] night_authorized_visitors delete failed:", deleteError);
+        setSaveError(deleteError.message);
+        setSaving(false);
+        return;
+      }
       if (selected.length > 0) {
         const { error: insertError } = await supabase
           .from("night_authorized_visitors")
           .insert(selected.map((v) => ({ space_id: spaceId, prenom: v.prenom, nom: v.nom })));
-        if (insertError) console.error("[NightVisitorModal] night_authorized_visitors insert failed:", insertError);
+        if (insertError) {
+          console.error("[NightVisitorModal] night_authorized_visitors insert failed:", insertError);
+          setSaveError(insertError.message);
+          setSaving(false);
+          return;
+        }
       }
     }
 
@@ -202,6 +215,10 @@ export default function NightVisitorModal({
             </ScrollView>
           )}
 
+          {!!saveError && (
+            <Text style={[styles.errorText, { color: C.danger }]}>Échec de l'enregistrement : {saveError}</Text>
+          )}
+
           <TouchableOpacity
             style={[styles.saveBtn, { backgroundColor: C.accent }, (saving || !canSave) && { opacity: 0.6 }]}
             onPress={handleSave}
@@ -237,6 +254,7 @@ const styles = StyleSheet.create({
   checkboxMark: { color: "#fff", fontSize: 12, fontFamily: "DM_Sans_700Bold" },
   rowName: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginVertical: 12 },
+  errorText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginTop: 10 },
 
   saveBtn: { borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 12 },
   saveBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" },

@@ -45,6 +45,7 @@ export default function NightIntervenantModal({
   const [mode, setMode] = useState<NightIntervenantMode>(currentMode);
   const [intervenants, setIntervenants] = useState<IntervenantRow[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -81,24 +82,36 @@ export default function NightIntervenantModal({
 
   async function handleSave() {
     setSaving(true);
+    setSaveError(null);
     const { error: configError } = await supabase
       .from("slot_config")
       .update({ night_intervenant_mode: mode })
       .eq("space_id", spaceId);
     if (configError) {
       console.error("[NightIntervenantModal] slot_config update failed:", configError);
+      setSaveError(configError.message);
       setSaving(false);
       return;
     }
 
     if (mode === "some") {
       const { error: deleteError } = await supabase.from("night_authorized_intervenants").delete().eq("space_id", spaceId);
-      if (deleteError) console.error("[NightIntervenantModal] night_authorized_intervenants delete failed:", deleteError);
+      if (deleteError) {
+        console.error("[NightIntervenantModal] night_authorized_intervenants delete failed:", deleteError);
+        setSaveError(deleteError.message);
+        setSaving(false);
+        return;
+      }
       if (selectedIds.size > 0) {
         const { error: insertError } = await supabase
           .from("night_authorized_intervenants")
           .insert(Array.from(selectedIds).map((id) => ({ space_id: spaceId, intervenant_profile_id: id })));
-        if (insertError) console.error("[NightIntervenantModal] night_authorized_intervenants insert failed:", insertError);
+        if (insertError) {
+          console.error("[NightIntervenantModal] night_authorized_intervenants insert failed:", insertError);
+          setSaveError(insertError.message);
+          setSaving(false);
+          return;
+        }
       }
     }
 
@@ -196,6 +209,10 @@ export default function NightIntervenantModal({
             </ScrollView>
           )}
 
+          {!!saveError && (
+            <Text style={[styles.errorText, { color: C.danger }]}>Échec de l'enregistrement : {saveError}</Text>
+          )}
+
           <TouchableOpacity
             style={[styles.saveBtn, { backgroundColor: C.orange }, (saving || !canSave) && { opacity: 0.6 }]}
             onPress={handleSave}
@@ -232,6 +249,7 @@ const styles = StyleSheet.create({
   rowName: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
   rowMetier: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 1 },
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginVertical: 12 },
+  errorText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginTop: 10 },
 
   saveBtn: { borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 12 },
   saveBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" },
