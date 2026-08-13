@@ -33,6 +33,10 @@ interface Props {
   soinsMode: boolean;
   role: "visiteur" | "intervenant" | null;
   intervenantProfileId: string | null;
+  // PIN de la session courante — restreint la bande verte (familyBooked) aux
+  // seules réservations de la personne qui regarde, jamais celles d'un autre
+  // membre de la famille ou prises par l'admin en son nom.
+  myPin: string | null;
   // Marqueurs hospitalisation (F) / sortie (G) et seuil de grisage (E) — au
   // format "YYYY-MM-DD" comme PatientSpace.patient_admission_date, ou null si
   // non renseigné côté fiche patient.
@@ -43,7 +47,7 @@ interface Props {
 export default function WeekStrip({
   C, slotConfig, reservations, getSlotsForDate, getConfigForDate, startDate,
   weekAnchor, onWeekChange, selectedIso, onSelectDay, soinsMode, role,
-  intervenantProfileId, admissionIso, dischargeIso,
+  intervenantProfileId, myPin, admissionIso, dischargeIso,
 }: Props) {
   const weekDates = getWeekDates(weekAnchor);
   const first = weekDates[0];
@@ -90,7 +94,10 @@ export default function WeekStrip({
           const status = getDayStatus(reservations, iso, day, config, daySlots, startDate, soinsMode ? "Intervention" : "Visite");
           const dotColor =
             status === "full" ? C.danger : status === "partial" ? C.orange : status === "empty" ? C.success : "transparent";
-          const familyBooked = !soinsMode && reservations.some((r) => r.date === iso && (r.type === "Visite" || r.type === "Nuit"));
+          // Admin (role === null) voit toutes les visites/nuitées de l'espace
+          // — seuls les rôles visiteur/intervenant sont restreints à leurs
+          // propres réservations (comparaison par PIN).
+          const familyBooked = !soinsMode && reservations.some((r) => r.date === iso && (r.type === "Visite" || r.type === "Nuit") && (role === null || (!!myPin && r.pin === myPin)));
           const myInterventionToday = role === "intervenant" && !!intervenantProfileId &&
             reservations.some((r) => r.date === iso && r.type === "Intervention" && r.intervenant_profile_id === intervenantProfileId);
           const interventionBooked = reservations.some((r) => r.date === iso && r.type === "Intervention");
