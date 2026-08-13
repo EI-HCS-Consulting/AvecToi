@@ -7,6 +7,7 @@ import BookingFlow, { type BookingFlowHandle } from "@/components/BookingFlow";
 import NightInterventionBookingFlow, { type NightInterventionBookingFlowHandle } from "@/components/NightInterventionBookingFlow";
 import { findNextAvailableNight, toISO, toFrLong, nightStartSlot } from "@/lib/slotUtils";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
+import { isVisitorAuthorizedForNight } from "@/lib/nightVisitorAuth";
 import type { Reservation } from "@/lib/types";
 
 export default function VisitorNightsScreen() {
@@ -39,10 +40,24 @@ export default function VisitorNightsScreen() {
   }, []);
   const isMine = (r: Reservation) => !!myPin && r.pin === myPin;
 
+  // Autorisation des visiteurs "famille" (voir slot_config.night_visitor_mode,
+  // components/NightVisitorModal.tsx) — n'a d'effet que si l'admin a
+  // restreint aux "certains visiteurs seulement" (mode "some"), sinon (mode
+  // "all", défaut) tout le monde peut réserver, comportement historique.
+  const [nightVisitorAuthorized, setNightVisitorAuthorized] = useState(true);
+  useEffect(() => {
+    if (role !== "visiteur" || !space || slotConfig?.night_visitor_mode !== "some" || !myPrenom || !myNom) {
+      setNightVisitorAuthorized(true);
+      return;
+    }
+    isVisitorAuthorizedForNight(space.id, myPrenom, myNom).then(setNightVisitorAuthorized);
+  }, [role, space, slotConfig?.night_visitor_mode, myPrenom, myNom]);
+
   const canReserveNight =
-    role !== "intervenant"
-    || slotConfig?.night_intervenant_mode === "all"
-    || (slotConfig?.night_intervenant_mode === "one" && slotConfig?.night_intervenant_profile_id === intervenantProfileId);
+    (role !== "intervenant"
+      || slotConfig?.night_intervenant_mode === "all"
+      || (slotConfig?.night_intervenant_mode === "one" && slotConfig?.night_intervenant_profile_id === intervenantProfileId))
+    && (role !== "visiteur" || nightVisitorAuthorized);
 
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
   const startDate = space ? new Date(space.start_date + "T00:00:00") : today;
