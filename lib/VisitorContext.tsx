@@ -31,6 +31,13 @@ interface VisitorContextValue {
   // jours déjà passés, à partir de slot_config_history.
   getConfigForDate: (iso: string) => SlotConfig | null;
   getSlotsForDate: (iso: string) => string[];
+  // Bascule "Afficher mes créneaux" (rôle intervenant, par défaut = true) —
+  // partagée via le contexte plutôt qu'un state local à home/calendar.tsx
+  // pour que home/slots.tsx (détail d'un jour en vue Mensuel) et
+  // VisitorSlotsList en tiennent compte aussi, pas seulement la grille/bande
+  // de calendar.tsx. Sans effet pour les rôles visiteur/admin.
+  mesCreneauxOnly: boolean;
+  setMesCreneauxOnly: (v: boolean) => void;
 }
 
 const VisitorContext = createContext<VisitorContextValue>({
@@ -49,6 +56,8 @@ const VisitorContext = createContext<VisitorContextValue>({
   refreshReservations: async () => {},
   getConfigForDate: () => null,
   getSlotsForDate: () => [],
+  mesCreneauxOnly: true,
+  setMesCreneauxOnly: () => {},
 });
 
 export function useVisitorSpace() {
@@ -70,6 +79,7 @@ export function VisitorSpaceProvider({ token, children }: { token: string; child
   });
   const [pendingBookingSlot, setPendingBookingSlot] = useState<string | null>(null);
   const [pendingEditReservationId, setPendingEditReservationId] = useState<string | null>(null);
+  const [mesCreneauxOnly, setMesCreneauxOnly] = useState(true);
 
   const fetchSpace = useCallback(async () => {
     if (!token) { setLoading(false); return; }
@@ -207,7 +217,7 @@ export function VisitorSpaceProvider({ token, children }: { token: string; child
   }, [space?.id, refreshReservations, fetchSpace]);
 
   return (
-    <VisitorContext.Provider value={{ space, slotConfig, slots, reservations, loading, token, selectedDay, setSelectedDay, pendingBookingSlot, setPendingBookingSlot, pendingEditReservationId, setPendingEditReservationId, refreshReservations, getConfigForDate, getSlotsForDate }}>
+    <VisitorContext.Provider value={{ space, slotConfig, slots, reservations, loading, token, selectedDay, setSelectedDay, pendingBookingSlot, setPendingBookingSlot, pendingEditReservationId, setPendingEditReservationId, refreshReservations, getConfigForDate, getSlotsForDate, mesCreneauxOnly, setMesCreneauxOnly }}>
       {children}
     </VisitorContext.Provider>
   );
