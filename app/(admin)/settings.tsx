@@ -24,6 +24,7 @@ import VisitorsBlock from "@/components/VisitorsBlock";
 import IntervenantsBlock from "@/components/IntervenantsBlock";
 import IntervenantPriorityModal from "@/components/IntervenantPriorityModal";
 import NightIntervenantModal from "@/components/NightIntervenantModal";
+import NightVisitorModal from "@/components/NightVisitorModal";
 import { resolvePlaceFromMapsUrl } from "@/lib/address";
 import { generateSlots, formatHourMinute } from "@/lib/slotUtils";
 import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
@@ -699,6 +700,7 @@ export default function SettingsScreen() {
   const [intervenantsToggling, setIntervenantsToggling] = useState(false);
   const [priorityModalVisible, setPriorityModalVisible] = useState(false);
   const [nightIntervenantModalVisible, setNightIntervenantModalVisible] = useState(false);
+  const [nightVisitorModalVisible, setNightVisitorModalVisible] = useState(false);
   const [oneVisitPerDayToggling, setOneVisitPerDayToggling] = useState(false);
   const nightHoursInit = useRef(false);
   const [nightStartHour, setNightStartHour] = useState(19);
@@ -2304,6 +2306,13 @@ export default function SettingsScreen() {
                       : <Text style={styles.saveNotesBtnText}>Enregistrer les heures de nuitée</Text>
                     }
                   </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.saveNotesBtn, { backgroundColor: C.card, borderWidth: 1, borderColor: C.accent, marginTop: 8 }]}
+                    onPress={() => setNightVisitorModalVisible(true)}
+                  >
+                    <Text style={[styles.saveNotesBtnText, { color: C.accent }]}>🌙 Nuitées chez les visiteurs</Text>
+                  </TouchableOpacity>
                 </View>
 
                 {/* ── Bloc : Intervenants ───────────────────────────────────── */}
@@ -3387,6 +3396,17 @@ export default function SettingsScreen() {
           currentProfileId={slotConfig.night_intervenant_profile_id ?? null}
           C={C}
           onSaved={() => { refreshSlotConfig(); showToast("Nuitées chez les intervenants enregistrées ✓"); }}
+        />
+      )}
+
+      {space && slotConfig && (
+        <NightVisitorModal
+          visible={nightVisitorModalVisible}
+          onClose={() => setNightVisitorModalVisible(false)}
+          spaceId={space.id}
+          currentMode={slotConfig.night_visitor_mode ?? "all"}
+          C={C}
+          onSaved={() => { refreshSlotConfig(); showToast("Nuitées chez les visiteurs enregistrées ✓"); }}
         />
       )}
 
