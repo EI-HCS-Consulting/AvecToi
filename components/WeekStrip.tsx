@@ -161,11 +161,11 @@ const styles = StyleSheet.create({
   weekLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13, textTransform: "capitalize", flex: 1, textAlign: "center" },
 
   strip: { flexDirection: "row", justifyContent: "space-between", gap: 4, marginBottom: 8 },
-  stripCell: { flex: 1, borderRadius: 10, borderWidth: 1, paddingVertical: 8, alignItems: "center", gap: 3, position: "relative" },
+  stripCell: { flex: 1, borderRadius: 10, borderWidth: 1, paddingTop: 8, paddingBottom: 14, alignItems: "center", gap: 3, position: "relative" },
   stripDow: { fontFamily: "DM_Sans_600SemiBold", fontSize: 10, textTransform: "uppercase" },
   stripDate: { fontFamily: "DM_Sans_700Bold", fontSize: 15 },
   stripDot: { width: 5, height: 5, borderRadius: 2.5 },
-  visitStripe: { position: "absolute", left: 0, right: 0, bottom: 0, height: 4, borderBottomLeftRadius: 9, borderBottomRightRadius: 9 },
+  visitStripe: { position: "absolute", left: 0, right: 0, bottom: 0, height: 8, borderBottomLeftRadius: 9, borderBottomRightRadius: 9 },
 
   badge: { position: "absolute", top: -5, width: 15, height: 15, borderRadius: 7.5, alignItems: "center", justifyContent: "center" },
   badgeLeft: { left: -5 },
