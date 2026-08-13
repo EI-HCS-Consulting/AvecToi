@@ -225,12 +225,14 @@ export default function VisitorCalendarScreen() {
               status === "partial" ? C.orange :
               status === "empty" ? C.success : "transparent";
 
-            // Bande verte en bas de case = visite/nuitée réservée ce jour.
+            // Bande verte en bas de case = MA visite/nuitée réservée ce jour
+            // (comparée au PIN de la session courante) — pas celle d'un autre
+            // membre de la famille ni celle prise par l'admin en son nom.
             // Bordure violette = créneau bloqué par un intervenant (remplace
             // la bordure grise par défaut, ne déborde jamais de la case).
             // En mode Soins, les visites/nuitées sont masquées : seule la
             // bordure violette reste pertinente.
-            const familyBooked = !soinsMode && calendarReservations.some((r) => r.date === iso && (r.type === "Visite" || r.type === "Nuit"));
+            const familyBooked = !soinsMode && !!myPin && calendarReservations.some((r) => r.date === iso && (r.type === "Visite" || r.type === "Nuit") && r.pin === myPin);
             // Case remplie en violet uniquement pour l'intervenant assigné à
             // CE soin — les autres intervenants (comme les visiteurs/admin)
             // ne voient que le cadre violet ci-dessous.
@@ -348,6 +350,7 @@ export default function VisitorCalendarScreen() {
           soinsMode={soinsMode}
           role={role}
           intervenantProfileId={intervenantProfileId}
+          myPin={myPin}
           admissionIso={admissionIso}
           dischargeIso={dischargeIso}
         />

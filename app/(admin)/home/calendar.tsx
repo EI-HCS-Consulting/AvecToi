@@ -315,6 +315,7 @@ export default function AdminCalendarScreen() {
           soinsMode={soinsMode}
           role={null}
           intervenantProfileId={null}
+          myPin={null}
           admissionIso={admissionIso}
           dischargeIso={dischargeIso}
         />
