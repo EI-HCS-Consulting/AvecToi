@@ -120,15 +120,16 @@ export function VisitorSpaceProvider({ token, children }: { token: string; child
       if (iso >= toISO(new Date())) return slotConfig;
       const entry = resolveConfigForDate(configHistory, iso);
       // slot_config_history ne trace pas intervenant_priority_mode ni
-      // night_intervenant_mode/night_intervenant_profile_id (pas de
-      // pertinence rétroactive, purement affichage) — on retombe sur la
-      // valeur live pour compléter le type.
+      // night_intervenant_mode/night_intervenant_profile_id/night_visitor_mode
+      // (pas de pertinence rétroactive, purement affichage) — on retombe sur
+      // la valeur live pour compléter le type.
       return entry
         ? {
             ...entry,
             intervenant_priority_mode: slotConfig?.intervenant_priority_mode ?? "all",
             night_intervenant_mode: slotConfig?.night_intervenant_mode ?? "disabled",
             night_intervenant_profile_id: slotConfig?.night_intervenant_profile_id ?? null,
+            night_visitor_mode: slotConfig?.night_visitor_mode ?? "all",
           }
         : slotConfig;
     },

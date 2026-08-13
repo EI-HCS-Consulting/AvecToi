@@ -95,6 +95,10 @@ export interface SlotConfig {
   // — voir components/NightIntervenantModal.tsx et (visitor)/home/nights.tsx.
   night_intervenant_mode: "disabled" | "one" | "all";
   night_intervenant_profile_id: string | null;
+  // Autorisation des visiteurs à réserver des nuitées : "all" (tous, défaut
+  // — comportement historique) ou "some" (seuls ceux listés dans
+  // night_authorized_visitors) — voir components/NightVisitorModal.tsx.
+  night_visitor_mode: "all" | "some";
 }
 
 // Snapshot versionné de SlotConfig — une ligne fait foi de son valid_from

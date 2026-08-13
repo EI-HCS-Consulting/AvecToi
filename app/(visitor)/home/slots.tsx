@@ -9,6 +9,7 @@ import NightInterventionBookingFlow, { type NightInterventionBookingFlowHandle }
 import VisitorSlotsList from "@/components/VisitorSlotsList";
 import { getNightReservation, isReservationDatePast, isSlotFullyPast, toISO, toFrLong, toFrShort, addDays, nightStartSlot, nightRangeLabel } from "@/lib/slotUtils";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
+import { isVisitorAuthorizedForNight } from "@/lib/nightVisitorAuth";
 import type { Reservation, SlotConfig } from "@/lib/types";
 
 // Recentré sur les créneaux "Visite" uniquement depuis le Lot 3 — la nuitée
@@ -50,11 +51,24 @@ export default function SlotsScreen() {
   // Un intervenant ne peut réserver une nuitée que si l'admin l'a
   // explicitement autorisé (même règle que home/nights.tsx — voir
   // slot_config.night_intervenant_mode, components/NightIntervenantModal.tsx).
-  // Les visiteurs "famille" ne sont pas concernés par cette restriction.
+  // Un visiteur "famille" ne peut être restreint que si l'admin a limité aux
+  // "certains visiteurs seulement" (slot_config.night_visitor_mode = "some",
+  // components/NightVisitorModal.tsx) — sinon (mode "all", défaut) aucune
+  // restriction, comportement historique.
+  const [nightVisitorAuthorized, setNightVisitorAuthorized] = useState(true);
+  useEffect(() => {
+    if (role !== "visiteur" || !space || slotConfig?.night_visitor_mode !== "some" || !myPrenom || !myNom) {
+      setNightVisitorAuthorized(true);
+      return;
+    }
+    isVisitorAuthorizedForNight(space.id, myPrenom, myNom).then(setNightVisitorAuthorized);
+  }, [role, space, slotConfig?.night_visitor_mode, myPrenom, myNom]);
+
   const canReserveNight =
-    role !== "intervenant"
-    || slotConfig?.night_intervenant_mode === "all"
-    || (slotConfig?.night_intervenant_mode === "one" && slotConfig?.night_intervenant_profile_id === intervenantProfileId);
+    (role !== "intervenant"
+      || slotConfig?.night_intervenant_mode === "all"
+      || (slotConfig?.night_intervenant_mode === "one" && slotConfig?.night_intervenant_profile_id === intervenantProfileId))
+    && (role !== "visiteur" || nightVisitorAuthorized);
 
   // Arrivée via "Prochaine disponibilité → Réserver" (Calendrier) : ouvre
   // directement la modale de réservation sur le créneau ciblé — celle de
