@@ -47,7 +47,7 @@ export default function VisitorSoinsScreen() {
 
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text style={[styles.sectionTitle, { color: C.gold }]}>Mes soins</Text>
-        {intervenantProfileId && <MesSoinsList intervenantProfileId={intervenantProfileId} metier={metier} C={C} />}
+        {intervenantProfileId && <MesSoinsList intervenantProfileId={intervenantProfileId} metiers={[metier]} C={C} />}
 
         <SoinsPlanifiesBlock
           spaceId={space.id}

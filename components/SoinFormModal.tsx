@@ -10,18 +10,18 @@ import { propagateSoinChange } from "@/lib/interventionTypesSync";
 import type { InterventionType } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
-// Popup création/modification/suppression d'UN SEUL soin (intervention_type)
-// — utilisé par MesSoinsList.tsx ("MES SOINS" côté intervenant). Distinct
-// d'IntervenantFicheModal.tsx qui édite toute la fiche (identité + tous les
-// types) d'un coup ; ici on modifie une ligne à la fois, par bouton.
+// Popup modification/suppression d'UN SEUL soin (intervention_type) existant
+// — déclenché par un appui long sur une ligne de MesSoinsList.tsx ("MES
+// SOINS" côté intervenant). La création d'un nouveau soin se fait par un
+// flux séparé (SoinPickerModal puis SoinDurationModal, voir MesSoinsList.tsx
+// "+ Ajouter un soin") : ce popup ne gère donc plus que l'édition.
 interface Props {
   visible: boolean;
   intervenantProfileId: string;
-  soin: InterventionType | null;
-  // Clé du métier de l'intervenant (voir lib/metiers.ts) — détermine la
-  // liste de soins suggérés (métier puis reste de la famille). Null si
-  // jamais renseigné : repli direct sur la saisie libre.
-  metier: string | null;
+  soin: InterventionType;
+  // Clé(s) du/des métier(s) de l'intervenant (voir lib/metiers.ts) —
+  // détermine la liste de soins suggérés si l'intervenant change le nom.
+  metiers: (string | null | undefined)[];
   C: Theme;
   onClose: () => void;
   onSaved: () => void;
@@ -29,7 +29,7 @@ interface Props {
 }
 
 export default function SoinFormModal({
-  visible, intervenantProfileId, soin, metier, C, onClose, onSaved, onDeleted,
+  visible, intervenantProfileId, soin, metiers, C, onClose, onSaved, onDeleted,
 }: Props) {
   const [label, setLabel] = useState("");
   const [duration, setDuration] = useState("");
@@ -39,8 +39,8 @@ export default function SoinFormModal({
 
   useEffect(() => {
     if (!visible) return;
-    setLabel(soin?.label ?? "");
-    setDuration(soin ? String(soin.duration_minutes) : "");
+    setLabel(soin.label);
+    setDuration(String(soin.duration_minutes));
     setConfirmDelete(false);
   }, [visible, soin]);
 
@@ -52,17 +52,9 @@ export default function SoinFormModal({
     setSaving(true);
     try {
       const payload = { label: label.trim(), duration_minutes: parsedDuration };
-      if (soin) {
-        const { error } = await supabase.from("intervention_types").update(payload).eq("id", soin.id);
-        if (error) throw error;
-        await propagateSoinChange(intervenantProfileId, { type: "update", oldLabel: soin.label, ...payload });
-      } else {
-        const { error } = await supabase
-          .from("intervention_types")
-          .insert({ intervenant_profile_id: intervenantProfileId, ...payload });
-        if (error) throw error;
-        await propagateSoinChange(intervenantProfileId, { type: "create", ...payload });
-      }
+      const { error } = await supabase.from("intervention_types").update(payload).eq("id", soin.id);
+      if (error) throw error;
+      await propagateSoinChange(intervenantProfileId, { type: "update", oldLabel: soin.label, ...payload });
       onSaved();
     } catch (e: any) {
       Alert.alert("Erreur", e?.message ?? "Impossible d'enregistrer ce soin.");
@@ -72,7 +64,6 @@ export default function SoinFormModal({
   }
 
   async function handleDelete() {
-    if (!soin) return;
     setDeleting(true);
     const { error } = await supabase.from("intervention_types").delete().eq("id", soin.id);
     setDeleting(false);
@@ -95,12 +86,12 @@ export default function SoinFormModal({
             keyboardShouldPersistTaps="handled"
           >
             <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
-              <Text style={[styles.title, { color: C.text }]}>{soin ? "🩺 Modifier ce soin" : "🩺 Nouveau soin"}</Text>
+              <Text style={[styles.title, { color: C.text }]}>🩺 Modifier ce soin</Text>
 
               <Text style={[styles.fieldLabel, { color: C.gold }]}>Nom du soin</Text>
               <SoinLabelPicker
-                key={`${soin?.id ?? "new"}-${visible}`}
-                metier={metier}
+                key={`${soin.id}-${visible}`}
+                metier={metiers[0] ?? null}
                 value={label}
                 onChange={setLabel}
                 C={C}
@@ -116,20 +107,24 @@ export default function SoinFormModal({
                 keyboardType="number-pad"
               />
 
-              <TouchableOpacity
-                style={[styles.saveBtn, { backgroundColor: C.accent, marginTop: 22 }, !canSave && { opacity: 0.5 }]}
-                onPress={handleSave}
-                disabled={!canSave}
-                activeOpacity={0.85}
-              >
-                {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.saveBtnText}>Enregistrer</Text>}
-              </TouchableOpacity>
-
-              {soin && (
-                <TouchableOpacity style={styles.deleteBtn} onPress={() => setConfirmDelete(true)} disabled={saving}>
-                  <Text style={[styles.deleteBtnText, { color: C.danger }]}>🗑️ Supprimer ce soin</Text>
+              <View style={styles.buttons}>
+                <TouchableOpacity
+                  style={[styles.btn, { backgroundColor: C.accent }, !canSave && { opacity: 0.5 }]}
+                  onPress={handleSave}
+                  disabled={!canSave}
+                  activeOpacity={0.85}
+                >
+                  {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.btnText}>Modifier</Text>}
                 </TouchableOpacity>
-              )}
+                <TouchableOpacity
+                  style={[styles.btn, { backgroundColor: C.danger }, saving && { opacity: 0.5 }]}
+                  onPress={() => setConfirmDelete(true)}
+                  disabled={saving}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.btnText}>Supprimer</Text>
+                </TouchableOpacity>
+              </View>
 
               <TouchableOpacity onPress={onClose} style={styles.cancelBtn} disabled={saving}>
                 <Text style={[styles.cancelBtnText, { color: C.muted }]}>Annuler</Text>
@@ -143,7 +138,7 @@ export default function SoinFormModal({
         visible={confirmDelete}
         icon="🗑️"
         title="Supprimer ce soin ?"
-        message={soin ? `"${soin.label}" ne sera plus proposable pour de nouvelles réservations.` : undefined}
+        message={`"${soin.label}" ne sera plus proposable pour de nouvelles réservations.`}
         confirmLabel="Supprimer"
         saving={deleting}
         onCancel={() => setConfirmDelete(false)}
@@ -184,23 +179,21 @@ const styles = StyleSheet.create({
     fontFamily: "DM_Sans_400Regular",
     fontSize: 14,
   },
-  saveBtn: {
+  buttons: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 22,
+  },
+  btn: {
+    flex: 1,
     borderRadius: 12,
     paddingVertical: 15,
     alignItems: "center",
   },
-  saveBtnText: {
+  btnText: {
     fontFamily: "DM_Sans_700Bold",
     fontSize: 15,
     color: "#fff",
-  },
-  deleteBtn: {
-    alignItems: "center",
-    marginTop: 16,
-  },
-  deleteBtnText: {
-    fontFamily: "DM_Sans_600SemiBold",
-    fontSize: 13,
   },
   cancelBtn: {
     alignItems: "center",

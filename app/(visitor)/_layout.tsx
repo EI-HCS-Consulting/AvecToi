@@ -3,14 +3,17 @@ import { View, Text, TextInput, TouchableOpacity, Modal, StyleSheet, ActivityInd
 import { Tabs, useGlobalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as ImagePicker from "expo-image-picker";
+import { File, Paths } from "expo-file-system";
 import { supabase } from "@/lib/supabase";
 import { VisitorSpaceProvider, useVisitorSpace } from "@/lib/VisitorContext";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { setupNotifications } from "@/lib/notifications";
 import { getVisitorSession, saveVisitorSession } from "@/lib/visitorSession";
 import PinPad from "@/components/PinPad";
+import PatientAvatar from "@/components/PatientAvatar";
 import RebookingAlertModal from "@/components/RebookingAlertModal";
-import IntervenantFicheModal from "@/components/IntervenantFicheModal";
+import IntervenantOnboardingFlow from "@/components/IntervenantOnboardingFlow";
 
 function VisitorTabs() {
   const { space, token, loading } = useVisitorSpace();
@@ -33,10 +36,14 @@ function VisitorTabs() {
   // dans Entraide.tsx et les écrans équivalents.
   const [identityPin, setIdentityPin] = useState("");
   const [savingIdentity, setSavingIdentity] = useState(false);
+  // Photo choisie sur ce même popup identité — intervenant uniquement (voir
+  // rendu ci-dessous). Uploadée seulement après création de la fiche par
+  // IntervenantOnboardingFlow.tsx, qui a besoin de l'id du profil.
+  const [identityPhotoUri, setIdentityPhotoUri] = useState<string | null>(null);
 
   // Rôle de la session (visiteur par défaut) — un intervenant doit créer sa
-  // fiche (types d'intervention + durée) avant de pouvoir continuer, voir
-  // IntervenantFicheModal.tsx. La fiche n'est jamais redemandée une fois
+  // fiche (métier + soins pratiqués) avant de pouvoir continuer, voir
+  // IntervenantOnboardingFlow.tsx. La fiche n'est jamais redemandée une fois
   // intervenantProfileId connu.
   const [role, setRole] = useState<"visiteur" | "intervenant">("visiteur");
   const [intervenantProfileId, setIntervenantProfileId] = useState<string | null>(null);
@@ -113,6 +120,36 @@ function VisitorTabs() {
     setIdentityKnown(true);
   }
 
+  async function pickIdentityPhoto() {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert("Permission refusée", "Autorise l'accès à la galerie dans les paramètres.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 0.8,
+      allowsEditing: true,
+      aspect: [1, 1],
+    });
+    if (result.canceled || !result.assets[0]) return;
+
+    // Copie dans le dossier document (persistant) — même précaution que
+    // IntervenantFicheModal.tsx pickPhoto (le fichier renvoyé par le picker
+    // vit dans le cache de l'app, non garanti de survivre jusqu'à la création
+    // du compte, plusieurs popups plus tard).
+    let persistedUri = result.assets[0].uri;
+    try {
+      const dest = new File(Paths.document, `intervenant_onboarding_photo_${Date.now()}.jpg`);
+      new File(result.assets[0].uri).copy(dest);
+      persistedUri = dest.uri;
+    } catch {
+      // Copie échouée : on garde l'uri d'origine, aperçu immédiat quand même
+      // fonctionnel.
+    }
+    setIdentityPhotoUri(persistedUri);
+  }
+
   async function handleConsent() {
     if (!space) return;
     await AsyncStorage.setItem(`consent_${space.id}`, "true");
@@ -138,6 +175,18 @@ function VisitorTabs() {
           >
             <View style={[consentStyles.card, identityStyles.compactCard, { backgroundColor: C.card, borderColor: C.border }]}>
               <Text style={[consentStyles.title, identityStyles.compactTitle, { color: C.text }]}>👋 Bienvenue !</Text>
+              {role === "intervenant" && (
+                <TouchableOpacity style={identityStyles.photoPicker} onPress={pickIdentityPhoto} activeOpacity={0.8}>
+                  <PatientAvatar
+                    photoUrl={identityPhotoUri}
+                    firstname={identityPrenom}
+                    lastname={identityNom}
+                    size={64}
+                    C={C}
+                  />
+                  <Text style={[identityStyles.photoPickerText, { color: C.accent }]}>Ajouter une photo</Text>
+                </TouchableOpacity>
+              )}
               <View style={identityStyles.row}>
                 <TextInput
                   style={[identityStyles.input, identityStyles.rowInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
@@ -168,15 +217,15 @@ function VisitorTabs() {
       </Modal>
 
       {identityKnown === true && role === "intervenant" && !intervenantProfileId && space && (
-        <IntervenantFicheModal
+        <IntervenantOnboardingFlow
           visible
-          mode="create"
           spaceId={space.id}
           prenom={identityPrenom}
           nom={identityNom}
           pin={identityPin}
+          pickedPhotoUri={identityPhotoUri}
           theme={C}
-          onSaved={async (profileId, savedPrenom, savedNom, _telephone, _phraseTotem, _photo, _photoUpdatedAt, savedMetier) => {
+          onCreated={async (profileId, savedPrenom, savedNom, _telephone, _phraseTotem, _photo, _photoUpdatedAt, savedMetier) => {
             await saveVisitorSession({
               token, spaceId: space.id, intervenantProfileId: profileId,
               prenom: savedPrenom, nom: savedNom, metier: savedMetier ?? "",
@@ -336,6 +385,15 @@ const consentStyles = StyleSheet.create({
 });
 
 const identityStyles = StyleSheet.create({
+  photoPicker: {
+    alignItems: "center",
+    marginBottom: 14,
+    gap: 6,
+  },
+  photoPickerText: {
+    fontFamily: "DM_Sans_600SemiBold",
+    fontSize: 12,
+  },
   input: {
     width: "100%",
     borderWidth: 1,

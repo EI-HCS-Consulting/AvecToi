@@ -616,14 +616,34 @@ export function metierIconName(key: string | null | undefined): keyof typeof Ion
   return metierByKey(key)?.icon ?? "briefcase-outline";
 }
 
+// Repli sur la clé brute (plutôt que "") quand elle n'est pas dans le
+// catalogue : cas d'un métier "Autre" saisi librement à la création (voir
+// MetierPickerModal.tsx) — la valeur stockée est alors directement le texte
+// tapé par l'intervenant, sans clé de catalogue associée.
 export function metierLabel(key: string | null | undefined): string {
-  return metierByKey(key)?.label ?? "";
+  return metierByKey(key)?.label ?? key ?? "";
 }
 
 // Soins propres au métier — ordre du catalogue (voir SoinFormModal.tsx,
 // section "Soins de {métier}").
 export function soinsForMetier(key: string | null | undefined): MetierSoin[] {
   return metierByKey(key)?.soins ?? [];
+}
+
+// Variante multi-métiers — une entrée par clé valide du catalogue (clés
+// libres/"Autre" ignorées : pas de soins suggérés dans ce cas), dédupliquées.
+// Utilisé par SoinPickerModal.tsx pour afficher une section "Soins de
+// {métier}" par métier du profil (principal + éventuelle 2ᵉ spécialisation).
+export function soinsForMetiers(keys: (string | null | undefined)[]): { metier: Metier; soins: MetierSoin[] }[] {
+  const seen = new Set<string>();
+  const result: { metier: Metier; soins: MetierSoin[] }[] = [];
+  for (const key of keys) {
+    const metier = metierByKey(key);
+    if (!metier || seen.has(metier.key)) continue;
+    seen.add(metier.key);
+    result.push({ metier, soins: metier.soins });
+  }
+  return result;
 }
 
 // Reste des soins de la même famille (autres métiers), dédupliqués par

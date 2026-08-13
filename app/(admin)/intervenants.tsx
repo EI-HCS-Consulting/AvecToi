@@ -269,7 +269,10 @@ export default function AdminIntervenantsScreen() {
                       <TouchableOpacity style={{ flex: 1 }} activeOpacity={0.7} onPress={() => setViewingProfile(p)}>
                         <Text style={[styles.profileName, { color: C.text }]}>{p.prenom} {p.nom}</Text>
                         {!!p.metier && (
-                          <Text style={[styles.profileMetier, { color: C.muted }]}>{metierLabel(p.metier)}</Text>
+                          <Text style={[styles.profileMetier, { color: C.muted }]}>
+                            {metierLabel(p.metier)}
+                            {p.metier_secondaire ? ` · ${metierLabel(p.metier_secondaire)}` : ""}
+                          </Text>
                         )}
                       </TouchableOpacity>
                     </View>
