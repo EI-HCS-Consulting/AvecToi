@@ -3,138 +3,147 @@ _Généré le : 2026-08-14_
 
 ## 1. Objectif de la session
 
-Suite d'itérations sur l'écran calendrier visiteur (`app/(visitor)/home/calendar.tsx`),
-demandées au fil de l'eau après retours utilisateur sur build de dev :
+Chantier itératif sur les popups centrées ("Nouvelle du jour" dans
+NewsFeed.tsx, "Laisser un message"/"Répondre" dans Soutien.tsx, plus
+Entraide.tsx pour la partie caméra/galerie), branche
+`fix/nuitees-popups-checklist-titre-besoin`, demandé au fil de l'eau après
+retours utilisateur sur build de dev réel (pas d'émulateur disponible dans
+cet environnement — tout est testé par l'utilisateur sur son téléphone
+Android). Chaîne de 10 PR, toutes mergées sur `main` :
 
-1. **Round A (PR #174)** : la bande verte "mes créneaux" d'un intervenant pouvait
-   s'afficher sur le soin d'un **autre** intervenant partageant le même PIN à 4
-   chiffres (PIN choisi librement, pas garanti unique dans un espace) → identifier
-   un soin via `intervenant_profile_id` (fiable, unique par fiche) plutôt que le
-   PIN seul. Au passage : calendrier repositionné avant les blocs de réglages,
-   tri anté-chronologique des listes "à venir" du panneau perso, panneau
-   intervenant qui bascule Soins/Visites avec le switch du calendrier.
-2. **Round B (PR #175)** : repasser le switch Mensuel/Hebdo seul avant le
-   calendrier, ajouter le bouton "Afficher mes créneaux" sous le switch
-   Visites/Soins (puisqu'eux seuls règlent l'affichage qui suit), masquer le
-   détail du jour sélectionné sous la bande Hebdo (même comportement qu'en
-   Mensuel : un tap navigue vers l'écran dédié des créneaux au lieu d'afficher
-   inline).
-3. **Round C (PR #176)** : dissocier le bloc à 2 switchs — Mensuel/Hebdo seul
-   avant le calendrier, Visites/Soins regroupé avec "Afficher mes créneaux"
-   dans un même bloc (bouton sous le switch). Corriger le fait que le
-   panneau perso visiteur (`MesVisitesPanel`, titres figés) ne suivait pas le
-   switch Visites/Soins → remplacé par `IntervenantPlanningPanel` (déjà
-   piloté par `soinsMode`) pour tous les rôles, ce qui fait aussi basculer les
-   titres "Visites planifiées"/"Soins planifiés" et "Historique des
-   visites"/"Historique des soins". Renommage "Visites à venir" →
-   "Visites planifiées". Correction d'un 2ᵉ cas de bande verte erronée : cette
-   fois sur une visite/nuitée d'un **visiteur** partageant le même PIN qu'un
-   autre visiteur (le PIN n'a pas d'équivalent `intervenant_profile_id` côté
-   visiteur) → `isMyReservation` exige désormais aussi la correspondance
-   prénom+nom de la session quand elle est disponible.
+1. **PR #181** : nuitées admin visibles, popups centrées, toggle checklist, titre besoin auto.
+2. **PR #182** : toggle Soins + bouton d'envoi invisible dans "Nouvelle du jour"/"Laisser un message".
+3. **PR #183** : largeur des popups centrées instable pendant la frappe → stabilisée.
+4. **PR #184** : popups de réponse mieux cadrés (contexte "en réponse à…" toujours visible, popup agrandi).
+5. **PR #185** : popups de message/réponse agrandis, tout visible sans scroll à l'ouverture.
+6. **PR #186** : popups ancrées en bas (`flex-end`, proche du clavier) au lieu du haut ; choix caméra/galerie généralisé à toutes les photos (Soutien + Entraide) ; photo attachable sur une réponse à une "Nouvelle du jour".
+7. **PR #187** : sur Android, `KeyboardAvoidingView behavior={... : undefined}` ne redimensionnait jamais le conteneur → passé à `"height"` pour que l'ancrage bas fonctionne réellement.
+8. **PR #188** : boutons photo encore rognés/tap absorbé par le clavier → sortis du `ScrollView` vers une zone fixe juste au-dessus des boutons Annuler/Envoyer ; ajout du support photo sur les réponses du mur de soutien (nouvelle colonne `photo` sur `support_message_replies`, migration appliquée).
+9. **PR #189** : boutons photo restylés en "vrai bouton" doré (même design que "✨ Checklists suggérées") ; lightbox photo ajoutée au mur de soutien (tap pour agrandir, appui long pour télécharger via le partage natif) ; hauteur des zones de texte réduite (170→140) sur "Laisser un message"/"Répondre".
+10. **PR #190** : titres de "Laisser un message" et "Nouvelle du jour" rognés/invisibles au clavier ouvert → sortis eux aussi du `ScrollView` (même cause racine que le fix des boutons en PR #188, mais côté haut de la modale cette fois) ; bouton photo de "Nouvelle du jour" unifié en bouton pleine largeur "📷 Ajouter une photo (optionnel)".
 
-État "done" — tout est mergé sur `main`, vérifié par l'utilisateur au fil des
-rounds ("mergé" confirmé après chaque PR) :
-- PR #174, #175, #176 : les 3 rounds ci-dessus, mergés sur `main`.
+État "done" — tout est mergé sur `main`, confirmé par l'utilisateur au fil
+des rounds ("mergé" après chaque PR, dernier "mergé / ok" reçu pour la PR #190).
 
 ## 2. État actuel
 
 **Ce qui fonctionne / est déployé :**
-- Ordre des blocs : bloc "Mensuel/Hebdo" seul, puis bloc "Visites/Soins +
-  Afficher mes créneaux" (switch au-dessus du bouton), puis (visiteurs
-  uniquement) "Prochaine disponibilité", puis le calendrier (Mensuel ou
-  Hebdo selon le switch).
-- Vue Hebdo (`WeekStrip`) : un tap sur un jour navigue vers l'écran dédié des
-  créneaux, exactement comme la grille Mensuel — plus aucun détail inline.
-- Panneau sous le calendrier unifié (`IntervenantPlanningPanel`) pour les 3
-  rôles : titres et filtre basculent avec `soinsMode` ("Visites
-  planifiées"/"Soins planifiés", "Historique des visites"/"Historique des
-  soins"). `MesVisitesPanel.tsx` supprimé (devenu redondant).
-- Bande verte "mes créneaux" fiable dans les deux cas de collision de PIN
-  identifiés : soins (via `intervenant_profile_id`) et visites/nuitées (via
-  PIN + prénom+nom de la session, `isMyReservation` dans `lib/slotUtils.ts`).
+- Toutes les popups centrées (`centeredOverlay`/`centeredSheet`) de
+  NewsFeed.tsx et Soutien.tsx sont ancrées en bas, se redimensionnent
+  correctement sous Android avec le clavier ouvert, et gardent titre +
+  bouton photo/preview toujours visibles (les deux hors du `ScrollView`
+  désormais, voir section 4).
+- Boutons "Ajouter une photo" au design doré unifié partout
+  (NewsFeed, Soutien) ; choix caméra/galerie généralisé (NewsFeed, Soutien,
+  Entraide).
+- Mur de soutien (Soutien.tsx) : lightbox plein écran sur tap d'une photo
+  (message ou réponse), téléchargement par appui long via le partage natif
+  (`expo-file-system` + `expo-sharing`, pattern réutilisé de
+  `SouvenirsGallery.tsx`, aucune nouvelle dépendance native).
+- Réponses du mur de soutien et réponses à une "Nouvelle du jour" peuvent
+  toutes deux avoir une photo attachée.
 
 **Pas encore vérifié :**
-- Rien en attente de vérification côté utilisateur à ce stade — le dernier
-  "mergé" (PR #176) a été confirmé sans réserve.
+- PR #190 vient d'être confirmée mergée par l'utilisateur ("mergé / ok")
+  sans détail supplémentaire — pas de nouveau bug remonté à ce stade, mais
+  pas de confirmation explicite point par point du test plan (titres
+  visibles clavier ouvert dans les 3 modales concernées, look du nouveau
+  bouton photo "Nouvelle du jour"). Rien d'actif en attente, mais si un
+  nouveau round de retours arrive, il concernera vraisemblablement ce
+  point ou un détail visuel fin.
 
 **Dernière action effectuée avant ce handoff :**
-Génération de ce handoff, `main` local synchronisé avec `origin/main`
-(fast-forward, PR #176 inclus, commit `73a7b25`).
+Génération de ce handoff. `origin/main` à jour avec la PR #190 mergée
+(commit `2f78f4a`). Branche locale `fix/nuitees-popups-checklist-titre-besoin`
+toujours présente (locale + `origin`), plus aucun commit dessus qui ne soit
+déjà sur `main`.
 
 ## 3. Fichiers concernés
 
-**Modifiés (PR #174, mergé) :**
-- `app/(visitor)/home/calendar.tsx`, `components/IntervenantPlanningPanel.tsx`,
-  `components/MesVisitesPanel.tsx`, `components/WeekStrip.tsx`,
-  `lib/slotUtils.ts` — bande verte via `intervenant_profile_id`, réordonnancement,
-  tri anté-chronologique.
+**components/NewsFeed.tsx** — modale "Nouvelle du jour" (création/édition) et
+sa modale "Répondre" : ancrage bas, redimensionnement Android, titre et
+bouton photo sortis du `ScrollView`, bouton photo unifié en bandeau pleine
+largeur (styles `photoAddBanner`/`photoAddBannerText`, anciens
+`photoPickAdd`/`photoPickAddText` supprimés), support photo sur les
+réponses.
 
-**Modifiés (PR #175, mergé) :**
-- `app/(visitor)/home/calendar.tsx`, `components/WeekStrip.tsx` (nouvelle prop
-  `onDayPress`, distincte de `onSelectDay` qui reste un housekeeping interne),
-  `app/(admin)/home/calendar.tsx` (ajustement minimal pour rester compatible
-  avec la nouvelle prop `onDayPress` requise sur `WeekStrip`, comportement
-  admin inchangé).
+**components/Soutien.tsx** — modales "Laisser un message", "Modifier le
+message", "Répondre" : mêmes fixes (ancrage, titre et bouton photo hors
+`ScrollView`, bouton doré), lightbox photo (état `lightbox`/
+`downloadingLightbox`, fonction `downloadLightboxPhoto()`, styles
+`lightboxBg`/`lightboxImg`/`lightboxHint`/`lightboxClose*`), textareas
+réduites (140 sur ajout/réponse, 170 inchangé sur édition), support photo
+sur les réponses (upload + colonne `photo`).
 
-**Modifiés (PR #176, mergé) :**
-- `app/(visitor)/home/calendar.tsx` → split des 2 cartes de réglages,
-  `panelReservations`/`familyBooked` passent `myPrenom`/`myNom`, panneau
-  unifié sur `IntervenantPlanningPanel`.
-- `components/IntervenantPlanningPanel.tsx` → commentaire d'en-tête corrigé
-  (composant commun aux 3 rôles, plus seulement "pour le rôle intervenant").
-- `components/MesVisitesPanel.tsx` → **supprimé** (dernier usage retiré,
-  aucune autre référence dans le repo).
-- `components/WeekStrip.tsx` → props optionnelles `myPrenom`/`myNom`
-  transmises à `isMyReservation`.
-- `lib/slotUtils.ts` → `isMyReservation(r, myPin, intervenantProfileId, myPrenom?, myNom?)` :
-  pour les types `Visite`/`Nuit`, exige en plus prénom+nom quand disponibles.
+**components/Entraide.tsx** — 3 flux photo (création/édition de tâche,
+photo de preuve à la clôture, photo lors d'une prise en charge) passés au
+popup de choix caméra/galerie partagé (PR #186 uniquement, pas retouché
+depuis).
 
-**Non touché (hors scope, vérifié) :**
-- `app/(admin)/home/calendar.tsx` — écran calendrier admin, architecturalement
-  séparé ; sa logique `familyBooked` (occupation du jour, pas d'identité
-  filtrée) n'appelle pas `isMyReservation` et n'a pas eu besoin d'évoluer au-delà
-  du point PR #175 ci-dessus.
+**components/MyChecklist.tsx**, **components/SouvenirsGallery.tsx** — non
+modifiés, consultés comme référence de design (`importBanner` pour le
+bouton doré) et de pattern (`sharePhoto()` pour le téléchargement natif).
+
+**Migrations Supabase appliquées** (par l'utilisateur, confirmées) :
+- `20260814_news_entry_replies_photo.sql` — colonne `photo` sur
+  `news_entry_replies`, réutilise le bucket `news-photos`.
+- `20260814_support_message_replies_photo.sql` — colonne `photo` sur
+  `support_message_replies`, réutilise le bucket `support-photos`.
+
+**Non touché (hors scope) :**
+- `app/(admin)/home/calendar.tsx` et le reste du calendrier — chantier
+  précédent (PR #170-180), sans lien avec celui-ci.
 
 ## 4. Ce qui a échoué / pièges rencontrés
 
-- **PIN à 4 chiffres non garanti unique dans un espace** : racine commune des
-  deux bugs de bande verte (PR #174 pour les soins, PR #176 pour les
-  visites/nuitées). Le PIN est choisi librement par chaque utilisateur et
-  n'est vérifié en unicité que ponctuellement (ré-appairage d'un intervenant
-  existant via prénom+nom). ⚠️ Réflexe à garder pour tout futur filtrage
-  "par identité" dans ce repo : ne jamais se fier au seul PIN, préférer un
-  identifiant de fiche stable (`intervenant_profile_id`) quand il existe, ou
-  ajouter prénom+nom en filtre secondaire quand ce n'est pas le cas (visiteurs,
-  qui n'ont pas de compte/fiche).
-- **Narrowing TypeScript et `function` déclarée vs `const` fléchée** : une
-  garde de nullabilité en début de composant (`if (!space || !slotConfig)
-  return null;`) ne narrowe pas le type à l'intérieur d'une `function`
-  déclarée plus bas (hoisting), mais narrowe correctement dans une expression
-  `const maFonction = (iso: string) => { ... }` définie positionnellement
-  après la garde. ⚠️ Toujours préférer les `const` fléchées pour les helpers
-  internes d'un composant qui dépendent d'un early-return de nullabilité.
-- **Piège d'accolade lors d'un split de bloc JSX** : en séparant le bloc à 2
-  switchs en 2 cartes distinctes (PR #176), une première tentative a englobé
-  par erreur "Afficher mes créneaux", "Prochaine disponibilité" et tout le
-  calendrier à l'intérieur du `{space.intervenants_enabled && (...)}` du 2ᵉ
-  bloc — repéré et corrigé avant commit en relisant le fichier complet après
-  l'édition, pas seulement le diff local de l'edit. ⚠️ Après toute
-  restructuration de JSX imbriqué (ajout/déplacement de `&&` conditionnels),
-  relire la zone entière (pas juste la portion éditée) pour vérifier que les
-  parenthèses/accolades ferment bien là où c'était prévu.
+- **`KeyboardAvoidingView behavior={... : undefined}` sur Android est un
+  no-op** (PR #187) : l'ancrage bas seul ne suffit pas dans une `Modal` RN
+  sur Android tant que le conteneur ne se redimensionne pas réellement au
+  clavier. ⚠️ Réflexe pour toute future popup centrée dans ce repo :
+  `behavior={Platform.OS === "ios" ? "padding" : "height"}`, jamais
+  `undefined` côté Android.
+- **Contenu piégé dans un `ScrollView` = contenu qui peut disparaître au
+  clavier, dans les deux sens** (PR #188 puis #190) : le scroll-to-focus
+  automatique de RN pousse hors champ tout ce qui n'est pas le champ
+  focalisé lui-même. Repéré d'abord côté bas (bouton photo, PR #188), puis
+  côté haut (titre, PR #190) — même cause racine, deux symptômes qui
+  peuvent sembler différents dans le retour utilisateur ("bouton rogné" vs
+  "titre pas visible, faut scroller"). ⚠️ Tout élément qui doit rester
+  visible en permanence (titre, contexte "en réponse à…", bouton
+  photo/action) doit être sorti du `ScrollView`, placé dans une zone fixe
+  de `centeredSheet` (avant le `ScrollView` pour le haut, entre
+  `</ScrollView>` et `sheetBtns` pour le bas) — jamais résolu par du
+  padding/taille seuls.
+- **`ScrollView` imbriqué n'hérite pas de `keyboardShouldPersistTaps` du
+  parent** (PR #188) : chaque `ScrollView` (y compris une rangée
+  horizontale de vignettes) a besoin de son propre
+  `keyboardShouldPersistTaps="handled"`, sinon un tap dessus alors qu'un
+  champ a le focus se contente de fermer le clavier au lieu de déclencher
+  l'action.
+- **Ancrage top (`flex-start`/`paddingTop`) rejeté explicitement par
+  l'utilisateur** (PR #185→#186) : "trop haut, pas assez grand" même une
+  fois la popup agrandie — l'ancrage bas (`flex-end`, `paddingBottom`)
+  colle le bas de la popup près du clavier et donne l'effet recherché de
+  "grandit vers le haut depuis le champ de saisie". Convention à conserver
+  pour toute nouvelle popup centrée de ce type.
 
 ## 5. Prochaine étape
 
-1. Pas de tâche en attente à ce stade — attendre la prochaine demande de
-   l'utilisateur.
-2. Fichiers exclus du repo par consigne explicite de session (ne jamais les
-   stager/committer) : `Documentation/Documentation Fonctionnalités.docx`,
+1. Pas de tâche en attente à ce stade — attendre le prochain retour de
+   test de l'utilisateur sur PR #190 (titres visibles clavier ouvert,
+   look du bouton photo unifié dans "Nouvelle du jour").
+2. Si un nouveau round de bugs/demandes arrive sur ce chantier, la
+   prochaine PR serait #191, à ouvrir sur une branche fraîche depuis
+   `main` (la branche `fix/nuitees-popups-checklist-titre-besoin` a fait
+   son usage — tout son contenu est mergé).
+3. Fichiers exclus du repo par consigne explicite de session (ne jamais
+   les stager/committer) : `Documentation/Documentation Fonctionnalités.docx`,
    `AUDIT_RLS_TAILLE_CODE_MORT.md`, `PRD_ClaudeCode_Site_avectoi_care_v3.md`,
-   `eslint.config.js` — pré-existants localement, sans lien avec ce chantier.
-3. Un plan existant (non démarré) attend une éventuelle reprise : refonte de
-   la fiche intervenant en popups enchaînées + gestion des soins en 2 popups
-   (pick → durée), 2ᵉ spécialisation métier — plan détaillé sauvegardé côté
-   outil (`joyful-swimming-snowglobe.md`), à relancer explicitement par
-   l'utilisateur si souhaité (implique une migration SQL à faire exécuter
-   manuellement dans le SQL Editor Supabase).
+   `eslint.config.js` — pré-existants localement, sans lien avec ce
+   chantier.
+4. Mémoire long-terme à jour côté outil (`avectoi_popup_photo_pr_chain.md`,
+   `avectoi_popup_anchor_lesson.md`, `avectoi_no_device_testing.md`,
+   `avectoi_git_workflow.md`) — consultable en reprise de session pour le
+   détail des patterns établis (ancrage bas, contenu hors ScrollView,
+   téléchargement photo natif, etc.) sans avoir à relire tout l'historique
+   de PR.
