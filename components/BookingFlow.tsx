@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, forwardRef, useImperativeHandle } from "r
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   Modal, StyleSheet, Alert, ActivityIndicator, KeyboardAvoidingView,
-  Platform,
+  Platform, Dimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { scheduleVisitReminder, cancelVisitReminder } from "@/lib/notifications";
@@ -117,9 +117,6 @@ function BookingFlow(
   const [editModal, setEditModal] = useState<Reservation | null>(null);
   const [editDate, setEditDate] = useState("");
   const [editSlot, setEditSlot] = useState<string | null>(null);
-  const [editPrenom, setEditPrenom] = useState("");
-  const [editNom, setEditNom] = useState("");
-  const [editTel, setEditTel] = useState("");
   const [editCalMonth, setEditCalMonth] = useState({ year: today.getFullYear(), month: today.getMonth() });
   const [editSaving, setEditSaving] = useState(false);
 
@@ -369,9 +366,6 @@ function BookingFlow(
     const d = new Date(r.date + "T12:00:00");
     setEditDate(r.date);
     setEditSlot(r.type === "Nuit" ? null : r.creneau);
-    setEditPrenom(r.prenom || "");
-    setEditNom(r.nom || "");
-    setEditTel(r.telephone || "");
     setEditCalMonth({ year: d.getFullYear(), month: d.getMonth() });
     setPinModal(null);
     setEditModal(r);
@@ -379,7 +373,6 @@ function BookingFlow(
 
   async function handleSaveEdit() {
     if (!editModal) return;
-    if (!editPrenom.trim() || !editNom.trim()) return;
     if (editModal.type === "Visite" && !editSlot) return;
 
     setEditSaving(true);
@@ -389,9 +382,6 @@ function BookingFlow(
       .update({
         date: editDate,
         creneau: editModal.type === "Nuit" ? "🌙 Nuit" : editSlot,
-        prenom: editPrenom.trim(),
-        nom: editNom.trim(),
-        telephone: editTel.trim(),
         // Modifier avec succès une réservation recasée/annulée par un
         // changement de règles efface son alerte du même geste — pas besoin
         // d'un "dismiss" séparé (voir apply_slot_rule_change).
@@ -477,20 +467,20 @@ function BookingFlow(
   return (
     <>
       {/* ── MODAL RÉSERVATION ──────────────────────────────────────────────── */}
-      <Modal visible={!!bookingTarget && !confirmed} transparent animationType="slide" onRequestClose={() => setBookingTarget(null)}>
+      <Modal visible={!!bookingTarget && !confirmed} transparent animationType="fade" onRequestClose={() => setBookingTarget(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-          <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => !saving && setBookingTarget(null)}>
-            <ScrollView contentContainerStyle={styles.overlayScrollCentered} keyboardShouldPersistTaps="handled">
-              <TouchableOpacity activeOpacity={1} style={styles.sheetWrap}>
-                <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
-                  <Text style={[styles.sheetTitle, { color: C.text }]}>
-                    {type === "Nuit" ? "🌙 Réserver une nuit" : `🕐 Visite ${bookingTarget?.slot}`}
-                  </Text>
-                  <Text style={[styles.sheetSub, { color: C.muted }]}>
-                    {bookingTarget && toFrLong(new Date(bookingTarget.iso + "T12:00:00"))} ·{" "}
-                    {type === "Nuit" ? nightRangeLabel(slotConfig) : `${slotConfig.slot_duration_minutes} min max`}
-                  </Text>
+          <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !saving && setBookingTarget(null)}>
+            <TouchableOpacity activeOpacity={1} style={styles.dialogWrap}>
+              <View style={[styles.dialogSheet, { backgroundColor: C.card, borderColor: C.accent }]}>
+                <Text style={[styles.sheetTitle, { color: C.text }]}>
+                  {type === "Nuit" ? "🌙 Réserver une nuit" : `🕐 Visite ${bookingTarget?.slot}`}
+                </Text>
+                <Text style={[styles.sheetSub, { color: C.muted }]}>
+                  {bookingTarget && toFrLong(new Date(bookingTarget.iso + "T12:00:00"))} ·{" "}
+                  {type === "Nuit" ? nightRangeLabel(slotConfig) : `${slotConfig.slot_duration_minutes} min max`}
+                </Text>
 
+                <ScrollView style={styles.dialogScrollBody} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
                   <TextInput
                     style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
                     placeholder="Prénom *" placeholderTextColor={C.muted}
@@ -579,30 +569,30 @@ function BookingFlow(
                       <PinPad value={pinValue} onChange={setPinValue} theme={C} />
                     </>
                   )}
+                </ScrollView>
 
-                  <View style={styles.sheetBtns}>
-                    <TouchableOpacity
-                      onPress={() => setBookingTarget(null)}
-                      disabled={saving}
-                      style={[styles.btnSecondary, { borderColor: C.border }]}
-                    >
-                      <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={handleBook}
-                      disabled={saving}
-                      style={[
-                        styles.btnPrimary,
-                        { backgroundColor: C.accent },
-                        (!prenom.trim() || !nom.trim() || (!sessionPin && pinValue.length < 4)) && { opacity: 0.5 },
-                      ]}
-                    >
-                      {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.btnPrimaryText}>Confirmer</Text>}
-                    </TouchableOpacity>
-                  </View>
+                <View style={styles.sheetBtns}>
+                  <TouchableOpacity
+                    onPress={() => setBookingTarget(null)}
+                    disabled={saving}
+                    style={[styles.btnSecondary, { borderColor: C.border }]}
+                  >
+                    <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={handleBook}
+                    disabled={saving}
+                    style={[
+                      styles.btnPrimary,
+                      { backgroundColor: C.accent },
+                      (!prenom.trim() || !nom.trim() || (!sessionPin && pinValue.length < 4)) && { opacity: 0.5 },
+                    ]}
+                  >
+                    {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.btnPrimaryText}>Confirmer</Text>}
+                  </TouchableOpacity>
                 </View>
-              </TouchableOpacity>
-            </ScrollView>
+              </View>
+            </TouchableOpacity>
           </TouchableOpacity>
         </KeyboardAvoidingView>
       </Modal>
@@ -754,18 +744,18 @@ function BookingFlow(
       </Modal>
 
       {/* ── MODAL ÉDITION COMPLÈTE ─────────────────────────────────────────── */}
-      <Modal visible={!!editModal} transparent animationType="slide" onRequestClose={() => setEditModal(null)}>
+      <Modal visible={!!editModal} transparent animationType="fade" onRequestClose={() => setEditModal(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-          <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => !editSaving && setEditModal(null)}>
-            <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
-              <TouchableOpacity activeOpacity={1}>
-                <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
-                  <Text style={[styles.sheetTitle, { color: C.text }]}>✏️ Modifier la réservation</Text>
-                  <Text style={[styles.sheetSub, { color: C.muted }]}>
-                    {editModal?.prenom} {editModal?.nom} ·{" "}
-                    {editModal && toFrShort(new Date(editModal.date + "T12:00:00"))} {editModal?.creneau}
-                  </Text>
+          <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !editSaving && setEditModal(null)}>
+            <TouchableOpacity activeOpacity={1} style={styles.dialogWrap}>
+              <View style={[styles.dialogSheet, { backgroundColor: C.card, borderColor: C.accent }]}>
+                <Text style={[styles.sheetTitle, { color: C.text }]}>✏️ Modifier la réservation</Text>
+                <Text style={[styles.sheetSub, { color: C.muted }]}>
+                  {editModal?.prenom} {editModal?.nom} ·{" "}
+                  {editModal && toFrShort(new Date(editModal.date + "T12:00:00"))} {editModal?.creneau}
+                </Text>
 
+                <ScrollView style={styles.dialogScrollBody} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
                   <Text style={[styles.fieldLabel, { color: C.gold }]}>Nouveau jour</Text>
                   <MiniCalendar
                     selDate={editDate}
@@ -813,43 +803,26 @@ function BookingFlow(
                       </View>
                     </>
                   )}
+                </ScrollView>
 
-                  <Text style={[styles.fieldLabel, { color: C.gold }]}>Tes informations</Text>
-                  <TextInput
-                    style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                    placeholder="Prénom *" placeholderTextColor={C.muted}
-                    value={editPrenom} onChangeText={setEditPrenom} autoCapitalize="words"
-                  />
-                  <TextInput
-                    style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                    placeholder="Nom *" placeholderTextColor={C.muted}
-                    value={editNom} onChangeText={setEditNom} autoCapitalize="words"
-                  />
-                  <TextInput
-                    style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                    placeholder="Téléphone" placeholderTextColor={C.muted}
-                    value={editTel} onChangeText={setEditTel} keyboardType="phone-pad"
-                  />
-
-                  <View style={styles.sheetBtns}>
-                    <TouchableOpacity onPress={() => setEditModal(null)} disabled={editSaving} style={[styles.btnSecondary, { borderColor: C.border }]}>
-                      <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={handleSaveEdit}
-                      disabled={!editPrenom.trim() || !editNom.trim() || (editModal?.type === "Visite" && !editSlot) || editSaving}
-                      style={[
-                        styles.btnPrimary,
-                        { backgroundColor: C.accent },
-                        (!editPrenom.trim() || !editNom.trim() || (editModal?.type === "Visite" && !editSlot) || editSaving) && { opacity: 0.5 },
-                      ]}
-                    >
-                      {editSaving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.btnPrimaryText}>✓ Enregistrer</Text>}
-                    </TouchableOpacity>
-                  </View>
+                <View style={styles.sheetBtns}>
+                  <TouchableOpacity onPress={() => setEditModal(null)} disabled={editSaving} style={[styles.btnSecondary, { borderColor: C.border }]}>
+                    <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={handleSaveEdit}
+                    disabled={(editModal?.type === "Visite" && !editSlot) || editSaving}
+                    style={[
+                      styles.btnPrimary,
+                      { backgroundColor: C.accent },
+                      ((editModal?.type === "Visite" && !editSlot) || editSaving) && { opacity: 0.5 },
+                    ]}
+                  >
+                    {editSaving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.btnPrimaryText}>✓ Enregistrer</Text>}
+                  </TouchableOpacity>
                 </View>
-              </TouchableOpacity>
-            </ScrollView>
+              </View>
+            </TouchableOpacity>
           </TouchableOpacity>
         </KeyboardAvoidingView>
       </Modal>
@@ -880,22 +853,23 @@ export default forwardRef(BookingFlow);
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "flex-end" },
-  overlayScroll: { flexGrow: 1, justifyContent: "flex-end" },
-  // Variante centrée de overlayScroll, réservée à la MODAL RÉSERVATION (voir
-  // sheetWrap) : cappe et centre horizontalement le bottom-sheet sur les
-  // écrans larges (tablette/web), où il s'étirait sinon d'un bord à l'autre.
-  // Les autres modales "sheet" du fichier (ex. MODAL ÉDITION COMPLÈTE)
-  // continuent d'utiliser overlayScroll telle quelle, en pleine largeur.
-  overlayScrollCentered: { flexGrow: 1, justifyContent: "flex-end", alignItems: "center" },
-  sheetWrap: { width: "100%", maxWidth: 480 },
-  sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, padding: 24, paddingBottom: 40, marginBottom: 12 },
-
-  // Centered (non-bottom-sheet) overlay/sheet — used by small popups (confirmed, pinModal).
-  // Do NOT reuse styles.overlay/styles.sheet above for these; those remain the bottom-sheet shape
-  // used by bookingTarget and editModal.
+  // Overlay/sheet centrés — utilisés par toutes les modales du fichier
+  // (confirmation, PIN, réservation, édition), pour un style homogène avec
+  // le reste de l'app plutôt qu'un bottom-sheet ancré en bas de l'écran.
   centeredOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center", padding: 24 },
   centeredSheet: { width: "88%", maxWidth: 400, maxHeight: "82%", borderRadius: 20, borderWidth: 1, padding: 24 },
+
+  // Variante de centeredSheet pour les modales réservation/édition, dont le
+  // contenu (champs + calendrier) peut dépasser la hauteur de l'écran : le
+  // wrap fixe la largeur, le sheet garde titre/boutons fixes, et seul
+  // dialogScrollBody défile. maxHeight en pixels (pas en %) sur le
+  // ScrollView lui-même : un flex:1/% sur un ScrollView imbriqué dans un
+  // parent qui n'a qu'un maxHeight (sans height explicite) s'effondre à 0px,
+  // Yoga ne pouvant pas résoudre une taille relative contre un ancêtre de
+  // taille indéfinie (même bug déjà rencontré dans IntervenantsList.tsx).
+  dialogWrap: { width: "88%", maxWidth: 400 },
+  dialogSheet: { width: "100%", borderRadius: 20, borderWidth: 1, padding: 24 },
+  dialogScrollBody: { maxHeight: Dimensions.get("window").height * 0.5 },
 
   sheetTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, marginBottom: 4 },
   sheetSub: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginBottom: 20 },

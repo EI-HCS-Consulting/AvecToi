@@ -63,7 +63,13 @@ export default function MiniCalendar({
   // de case en pixels (largeur = hauteur), garanti carré quel que soit le
   // moteur de layout.
   const [gridWidth, setGridWidth] = useState(0);
-  const cellSize = large && gridWidth > 0 ? (gridWidth - GRID_GAP_LG * 6) / 7 : null;
+  // Math.floor (pas de valeur fractionnaire) : un cellSize arrondi au pixel
+  // supérieur par le moteur de rendu fait déborder cellSize*7 + gap*6 de
+  // quelques pixels au-delà de gridWidth, ce qui renvoie la 7e case (colonne
+  // Dimanche) à la ligne suivante et décale toute la grille d'une colonne —
+  // c'est ce qui causait le mauvais alignement des jours (ex. 1er août sous
+  // "S" mais 2 août sous "L" au lieu de "D").
+  const cellSize = large && gridWidth > 0 ? Math.floor((gridWidth - GRID_GAP_LG * 6) / 7) : null;
   const onGridLayout = (e: LayoutChangeEvent) => setGridWidth(e.nativeEvent.layout.width);
 
   return (
