@@ -803,14 +803,20 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
               const tpl = CHECKLIST_TEMPLATES[importCtx];
               const color = C[tpl.colorKey];
               const templateItems = tpl.groups.flatMap((g) => g.items).filter((it) => isAdmin || it.sharedWithVisitors);
+              // Comparer à templateItems.length (qui inclut les items déjà
+              // importés, non interactifs — voir dup plus bas) empêchait le
+              // compte de jamais atteindre le total dès qu'un item était déjà
+              // publié, figeant le bouton sur "Tout cocher" sans effet.
+              const selectableCount = templateItems.filter((item) => !findDuplicateTask(item.title)).length;
               const customCount = importCustomItems.filter((t) => !findDuplicateTask(t)).length;
               const checkedCount = templateItems.filter((item, i) => importChecked[i] && !findDuplicateTask(item.title)).length + customCount;
+              const checkedTemplateCount = checkedCount - customCount;
               return (
                 <>
                   <Text style={[styles.sheetTitle, { color: C.text }]}>{tpl.icon} {tpl.label}</Text>
-                  <TouchableOpacity onPress={() => toggleAllImport(templateItems, checkedCount < templateItems.length)} activeOpacity={0.7}>
+                  <TouchableOpacity onPress={() => toggleAllImport(templateItems, checkedTemplateCount < selectableCount)} activeOpacity={0.7}>
                     <Text style={[styles.toggleAll, { color }]}>
-                      {checkedCount === templateItems.length ? "Tout décocher" : "Tout cocher"}
+                      {checkedTemplateCount === selectableCount ? "Tout décocher" : "Tout cocher"}
                     </Text>
                   </TouchableOpacity>
 

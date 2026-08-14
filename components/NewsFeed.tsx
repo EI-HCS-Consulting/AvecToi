@@ -828,12 +828,12 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
       )}
 
       {/* ── MODAL PUBLICATION / ÉDITION ───────────────────────────────────── */}
-      <Modal visible={showForm} transparent animationType="slide" onRequestClose={closeForm}>
+      <Modal visible={showForm} transparent animationType="fade" onRequestClose={closeForm}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-          <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => !formSaving && closeForm()}>
-            <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
-              <TouchableOpacity activeOpacity={1}>
-                <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
+          <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !formSaving && closeForm()}>
+            <TouchableOpacity activeOpacity={1}>
+              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
+                <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <Text style={[styles.sheetTitle, { color: C.text }]}>
                     {editTarget ? "✏️ Modifier la nouvelle" : "📰 Nouvelle du jour"}
                   </Text>
@@ -943,9 +943,9 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
                       }
                     </TouchableOpacity>
                   </View>
-                </View>
-              </TouchableOpacity>
-            </ScrollView>
+                </ScrollView>
+              </View>
+            </TouchableOpacity>
           </TouchableOpacity>
         </KeyboardAvoidingView>
       </Modal>

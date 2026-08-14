@@ -63,7 +63,13 @@ function PlanningCard({
         </Text>
       )}
       {group.map((r, i) => {
-        const mine = !soinsMode && r.type !== "Intervention"
+        // r.pin === "ADMIN" (réservation créée par l'accueil, ex. nuitée
+        // arrangée par téléphone) : on veut bien la reconnaître comme
+        // "mienne" pour l'affichage dans ce panneau (voir isMyReservation),
+        // mais pas proposer "Modifier" — le PIN saisi lors de la réservation
+        // n'existe pas pour ce cas, le visiteur ne pourrait jamais passer le
+        // contrôle PIN qui suit.
+        const mine = !soinsMode && r.type !== "Intervention" && r.pin !== "ADMIN"
           && isMyReservation(r, myPin ?? null, null, myPrenom ?? null, myNom ?? null);
         return (
           <View key={r.id} style={i > 0 ? { marginTop: 8 } : undefined}>
