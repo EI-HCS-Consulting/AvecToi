@@ -727,7 +727,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
         onRequestClose={() => !msgSaving && setShowAddModal(false)}
         onShow={() => setTimeout(() => msgTextRef.current?.focus(), 60)}
       >
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
           <TouchableOpacity
             style={[styles.centeredOverlay, { justifyContent: "flex-end", paddingBottom: 12 }]}
             activeOpacity={1}
@@ -838,7 +838,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
 
       {/* ── MODAL ÉDITION ─────────────────────────────────────────────────── */}
       <Modal visible={!!editTarget} transparent animationType="fade" onRequestClose={() => !editSaving && setEditTarget(null)}>
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
           <TouchableOpacity
             style={[styles.centeredOverlay, { justifyContent: "flex-end", paddingBottom: 12 }]}
             activeOpacity={1}
@@ -905,7 +905,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
         onRequestClose={() => !replySaving && setReplyTarget(null)}
         onShow={() => setTimeout(() => soutienReplyTextRef.current?.focus(), 60)}
       >
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
           <TouchableOpacity
             style={[styles.centeredOverlay, { justifyContent: "flex-end", paddingBottom: 12 }]}
             activeOpacity={1}
