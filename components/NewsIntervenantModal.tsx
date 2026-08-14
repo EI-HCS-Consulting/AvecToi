@@ -126,9 +126,9 @@ export default function NewsIntervenantModal({
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
       <View style={styles.overlay}>
         <View style={[styles.card, { backgroundColor: C.card, borderColor: C.orange }]}>
-          <Text style={[styles.title, { color: C.text }]}>Publications Nouvelles des intervenants</Text>
+          <Text style={[styles.title, { color: C.text }]}>Nouvelles des intervenants</Text>
           <Text style={[styles.desc, { color: C.muted }]}>
-            Autorise tous les intervenants, ou seulement certains, à publier sur l'onglet "Nouvelles" des messages visibles aussi par les visiteurs. Les autres restent dans le canal privé intervenants + admin.
+            Autorise les intervenants à publier sur l'onglet "Nouvelles" des messages visibles par les visiteurs.
           </Text>
 
           <TouchableOpacity
@@ -155,7 +155,7 @@ export default function NewsIntervenantModal({
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.optionLabel, { color: C.text }]}>Tous les intervenants</Text>
-              <Text style={[styles.optionDesc, { color: C.muted }]}>Chaque intervenant peut publier pour les visiteurs.</Text>
+              <Text style={[styles.optionDesc, { color: C.muted }]}>Publication aux visiteurs autorisée</Text>
             </View>
           </TouchableOpacity>
 
@@ -168,8 +168,8 @@ export default function NewsIntervenantModal({
               {mode === "some" && <View style={[styles.radioDot, { backgroundColor: C.orange }]} />}
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[styles.optionLabel, { color: C.text }]}>Certains intervenants seulement</Text>
-              <Text style={[styles.optionDesc, { color: C.muted }]}>Coche-les ci-dessous — plusieurs choix possibles.</Text>
+              <Text style={[styles.optionLabel, { color: C.text }]}>Certains intervenants</Text>
+              <Text style={[styles.optionDesc, { color: C.muted }]}>Choix des intervenants</Text>
             </View>
           </TouchableOpacity>
 
@@ -233,16 +233,16 @@ export default function NewsIntervenantModal({
 const styles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "center", alignItems: "center", padding: 24 },
   card: { width: "100%", maxWidth: 440, maxHeight: "88%", borderRadius: 20, borderWidth: 1, padding: 24 },
-  title: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, marginBottom: 6 },
-  desc: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 19, marginBottom: 16 },
+  title: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, marginBottom: 4 },
+  desc: { fontFamily: "DM_Sans_400Regular", fontSize: 12, lineHeight: 16, marginBottom: 10 },
 
-  option: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 },
-  radio: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, alignItems: "center", justifyContent: "center" },
-  radioDot: { width: 10, height: 10, borderRadius: 5 },
-  optionLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
-  optionDesc: { fontFamily: "DM_Sans_400Regular", fontSize: 12, lineHeight: 17, marginTop: 2 },
+  option: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderRadius: 12, padding: 10, marginBottom: 8 },
+  radio: { width: 18, height: 18, borderRadius: 9, borderWidth: 2, alignItems: "center", justifyContent: "center" },
+  radioDot: { width: 9, height: 9, borderRadius: 5 },
+  optionLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
+  optionDesc: { fontFamily: "DM_Sans_400Regular", fontSize: 11, lineHeight: 14, marginTop: 1 },
 
-  list: { maxHeight: 220, marginTop: -2, marginBottom: 10 },
+  list: { maxHeight: 260, marginTop: -2, marginBottom: 10 },
   row: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingLeft: 4, borderBottomWidth: 1 },
   checkbox: { width: 20, height: 20, borderRadius: 5, borderWidth: 2, alignItems: "center", justifyContent: "center" },
   checkboxMark: { color: "#fff", fontSize: 12, fontFamily: "DM_Sans_700Bold" },

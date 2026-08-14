@@ -1,10 +1,10 @@
 import { useState, useMemo, useRef } from "react";
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, Modal } from "react-native";
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, Modal, Switch } from "react-native";
 import { useRouter } from "expo-router";
 import { useSpace } from "@/lib/SpaceContext";
 import { supabase } from "@/lib/supabase";
 import {
-  getDayStatus, findNextAvailableSlot, getDaysInMonth, getMonday, toISO, toFrLong,
+  getDayStatus, findNextAvailableSlot, getDaysInMonth, getMonday, toISO, toFrLong, isMyReservation,
 } from "@/lib/slotUtils";
 import { deleteLinkedCalendarEvent } from "@/lib/calendarSync";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
@@ -34,6 +34,19 @@ export default function AdminCalendarScreen() {
   // "Voir les nuitées" (toujours accessible depuis Mes réservations / le
   // détail d'un jour).
   const [soinsMode, setSoinsMode] = useState(false);
+  // Bascule "Afficher mes créneaux" — l'admin a lui aussi une identité
+  // personnelle (admin_firstname/admin_lastname/admin_pin sur PatientSpace) :
+  // ses propres réservations (ajoutées via AdminAddReservation, toujours au
+  // PIN sentinelle "ADMIN") sont reconnues comme "siennes" au même titre
+  // qu'un visiteur ordinaire — voir isMyReservation (lib/slotUtils.ts).
+  const [mesCreneauxOnly, setMesCreneauxOnly] = useState(true);
+  // Basculer sur "Soins" désactive "Afficher mes créneaux" — l'admin n'a
+  // jamais de fiche intervenant, donc aucune réservation ne matcherait le
+  // filtre en mode Soins ; même comportement que le visiteur.
+  function handleSoinsModeChange(next: boolean) {
+    setSoinsMode(next);
+    if (next) setMesCreneauxOnly(false);
+  }
   // Mensuel/Hebdo — la vue Hebdo permet de réserver directement un créneau
   // du jour sélectionné (D) sans passer par l'écran dédié (home/slots.tsx),
   // qui reste accessible en Mensuel (tap sur un jour).
@@ -122,6 +135,14 @@ export default function AdminCalendarScreen() {
     );
   }
 
+  // Identité personnelle de l'admin (voir mesCreneauxOnly ci-dessus) —
+  // toujours issue du space, jamais d'une session à charger comme côté
+  // visiteur/intervenant.
+  const myPin = space.admin_pin ?? null;
+  const myPrenom = space.admin_firstname ?? null;
+  const myNom = space.admin_lastname ?? null;
+  const identityReady = !!myPrenom && !!myNom;
+
   const monthDays = getDaysInMonth(calMonth.year, calMonth.month);
   const firstDow = (new Date(calMonth.year, calMonth.month, 1).getDay() + 6) % 7;
   const trailingFillers = (7 - ((firstDow + monthDays.length) % 7)) % 7;
@@ -143,6 +164,18 @@ export default function AdminCalendarScreen() {
   // bande Hebdo, juste non réservable (E) — les jours déjà passés le sont
   // aussi via dayIsPast/slotPast, déjà gérés par AdminSlotsList.
   const weekDayBookable = !admissionIso || selectedIso >= admissionIso;
+
+  // Panneau perso sous le calendrier (IntervenantPlanningPanel) — même
+  // logique que le visiteur (élargi aux réservations partageant EXACTEMENT
+  // un de mes créneaux, ex. un autre visiteur au même horaire) ; la grille,
+  // elle, affiche toujours la vérité complète, voir familyBooked plus bas.
+  const myReservations = identityReady
+    ? reservations.filter((r) => isMyReservation(r, myPin, null, myPrenom, myNom))
+    : reservations;
+  const myPanelSlotKeys = new Set(myReservations.map((r) => `${r.date}|${r.creneau}`));
+  const panelReservations = mesCreneauxOnly && identityReady
+    ? reservations.filter((r) => myPanelSlotKeys.has(`${r.date}|${r.creneau}`))
+    : reservations;
 
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
@@ -221,12 +254,14 @@ export default function AdminCalendarScreen() {
               status === "partial" ? C.orange :
               status === "empty" ? C.success : "transparent";
 
-            // Bande verte en bas de case = visite/nuitée réservée ce jour.
-            // Bordure violette = créneau bloqué par un intervenant (remplace
-            // la bordure grise par défaut, ne déborde jamais de la case).
-            // En mode Soins, les visites/nuitées sont masquées (déjà visibles
-            // en mode Visites) : seule la bordure violette reste pertinente.
-            const familyBooked = !soinsMode && reservations.some((r) => r.date === iso && (r.type === "Visite" || r.type === "Nuit"));
+            // Bande verte en bas de case = strictement personnelle (mes
+            // propres visites/nuitées, voir isMyReservation/identityReady
+            // plus haut) — jamais celles d'un autre visiteur. Bordure
+            // violette = créneau bloqué par un intervenant (remplace la
+            // bordure grise par défaut, ne déborde jamais de la case),
+            // toujours la vérité complète quel que soit "Afficher mes
+            // créneaux".
+            const familyBooked = reservations.some((r) => r.date === iso && isMyReservation(r, myPin, null, myPrenom, myNom));
             const interventionBooked = reservations.some((r) => r.date === iso && r.type === "Intervention");
 
             return (
@@ -277,14 +312,12 @@ export default function AdminCalendarScreen() {
           )}
         </View>
         <View style={[styles.legend, styles.legendRow2]}>
-          {!soinsMode && (
-            <View style={styles.legendItem}>
-              <View style={[styles.legendStripeSwatch, { borderColor: C.border }]}>
-                <View style={[styles.legendStripeBar, { backgroundColor: LOGO_GREEN }]} />
-              </View>
-              <Text style={[styles.legendLabel, { color: C.muted }]}>Mes visites/nuitées</Text>
+          <View style={styles.legendItem}>
+            <View style={[styles.legendStripeSwatch, { borderColor: C.border }]}>
+              <View style={[styles.legendStripeBar, { backgroundColor: LOGO_GREEN }]} />
             </View>
-          )}
+            <Text style={[styles.legendLabel, { color: C.muted }]}>Mes créneaux</Text>
+          </View>
           <View style={styles.legendItem}>
             <View style={[styles.legendFrame, { borderColor: LOGO_PURPLE }]} />
             <Text style={[styles.legendLabel, { color: C.muted }]}>{soinsMode ? "Soin" : "Intervenant"}</Text>
@@ -312,9 +345,11 @@ export default function AdminCalendarScreen() {
           onSelectDay={(iso) => setSelectedDay(new Date(iso + "T00:00:00"))}
           onDayPress={(iso) => setSelectedDay(new Date(iso + "T00:00:00"))}
           soinsMode={soinsMode}
-          role={null}
+          role="visiteur"
           intervenantProfileId={null}
-          myPin={null}
+          myPin={myPin}
+          myPrenom={myPrenom}
+          myNom={myNom}
           admissionIso={admissionIso}
           dischargeIso={dischargeIso}
         />
@@ -347,23 +382,43 @@ export default function AdminCalendarScreen() {
         </>
         )}
 
-        {/* Switch Visites/Soins, déplacé sous le calendrier — ne règle que
-            le filtre appliqué au panneau réservations juste en dessous (le
-            calendrier, lui, affiche toujours la vérité complète). Pas de
-            bouton "Afficher mes créneaux" ici : contrairement au visiteur/
-            intervenant, l'admin n'a pas d'identité personnelle (PIN) à
-            filtrer dessus — le panneau liste toujours tout le monde. */}
-        {space.intervenants_enabled && (
-          <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 16 }]}>
-            <SegmentedSwitch value={soinsMode} onChange={setSoinsMode} leftLabel="Visites" rightLabel="Soins" C={C} thumbWidth={viewThumbWidth || undefined} />
+        {/* Switch Visites/Soins + "Afficher mes créneaux" regroupés dans un
+            même bloc, placé sous le calendrier — mêmes réglages que le
+            visiteur : eux seuls règlent l'affichage du panneau perso juste
+            en dessous, le calendrier affichant toujours la vérité complète
+            (voir familyBooked plus haut). Le bloc reste affiché même sans
+            intervenants activés, "Afficher mes créneaux" restant utile pour
+            filtrer les visites/nuitées. */}
+        <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 16 }]}>
+          {space.intervenants_enabled && (
+            <SegmentedSwitch value={soinsMode} onChange={handleSoinsModeChange} leftLabel="Visites" rightLabel="Soins" C={C} thumbWidth={viewThumbWidth || undefined} />
+          )}
+          <View style={styles.toggleRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.toggleLabel, { color: C.text }]}>👁️ Afficher mes créneaux</Text>
+              <Text style={[styles.toggleDesc, { color: C.muted }]}>
+                {mesCreneauxOnly
+                  ? "Le panneau ci-dessous ne liste que vos propres visites/nuitées. Le calendrier, lui, affiche toujours tout le monde."
+                  : "Le panneau ci-dessous liste les visites/nuitées de tout le monde."}
+              </Text>
+            </View>
+            <Switch
+              value={mesCreneauxOnly}
+              onValueChange={setMesCreneauxOnly}
+              trackColor={{ false: C.border, true: C.accent }}
+              thumbColor="#fff"
+            />
           </View>
-        )}
+        </View>
 
         <View style={{ marginTop: 16 }}>
           <IntervenantPlanningPanel
             C={C}
-            reservations={reservations}
+            reservations={panelReservations}
             soinsMode={soinsMode}
+            myPin={myPin}
+            myPrenom={myPrenom}
+            myNom={myNom}
           />
         </View>
       </ScrollView>
@@ -483,6 +538,9 @@ const styles = StyleSheet.create({
   legendLabel: { fontFamily: "DM_Sans_400Regular", fontSize: 11 },
 
   card: { borderWidth: 1, borderRadius: 14, padding: 16, gap: 6 },
+  toggleRow: { flexDirection: "row", alignItems: "center", gap: 12 },
+  toggleLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14, marginBottom: 4 },
+  toggleDesc: { fontFamily: "DM_Sans_400Regular", fontSize: 12, lineHeight: 17 },
 
   weekDayTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 16, textTransform: "capitalize", textAlign: "center", marginBottom: 10 },
 
