@@ -740,31 +740,31 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                       <PinPad value={msgPin} onChange={setMsgPin} theme={C} />
                     </>
                   )}
-
-                  <View style={styles.sheetBtns}>
-                    <TouchableOpacity
-                      onPress={() => { setShowAddModal(false); setMsgText(""); setMsgPhotoUri(null); setMsgPin(""); }}
-                      disabled={msgSaving}
-                      style={[styles.btnSecondary, { borderColor: C.border }]}
-                    >
-                      <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={postMessage}
-                      disabled={!msgText.trim() || !msgPrenom.trim() || !msgNom.trim() || !pinReady || msgSaving}
-                      style={[
-                        styles.btnPrimary,
-                        { backgroundColor: C.gold },
-                        (!msgText.trim() || !msgPrenom.trim() || !msgNom.trim() || !pinReady || msgSaving) && { opacity: 0.5 },
-                      ]}
-                    >
-                      {msgSaving
-                        ? <ActivityIndicator color="#0D1B2E" size="small" />
-                        : <Text style={[styles.btnPrimaryText, { color: "#0D1B2E" }]}>Envoyer 🩷</Text>
-                      }
-                    </TouchableOpacity>
-                  </View>
                 </ScrollView>
+
+                <View style={styles.sheetBtns}>
+                  <TouchableOpacity
+                    onPress={() => { setShowAddModal(false); setMsgText(""); setMsgPhotoUri(null); setMsgPin(""); }}
+                    disabled={msgSaving}
+                    style={[styles.btnSecondary, { borderColor: C.border }]}
+                  >
+                    <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={postMessage}
+                    disabled={!msgText.trim() || !msgPrenom.trim() || !msgNom.trim() || !pinReady || msgSaving}
+                    style={[
+                      styles.btnPrimary,
+                      { backgroundColor: C.gold },
+                      (!msgText.trim() || !msgPrenom.trim() || !msgNom.trim() || !pinReady || msgSaving) && { opacity: 0.5 },
+                    ]}
+                  >
+                    {msgSaving
+                      ? <ActivityIndicator color="#0D1B2E" size="small" />
+                      : <Text style={[styles.btnPrimaryText, { color: "#0D1B2E" }]}>Envoyer 🩷</Text>
+                    }
+                  </TouchableOpacity>
+                </View>
               </View>
             </TouchableOpacity>
           </TouchableOpacity>
@@ -776,7 +776,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !editSaving && setEditTarget(null)}>
             <TouchableOpacity activeOpacity={1}>
-              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent }]}>
+              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
                 <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <Text style={[styles.sheetTitle, { color: C.text }]}>✏️ Modifier le message</Text>
 
@@ -804,23 +804,24 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                     </TouchableOpacity>
                   )}
 
-                  <View style={styles.sheetBtns}>
-                    <TouchableOpacity onPress={() => setEditTarget(null)} disabled={editSaving} style={[styles.btnSecondary, { borderColor: C.border }]}>
-                      <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={handleSaveEdit}
-                      disabled={!editMsgText.trim() || !editPrenom.trim() || !editNom.trim() || editSaving}
-                      style={[
-                        styles.btnPrimary,
-                        { backgroundColor: C.accent },
-                        (!editMsgText.trim() || !editPrenom.trim() || !editNom.trim() || editSaving) && { opacity: 0.5 },
-                      ]}
-                    >
-                      {editSaving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.btnPrimaryText}>✓ Enregistrer</Text>}
-                    </TouchableOpacity>
-                  </View>
                 </ScrollView>
+
+                <View style={styles.sheetBtns}>
+                  <TouchableOpacity onPress={() => setEditTarget(null)} disabled={editSaving} style={[styles.btnSecondary, { borderColor: C.border }]}>
+                    <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={handleSaveEdit}
+                    disabled={!editMsgText.trim() || !editPrenom.trim() || !editNom.trim() || editSaving}
+                    style={[
+                      styles.btnPrimary,
+                      { backgroundColor: C.accent },
+                      (!editMsgText.trim() || !editPrenom.trim() || !editNom.trim() || editSaving) && { opacity: 0.5 },
+                    ]}
+                  >
+                    {editSaving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.btnPrimaryText}>✓ Enregistrer</Text>}
+                  </TouchableOpacity>
+                </View>
               </View>
             </TouchableOpacity>
           </TouchableOpacity>
@@ -889,31 +890,31 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                       <PinPad value={msgPin} onChange={setMsgPin} theme={C} />
                     </>
                   )}
-
-                  <View style={styles.sheetBtns}>
-                    <TouchableOpacity
-                      onPress={() => { setReplyTarget(null); setReplyText(""); setMsgPin(""); }}
-                      disabled={replySaving}
-                      style={[styles.btnSecondary, { borderColor: C.border }]}
-                    >
-                      <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={postReply}
-                      disabled={!replyText.trim() || !msgPrenom.trim() || !msgNom.trim() || !pinReady || replySaving}
-                      style={[
-                        styles.btnPrimary,
-                        { backgroundColor: C.gold },
-                        (!replyText.trim() || !msgPrenom.trim() || !msgNom.trim() || !pinReady || replySaving) && { opacity: 0.5 },
-                      ]}
-                    >
-                      {replySaving
-                        ? <ActivityIndicator color="#0D1B2E" size="small" />
-                        : <Text style={[styles.btnPrimaryText, { color: "#0D1B2E" }]}>Envoyer 🙏</Text>
-                      }
-                    </TouchableOpacity>
-                  </View>
                 </ScrollView>
+
+                <View style={styles.sheetBtns}>
+                  <TouchableOpacity
+                    onPress={() => { setReplyTarget(null); setReplyText(""); setMsgPin(""); }}
+                    disabled={replySaving}
+                    style={[styles.btnSecondary, { borderColor: C.border }]}
+                  >
+                    <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={postReply}
+                    disabled={!replyText.trim() || !msgPrenom.trim() || !msgNom.trim() || !pinReady || replySaving}
+                    style={[
+                      styles.btnPrimary,
+                      { backgroundColor: C.gold },
+                      (!replyText.trim() || !msgPrenom.trim() || !msgNom.trim() || !pinReady || replySaving) && { opacity: 0.5 },
+                    ]}
+                  >
+                    {replySaving
+                      ? <ActivityIndicator color="#0D1B2E" size="small" />
+                      : <Text style={[styles.btnPrimaryText, { color: "#0D1B2E" }]}>Envoyer 🙏</Text>
+                    }
+                  </TouchableOpacity>
+                </View>
               </View>
             </TouchableOpacity>
           </TouchableOpacity>

@@ -928,36 +928,38 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
                       <PinPad value={formPin} onChange={setFormPin} theme={C} />
                     </>
                   )}
-
-                  <View style={styles.sheetBtns}>
-                    <TouchableOpacity
-                      onPress={closeForm}
-                      disabled={formSaving}
-                      style={[styles.btnSecondary, { borderColor: C.border }]}
-                    >
-                      <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={handleSave}
-                      disabled={
-                        !formText.trim() || !formPrenom.trim() || !formNom.trim() ||
-                        (!isAdmin && !editTarget && !sessionPin && formPin.length < 4) ||
-                        formSaving
-                      }
-                      style={[
-                        styles.btnPrimary,
-                        { backgroundColor: C.accent },
-                        (!formText.trim() || !formPrenom.trim() || !formNom.trim() ||
-                          (!isAdmin && !editTarget && !sessionPin && formPin.length < 4) || formSaving) && { opacity: 0.5 },
-                      ]}
-                    >
-                      {formSaving
-                        ? <ActivityIndicator color="#fff" size="small" />
-                        : <Text style={styles.btnPrimaryText}>{editTarget ? "Enregistrer" : "Publier"}</Text>
-                      }
-                    </TouchableOpacity>
-                  </View>
                 </ScrollView>
+
+                {/* Hors du ScrollView : toujours visibles, jamais besoin de
+                    scroller pour valider ou annuler. */}
+                <View style={styles.sheetBtns}>
+                  <TouchableOpacity
+                    onPress={closeForm}
+                    disabled={formSaving}
+                    style={[styles.btnSecondary, { borderColor: C.border }]}
+                  >
+                    <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={handleSave}
+                    disabled={
+                      !formText.trim() || !formPrenom.trim() || !formNom.trim() ||
+                      (!isAdmin && !editTarget && !sessionPin && formPin.length < 4) ||
+                      formSaving
+                    }
+                    style={[
+                      styles.btnPrimary,
+                      { backgroundColor: C.accent },
+                      (!formText.trim() || !formPrenom.trim() || !formNom.trim() ||
+                        (!isAdmin && !editTarget && !sessionPin && formPin.length < 4) || formSaving) && { opacity: 0.5 },
+                    ]}
+                  >
+                    {formSaving
+                      ? <ActivityIndicator color="#fff" size="small" />
+                      : <Text style={styles.btnPrimaryText}>{editTarget ? "Enregistrer" : "Publier"}</Text>
+                    }
+                  </TouchableOpacity>
+                </View>
               </View>
             </TouchableOpacity>
           </TouchableOpacity>
@@ -1085,31 +1087,31 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
                       <PinPad value={formPin} onChange={setFormPin} theme={C} />
                     </>
                   )}
-
-                  <View style={styles.sheetBtns}>
-                    <TouchableOpacity
-                      onPress={() => { setReplyTarget(null); setReplyText(""); setFormPin(""); }}
-                      disabled={replySaving}
-                      style={[styles.btnSecondary, { borderColor: C.border }]}
-                    >
-                      <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={postReply}
-                      disabled={!replyText.trim() || !formPrenom.trim() || !formNom.trim() || !pinReady || replySaving}
-                      style={[
-                        styles.btnPrimary,
-                        { backgroundColor: C.accent },
-                        (!replyText.trim() || !formPrenom.trim() || !formNom.trim() || !pinReady || replySaving) && { opacity: 0.5 },
-                      ]}
-                    >
-                      {replySaving
-                        ? <ActivityIndicator color="#fff" size="small" />
-                        : <Text style={styles.btnPrimaryText}>Envoyer 🙏</Text>
-                      }
-                    </TouchableOpacity>
-                  </View>
                 </ScrollView>
+
+                <View style={styles.sheetBtns}>
+                  <TouchableOpacity
+                    onPress={() => { setReplyTarget(null); setReplyText(""); setFormPin(""); }}
+                    disabled={replySaving}
+                    style={[styles.btnSecondary, { borderColor: C.border }]}
+                  >
+                    <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={postReply}
+                    disabled={!replyText.trim() || !formPrenom.trim() || !formNom.trim() || !pinReady || replySaving}
+                    style={[
+                      styles.btnPrimary,
+                      { backgroundColor: C.accent },
+                      (!replyText.trim() || !formPrenom.trim() || !formNom.trim() || !pinReady || replySaving) && { opacity: 0.5 },
+                    ]}
+                  >
+                    {replySaving
+                      ? <ActivityIndicator color="#fff" size="small" />
+                      : <Text style={styles.btnPrimaryText}>Envoyer 🙏</Text>
+                    }
+                  </TouchableOpacity>
+                </View>
               </View>
             </TouchableOpacity>
           </TouchableOpacity>

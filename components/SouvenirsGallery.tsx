@@ -621,7 +621,7 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
           <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !uploading && resetUploadForm()}>
             <TouchableOpacity activeOpacity={1}>
               <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
-                <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <Text style={[styles.sheetTitle, { color: C.text }]}>📸 Ajouter un souvenir</Text>
 
                   {/* Preview */}
@@ -634,22 +634,30 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
                     </View>
                   )}
 
-                  <TextInput
-                    style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                    placeholder="Ton prénom *"
-                    placeholderTextColor={C.muted}
-                    value={upPrenom}
-                    onChangeText={setUpPrenom}
-                    autoCapitalize="words"
-                  />
-                  <TextInput
-                    style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                    placeholder="Ton nom"
-                    placeholderTextColor={C.muted}
-                    value={upNom}
-                    onChangeText={setUpNom}
-                    autoCapitalize="words"
-                  />
+                  {/* Prénom/nom — uniquement si l'identité n'est pas déjà
+                      connue (session visiteur/profil admin), même logique
+                      que NewsFeed/Soutien : inutile de la redemander vu que
+                      l'upload se fait déjà depuis son compte. */}
+                  {!(upPrenom.trim() && upNom.trim()) && (
+                    <View style={{ flexDirection: "row", gap: 8 }}>
+                      <TextInput
+                        style={[styles.input, { flex: 1, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                        placeholder="Prénom *"
+                        placeholderTextColor={C.muted}
+                        value={upPrenom}
+                        onChangeText={setUpPrenom}
+                        autoCapitalize="words"
+                      />
+                      <TextInput
+                        style={[styles.input, { flex: 1, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                        placeholder="Nom"
+                        placeholderTextColor={C.muted}
+                        value={upNom}
+                        onChangeText={setUpNom}
+                        autoCapitalize="words"
+                      />
+                    </View>
+                  )}
                   <TextInput
                     style={[styles.input, styles.inputCaption, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
                     placeholder="Légende (optionnelle)"
@@ -669,31 +677,31 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
                       <PinPad value={upPin} onChange={setUpPin} theme={C} />
                     </>
                   )}
-
-                  <View style={styles.sheetBtns}>
-                    <TouchableOpacity
-                      onPress={resetUploadForm}
-                      disabled={uploading}
-                      style={[styles.btnSecondary, { borderColor: C.border }]}
-                    >
-                      <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      onPress={handleUpload}
-                      disabled={!upPrenom.trim() || (!isAdmin && !sessionPin && upPin.length < 4) || uploading || !uploadUri}
-                      style={[
-                        styles.btnPrimary,
-                        { backgroundColor: C.accent },
-                        (!upPrenom.trim() || (!isAdmin && !sessionPin && upPin.length < 4) || uploading || !uploadUri) && { opacity: 0.5 },
-                      ]}
-                    >
-                      {uploading
-                        ? <ActivityIndicator color="#fff" size="small" />
-                        : <Text style={styles.btnPrimaryText}>Envoyer</Text>
-                      }
-                    </TouchableOpacity>
-                  </View>
                 </ScrollView>
+
+                <View style={styles.sheetBtns}>
+                  <TouchableOpacity
+                    onPress={resetUploadForm}
+                    disabled={uploading}
+                    style={[styles.btnSecondary, { borderColor: C.border }]}
+                  >
+                    <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={handleUpload}
+                    disabled={!upPrenom.trim() || (!isAdmin && !sessionPin && upPin.length < 4) || uploading || !uploadUri}
+                    style={[
+                      styles.btnPrimary,
+                      { backgroundColor: C.accent },
+                      (!upPrenom.trim() || (!isAdmin && !sessionPin && upPin.length < 4) || uploading || !uploadUri) && { opacity: 0.5 },
+                    ]}
+                  >
+                    {uploading
+                      ? <ActivityIndicator color="#fff" size="small" />
+                      : <Text style={styles.btnPrimaryText}>Envoyer</Text>
+                    }
+                  </TouchableOpacity>
+                </View>
               </View>
             </TouchableOpacity>
           </TouchableOpacity>
