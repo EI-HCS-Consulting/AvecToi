@@ -581,7 +581,7 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
       {/* ── MODAL CHOIX SOURCE (caméra / galerie) ────────────────────────────── */}
       <Modal visible={pickerVisible} transparent animationType="fade" onRequestClose={() => setPickerVisible(false)}>
         <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => setPickerVisible(false)}>
-          <TouchableOpacity activeOpacity={1}>
+          <TouchableOpacity activeOpacity={1} style={{ width: "88%" }}>
             <View style={[styles.centeredSheet, styles.pickerSheet, { backgroundColor: C.card, borderColor: C.accent }]}>
               <Text style={[styles.sheetTitle, { color: C.text, textAlign: "center" }]}>📸 Ajouter un souvenir</Text>
               <Text style={[styles.sheetSub, { color: C.muted, textAlign: "center" }]}>Choisis la source de la photo</Text>
@@ -619,7 +619,7 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
       <Modal visible={showUpload} transparent animationType="fade" onRequestClose={resetUploadForm}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !uploading && resetUploadForm()}>
-            <TouchableOpacity activeOpacity={1}>
+            <TouchableOpacity activeOpacity={1} style={{ width: "88%" }}>
               <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
                 <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <Text style={[styles.sheetTitle, { color: C.text }]}>📸 Ajouter un souvenir</Text>
@@ -711,7 +711,7 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
       {/* ── MODAL DELETE PIN (visiteur) ────────────────────────────────────── */}
       <Modal visible={!!deleteTarget && !isAdmin} transparent animationType="fade" onRequestClose={() => setDeleteTarget(null)}>
         <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => setDeleteTarget(null)}>
-          <TouchableOpacity activeOpacity={1}>
+          <TouchableOpacity activeOpacity={1} style={{ width: "88%" }}>
             <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.danger }]}>
               <View style={{ alignItems: "center", marginBottom: 16 }}>
               <Text style={{ fontSize: 32, marginBottom: 6 }}>🗑️</Text>
@@ -906,5 +906,5 @@ const styles = StyleSheet.create({
 
   // Centered overlay / sheet (for small/medium popups, distinct from the bottom-sheet pair above)
   centeredOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center" },
-  centeredSheet: { width: "88%", borderRadius: 20, borderWidth: 1, padding: 24 },
+  centeredSheet: { width: "100%", borderRadius: 20, borderWidth: 1, padding: 24 },
 });
