@@ -69,6 +69,8 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
   const [replyDeleteTarget, setReplyDeleteTarget] = useState<SupportMessageReply | null>(null);
   const [messageDeleteTarget, setMessageDeleteTarget] = useState<SupportMessage | null>(null);
   const [replyText, setReplyText] = useState("");
+  const [replyPhotoUri, setReplyPhotoUri] = useState<string | null>(null);
+  const [pickingReplyPhoto, setPickingReplyPhoto] = useState(false);
   const [replySaving, setReplySaving] = useState(false);
 
   const [msgText, setMsgText] = useState("");
@@ -80,10 +82,10 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
   const [msgSaving, setMsgSaving] = useState(false);
 
   // Popup "Choisis la source de la photo" (caméra / galerie), partagé entre
-  // l'ajout et l'édition d'un message — pickerTarget route le choix vers le
-  // bon état (msgPhotoUri vs editPhoto).
+  // l'ajout, l'édition et la réponse à un message — pickerTarget route le
+  // choix vers le bon état (msgPhotoUri vs editPhoto vs replyPhotoUri).
   const [pickerVisible, setPickerVisible] = useState(false);
-  const [pickerTarget, setPickerTarget] = useState<"add" | "edit">("add");
+  const [pickerTarget, setPickerTarget] = useState<"add" | "edit" | "reply">("add");
 
   // Édition d'un message déjà posté — bouton ✏️ visible uniquement pour
   // l'auteur réel du message (voir isOwnMessage plus bas).
@@ -190,7 +192,8 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
 
   function applyPickedPhoto(uri: string) {
     if (pickerTarget === "add") setMsgPhotoUri(uri);
-    else setEditPhoto({ uri, filename: null });
+    else if (pickerTarget === "edit") setEditPhoto({ uri, filename: null });
+    else setReplyPhotoUri(uri);
   }
 
   async function pickPhotoFromGallery() {
@@ -200,8 +203,10 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
       return;
     }
     if (pickerTarget === "add") setPickingPhoto(true);
+    if (pickerTarget === "reply") setPickingReplyPhoto(true);
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 1 });
     if (pickerTarget === "add") setPickingPhoto(false);
+    if (pickerTarget === "reply") setPickingReplyPhoto(false);
     if (!result.canceled && result.assets[0]) applyPickedPhoto(result.assets[0].uri);
   }
 
@@ -212,8 +217,10 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
       return;
     }
     if (pickerTarget === "add") setPickingPhoto(true);
+    if (pickerTarget === "reply") setPickingReplyPhoto(true);
     const result = await ImagePicker.launchCameraAsync({ quality: 1 });
     if (pickerTarget === "add") setPickingPhoto(false);
+    if (pickerTarget === "reply") setPickingReplyPhoto(false);
     if (!result.canceled && result.assets[0]) applyPickedPhoto(result.assets[0].uri);
   }
 
@@ -225,6 +232,15 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
   function openMsgPhotoPicker() {
     setPickerTarget("add");
     setPickerVisible(true);
+  }
+
+  function openReplyPhotoPicker() {
+    setPickerTarget("reply");
+    setPickerVisible(true);
+  }
+
+  function removeReplyPhoto() {
+    setReplyPhotoUri(null);
   }
 
   function openEditPhotoPicker() {
@@ -439,12 +455,36 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
   function openReply(m: SupportMessage) {
     setReplyTarget(m);
     setReplyText("");
+    setReplyPhotoUri(null);
   }
 
   async function postReply() {
     if (!replyTarget || !replyText.trim() || !msgPrenom.trim() || !msgNom.trim()) return;
     if (!isAdmin && !sessionPin && msgPin.length < 4) return;
     setReplySaving(true);
+
+    let photoFilename: string | null = null;
+    if (replyPhotoUri) {
+      try {
+        const compressed = await ImageManipulator.manipulateAsync(
+          replyPhotoUri,
+          [{ resize: { width: 1080 } }],
+          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
+        );
+        const fileData = await new File(compressed.uri).arrayBuffer();
+        const fname = `${Date.now()}_${Math.random().toString(36).slice(2, 6)}.jpg`;
+        const { error } = await supabase.storage
+          .from(PHOTO_BUCKET)
+          .upload(`${spaceId}/${fname}`, fileData, { contentType: "image/jpeg", cacheControl: "3600" });
+        if (!error) {
+          photoFilename = fname;
+        } else {
+          Alert.alert("Photo non envoyée", "La réponse sera publiée sans la photo.");
+        }
+      } catch {
+        Alert.alert("Photo non envoyée", "La réponse sera publiée sans la photo.");
+      }
+    }
 
     const pinToUse = isAdmin ? "ADMIN" : (sessionPin || msgPin);
     await supabase.from("support_message_replies").insert({
@@ -454,13 +494,14 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
       author_prenom: msgPrenom.trim(),
       author_nom: msgNom.trim(),
       author_pin: pinToUse,
+      photo: photoFilename,
     });
     setReplySaving(false);
     if (!isAdmin) {
       await rememberAuthorPin(msgPrenom.trim(), msgNom.trim(), pinToUse);
       setSessionPin(pinToUse);
     }
-    setReplyText(""); setMsgPin(""); setReplyTarget(null);
+    setReplyText(""); setReplyPhotoUri(null); setMsgPin(""); setReplyTarget(null);
     showToast("Réponse envoyée 🙏");
     loadReplies();
   }
@@ -650,6 +691,9 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                               </Text>
                             )}
                             <Text style={[styles.replyText, { color: C.text }]}>{r.reply_text}</Text>
+                            {r.photo && (
+                              <Image source={{ uri: supportPhotoUrl(spaceId, r.photo) }} style={[styles.replyPhotoThumb, { borderColor: C.border }]} resizeMode="cover" />
+                            )}
                           </View>
                           {canDeleteReply && (
                             <TouchableOpacity onPress={() => setReplyDeleteTarget(r)} style={styles.replyDeleteBtn}>
@@ -776,26 +820,6 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                     </View>
                   )}
 
-                  {msgPhotoUri ? (
-                    <View style={styles.photoPreviewRow}>
-                      <Image source={{ uri: msgPhotoUri }} style={styles.photoPreviewImg} resizeMode="cover" />
-                      <TouchableOpacity style={[styles.photoPickRemove, { backgroundColor: "#e94560" }]} onPress={removeMsgPhoto}>
-                        <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>✕</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <TouchableOpacity
-                      style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
-                      onPress={openMsgPhotoPicker}
-                      disabled={pickingPhoto}
-                    >
-                      {pickingPhoto
-                        ? <ActivityIndicator color={C.accent} size="small" />
-                        : <Text style={[styles.photoPickAddText, { color: C.muted }]}>📷 Ajouter une photo (optionnel)</Text>
-                      }
-                    </TouchableOpacity>
-                  )}
-
                   {!isAdmin && !sessionPin && (
                     <>
                       <Text style={[styles.pinLabel, { color: C.gold }]}>🔐 Choisis ton code PIN (4 chiffres)</Text>
@@ -806,6 +830,29 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                     </>
                   )}
                 </ScrollView>
+
+                {/* Hors du ScrollView, juste au-dessus du bouton Envoyer :
+                    toujours entièrement visible, même quand le clavier ouvert
+                    force un scroll-to-focus sur le champ de saisie. */}
+                {msgPhotoUri ? (
+                  <View style={styles.photoPreviewRow}>
+                    <Image source={{ uri: msgPhotoUri }} style={styles.photoPreviewImg} resizeMode="cover" />
+                    <TouchableOpacity style={[styles.photoPickRemove, { backgroundColor: "#e94560" }]} onPress={removeMsgPhoto}>
+                      <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
+                    onPress={openMsgPhotoPicker}
+                    disabled={pickingPhoto}
+                  >
+                    {pickingPhoto
+                      ? <ActivityIndicator color={C.accent} size="small" />
+                      : <Text style={[styles.photoPickAddText, { color: C.muted }]}>📷 Ajouter une photo (optionnel)</Text>
+                    }
+                  </TouchableOpacity>
+                )}
 
                 <View style={styles.sheetBtns}>
                   <TouchableOpacity
@@ -860,20 +907,23 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                     textAlignVertical="top"
                   />
 
-                  {editPhoto ? (
-                    <View style={styles.photoPreviewRow}>
-                      <Image source={{ uri: editPhoto.uri }} style={styles.photoPreviewImg} resizeMode="cover" />
-                      <TouchableOpacity style={[styles.photoPickRemove, { backgroundColor: "#e94560" }]} onPress={removeEditPhoto}>
-                        <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>✕</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <TouchableOpacity style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]} onPress={openEditPhotoPicker}>
-                      <Text style={[styles.photoPickAddText, { color: C.muted }]}>📷 Ajouter une photo (optionnel)</Text>
-                    </TouchableOpacity>
-                  )}
-
                 </ScrollView>
+
+                {/* Hors du ScrollView, juste au-dessus du bouton Enregistrer :
+                    toujours entièrement visible, même quand le clavier ouvert
+                    force un scroll-to-focus sur le champ de saisie. */}
+                {editPhoto ? (
+                  <View style={styles.photoPreviewRow}>
+                    <Image source={{ uri: editPhoto.uri }} style={styles.photoPreviewImg} resizeMode="cover" />
+                    <TouchableOpacity style={[styles.photoPickRemove, { backgroundColor: "#e94560" }]} onPress={removeEditPhoto}>
+                      <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <TouchableOpacity style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]} onPress={openEditPhotoPicker}>
+                    <Text style={[styles.photoPickAddText, { color: C.muted }]}>📷 Ajouter une photo (optionnel)</Text>
+                  </TouchableOpacity>
+                )}
 
                 <View style={styles.sheetBtns}>
                   <TouchableOpacity onPress={() => setEditTarget(null)} disabled={editSaving} style={[styles.btnSecondary, { borderColor: C.border }]}>
@@ -968,9 +1018,32 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                   )}
                 </ScrollView>
 
+                {/* Hors du ScrollView, juste au-dessus du bouton Envoyer :
+                    toujours entièrement visible, même quand le clavier ouvert
+                    force un scroll-to-focus sur le champ de saisie. */}
+                {replyPhotoUri ? (
+                  <View style={styles.photoPreviewRow}>
+                    <Image source={{ uri: replyPhotoUri }} style={styles.photoPreviewImg} resizeMode="cover" />
+                    <TouchableOpacity style={[styles.photoPickRemove, { backgroundColor: "#e94560" }]} onPress={removeReplyPhoto}>
+                      <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
+                    onPress={openReplyPhotoPicker}
+                    disabled={pickingReplyPhoto}
+                  >
+                    {pickingReplyPhoto
+                      ? <ActivityIndicator color={C.accent} size="small" />
+                      : <Text style={[styles.photoPickAddText, { color: C.muted }]}>📷 Ajouter une photo (optionnel)</Text>
+                    }
+                  </TouchableOpacity>
+                )}
+
                 <View style={styles.sheetBtns}>
                   <TouchableOpacity
-                    onPress={() => { setReplyTarget(null); setReplyText(""); setMsgPin(""); }}
+                    onPress={() => { setReplyTarget(null); setReplyText(""); setReplyPhotoUri(null); setMsgPin(""); }}
                     disabled={replySaving}
                     style={[styles.btnSecondary, { borderColor: C.border }]}
                   >
@@ -1112,6 +1185,7 @@ const styles = StyleSheet.create({
   replyItem: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderLeftWidth: 2, paddingLeft: 10 },
   replyAuthor: { fontFamily: "DM_Sans_700Bold", fontSize: 12 },
   replyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 19, marginTop: 1 },
+  replyPhotoThumb: { width: 80, height: 80, borderRadius: 8, borderWidth: 1, marginTop: 6 },
   replyDeleteBtn: { padding: 4 },
   replyBtn: { alignSelf: "flex-start", borderWidth: 1, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 12, marginTop: 10 },
   replyBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
