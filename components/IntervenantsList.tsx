@@ -69,7 +69,7 @@ export default function IntervenantsList({ spaceId, C }: Props) {
       {loading ? (
         <ActivityIndicator color={C.accent} style={{ marginVertical: 32 }} />
       ) : (
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.scroll}>
+        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scroll}>
           {intervenants.length === 0 ? (
             <Text style={[styles.emptyText, { color: C.muted }]}>Aucun intervenant enregistré pour l'instant.</Text>
           ) : (
@@ -133,6 +133,12 @@ export default function IntervenantsList({ spaceId, C }: Props) {
 }
 
 const styles = StyleSheet.create({
+  // maxHeight explicite sur le ScrollView lui-même (pas seulement sur un
+  // parent) : un ScrollView flex:1 dans un conteneur qui n'a qu'un maxHeight
+  // (IntervenantsListModal.body) sans height propre s'effondre à 0px de
+  // hauteur (Yoga ne peut pas résoudre le flex:1 sans taille définie côté
+  // parent) — la liste chargeait bien mais restait invisible.
+  scrollView: { maxHeight: 400 },
   scroll: { paddingBottom: 24 },
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, textAlign: "center", marginVertical: 16 },
   row: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12 },

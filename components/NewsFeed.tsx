@@ -14,7 +14,7 @@ import { getVisitorSession, rememberAuthorPin, sessionPinMatches } from "@/lib/v
 import PinPad from "@/components/PinPad";
 import VisitorProfileModal from "@/components/VisitorProfileModal";
 import ConfirmModal from "@/components/ConfirmModal";
-import type { NewsEntry } from "@/lib/types";
+import type { NewsEntry, NewsEntryReply } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
 const { width: SCREEN_W } = Dimensions.get("window");
@@ -130,6 +130,15 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
   // cohérent avec le reste de l'app (cf. Entraide.tsx / ConfirmModal.tsx).
   const [deleteConfirmTarget, setDeleteConfirmTarget] = useState<NewsEntryWithUrls | null>(null);
 
+  // Réponses aux nouvelles, groupées par entry_id — même principe que le Mur
+  // de soutien (components/Soutien.tsx), ouvert à tous y compris sur ses
+  // propres nouvelles.
+  const [replies, setReplies] = useState<Record<string, NewsEntryReply[]>>({});
+  const [replyTarget, setReplyTarget] = useState<NewsEntryWithUrls | null>(null);
+  const [replyDeleteTarget, setReplyDeleteTarget] = useState<NewsEntryReply | null>(null);
+  const [replyText, setReplyText] = useState("");
+  const [replySaving, setReplySaving] = useState(false);
+
   // Lightbox
   const [lightbox, setLightbox] = useState<{ urls: string[]; idx: number } | null>(null);
 
@@ -173,6 +182,40 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
 
   useEffect(() => { loadEntries(); }, [loadEntries]);
 
+  const loadReplies = useCallback(async () => {
+    const { data } = await supabase
+      .from("news_entry_replies")
+      .select("*")
+      .eq("space_id", spaceId)
+      .order("created_at", { ascending: true });
+    const grouped: Record<string, NewsEntryReply[]> = {};
+    (data || []).forEach((r) => { (grouped[r.entry_id] ??= []).push(r); });
+    setReplies(grouped);
+  }, [spaceId]);
+
+  useEffect(() => { loadReplies(); }, [loadReplies]);
+
+  // Identité déjà connue (déjà connecté) : admin → profil Supabase Auth
+  // (Mon compte) ; visiteur → session enregistrée. Chargée au montage (pas
+  // seulement à l'ouverture de "+ Publier") pour être disponible dès le
+  // premier tap sur "Répondre".
+  useEffect(() => {
+    if (isAdmin) {
+      supabase.auth.getUser().then(({ data }) => {
+        setFormPrenom((data.user?.user_metadata?.firstname ?? "").trim());
+        setFormNom((data.user?.user_metadata?.lastname ?? "").trim());
+      });
+      return;
+    }
+    getVisitorSession().then((s) => {
+      if (s) {
+        setFormPrenom(s.prenom);
+        setFormNom(s.nom);
+        if (s.pin) setSessionPin(s.pin);
+      }
+    });
+  }, [isAdmin]);
+
   // Canal intervenants+admin : un visiteur ne voit que les nouvelles
   // publiées par des visiteurs, plus celles d'intervenants/admin si l'admin
   // a explicitement ouvert la visibilité (voir toggleVisibility ci-dessus).
@@ -210,6 +253,14 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [spaceId, loadEntries]);
+
+  useEffect(() => {
+    const ch = supabase
+      .channel(`news-replies:${spaceId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "news_entry_replies", filter: `space_id=eq.${spaceId}` }, loadReplies)
+      .subscribe();
+    return () => { supabase.removeChannel(ch); };
+  }, [spaceId, loadReplies]);
 
   // ── Form helpers ───────────────────────────────────────────────────────────
   async function openPublish() {
@@ -521,6 +572,64 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
     }
   }
 
+  // ── Réponses (ouvert à tous, y compris sur ses propres nouvelles) ──────────
+  function openReply(entry: NewsEntryWithUrls) {
+    setReplyTarget(entry);
+    setReplyText("");
+  }
+
+  const pinReady = isAdmin || !!sessionPin || formPin.length >= 4;
+
+  async function postReply() {
+    if (!replyTarget || !replyText.trim() || !formPrenom.trim() || !formNom.trim()) return;
+    if (!isAdmin && !sessionPin && formPin.length < 4) return;
+    setReplySaving(true);
+
+    const pinToUse = isAdmin ? "ADMIN" : (sessionPin || formPin);
+    await supabase.from("news_entry_replies").insert({
+      entry_id: replyTarget.id,
+      space_id: spaceId,
+      reply_text: replyText.trim(),
+      author_prenom: formPrenom.trim(),
+      author_nom: formNom.trim(),
+      author_pin: pinToUse,
+    });
+    setReplySaving(false);
+    if (!isAdmin) {
+      await rememberAuthorPin(formPrenom.trim(), formNom.trim(), pinToUse);
+      setSessionPin(pinToUse);
+    }
+    setReplyText(""); setFormPin(""); setReplyTarget(null);
+    showToast("Réponse envoyée 🙏");
+    loadReplies();
+  }
+
+  function isOwnReply(r: NewsEntryReply) {
+    return isAdmin ? r.author_pin === "ADMIN" : (!!sessionPin && r.author_pin === sessionPin);
+  }
+
+  async function softDeleteByAdminReply(r: NewsEntryReply) {
+    await supabase.from("news_entry_replies").update({ deleted_by_admin: true }).eq("id", r.id);
+    setReplies((prev) => ({
+      ...prev,
+      [r.entry_id]: (prev[r.entry_id] || []).map((x) => (x.id === r.id ? { ...x, deleted_by_admin: true } : x)),
+    }));
+    showToast("Réponse supprimée");
+  }
+
+  async function confirmDeleteReply() {
+    if (!replyDeleteTarget) return;
+    const r = replyDeleteTarget;
+    setReplyDeleteTarget(null);
+    if (isAdmin && r.author_pin !== "ADMIN") {
+      await softDeleteByAdminReply(r);
+      return;
+    }
+    await supabase.from("news_entry_replies").delete().eq("id", r.id);
+    loadReplies();
+    showToast("Réponse supprimée");
+  }
+
   // ── Render entry ───────────────────────────────────────────────────────────
   function renderEntry({ item: entry }: { item: NewsEntryWithUrls }) {
     const canModify = isAdmin || entry.author_pin !== "ADMIN";
@@ -609,6 +718,50 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
             }
           </TouchableOpacity>
         )}
+
+        {(() => {
+          const repliesForEntry = (replies[entry.id] || []).filter((r) => !r.deleted_by_admin || (!isAdmin && isOwnReply(r)));
+          if (!repliesForEntry.length) return null;
+          return (
+            <View style={styles.repliesWrap}>
+              {repliesForEntry.map((r) => {
+                const canDeleteReply = isAdmin || (!!sessionPin && r.author_pin === sessionPin);
+                return (
+                  <View key={r.id} style={[styles.replyItem, { borderLeftColor: C.gold }]}>
+                    <View style={{ flex: 1 }}>
+                      {r.author_pin !== "ADMIN" ? (
+                        <TouchableOpacity onPress={() => setProfileTarget({ prenom: r.author_prenom, nom: r.author_nom })} activeOpacity={0.7}>
+                          <Text style={[styles.replyAuthor, { color: C.text }]}>{r.author_prenom} {r.author_nom}</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <Text style={[styles.replyAuthor, { color: C.text }]}>{r.author_prenom} {r.author_nom}</Text>
+                      )}
+                      {r.deleted_by_admin && (
+                        <Text style={[styles.replyDeletedBanner, { color: C.danger }]}>
+                          Votre publication a été supprimée par l'administrateur du compte. Elle n'est ainsi plus visible par les autres utilisateurs.
+                        </Text>
+                      )}
+                      <Text style={[styles.replyText, { color: C.text }]}>{r.reply_text}</Text>
+                    </View>
+                    {canDeleteReply && (
+                      <TouchableOpacity onPress={() => setReplyDeleteTarget(r)} style={styles.replyDeleteBtn}>
+                        <Text style={{ fontSize: 12, color: C.muted }}>{r.deleted_by_admin ? "🗑️" : "✕"}</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                );
+              })}
+            </View>
+          );
+        })()}
+
+        <TouchableOpacity
+          style={[styles.replyBtn, { borderColor: C.border }]}
+          onPress={() => openReply(entry)}
+          activeOpacity={0.75}
+        >
+          <Text style={[styles.replyBtnText, { color: C.gold }]}>🙏 Répondre</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -857,6 +1010,102 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
         </TouchableOpacity>
       </Modal>
 
+      {/* ── MODAL RÉPONSE ─────────────────────────────────────────────────── */}
+      <Modal visible={!!replyTarget} transparent animationType="fade" onRequestClose={() => !replySaving && setReplyTarget(null)}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+          <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !replySaving && setReplyTarget(null)}>
+            <TouchableOpacity activeOpacity={1}>
+              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
+                <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                  <Text style={[styles.sheetTitle, { color: C.text }]}>🙏 Répondre</Text>
+                  {replyTarget && (
+                    <Text style={[styles.sheetSub, { color: C.muted }]} numberOfLines={2}>
+                      À {replyTarget.author_prenom} {replyTarget.author_nom} : « {replyTarget.content} »
+                    </Text>
+                  )}
+
+                  <TextInput
+                    style={[styles.input, styles.textarea, { height: 80, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                    placeholder="Ta réponse…"
+                    placeholderTextColor={C.muted}
+                    value={replyText}
+                    onChangeText={setReplyText}
+                    multiline
+                    numberOfLines={3}
+                    textAlignVertical="top"
+                    autoFocus
+                  />
+
+                  {!(formPrenom.trim() && formNom.trim()) && (
+                    <View style={{ flexDirection: "row", gap: 8 }}>
+                      <TextInput
+                        style={[styles.input, { flex: 1, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                        placeholder="Prénom *"
+                        placeholderTextColor={C.muted}
+                        value={formPrenom}
+                        onChangeText={setFormPrenom}
+                        autoCapitalize="words"
+                      />
+                      <TextInput
+                        style={[styles.input, { flex: 1, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                        placeholder="Nom *"
+                        placeholderTextColor={C.muted}
+                        value={formNom}
+                        onChangeText={setFormNom}
+                        autoCapitalize="words"
+                      />
+                    </View>
+                  )}
+
+                  {!isAdmin && !sessionPin && (
+                    <>
+                      <Text style={[styles.fieldLabel, { color: C.gold }]}>
+                        🔐 Code PIN (pour modifier ou supprimer)
+                      </Text>
+                      <PinPad value={formPin} onChange={setFormPin} theme={C} />
+                    </>
+                  )}
+
+                  <View style={styles.sheetBtns}>
+                    <TouchableOpacity
+                      onPress={() => { setReplyTarget(null); setReplyText(""); setFormPin(""); }}
+                      disabled={replySaving}
+                      style={[styles.btnSecondary, { borderColor: C.border }]}
+                    >
+                      <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      onPress={postReply}
+                      disabled={!replyText.trim() || !formPrenom.trim() || !formNom.trim() || !pinReady || replySaving}
+                      style={[
+                        styles.btnPrimary,
+                        { backgroundColor: C.accent },
+                        (!replyText.trim() || !formPrenom.trim() || !formNom.trim() || !pinReady || replySaving) && { opacity: 0.5 },
+                      ]}
+                    >
+                      {replySaving
+                        ? <ActivityIndicator color="#fff" size="small" />
+                        : <Text style={styles.btnPrimaryText}>Envoyer 🙏</Text>
+                      }
+                    </TouchableOpacity>
+                  </View>
+                </ScrollView>
+              </View>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      <ConfirmModal
+        visible={!!replyDeleteTarget}
+        title="Supprimer cette réponse ?"
+        message={replyDeleteTarget ? `"${replyDeleteTarget.reply_text.slice(0, 60)}${replyDeleteTarget.reply_text.length > 60 ? "…" : ""}"` : undefined}
+        confirmLabel="Supprimer"
+        onCancel={() => setReplyDeleteTarget(null)}
+        onConfirm={confirmDeleteReply}
+        C={C}
+      />
+
       <ConfirmModal
         visible={!!deleteConfirmTarget}
         title="Supprimer cette nouvelle ?"
@@ -979,6 +1228,15 @@ const styles = StyleSheet.create({
   photoThumb: { width: 100, height: 100, borderRadius: 10, borderWidth: 1 },
   souvenirsBtn: { borderWidth: 1, borderRadius: 8, paddingVertical: 8, alignItems: "center", marginTop: 10 },
   souvenirsBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
+
+  repliesWrap: { marginTop: 10, gap: 8 },
+  replyItem: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderLeftWidth: 2, paddingLeft: 10 },
+  replyAuthor: { fontFamily: "DM_Sans_700Bold", fontSize: 12 },
+  replyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 19, marginTop: 1 },
+  replyDeletedBanner: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, lineHeight: 15, marginBottom: 3 },
+  replyDeleteBtn: { padding: 4 },
+  replyBtn: { alignSelf: "flex-start", borderWidth: 1, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 12, marginTop: 10 },
+  replyBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
 
   // Overlay / sheet
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "flex-end" },

@@ -24,23 +24,42 @@ interface Props {
   soinsMode: boolean;
 }
 
-function PlanningCard({ r, C, done, soinsMode }: { r: Reservation; C: Theme; done: boolean; soinsMode: boolean }) {
+function PlanningCard({ group, C, done, soinsMode }: { group: Reservation[]; C: Theme; done: boolean; soinsMode: boolean }) {
+  const first = group[0];
   return (
     <View style={[styles.historyCard, { backgroundColor: C.card, borderColor: C.border }]}>
       <View style={styles.historyHeader}>
         <Text style={[styles.historyDate, { color: C.text }]}>
-          {toFrShort(new Date(r.date + "T12:00:00"))} · {r.creneau}
+          {toFrShort(new Date(first.date + "T12:00:00"))} · {first.creneau}
         </Text>
         <Text style={[styles.historyStatus, { color: done ? C.success : C.orange }]}>
           {soinsMode ? (done ? "Effectué" : "Planifié") : (done ? "Passée" : "À venir")}
         </Text>
       </View>
-      <Text style={[styles.historyLabel, { color: C.text }]}>
-        {soinsMode ? r.intervention_label : (r.type === "Nuit" ? "Nuitée" : "Visite")}
-      </Text>
-      <Text style={[styles.historyBy, { color: C.muted }]}>{r.prenom} {r.nom}</Text>
+      {group.map((r, i) => (
+        <View key={r.id} style={i > 0 ? { marginTop: 8 } : undefined}>
+          <Text style={[styles.historyLabel, { color: C.text }]}>
+            {soinsMode ? r.intervention_label : (r.type === "Nuit" ? "Nuitée" : "Visite")}
+          </Text>
+          <Text style={[styles.historyBy, { color: C.muted }]}>{r.prenom} {r.nom}</Text>
+        </View>
+      ))}
     </View>
   );
+}
+
+// Regroupe les réservations partageant le même date+créneau (ex : 2
+// visiteurs réservés sur le même créneau) dans un seul bloc/carte au lieu
+// d'une carte par réservation.
+function groupByDateCreneau(list: Reservation[]): Reservation[][] {
+  const map = new Map<string, Reservation[]>();
+  for (const r of list) {
+    const key = `${r.date}|${r.creneau}`;
+    const existing = map.get(key);
+    if (existing) existing.push(r);
+    else map.set(key, [r]);
+  }
+  return Array.from(map.values());
 }
 
 export default function IntervenantPlanningPanel({ C, reservations, soinsMode }: Props) {
@@ -48,14 +67,16 @@ export default function IntervenantPlanningPanel({ C, reservations, soinsMode }:
 
   const filtered = reservations.filter((r) => (soinsMode ? r.type === "Intervention" : r.type === "Visite" || r.type === "Nuit"));
 
-  // Anté-chronologique : la date la plus lointaine en premier, y compris
-  // pour la liste "à venir" (comme pour l'historique, déjà dans ce sens).
-  const upcoming = filtered
-    .filter((r) => !isSlotFullyPast(r.date, r.creneau))
-    .sort((a, b) => (b.date + b.creneau).localeCompare(a.date + a.creneau));
-  const past = filtered
-    .filter((r) => isSlotFullyPast(r.date, r.creneau))
-    .sort((a, b) => (b.date + b.creneau).localeCompare(a.date + a.creneau));
+  // Liste "à venir" : chronologique, la prochaine réservation en premier.
+  // Historique : anté-chronologique, la plus récemment passée en premier.
+  // Regroupées par date+créneau : 2 réservations sur le même créneau
+  // (ex. 2 visiteurs) forment un seul bloc au lieu de deux cartes séparées.
+  const upcoming = groupByDateCreneau(
+    filtered.filter((r) => !isSlotFullyPast(r.date, r.creneau))
+  ).sort((a, b) => (a[0].date + a[0].creneau).localeCompare(b[0].date + b[0].creneau));
+  const past = groupByDateCreneau(
+    filtered.filter((r) => isSlotFullyPast(r.date, r.creneau))
+  ).sort((a, b) => (b[0].date + b[0].creneau).localeCompare(a[0].date + a[0].creneau));
 
   const upcomingTitle = soinsMode ? "Soins planifiés" : "Visites planifiées";
   const historyTitle = soinsMode ? "Historique des soins" : "Historique des visites";
@@ -68,7 +89,7 @@ export default function IntervenantPlanningPanel({ C, reservations, soinsMode }:
           {soinsMode ? "Aucun soin planifié pour l'instant." : "Aucune visite planifiée pour l'instant."}
         </Text>
       ) : (
-        upcoming.map((r) => <PlanningCard key={r.id} r={r} C={C} done={false} soinsMode={soinsMode} />)
+        upcoming.map((g) => <PlanningCard key={g[0].id} group={g} C={C} done={false} soinsMode={soinsMode} />)
       )}
 
       <TouchableOpacity onPress={() => setHistoryOpen((o) => !o)} activeOpacity={0.7} style={styles.historyToggle}>
@@ -84,7 +105,7 @@ export default function IntervenantPlanningPanel({ C, reservations, soinsMode }:
             {soinsMode ? "Aucun soin effectué pour l'instant." : "Aucune visite passée pour l'instant."}
           </Text>
         ) : (
-          past.map((r) => <PlanningCard key={r.id} r={r} C={C} done={true} soinsMode={soinsMode} />)
+          past.map((g) => <PlanningCard key={g[0].id} group={g} C={C} done={true} soinsMode={soinsMode} />)
         )
       )}
     </View>

@@ -179,38 +179,6 @@ export default function VisitorCalendarScreen() {
           />
         </View>
 
-        {/* Switch Visites/Soins + "Afficher mes créneaux" regroupés dans un
-            même bloc : eux seuls règlent l'affichage qui suit en dessous
-            (pastilles/cadre violet du calendrier et panneau perso). Le
-            bouton est placé sous le switch, disponible pour tous les rôles,
-            commun aux vues Mensuel/Hebdo. Ne filtre que le panneau perso sous
-            le calendrier (voir panelReservations ci-dessus) ; la grille reste
-            toujours une vérité complète. Le switch Visites/Soins n'existe
-            que si les intervenants sont activés dans l'espace ; le bouton
-            "Afficher mes créneaux" reste utile même sans eux (filtre
-            visites/nuitées), donc le bloc reste affiché dans tous les cas. */}
-        <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginBottom: 14 }]}>
-          {space.intervenants_enabled && (
-            <SegmentedSwitch value={soinsMode} onChange={setSoinsMode} leftLabel="Visites" rightLabel="Soins" C={C} thumbWidth={viewThumbWidth || undefined} />
-          )}
-          <View style={styles.toggleRow}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.toggleLabel, { color: C.text }]}>👁️ Afficher mes créneaux</Text>
-              <Text style={[styles.toggleDesc, { color: C.muted }]}>
-                {mesCreneauxOnly
-                  ? `Le panneau ci-dessous ne liste que t${role === "intervenant" ? "es propres soins" : "es propres visites/nuitées"}. Le calendrier, lui, affiche toujours tout le monde.`
-                  : `Le panneau ci-dessous liste les ${role === "intervenant" ? "soins" : "visites/nuitées"} de tout le monde.`}
-              </Text>
-            </View>
-            <Switch
-              value={mesCreneauxOnly}
-              onValueChange={setMesCreneauxOnly}
-              trackColor={{ false: C.border, true: C.accent }}
-              thumbColor="#fff"
-            />
-          </View>
-        </View>
-
         {/* "Prochaine disponibilité" reste réservé aux visiteurs (l'intervenant
             n'a pas besoin de chercher un créneau libre côté famille). */}
         {role !== "intervenant" && (
@@ -391,15 +359,35 @@ export default function VisitorCalendarScreen() {
         </>
         )}
 
-        {space.intervenants_enabled && role === "visiteur" && (
-          <TouchableOpacity
-            style={[styles.nightsBtn, { borderColor: LOGO_PURPLE, marginTop: 8 }]}
-            onPress={() => router.navigate("/(visitor)/home/planning" as any)}
-            activeOpacity={0.8}
-          >
-            <Text style={[styles.nightsBtnText, { color: LOGO_PURPLE }]}>🩺 Voir le planning des intervenants</Text>
-          </TouchableOpacity>
-        )}
+        {/* Switch Visites/Soins + "Afficher mes créneaux" regroupés dans un
+            même bloc, placé sous le calendrier : eux seuls règlent
+            l'affichage du panneau perso juste en dessous (le calendrier,
+            lui, affiche toujours la vérité complète — voir
+            panelReservations plus haut). Le switch Visites/Soins n'existe
+            que si les intervenants sont activés dans l'espace ; le bouton
+            "Afficher mes créneaux" reste utile même sans eux (filtre
+            visites/nuitées), donc le bloc reste affiché dans tous les cas. */}
+        <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 16 }]}>
+          {space.intervenants_enabled && (
+            <SegmentedSwitch value={soinsMode} onChange={setSoinsMode} leftLabel="Visites" rightLabel="Soins" C={C} thumbWidth={viewThumbWidth || undefined} />
+          )}
+          <View style={styles.toggleRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.toggleLabel, { color: C.text }]}>👁️ Afficher mes créneaux</Text>
+              <Text style={[styles.toggleDesc, { color: C.muted }]}>
+                {mesCreneauxOnly
+                  ? `Le panneau ci-dessous ne liste que t${role === "intervenant" ? "es propres soins" : "es propres visites/nuitées"}. Le calendrier, lui, affiche toujours tout le monde.`
+                  : `Le panneau ci-dessous liste les ${role === "intervenant" ? "soins" : "visites/nuitées"} de tout le monde.`}
+              </Text>
+            </View>
+            <Switch
+              value={mesCreneauxOnly}
+              onValueChange={setMesCreneauxOnly}
+              trackColor={{ false: C.border, true: C.accent }}
+              thumbColor="#fff"
+            />
+          </View>
+        </View>
 
         <View style={{ marginTop: 16 }}>
           <IntervenantPlanningPanel C={C} reservations={panelReservations} soinsMode={soinsMode} />
@@ -531,8 +519,6 @@ const styles = StyleSheet.create({
   toggleLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14, marginBottom: 4 },
   toggleDesc: { fontFamily: "DM_Sans_400Regular", fontSize: 12, lineHeight: 17 },
 
-  nightsBtn: { borderWidth: 1, borderRadius: 10, paddingVertical: 9, alignItems: "center", marginTop: 10 },
-  nightsBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
 
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center", padding: 20 },
   modal: { width: "100%", maxWidth: 340, borderRadius: 16, borderWidth: 1, padding: 24, alignItems: "center" },
