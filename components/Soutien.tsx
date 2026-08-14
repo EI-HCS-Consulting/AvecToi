@@ -51,6 +51,14 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
   const msgOffsets = useRef<Record<string, number>>({});
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const focusedRef = useRef(false);
+  // Focus différé à l'ouverture du modal (via Modal.onShow) plutôt qu'un
+  // autoFocus synchrone sur le TextInput : sur Android, autoFocus déclenche
+  // le clavier pendant la toute première passe de layout du Modal, ce qui
+  // entre en course avec le calcul de hauteur du ScrollView et laissait le
+  // bas du formulaire (bouton Envoyer) invisible tant qu'aucun re-rendu
+  // n'était déclenché.
+  const msgTextRef = useRef<TextInput>(null);
+  const soutienReplyTextRef = useRef<TextInput>(null);
 
   const [messages, setMessages] = useState<SupportMessage[]>([]);
   const [msgsLoading, setMsgsLoading] = useState(true);
@@ -651,15 +659,22 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
       )}
 
       {/* ── MODAL AJOUT ───────────────────────────────────────────────────── */}
-      <Modal visible={showAddModal} transparent animationType="fade" onRequestClose={() => !msgSaving && setShowAddModal(false)}>
+      <Modal
+        visible={showAddModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !msgSaving && setShowAddModal(false)}
+        onShow={() => setTimeout(() => msgTextRef.current?.focus(), 60)}
+      >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !msgSaving && setShowAddModal(false)}>
             <TouchableOpacity activeOpacity={1}>
               <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
-                <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <Text style={[styles.sheetTitle, { color: C.text }]}>💛 Laisser un message</Text>
 
                   <TextInput
+                    ref={msgTextRef}
                     style={[styles.input, styles.msgArea, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 12 }]}
                     placeholder="Un mot d'encouragement pour la famille et le patient…"
                     placeholderTextColor={C.muted}
@@ -668,7 +683,6 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                     multiline
                     numberOfLines={3}
                     textAlignVertical="top"
-                    autoFocus
                   />
 
                   {/* Champs auteur — uniquement si l'identité n'est pas
@@ -763,7 +777,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
           <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !editSaving && setEditTarget(null)}>
             <TouchableOpacity activeOpacity={1}>
               <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent }]}>
-                <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <Text style={[styles.sheetTitle, { color: C.text }]}>✏️ Modifier le message</Text>
 
                   <TextInput
@@ -814,12 +828,18 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
       </Modal>
 
       {/* ── MODAL RÉPONSE ─────────────────────────────────────────────────── */}
-      <Modal visible={!!replyTarget} transparent animationType="fade" onRequestClose={() => !replySaving && setReplyTarget(null)}>
+      <Modal
+        visible={!!replyTarget}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !replySaving && setReplyTarget(null)}
+        onShow={() => setTimeout(() => soutienReplyTextRef.current?.focus(), 60)}
+      >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !replySaving && setReplyTarget(null)}>
             <TouchableOpacity activeOpacity={1}>
               <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
-                <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <Text style={[styles.sheetTitle, { color: C.text }]}>🙏 Répondre</Text>
                   {replyTarget && (
                     <Text style={[styles.sheetSub, { color: C.muted }]} numberOfLines={2}>
@@ -828,6 +848,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                   )}
 
                   <TextInput
+                    ref={soutienReplyTextRef}
                     style={[styles.input, styles.msgArea, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
                     placeholder="Ta réponse…"
                     placeholderTextColor={C.muted}
@@ -836,7 +857,6 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                     multiline
                     numberOfLines={3}
                     textAlignVertical="top"
-                    autoFocus
                   />
 
                   {!(msgPrenom.trim() && msgNom.trim()) && (

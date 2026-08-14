@@ -104,6 +104,14 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
   const listRef = useRef<FlatList<NewsEntryWithUrls>>(null);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const focusedRef = useRef(false);
+  // Focus différé à l'ouverture du modal (via Modal.onShow) plutôt qu'un
+  // autoFocus synchrone sur le TextInput : sur Android, autoFocus déclenche
+  // le clavier pendant la toute première passe de layout du Modal, ce qui
+  // entre en course avec le calcul de hauteur du ScrollView et laissait le
+  // bas du formulaire (bouton Publier) invisible tant qu'aucun re-rendu
+  // n'était déclenché.
+  const formTextRef = useRef<TextInput>(null);
+  const newsReplyTextRef = useRef<TextInput>(null);
 
   const [entries, setEntries] = useState<NewsEntryWithUrls[]>([]);
   const [loading, setLoading] = useState(true);
@@ -828,12 +836,18 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
       )}
 
       {/* ── MODAL PUBLICATION / ÉDITION ───────────────────────────────────── */}
-      <Modal visible={showForm} transparent animationType="fade" onRequestClose={closeForm}>
+      <Modal
+        visible={showForm}
+        transparent
+        animationType="fade"
+        onRequestClose={closeForm}
+        onShow={() => setTimeout(() => formTextRef.current?.focus(), 60)}
+      >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !formSaving && closeForm()}>
             <TouchableOpacity activeOpacity={1}>
               <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
-                <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <Text style={[styles.sheetTitle, { color: C.text }]}>
                     {editTarget ? "✏️ Modifier la nouvelle" : "📰 Nouvelle du jour"}
                   </Text>
@@ -866,6 +880,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
 
                   {/* Texte */}
                   <TextInput
+                    ref={formTextRef}
                     style={[styles.input, styles.textarea, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
                     placeholder="Donnez des nouvelles de votre visite… ✍️"
                     placeholderTextColor={C.muted}
@@ -874,12 +889,11 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
                     multiline
                     numberOfLines={5}
                     textAlignVertical="top"
-                    autoFocus
                   />
 
                   {/* Photos */}
                   <Text style={[styles.fieldLabel, { color: C.gold }]}>Photos (optionnel)</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
+                  <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
                     <View style={{ flexDirection: "row", gap: 8, paddingVertical: 4 }}>
                       {formPhotos.map((p, i) => (
                         <View key={i} style={styles.photoPickItem}>
@@ -1011,12 +1025,18 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
       </Modal>
 
       {/* ── MODAL RÉPONSE ─────────────────────────────────────────────────── */}
-      <Modal visible={!!replyTarget} transparent animationType="fade" onRequestClose={() => !replySaving && setReplyTarget(null)}>
+      <Modal
+        visible={!!replyTarget}
+        transparent
+        animationType="fade"
+        onRequestClose={() => !replySaving && setReplyTarget(null)}
+        onShow={() => setTimeout(() => newsReplyTextRef.current?.focus(), 60)}
+      >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !replySaving && setReplyTarget(null)}>
             <TouchableOpacity activeOpacity={1}>
               <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
-                <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+                <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <Text style={[styles.sheetTitle, { color: C.text }]}>🙏 Répondre</Text>
                   {replyTarget && (
                     <Text style={[styles.sheetSub, { color: C.muted }]} numberOfLines={2}>
@@ -1025,6 +1045,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
                   )}
 
                   <TextInput
+                    ref={newsReplyTextRef}
                     style={[styles.input, styles.textarea, { height: 80, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
                     placeholder="Ta réponse…"
                     placeholderTextColor={C.muted}
@@ -1033,7 +1054,6 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
                     multiline
                     numberOfLines={3}
                     textAlignVertical="top"
-                    autoFocus
                   />
 
                   {!(formPrenom.trim() && formNom.trim()) && (
