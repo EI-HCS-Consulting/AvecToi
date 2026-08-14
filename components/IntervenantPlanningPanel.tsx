@@ -2,7 +2,7 @@ import { useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import type { Theme } from "@/lib/themes";
 import type { Reservation } from "@/lib/types";
-import { toFrShort, isSlotFullyPast } from "@/lib/slotUtils";
+import { toFrShort, isSlotFullyPast, isMyReservation } from "@/lib/slotUtils";
 
 // Panneau planning intégré au calendrier visiteur, commun aux 3 rôles —
 // affiche les soins (tous intervenants) ou les visites/nuitées (selon
@@ -22,9 +22,26 @@ interface Props {
   C: Theme;
   reservations: Reservation[];
   soinsMode: boolean;
+  // Identité de session — sert uniquement à repérer, dans un groupe partagé
+  // par plusieurs visiteurs, laquelle des réservations est la mienne, pour
+  // n'afficher le bouton "Modifier" qu'à côté de mon propre nom (voir onEdit).
+  myPin?: string | null;
+  myPrenom?: string | null;
+  myNom?: string | null;
+  // Ouvre le modal PIN → Modifier/Annuler existant (BookingFlow.openPinModal)
+  // pour la réservation visée. Omis pour les soins (pas de flux de
+  // modification équivalent depuis ce panneau) et pour les rôles autres que
+  // visiteur, qui n'ont pas de réservation "à eux" ici.
+  onEdit?: (r: Reservation) => void;
 }
 
-function PlanningCard({ group, C, done, soinsMode }: { group: Reservation[]; C: Theme; done: boolean; soinsMode: boolean }) {
+function PlanningCard({
+  group, C, done, soinsMode, myPin, myPrenom, myNom, onEdit,
+}: {
+  group: Reservation[]; C: Theme; done: boolean; soinsMode: boolean;
+  myPin?: string | null; myPrenom?: string | null; myNom?: string | null;
+  onEdit?: (r: Reservation) => void;
+}) {
   const first = group[0];
   return (
     <View style={[styles.historyCard, { backgroundColor: C.card, borderColor: C.border }]}>
@@ -36,14 +53,34 @@ function PlanningCard({ group, C, done, soinsMode }: { group: Reservation[]; C: 
           {soinsMode ? (done ? "Effectué" : "Planifié") : (done ? "Passée" : "À venir")}
         </Text>
       </View>
-      {group.map((r, i) => (
-        <View key={r.id} style={i > 0 ? { marginTop: 8 } : undefined}>
-          <Text style={[styles.historyLabel, { color: C.text }]}>
-            {soinsMode ? r.intervention_label : (r.type === "Nuit" ? "Nuitée" : "Visite")}
-          </Text>
-          <Text style={[styles.historyBy, { color: C.muted }]}>{r.prenom} {r.nom}</Text>
-        </View>
-      ))}
+      {/* Un seul titre "Visite"/"Nuitée" pour tout le groupe (tous les
+          membres du groupe partagent le même créneau donc le même type) —
+          en soins, le libellé reste par personne, un même créneau pouvant en
+          théorie porter des soins différents. */}
+      {!soinsMode && (
+        <Text style={[styles.historyLabel, { color: C.text }]}>
+          {first.type === "Nuit" ? "Nuitée" : "Visite"}
+        </Text>
+      )}
+      {group.map((r, i) => {
+        const mine = !soinsMode && r.type !== "Intervention"
+          && isMyReservation(r, myPin ?? null, null, myPrenom ?? null, myNom ?? null);
+        return (
+          <View key={r.id} style={i > 0 ? { marginTop: 8 } : undefined}>
+            {soinsMode && (
+              <Text style={[styles.historyLabel, { color: C.text }]}>{r.intervention_label}</Text>
+            )}
+            <View style={styles.historyByRow}>
+              <Text style={[styles.historyBy, { color: C.muted }]}>{r.prenom} {r.nom}</Text>
+              {mine && onEdit && (
+                <TouchableOpacity onPress={() => onEdit(r)} activeOpacity={0.7} style={styles.editBtn}>
+                  <Text style={[styles.editBtnText, { color: C.accent }]}>✏️ Modifier</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+        );
+      })}
     </View>
   );
 }
@@ -62,7 +99,7 @@ function groupByDateCreneau(list: Reservation[]): Reservation[][] {
   return Array.from(map.values());
 }
 
-export default function IntervenantPlanningPanel({ C, reservations, soinsMode }: Props) {
+export default function IntervenantPlanningPanel({ C, reservations, soinsMode, myPin, myPrenom, myNom, onEdit }: Props) {
   const [historyOpen, setHistoryOpen] = useState(false);
 
   const filtered = reservations.filter((r) => (soinsMode ? r.type === "Intervention" : r.type === "Visite" || r.type === "Nuit"));
@@ -89,7 +126,12 @@ export default function IntervenantPlanningPanel({ C, reservations, soinsMode }:
           {soinsMode ? "Aucun soin planifié pour l'instant." : "Aucune visite planifiée pour l'instant."}
         </Text>
       ) : (
-        upcoming.map((g) => <PlanningCard key={g[0].id} group={g} C={C} done={false} soinsMode={soinsMode} />)
+        upcoming.map((g) => (
+          <PlanningCard
+            key={g[0].id} group={g} C={C} done={false} soinsMode={soinsMode}
+            myPin={myPin} myPrenom={myPrenom} myNom={myNom} onEdit={onEdit}
+          />
+        ))
       )}
 
       <TouchableOpacity onPress={() => setHistoryOpen((o) => !o)} activeOpacity={0.7} style={styles.historyToggle}>
@@ -124,5 +166,8 @@ const styles = StyleSheet.create({
   historyDate: { fontFamily: "DM_Sans_700Bold", fontSize: 13, textTransform: "capitalize" },
   historyStatus: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, textTransform: "uppercase" },
   historyLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13, marginTop: 2 },
+  historyByRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   historyBy: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 2 },
+  editBtn: { paddingVertical: 4, paddingLeft: 10 },
+  editBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
 });
