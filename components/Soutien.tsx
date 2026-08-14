@@ -839,15 +839,18 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !replySaving && setReplyTarget(null)}>
             <TouchableOpacity activeOpacity={1} style={{ width: "88%" }}>
-              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
-                <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-                  <Text style={[styles.sheetTitle, { color: C.text }]}>🙏 Répondre</Text>
-                  {replyTarget && (
-                    <Text style={[styles.sheetSub, { color: C.muted }]} numberOfLines={2}>
-                      À {replyTarget.author_prenom} {replyTarget.author_nom} : « {replyTarget.message} »
-                    </Text>
-                  )}
+              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "88%" }]}>
+                {/* Hors du ScrollView : le contexte (à qui on répond) doit rester
+                    visible même quand le clavier ouvert force un scroll-to-focus
+                    sur le champ de saisie, sinon il se retrouve rogné en haut. */}
+                <Text style={[styles.sheetTitle, { color: C.text }]}>🙏 Répondre</Text>
+                {replyTarget && (
+                  <Text style={[styles.sheetSub, { color: C.muted }]} numberOfLines={2}>
+                    À {replyTarget.author_prenom} {replyTarget.author_nom} : « {replyTarget.message} »
+                  </Text>
+                )}
 
+                <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <TextInput
                     ref={soutienReplyTextRef}
                     style={[styles.input, styles.msgArea, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
