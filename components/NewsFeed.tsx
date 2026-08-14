@@ -129,6 +129,10 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
   const [formSaving, setFormSaving] = useState(false);
   const [addingPhoto, setAddingPhoto] = useState(false);
   const [pickerVisible, setPickerVisible] = useState(false);
+  // Le popup "Choisis la source de la photo" est partagé entre le formulaire
+  // (multi-photos) et la réponse à une nouvelle (photo unique) — pickerTarget
+  // route le résultat du choix vers le bon état.
+  const [pickerTarget, setPickerTarget] = useState<"form" | "reply">("form");
 
   // PIN modal (visitor edit/delete)
   const [pinModal, setPinModal] = useState<{ entry: NewsEntryWithUrls; action: "edit" | "delete" } | null>(null);
@@ -146,6 +150,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
   const [replyTarget, setReplyTarget] = useState<NewsEntryWithUrls | null>(null);
   const [replyDeleteTarget, setReplyDeleteTarget] = useState<NewsEntryReply | null>(null);
   const [replyText, setReplyText] = useState("");
+  const [replyPhotoUri, setReplyPhotoUri] = useState<string | null>(null);
   const [replySaving, setReplySaving] = useState(false);
 
   // Lightbox
@@ -339,11 +344,13 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
     setAddingPhoto(true);
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
-      allowsMultipleSelection: true,
+      allowsMultipleSelection: pickerTarget === "form",
       quality: 1,
     });
     setAddingPhoto(false);
-    if (!result.canceled) addPickedAssets(result.assets);
+    if (result.canceled) return;
+    if (pickerTarget === "reply") setReplyPhotoUri(result.assets[0].uri);
+    else addPickedAssets(result.assets);
   }
 
   async function pickFromCamera() {
@@ -355,7 +362,9 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
     setAddingPhoto(true);
     const result = await ImagePicker.launchCameraAsync({ quality: 1, allowsEditing: false });
     setAddingPhoto(false);
-    if (!result.canceled) addPickedAssets(result.assets);
+    if (result.canceled) return;
+    if (pickerTarget === "reply") setReplyPhotoUri(result.assets[0].uri);
+    else addPickedAssets(result.assets);
   }
 
   function choosePickerSource(fn: () => void) {
@@ -363,8 +372,22 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
     fn();
   }
 
+  function openFormPhotoPicker() {
+    setPickerTarget("form");
+    setPickerVisible(true);
+  }
+
+  function openReplyPhotoPicker() {
+    setPickerTarget("reply");
+    setPickerVisible(true);
+  }
+
   function removePhoto(idx: number) {
     setFormPhotos((prev) => prev.filter((_, i) => i !== idx));
+  }
+
+  function removeReplyPhoto() {
+    setReplyPhotoUri(null);
   }
 
   // ── Ajout au mur de Souvenirs ──────────────────────────────────────────────
@@ -604,6 +627,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
   function openReply(entry: NewsEntryWithUrls) {
     setReplyTarget(entry);
     setReplyText("");
+    setReplyPhotoUri(null);
   }
 
   const pinReady = isAdmin || !!sessionPin || formPin.length >= 4;
@@ -613,6 +637,29 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
     if (!isAdmin && !sessionPin && formPin.length < 4) return;
     setReplySaving(true);
 
+    let photoFilename: string | null = null;
+    if (replyPhotoUri) {
+      try {
+        const compressed = await ImageManipulator.manipulateAsync(
+          replyPhotoUri,
+          [{ resize: { width: 1080 } }],
+          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
+        );
+        const fileData = await new File(compressed.uri).arrayBuffer();
+        const fname = `${Date.now()}_${Math.random().toString(36).slice(2, 6)}.jpg`;
+        const { error } = await supabase.storage
+          .from(PHOTO_BUCKET)
+          .upload(`${spaceId}/${fname}`, fileData, { contentType: "image/jpeg", cacheControl: "3600" });
+        if (!error) {
+          photoFilename = fname;
+        } else {
+          Alert.alert("Photo non envoyée", "La réponse sera publiée sans la photo.");
+        }
+      } catch {
+        Alert.alert("Photo non envoyée", "La réponse sera publiée sans la photo.");
+      }
+    }
+
     const pinToUse = isAdmin ? "ADMIN" : (sessionPin || formPin);
     await supabase.from("news_entry_replies").insert({
       entry_id: replyTarget.id,
@@ -621,13 +668,14 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
       author_prenom: formPrenom.trim(),
       author_nom: formNom.trim(),
       author_pin: pinToUse,
+      photo: photoFilename,
     });
     setReplySaving(false);
     if (!isAdmin) {
       await rememberAuthorPin(formPrenom.trim(), formNom.trim(), pinToUse);
       setSessionPin(pinToUse);
     }
-    setReplyText(""); setFormPin(""); setReplyTarget(null);
+    setReplyText(""); setReplyPhotoUri(null); setFormPin(""); setReplyTarget(null);
     showToast("Réponse envoyée 🙏");
     loadReplies();
   }
@@ -770,6 +818,14 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
                         </Text>
                       )}
                       <Text style={[styles.replyText, { color: C.text }]}>{r.reply_text}</Text>
+                      {r.photo && (
+                        <TouchableOpacity
+                          onPress={() => setLightbox({ urls: [newsPhotoUrl(spaceId, r.photo!)], idx: 0 })}
+                          activeOpacity={0.85}
+                        >
+                          <Image source={{ uri: newsPhotoUrl(spaceId, r.photo) }} style={[styles.replyPhotoThumb, { borderColor: C.border }]} resizeMode="cover" />
+                        </TouchableOpacity>
+                      )}
                     </View>
                     {canDeleteReply && (
                       <TouchableOpacity onPress={() => setReplyDeleteTarget(r)} style={styles.replyDeleteBtn}>
@@ -902,12 +958,12 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
       >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <TouchableOpacity
-            style={[styles.centeredOverlay, { justifyContent: "flex-start", paddingTop: 32 }]}
+            style={[styles.centeredOverlay, { justifyContent: "flex-end", paddingBottom: 12 }]}
             activeOpacity={1}
             onPress={() => !formSaving && closeForm()}
           >
             <TouchableOpacity activeOpacity={1} style={{ width: "88%" }}>
-              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "92%" }]}>
+              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "94%" }]}>
                 <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <Text style={[styles.sheetTitle, { color: C.text }]}>
                     {editTarget ? "✏️ Modifier la nouvelle" : "📰 Nouvelle du jour"}
@@ -969,7 +1025,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
                       ))}
                       <TouchableOpacity
                         style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
-                        onPress={() => setPickerVisible(true)}
+                        onPress={openFormPhotoPicker}
                         disabled={addingPhoto}
                       >
                         {addingPhoto
@@ -1097,12 +1153,12 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
       >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <TouchableOpacity
-            style={[styles.centeredOverlay, { justifyContent: "flex-start", paddingTop: 32 }]}
+            style={[styles.centeredOverlay, { justifyContent: "flex-end", paddingBottom: 12 }]}
             activeOpacity={1}
             onPress={() => !replySaving && setReplyTarget(null)}
           >
             <TouchableOpacity activeOpacity={1} style={{ width: "88%" }}>
-              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "92%" }]}>
+              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "94%" }]}>
                 {/* Hors du ScrollView : le contexte (à qui on répond) doit rester
                     visible même quand le clavier ouvert force un scroll-to-focus
                     sur le champ de saisie, sinon il se retrouve rogné en haut. */}
@@ -1116,7 +1172,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
                 <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <TextInput
                     ref={newsReplyTextRef}
-                    style={[styles.input, styles.textarea, { height: 120, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                    style={[styles.input, styles.textarea, { height: 160, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
                     placeholder="Ta réponse…"
                     placeholderTextColor={C.muted}
                     value={replyText}
@@ -1125,6 +1181,26 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
                     numberOfLines={3}
                     textAlignVertical="top"
                   />
+
+                  {replyPhotoUri ? (
+                    <View style={[styles.photoPickItem, { marginBottom: 10 }]}>
+                      <Image source={{ uri: replyPhotoUri }} style={styles.photoPickThumb} resizeMode="cover" />
+                      <TouchableOpacity style={[styles.photoPickRemove, { backgroundColor: C.danger }]} onPress={removeReplyPhoto}>
+                        <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>✕</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
+                      onPress={openReplyPhotoPicker}
+                      disabled={addingPhoto}
+                    >
+                      {addingPhoto
+                        ? <ActivityIndicator color={C.accent} size="small" />
+                        : <Text style={[styles.photoPickAddText, { color: C.muted }]}>📷 Ajouter une photo (optionnel)</Text>
+                      }
+                    </TouchableOpacity>
+                  )}
 
                   {!(formPrenom.trim() && formNom.trim()) && (
                     <View style={{ flexDirection: "row", gap: 8 }}>
@@ -1159,7 +1235,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
 
                 <View style={styles.sheetBtns}>
                   <TouchableOpacity
-                    onPress={() => { setReplyTarget(null); setReplyText(""); setFormPin(""); }}
+                    onPress={() => { setReplyTarget(null); setReplyText(""); setReplyPhotoUri(null); setFormPin(""); }}
                     disabled={replySaving}
                     style={[styles.btnSecondary, { borderColor: C.border }]}
                   >
@@ -1323,6 +1399,7 @@ const styles = StyleSheet.create({
   replyItem: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderLeftWidth: 2, paddingLeft: 10 },
   replyAuthor: { fontFamily: "DM_Sans_700Bold", fontSize: 12 },
   replyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 19, marginTop: 1 },
+  replyPhotoThumb: { width: 80, height: 80, borderRadius: 8, borderWidth: 1, marginTop: 6 },
   replyDeletedBanner: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, lineHeight: 15, marginBottom: 3 },
   replyDeleteBtn: { padding: 4 },
   replyBtn: { alignSelf: "flex-start", borderWidth: 1, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 12, marginTop: 10 },
@@ -1344,7 +1421,7 @@ const styles = StyleSheet.create({
   pickerOptionText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15 },
 
   input: { borderWidth: 1, borderRadius: 10, padding: 12, fontFamily: "DM_Sans_400Regular", fontSize: 15, marginBottom: 10 },
-  textarea: { height: 150, textAlignVertical: "top" },
+  textarea: { height: 190, textAlignVertical: "top" },
   fieldLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 },
 
   photoPickItem: { position: "relative" },

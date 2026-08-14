@@ -182,6 +182,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [fExistingPhoto, setFExistingPhoto] = useState<string | null>(null);
   const [pickingPhoto, setPickingPhoto] = useState(false);
   const [taskSaving, setTaskSaving] = useState(false);
+
+  // Popup "Choisis la source de la photo" (caméra / galerie), partagé entre
+  // les 3 flux photo du mur d'entraide — pickerTarget route le choix vers le
+  // bon état (formulaire besoin / preuve "fait" / prise en charge).
+  const [pickerVisible, setPickerVisible] = useState(false);
+  const [pickerTarget, setPickerTarget] = useState<"task" | "claim" | "done">("task");
   // Échéance optionnelle + urgent — catégories hors Transport (qui a déjà
   // ses propres champs date/heure, voir fTDate plus bas).
   const [fDateLimite, setFDateLimite] = useState("");
@@ -770,20 +776,50 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setTaskForm(true);
   }
 
-  async function pickTaskPhoto() {
+  function applyPickedPhoto(uri: string) {
+    if (pickerTarget === "task") { setFPhotoUri(uri); setFExistingPhoto(null); }
+    else if (pickerTarget === "claim") setClaimPhotoUri(uri);
+    else setDonePhotoUri(uri);
+  }
+
+  function setPickerPickingState(v: boolean) {
+    if (pickerTarget === "task") setPickingPhoto(v);
+    else if (pickerTarget === "claim") setClaimPickingPhoto(v);
+    else setDonePickingPhoto(v);
+  }
+
+  async function pickPhotoFromGallery() {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
       Alert.alert("Permission refusée", "Autorise l'accès à la galerie dans les paramètres.");
       return;
     }
-    setPickingPhoto(true);
+    setPickerPickingState(true);
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 1 });
-    setPickingPhoto(false);
-    if (!result.canceled && result.assets[0]) {
-      setFPhotoUri(result.assets[0].uri);
-      setFExistingPhoto(null);
-    }
+    setPickerPickingState(false);
+    if (!result.canceled && result.assets[0]) applyPickedPhoto(result.assets[0].uri);
   }
+
+  async function pickPhotoFromCamera() {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert("Permission refusée", "Autorise l'accès à la caméra dans les paramètres.");
+      return;
+    }
+    setPickerPickingState(true);
+    const result = await ImagePicker.launchCameraAsync({ quality: 1 });
+    setPickerPickingState(false);
+    if (!result.canceled && result.assets[0]) applyPickedPhoto(result.assets[0].uri);
+  }
+
+  function choosePickerSource(fn: () => void) {
+    setPickerVisible(false);
+    fn();
+  }
+
+  function openTaskPhotoPicker() { setPickerTarget("task"); setPickerVisible(true); }
+  function openClaimPhotoPicker() { setPickerTarget("claim"); setPickerVisible(true); }
+  function openDonePhotoPicker() { setPickerTarget("done"); setPickerVisible(true); }
 
   function removeTaskPhoto() {
     setFPhotoUri(null);
@@ -1126,20 +1162,6 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     );
   }
 
-  async function pickDonePhoto() {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert("Permission refusée", "Autorise l'accès à la galerie dans les paramètres.");
-      return;
-    }
-    setDonePickingPhoto(true);
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 1 });
-    setDonePickingPhoto(false);
-    if (!result.canceled && result.assets[0]) {
-      setDonePhotoUri(result.assets[0].uri);
-    }
-  }
-
   function removeDonePhoto() {
     setDonePhotoUri(null);
   }
@@ -1200,20 +1222,6 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     } else {
       const s = await getVisitorSession();
       if (s) { setClaimPrenom(s.prenom); setClaimNom(s.nom); setClaimPin(s.pin ?? ""); }
-    }
-  }
-
-  async function pickClaimPhoto() {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert("Permission refusée", "Autorise l'accès à la galerie dans les paramètres.");
-      return;
-    }
-    setClaimPickingPhoto(true);
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 1 });
-    setClaimPickingPhoto(false);
-    if (!result.canceled && result.assets[0]) {
-      setClaimPhotoUri(result.assets[0].uri);
     }
   }
 
@@ -2149,7 +2157,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                       ) : (
                         <TouchableOpacity
                           style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
-                          onPress={pickTaskPhoto}
+                          onPress={openTaskPhotoPicker}
                           disabled={pickingPhoto}
                         >
                           {pickingPhoto
@@ -2293,6 +2301,43 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             </ScrollView>
           </TouchableOpacity>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ── MODAL CHOIX SOURCE (caméra / galerie) ────────────────────────────── */}
+      <Modal visible={pickerVisible} transparent animationType="fade" onRequestClose={() => setPickerVisible(false)}>
+        <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => setPickerVisible(false)}>
+          <TouchableOpacity activeOpacity={1}>
+            <View style={[styles.centeredSheet, styles.pickerSheet, { backgroundColor: C.card, borderColor: C.accent }]}>
+              <Text style={[styles.sheetTitle, { color: C.text, textAlign: "center" }]}>📷 Ajouter une photo</Text>
+              <Text style={[styles.sheetSub, { color: C.muted }]}>Choisis la source de la photo</Text>
+
+              <TouchableOpacity
+                style={[styles.pickerOption, { borderColor: C.border }]}
+                onPress={() => choosePickerSource(pickPhotoFromCamera)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.pickerOptionIcon}>📷</Text>
+                <Text style={[styles.pickerOptionText, { color: C.text }]}>Prendre une photo</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.pickerOption, { borderColor: C.border }]}
+                onPress={() => choosePickerSource(pickPhotoFromGallery)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.pickerOptionIcon}>🖼️</Text>
+                <Text style={[styles.pickerOptionText, { color: C.text }]}>Choisir dans la galerie</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => setPickerVisible(false)}
+                style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", marginTop: 12 }}
+              >
+                <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.muted }}>Annuler</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
       </Modal>
 
       {/* ── MODAL CHECKLIST : choix du contexte ─────────────────────────────
@@ -2676,7 +2721,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                           ) : (
                             <TouchableOpacity
                               style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
-                              onPress={pickClaimPhoto}
+                              onPress={openClaimPhotoPicker}
                               disabled={claimPickingPhoto}
                             >
                               {claimPickingPhoto
@@ -3011,7 +3056,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               </View>
             ) : (
               <TouchableOpacity
-                onPress={pickDonePhoto}
+                onPress={openDonePhotoPicker}
                 disabled={donePickingPhoto}
                 style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
               >
@@ -3367,6 +3412,10 @@ const styles = StyleSheet.create({
   centeredOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center" },
   centeredOverlayScroll: { flexGrow: 1, justifyContent: "center", alignItems: "center" },
   centeredSheet: { width: "88%", borderRadius: 20, borderWidth: 1, padding: 24 },
+  pickerSheet: { alignItems: "stretch" },
+  pickerOption: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 16, marginTop: 12 },
+  pickerOptionIcon: { fontSize: 20 },
+  pickerOptionText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15 },
 
   sheetTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, marginBottom: 4 },
   sheetSub: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginBottom: 4, textAlign: "center" },

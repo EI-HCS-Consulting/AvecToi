@@ -291,6 +291,7 @@ export interface NewsEntryReply {
   author_prenom: string;
   author_nom: string;
   author_pin: string | null;
+  photo: string | null;
   created_at: string;
   deleted_by_admin: boolean;
 }

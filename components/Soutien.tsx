@@ -79,6 +79,12 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
   const [pickingPhoto, setPickingPhoto] = useState(false);
   const [msgSaving, setMsgSaving] = useState(false);
 
+  // Popup "Choisis la source de la photo" (caméra / galerie), partagé entre
+  // l'ajout et l'édition d'un message — pickerTarget route le choix vers le
+  // bon état (msgPhotoUri vs editPhoto).
+  const [pickerVisible, setPickerVisible] = useState(false);
+  const [pickerTarget, setPickerTarget] = useState<"add" | "edit">("add");
+
   // Édition d'un message déjà posté — bouton ✏️ visible uniquement pour
   // l'auteur réel du message (voir isOwnMessage plus bas).
   const [editTarget, setEditTarget] = useState<SupportMessage | null>(null);
@@ -182,18 +188,48 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
     return () => { supabase.removeChannel(ch); };
   }, [spaceId, loadReplies]);
 
-  async function pickMsgPhoto() {
+  function applyPickedPhoto(uri: string) {
+    if (pickerTarget === "add") setMsgPhotoUri(uri);
+    else setEditPhoto({ uri, filename: null });
+  }
+
+  async function pickPhotoFromGallery() {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
       Alert.alert("Permission refusée", "Autorise l'accès à la galerie dans les paramètres.");
       return;
     }
-    setPickingPhoto(true);
+    if (pickerTarget === "add") setPickingPhoto(true);
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 1 });
-    setPickingPhoto(false);
-    if (!result.canceled && result.assets[0]) {
-      setMsgPhotoUri(result.assets[0].uri);
+    if (pickerTarget === "add") setPickingPhoto(false);
+    if (!result.canceled && result.assets[0]) applyPickedPhoto(result.assets[0].uri);
+  }
+
+  async function pickPhotoFromCamera() {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert("Permission refusée", "Autorise l'accès à la caméra dans les paramètres.");
+      return;
     }
+    if (pickerTarget === "add") setPickingPhoto(true);
+    const result = await ImagePicker.launchCameraAsync({ quality: 1 });
+    if (pickerTarget === "add") setPickingPhoto(false);
+    if (!result.canceled && result.assets[0]) applyPickedPhoto(result.assets[0].uri);
+  }
+
+  function choosePickerSource(fn: () => void) {
+    setPickerVisible(false);
+    fn();
+  }
+
+  function openMsgPhotoPicker() {
+    setPickerTarget("add");
+    setPickerVisible(true);
+  }
+
+  function openEditPhotoPicker() {
+    setPickerTarget("edit");
+    setPickerVisible(true);
   }
 
   function removeMsgPhoto() {
@@ -315,18 +351,6 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
     setEditPrenom(m.author_prenom);
     setEditNom(m.author_nom);
     setEditPhoto(m.photo ? { uri: supportPhotoUrl(spaceId, m.photo), filename: m.photo } : null);
-  }
-
-  async function pickEditPhoto() {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert("Permission refusée", "Autorise l'accès à la galerie dans les paramètres.");
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ["images"], quality: 1 });
-    if (!result.canceled && result.assets[0]) {
-      setEditPhoto({ uri: result.assets[0].uri, filename: null });
-    }
   }
 
   function removeEditPhoto() {
@@ -658,6 +682,43 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
         </View>
       )}
 
+      {/* ── MODAL CHOIX SOURCE (caméra / galerie) ────────────────────────────── */}
+      <Modal visible={pickerVisible} transparent animationType="fade" onRequestClose={() => setPickerVisible(false)}>
+        <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => setPickerVisible(false)}>
+          <TouchableOpacity activeOpacity={1} style={{ width: "88%" }}>
+            <View style={[styles.centeredSheet, styles.pickerSheet, { backgroundColor: C.card, borderColor: C.accent }]}>
+              <Text style={[styles.sheetTitle, { color: C.text, textAlign: "center" }]}>📷 Ajouter une photo</Text>
+              <Text style={[styles.sheetSub, { color: C.muted, textAlign: "center" }]}>Choisis la source de la photo</Text>
+
+              <TouchableOpacity
+                style={[styles.pickerOption, { borderColor: C.border }]}
+                onPress={() => choosePickerSource(pickPhotoFromCamera)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.pickerOptionIcon}>📷</Text>
+                <Text style={[styles.pickerOptionText, { color: C.text }]}>Prendre une photo</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.pickerOption, { borderColor: C.border }]}
+                onPress={() => choosePickerSource(pickPhotoFromGallery)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.pickerOptionIcon}>🖼️</Text>
+                <Text style={[styles.pickerOptionText, { color: C.text }]}>Choisir dans la galerie</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => setPickerVisible(false)}
+                style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", marginTop: 12 }}
+              >
+                <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.muted }}>Annuler</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       {/* ── MODAL AJOUT ───────────────────────────────────────────────────── */}
       <Modal
         visible={showAddModal}
@@ -668,12 +729,12 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
       >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <TouchableOpacity
-            style={[styles.centeredOverlay, { justifyContent: "flex-start", paddingTop: 32 }]}
+            style={[styles.centeredOverlay, { justifyContent: "flex-end", paddingBottom: 12 }]}
             activeOpacity={1}
             onPress={() => !msgSaving && setShowAddModal(false)}
           >
             <TouchableOpacity activeOpacity={1} style={{ width: "88%" }}>
-              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "92%" }]}>
+              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "94%" }]}>
                 <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <Text style={[styles.sheetTitle, { color: C.text }]}>💛 Laisser un message</Text>
 
@@ -725,7 +786,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                   ) : (
                     <TouchableOpacity
                       style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
-                      onPress={pickMsgPhoto}
+                      onPress={openMsgPhotoPicker}
                       disabled={pickingPhoto}
                     >
                       {pickingPhoto
@@ -779,12 +840,12 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
       <Modal visible={!!editTarget} transparent animationType="fade" onRequestClose={() => !editSaving && setEditTarget(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <TouchableOpacity
-            style={[styles.centeredOverlay, { justifyContent: "flex-start", paddingTop: 32 }]}
+            style={[styles.centeredOverlay, { justifyContent: "flex-end", paddingBottom: 12 }]}
             activeOpacity={1}
             onPress={() => !editSaving && setEditTarget(null)}
           >
             <TouchableOpacity activeOpacity={1} style={{ width: "88%" }}>
-              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "92%" }]}>
+              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "94%" }]}>
                 <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <Text style={[styles.sheetTitle, { color: C.text }]}>✏️ Modifier le message</Text>
 
@@ -807,7 +868,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                       </TouchableOpacity>
                     </View>
                   ) : (
-                    <TouchableOpacity style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]} onPress={pickEditPhoto}>
+                    <TouchableOpacity style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]} onPress={openEditPhotoPicker}>
                       <Text style={[styles.photoPickAddText, { color: C.muted }]}>📷 Ajouter une photo (optionnel)</Text>
                     </TouchableOpacity>
                   )}
@@ -846,12 +907,12 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
       >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <TouchableOpacity
-            style={[styles.centeredOverlay, { justifyContent: "flex-start", paddingTop: 32 }]}
+            style={[styles.centeredOverlay, { justifyContent: "flex-end", paddingBottom: 12 }]}
             activeOpacity={1}
             onPress={() => !replySaving && setReplyTarget(null)}
           >
             <TouchableOpacity activeOpacity={1} style={{ width: "88%" }}>
-              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "92%" }]}>
+              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "94%" }]}>
                 {/* Hors du ScrollView : le contexte (à qui on répond) doit rester
                     visible même quand le clavier ouvert force un scroll-to-focus
                     sur le champ de saisie, sinon il se retrouve rogné en haut. */}
@@ -1030,7 +1091,7 @@ const styles = StyleSheet.create({
 
   listPad: { padding: 14, paddingBottom: 40 },
 
-  msgArea: { height: 130, textAlignVertical: "top" },
+  msgArea: { height: 170, textAlignVertical: "top" },
   postBtn: { borderRadius: 10, paddingVertical: 12, alignItems: "center", marginTop: 4 },
   postBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#0D1B2E" },
   msgCard: { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 },
@@ -1080,4 +1141,8 @@ const styles = StyleSheet.create({
   // Centered overlay / sheet (for small/medium popups, distinct from the bottom-sheet pair above)
   centeredOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center" },
   centeredSheet: { width: "100%", borderRadius: 20, borderWidth: 1, padding: 24 },
+  pickerSheet: { alignItems: "stretch" },
+  pickerOption: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 16, marginTop: 12 },
+  pickerOptionIcon: { fontSize: 20 },
+  pickerOptionText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15 },
 });
