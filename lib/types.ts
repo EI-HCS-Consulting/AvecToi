@@ -53,10 +53,6 @@ export interface PatientSpace {
   // domicile…) pour cet espace — voir components/IntervenantFicheModal.tsx
   // et app/(admin)/intervenants.tsx. Désactivé par défaut.
   intervenants_enabled: boolean;
-  // Autorise l'admin à rendre visibles aux visiteurs les messages "Nouvelles
-  // du jour" publiés par des intervenants — canal dédié intervenants+admin
-  // par défaut (voir components/NewsFeed.tsx).
-  intervenant_news_visible_to_visitors: boolean;
 }
 
 export interface SlotConfig {
@@ -99,6 +95,15 @@ export interface SlotConfig {
   // — comportement historique) ou "some" (seuls ceux listés dans
   // night_authorized_visitors) — voir components/NightVisitorModal.tsx.
   night_visitor_mode: "all" | "some";
+  // Autorisation des intervenants à publier sur "Nouvelles du jour" des
+  // messages visibles aussi par les visiteurs : "disabled" (défaut, canal
+  // intervenants+admin non visible des visiteurs), "some" (seuls ceux listés
+  // dans news_authorized_intervenants), "all" (tous) — voir
+  // components/NewsIntervenantModal.tsx et components/NewsFeed.tsx. L'admin
+  // suit la même règle pour ses propres publications (pas de réglage séparé,
+  // visibles seulement en "all" — "some" ne concerne que les intervenants
+  // listés).
+  news_intervenant_mode: "disabled" | "some" | "all";
 }
 
 // Snapshot versionné de SlotConfig — une ligne fait foi de son valid_from
@@ -269,10 +274,14 @@ export interface NewsEntry {
   // Rôle de l'auteur au moment de la publication — détermine la portée du
   // message : "intervenant"/"admin" restent réservés au canal
   // intervenants+admin, sauf si l'espace autorise leur visibilité aux
-  // visiteurs (voir patient_spaces.intervenant_news_visible_to_visitors et
+  // visiteurs (voir slot_config.news_intervenant_mode et
   // components/NewsFeed.tsx). Les messages "visiteur" restent toujours
   // visibles de tous, comme avant cette fonctionnalité.
   author_role: "visiteur" | "intervenant" | "admin";
+  // Intervenant auteur (rempli uniquement si author_role = 'intervenant') —
+  // sert à vérifier son autorisation dans news_authorized_intervenants quand
+  // slot_config.news_intervenant_mode = 'some'.
+  intervenant_profile_id: string | null;
   created_at: string;
   // Suppression "douce" par l'admin (contenu d'un autre utilisateur que lui) :
   // reste visible avec un bandeau rouge pour l'auteur uniquement, masqué pour

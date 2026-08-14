@@ -7,7 +7,7 @@ import { getVisitorSession } from "@/lib/visitorSession";
 import NewsFeed from "@/components/NewsFeed";
 
 export default function VisitorNewsScreen() {
-  const { space, reservations } = useVisitorSpace();
+  const { space, reservations, slotConfig } = useVisitorSpace();
   const { theme: C } = useDisplayMode();
   const [role, setRole] = useState<"visiteur" | "intervenant">("visiteur");
 
@@ -30,7 +30,7 @@ export default function VisitorNewsScreen() {
       isAdmin={false}
       capped={isSpaceCapped(space, reservations)}
       viewerRole={role}
-      intervenantNewsVisibleToVisitors={space.intervenant_news_visible_to_visitors}
+      newsIntervenantMode={slotConfig?.news_intervenant_mode ?? "disabled"}
     />
   );
 }
