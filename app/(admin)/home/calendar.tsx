@@ -13,7 +13,6 @@ import SpaceHeader from "@/components/SpaceHeader";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import WeekStrip from "@/components/WeekStrip";
 import IntervenantPlanningPanel from "@/components/IntervenantPlanningPanel";
-import AdminSlotsList from "@/components/AdminSlotsList";
 import SoinsDayDetail from "@/components/SoinsDayDetail";
 import AdminAddReservation, { type AdminAddReservationHandle } from "@/components/AdminAddReservation";
 import AdminEditReservation, { type AdminEditReservationHandle } from "@/components/AdminEditReservation";
@@ -142,6 +141,16 @@ export default function AdminCalendarScreen() {
   const myPrenom = space.admin_firstname ?? null;
   const myNom = space.admin_lastname ?? null;
   const identityReady = !!myPrenom && !!myNom;
+  // isMyReservation() retombe sur un simple match de PIN (sans vérifier le
+  // nom) quand myPrenom/myNom sont vides — sûr côté visiteur (nom chargé de
+  // façon asynchrone, au pire brièvement absent) mais pas pour l'admin : son
+  // PIN peut être défini (recopié depuis son profil, voir account.tsx) sans
+  // que admin_firstname/admin_lastname le soient (colonnes renseignées une
+  // fois à la création de l'espace seulement). Sans cette garde, un visiteur
+  // ayant choisi le même PIN à 4 chiffres que l'admin (pas garanti unique
+  // dans l'espace) serait à tort reconnu comme "mien". On ignore donc le PIN
+  // tant que le nom n'est pas fiable.
+  const effectiveMyPin = identityReady ? myPin : null;
 
   const monthDays = getDaysInMonth(calMonth.year, calMonth.month);
   const firstDow = (new Date(calMonth.year, calMonth.month, 1).getDay() + 6) % 7;
@@ -155,27 +164,45 @@ export default function AdminCalendarScreen() {
   const admissionIso = space.patient_admission_date;
   const dischargeIso = space.patient_discharge_date;
 
-  const capped = isSpaceCapped(space, reservations);
   const selectedIso = toISO(selectedDay);
   const selectedDayConfig = getConfigForDate(selectedIso) ?? slotConfig;
   const selectedDaySlots = getSlotsForDate(selectedIso);
-  const selectedDayIsPast = selectedIso < toISO(today);
-  // Un jour antérieur à la date d'hospitalisation reste consultable dans la
-  // bande Hebdo, juste non réservable (E) — les jours déjà passés le sont
-  // aussi via dayIsPast/slotPast, déjà gérés par AdminSlotsList.
-  const weekDayBookable = !admissionIso || selectedIso >= admissionIso;
 
   // Panneau perso sous le calendrier (IntervenantPlanningPanel) — même
   // logique que le visiteur (élargi aux réservations partageant EXACTEMENT
   // un de mes créneaux, ex. un autre visiteur au même horaire) ; la grille,
   // elle, affiche toujours la vérité complète, voir familyBooked plus bas.
   const myReservations = identityReady
-    ? reservations.filter((r) => isMyReservation(r, myPin, null, myPrenom, myNom))
+    ? reservations.filter((r) => isMyReservation(r, effectiveMyPin, null, myPrenom, myNom))
     : reservations;
   const myPanelSlotKeys = new Set(myReservations.map((r) => `${r.date}|${r.creneau}`));
   const panelReservations = mesCreneauxOnly && identityReady
     ? reservations.filter((r) => myPanelSlotKeys.has(`${r.date}|${r.creneau}`))
     : reservations;
+
+  // Tap sur une case de la bande Hebdo — en mode Visites, même comportement
+  // que le visiteur : navigue vers l'écran dédié des créneaux, aucun détail
+  // affiché inline. En mode Soins, l'admin n'a pas d'écran dédié aux soins
+  // (home/slots.tsx est réservé aux visites) — on se contente de sélectionner
+  // le jour, affiché par le bloc lecture-seule sous le switch Visites/Soins.
+  const handleWeekDayPress = (iso: string) => {
+    const day = new Date(iso + "T00:00:00");
+    if (soinsMode) {
+      setSelectedDay(day);
+      return;
+    }
+    const dayConfig = getConfigForDate(iso) ?? slotConfig;
+    const daySlots = getSlotsForDate(iso);
+    const status = getDayStatus(reservations, iso, day, dayConfig, daySlots, startDate, "Visite");
+    const isPast = iso < toISO(today);
+    const isBlocked = status === "past" && !isPast;
+    if (isBlocked) {
+      setBlockedDayModal(day);
+      return;
+    }
+    setSelectedDay(day);
+    router.navigate("/(admin)/home/slots");
+  };
 
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
@@ -261,7 +288,7 @@ export default function AdminCalendarScreen() {
             // bordure grise par défaut, ne déborde jamais de la case),
             // toujours la vérité complète quel que soit "Afficher mes
             // créneaux".
-            const familyBooked = reservations.some((r) => r.date === iso && isMyReservation(r, myPin, null, myPrenom, myNom));
+            const familyBooked = reservations.some((r) => r.date === iso && isMyReservation(r, effectiveMyPin, null, myPrenom, myNom));
             const interventionBooked = reservations.some((r) => r.date === iso && r.type === "Intervention");
 
             return (
@@ -327,11 +354,11 @@ export default function AdminCalendarScreen() {
         ) : (
         <>
         {/* Vue Hebdo (D) — bande de 7 jours avec marqueurs hospitalisation/
-            sortie (F/G) et grisage avant la date d'hospitalisation (E). Le
-            détail du jour sélectionné juste en dessous permet d'ajouter
-            directement une réservation (visite) sans quitter la page ; en
-            mode Soins, lecture seule (c'est à l'intervenant de gérer son
-            propre planning). */}
+            sortie (F/G) et grisage avant la date d'hospitalisation (E). Aucun
+            détail de jour affiché inline ici, exactement comme le visiteur :
+            un tap navigue vers l'écran dédié des créneaux (en mode Visites).
+            En mode Soins, l'admin n'a pas d'écran dédié — le détail
+            (lecture seule) est affiché plus bas, sous le switch. */}
         <WeekStrip
           C={C}
           slotConfig={slotConfig}
@@ -343,42 +370,16 @@ export default function AdminCalendarScreen() {
           onWeekChange={setWeekAnchor}
           selectedIso={selectedIso}
           onSelectDay={(iso) => setSelectedDay(new Date(iso + "T00:00:00"))}
-          onDayPress={(iso) => setSelectedDay(new Date(iso + "T00:00:00"))}
+          onDayPress={handleWeekDayPress}
           soinsMode={soinsMode}
           role="visiteur"
           intervenantProfileId={null}
-          myPin={myPin}
+          myPin={effectiveMyPin}
           myPrenom={myPrenom}
           myNom={myNom}
           admissionIso={admissionIso}
           dischargeIso={dischargeIso}
         />
-
-        <Text style={[styles.weekDayTitle, { color: C.text }]}>{toFrLong(selectedDay)}</Text>
-
-        {soinsMode ? (
-          <SoinsDayDetail
-            C={C}
-            iso={selectedIso}
-            day={selectedDay}
-            config={selectedDayConfig}
-            daySlots={selectedDaySlots}
-            reservations={reservations}
-            status={getDayStatus(reservations, selectedIso, selectedDay, selectedDayConfig, selectedDaySlots, startDate, "Intervention")}
-          />
-        ) : (
-          <AdminSlotsList
-            iso={selectedIso}
-            reservations={reservations}
-            C={C}
-            dayIsPast={selectedDayIsPast}
-            capped={capped}
-            bookable={weekDayBookable}
-            onAdd={(slot, maxAdditional) => addRef.current?.open(selectedIso, slot, "Visite", maxAdditional)}
-            onEdit={(r) => editRef.current?.open(r)}
-            onAckAlert={async (rs) => { await supabase.from("reservations").update({ alert_seen: true }).in("id", rs.map((r) => r.id)); await refreshReservations(); }}
-          />
-        )}
         </>
         )}
 
@@ -411,12 +412,31 @@ export default function AdminCalendarScreen() {
           </View>
         </View>
 
+        {/* Détail Soins de la semaine (Hebdo + mode Soins uniquement) — pas
+            d'écran dédié équivalent à home/slots.tsx pour les soins côté
+            admin, donc affiché ici en lecture seule, juste avant "SOINS
+            PLANIFIÉS". */}
+        {planningView === "hebdo" && soinsMode && (
+          <>
+            <Text style={[styles.weekDayTitle, { color: C.text, marginTop: 16 }]}>{toFrLong(selectedDay)}</Text>
+            <SoinsDayDetail
+              C={C}
+              iso={selectedIso}
+              day={selectedDay}
+              config={selectedDayConfig}
+              daySlots={selectedDaySlots}
+              reservations={reservations}
+              status={getDayStatus(reservations, selectedIso, selectedDay, selectedDayConfig, selectedDaySlots, startDate, "Intervention")}
+            />
+          </>
+        )}
+
         <View style={{ marginTop: 16 }}>
           <IntervenantPlanningPanel
             C={C}
             reservations={panelReservations}
             soinsMode={soinsMode}
-            myPin={myPin}
+            myPin={effectiveMyPin}
             myPrenom={myPrenom}
             myNom={myNom}
           />
