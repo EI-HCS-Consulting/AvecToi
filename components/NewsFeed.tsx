@@ -128,6 +128,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
   const [formPhotos, setFormPhotos] = useState<{ uri: string; filename: string }[]>([]);
   const [formSaving, setFormSaving] = useState(false);
   const [addingPhoto, setAddingPhoto] = useState(false);
+  const [pickerVisible, setPickerVisible] = useState(false);
 
   // PIN modal (visitor edit/delete)
   const [pinModal, setPinModal] = useState<{ entry: NewsEntryWithUrls; action: "edit" | "delete" } | null>(null);
@@ -318,7 +319,18 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
   }
 
   // ── Photo picking ──────────────────────────────────────────────────────────
-  async function pickPhoto() {
+  function addPickedAssets(assets: { uri: string }[]) {
+    const newPhotos: { uri: string; filename: string }[] = [];
+    for (const asset of assets) {
+      const ts = Date.now();
+      const idx = formPhotos.length + newPhotos.length;
+      const filename = `${ts}_${idx}.jpg`;
+      newPhotos.push({ uri: asset.uri, filename });
+    }
+    setFormPhotos((prev) => [...prev, ...newPhotos]);
+  }
+
+  async function pickFromGallery() {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
       Alert.alert("Permission refusée", "Autorise l'accès à la galerie dans les paramètres.");
@@ -331,16 +343,24 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
       quality: 1,
     });
     setAddingPhoto(false);
-    if (!result.canceled) {
-      const newPhotos: { uri: string; filename: string }[] = [];
-      for (const asset of result.assets) {
-        const ts = Date.now();
-        const idx = formPhotos.length + newPhotos.length;
-        const filename = `${ts}_${idx}.jpg`;
-        newPhotos.push({ uri: asset.uri, filename });
-      }
-      setFormPhotos((prev) => [...prev, ...newPhotos]);
+    if (!result.canceled) addPickedAssets(result.assets);
+  }
+
+  async function pickFromCamera() {
+    const perm = await ImagePicker.requestCameraPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert("Permission refusée", "Autorise l'accès à la caméra dans les paramètres.");
+      return;
     }
+    setAddingPhoto(true);
+    const result = await ImagePicker.launchCameraAsync({ quality: 1, allowsEditing: false });
+    setAddingPhoto(false);
+    if (!result.canceled) addPickedAssets(result.assets);
+  }
+
+  function choosePickerSource(fn: () => void) {
+    setPickerVisible(false);
+    fn();
   }
 
   function removePhoto(idx: number) {
@@ -835,6 +855,43 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
         />
       )}
 
+      {/* ── MODAL CHOIX SOURCE (caméra / galerie) ─────────────────────────── */}
+      <Modal visible={pickerVisible} transparent animationType="fade" onRequestClose={() => setPickerVisible(false)}>
+        <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => setPickerVisible(false)}>
+          <TouchableOpacity activeOpacity={1} style={{ width: "88%" }}>
+            <View style={[styles.centeredSheet, styles.pickerSheet, { backgroundColor: C.card, borderColor: C.accent }]}>
+              <Text style={[styles.sheetTitle, { color: C.text, textAlign: "center" }]}>📷 Ajouter une photo</Text>
+              <Text style={[styles.sheetSub, { color: C.muted, textAlign: "center" }]}>Choisis la source de la photo</Text>
+
+              <TouchableOpacity
+                style={[styles.pickerOption, { borderColor: C.border }]}
+                onPress={() => choosePickerSource(pickFromCamera)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.pickerOptionIcon}>📷</Text>
+                <Text style={[styles.pickerOptionText, { color: C.text }]}>Prendre une photo</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.pickerOption, { borderColor: C.border }]}
+                onPress={() => choosePickerSource(pickFromGallery)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.pickerOptionIcon}>🖼️</Text>
+                <Text style={[styles.pickerOptionText, { color: C.text }]}>Choisir dans la galerie</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => setPickerVisible(false)}
+                style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", marginTop: 12 }}
+              >
+                <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.muted }}>Annuler</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
+
       {/* ── MODAL PUBLICATION / ÉDITION ───────────────────────────────────── */}
       <Modal
         visible={showForm}
@@ -908,7 +965,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
                       ))}
                       <TouchableOpacity
                         style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
-                        onPress={pickPhoto}
+                        onPress={() => setPickerVisible(true)}
                         disabled={addingPhoto}
                       >
                         {addingPhoto
@@ -1037,15 +1094,18 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !replySaving && setReplyTarget(null)}>
             <TouchableOpacity activeOpacity={1} style={{ width: "88%" }}>
-              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
-                <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-                  <Text style={[styles.sheetTitle, { color: C.text }]}>🙏 Répondre</Text>
-                  {replyTarget && (
-                    <Text style={[styles.sheetSub, { color: C.muted }]} numberOfLines={2}>
-                      À {replyTarget.author_prenom} {replyTarget.author_nom} : « {replyTarget.content} »
-                    </Text>
-                  )}
+              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "88%" }]}>
+                {/* Hors du ScrollView : le contexte (à qui on répond) doit rester
+                    visible même quand le clavier ouvert force un scroll-to-focus
+                    sur le champ de saisie, sinon il se retrouve rogné en haut. */}
+                <Text style={[styles.sheetTitle, { color: C.text }]}>🙏 Répondre</Text>
+                {replyTarget && (
+                  <Text style={[styles.sheetSub, { color: C.muted }]} numberOfLines={2}>
+                    À {replyTarget.author_prenom} {replyTarget.author_nom} : « {replyTarget.content} »
+                  </Text>
+                )}
 
+                <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <TextInput
                     ref={newsReplyTextRef}
                     style={[styles.input, styles.textarea, { height: 80, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
@@ -1270,6 +1330,10 @@ const styles = StyleSheet.create({
   // Centered overlay / sheet (for small popups, distinct from the bottom-sheet pair above)
   centeredOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center" },
   centeredSheet: { width: "100%", borderRadius: 20, borderWidth: 1, padding: 24 },
+  pickerSheet: { alignItems: "stretch" },
+  pickerOption: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 16, marginTop: 12 },
+  pickerOptionIcon: { fontSize: 20 },
+  pickerOptionText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15 },
 
   input: { borderWidth: 1, borderRadius: 10, padding: 12, fontFamily: "DM_Sans_400Regular", fontSize: 15, marginBottom: 10 },
   textarea: { height: 110, textAlignVertical: "top" },
