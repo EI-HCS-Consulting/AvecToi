@@ -2,12 +2,14 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, Alert, ActivityIndicator, Image, Modal,
-  KeyboardAvoidingView, Platform,
+  KeyboardAvoidingView, Platform, Dimensions,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import { File } from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
+import * as Sharing from "expo-sharing";
 import { supabase } from "@/lib/supabase";
 import { blobToArrayBuffer } from "@/lib/blobToArrayBuffer";
 import { getVisitorSession, rememberAuthorPin } from "@/lib/visitorSession";
@@ -21,6 +23,7 @@ import type { Theme } from "@/lib/themes";
 
 const PHOTO_BUCKET = "support-photos";
 const SOUVENIRS_BUCKET = "souvenirs";
+const { width: SCREEN_W } = Dimensions.get("window");
 
 function supportPhotoUrl(spaceId: string, filename: string) {
   const { data } = supabase.storage.from(PHOTO_BUCKET).getPublicUrl(`${spaceId}/${filename}`);
@@ -110,6 +113,28 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
 
   // Fiche visiteur — ouverte en cliquant le nom d'un auteur (sauf admin)
   const [profileTarget, setProfileTarget] = useState<{ prenom: string; nom: string } | null>(null);
+
+  // Lightbox photo (message ou réponse) — appui long pour télécharger, comme
+  // dans SouvenirsGallery.tsx (téléchargement via le partage natif).
+  const [lightbox, setLightbox] = useState<{ url: string } | null>(null);
+  const [downloadingLightbox, setDownloadingLightbox] = useState(false);
+
+  async function downloadLightboxPhoto() {
+    if (!lightbox) return;
+    if (!(await Sharing.isAvailableAsync())) {
+      Alert.alert("Partage non disponible", "Le partage de fichiers n'est pas disponible sur cet appareil.");
+      return;
+    }
+    setDownloadingLightbox(true);
+    try {
+      const localUri = (FileSystem.cacheDirectory ?? "") + `soutien_${Date.now()}.jpg`;
+      const { uri } = await FileSystem.downloadAsync(lightbox.url, localUri);
+      await Sharing.shareAsync(uri, { mimeType: "image/jpeg" });
+    } catch {
+      showToast("Erreur lors du téléchargement");
+    }
+    setDownloadingLightbox(false);
+  }
 
   const loadMessages = useCallback(async () => {
     setMsgsLoading(true);
@@ -653,7 +678,9 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
               <Text style={[styles.msgText, { color: C.text }]}>{m.message}</Text>
               {m.photo && (
                 <>
-                  <Image source={{ uri: supportPhotoUrl(spaceId, m.photo) }} style={styles.msgPhoto} resizeMode="cover" />
+                  <TouchableOpacity onPress={() => setLightbox({ url: supportPhotoUrl(spaceId, m.photo!) })} activeOpacity={0.85}>
+                    <Image source={{ uri: supportPhotoUrl(spaceId, m.photo) }} style={styles.msgPhoto} resizeMode="cover" />
+                  </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.souvenirsBtn, { borderColor: C.border }]}
                     onPress={() => addMessagePhotoToSouvenirs(m)}
@@ -692,7 +719,9 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                             )}
                             <Text style={[styles.replyText, { color: C.text }]}>{r.reply_text}</Text>
                             {r.photo && (
-                              <Image source={{ uri: supportPhotoUrl(spaceId, r.photo) }} style={[styles.replyPhotoThumb, { borderColor: C.border }]} resizeMode="cover" />
+                              <TouchableOpacity onPress={() => setLightbox({ url: supportPhotoUrl(spaceId, r.photo!) })} activeOpacity={0.85}>
+                                <Image source={{ uri: supportPhotoUrl(spaceId, r.photo) }} style={[styles.replyPhotoThumb, { borderColor: C.border }]} resizeMode="cover" />
+                              </TouchableOpacity>
                             )}
                           </View>
                           {canDeleteReply && (
@@ -784,7 +813,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
 
                   <TextInput
                     ref={msgTextRef}
-                    style={[styles.input, styles.msgArea, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 12 }]}
+                    style={[styles.input, styles.msgArea, { height: 140, backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 12 }]}
                     placeholder="Un mot d'encouragement pour la famille et le patient…"
                     placeholderTextColor={C.muted}
                     value={msgText}
@@ -843,13 +872,14 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                   </View>
                 ) : (
                   <TouchableOpacity
-                    style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
+                    style={[styles.photoPickAdd, { backgroundColor: C.gold + "1c", borderColor: C.gold }]}
                     onPress={openMsgPhotoPicker}
                     disabled={pickingPhoto}
+                    activeOpacity={0.8}
                   >
                     {pickingPhoto
-                      ? <ActivityIndicator color={C.accent} size="small" />
-                      : <Text style={[styles.photoPickAddText, { color: C.muted }]}>📷 Ajouter une photo (optionnel)</Text>
+                      ? <ActivityIndicator color={C.gold} size="small" />
+                      : <Text style={[styles.photoPickAddText, { color: C.gold }]}>📷 Ajouter une photo (optionnel)</Text>
                     }
                   </TouchableOpacity>
                 )}
@@ -920,8 +950,8 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                     </TouchableOpacity>
                   </View>
                 ) : (
-                  <TouchableOpacity style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]} onPress={openEditPhotoPicker}>
-                    <Text style={[styles.photoPickAddText, { color: C.muted }]}>📷 Ajouter une photo (optionnel)</Text>
+                  <TouchableOpacity style={[styles.photoPickAdd, { backgroundColor: C.gold + "1c", borderColor: C.gold }]} onPress={openEditPhotoPicker} activeOpacity={0.8}>
+                    <Text style={[styles.photoPickAddText, { color: C.gold }]}>📷 Ajouter une photo (optionnel)</Text>
                   </TouchableOpacity>
                 )}
 
@@ -976,7 +1006,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                 <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <TextInput
                     ref={soutienReplyTextRef}
-                    style={[styles.input, styles.msgArea, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                    style={[styles.input, styles.msgArea, { height: 140, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
                     placeholder="Ta réponse…"
                     placeholderTextColor={C.muted}
                     value={replyText}
@@ -1030,13 +1060,14 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                   </View>
                 ) : (
                   <TouchableOpacity
-                    style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
+                    style={[styles.photoPickAdd, { backgroundColor: C.gold + "1c", borderColor: C.gold }]}
                     onPress={openReplyPhotoPicker}
                     disabled={pickingReplyPhoto}
+                    activeOpacity={0.8}
                   >
                     {pickingReplyPhoto
-                      ? <ActivityIndicator color={C.accent} size="small" />
-                      : <Text style={[styles.photoPickAddText, { color: C.muted }]}>📷 Ajouter une photo (optionnel)</Text>
+                      ? <ActivityIndicator color={C.gold} size="small" />
+                      : <Text style={[styles.photoPickAddText, { color: C.gold }]}>📷 Ajouter une photo (optionnel)</Text>
                     }
                   </TouchableOpacity>
                 )}
@@ -1124,6 +1155,31 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
         </TouchableOpacity>
       </Modal>
 
+      {/* ── LIGHTBOX PHOTO (message / réponse) ───────────────────────────── */}
+      <Modal visible={!!lightbox} transparent animationType="fade" onRequestClose={() => setLightbox(null)}>
+        <View style={styles.lightboxBg}>
+          {lightbox && (
+            <>
+              <TouchableOpacity
+                activeOpacity={1}
+                onPress={() => setLightbox(null)}
+                onLongPress={downloadLightboxPhoto}
+                delayLongPress={350}
+              >
+                <Image source={{ uri: lightbox.url }} style={styles.lightboxImg} resizeMode="contain" />
+              </TouchableOpacity>
+              {downloadingLightbox
+                ? <ActivityIndicator color="#fff" style={styles.lightboxHint} />
+                : <Text style={styles.lightboxHint}>Reste appuyé sur la photo pour la télécharger</Text>
+              }
+            </>
+          )}
+          <TouchableOpacity style={styles.lightboxClose} onPress={() => setLightbox(null)}>
+            <Text style={styles.lightboxCloseText}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
+
       {/* ── FICHE VISITEUR ────────────────────────────────────────────────── */}
       {profileTarget && (
         <VisitorProfileModal
@@ -1195,8 +1251,8 @@ const styles = StyleSheet.create({
   photoPreviewRow: { position: "relative", marginBottom: 10 },
   photoPreviewImg: { width: "100%", height: 140, borderRadius: 10 },
   photoPickRemove: { position: "absolute", top: -6, right: -6, width: 22, height: 22, borderRadius: 11, alignItems: "center", justifyContent: "center" },
-  photoPickAdd: { borderWidth: 1, borderStyle: "dashed", borderRadius: 10, paddingVertical: 14, alignItems: "center", marginBottom: 10 },
-  photoPickAddText: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
+  photoPickAdd: { flexDirection: "row", borderWidth: 1, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14, alignItems: "center", justifyContent: "center", marginBottom: 10 },
+  photoPickAddText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13.5 },
 
   toast: { position: "absolute", bottom: 24, alignSelf: "center", paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10 },
   toastText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13, color: "#fff" },
@@ -1219,4 +1275,11 @@ const styles = StyleSheet.create({
   pickerOption: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 16, marginTop: 12 },
   pickerOptionIcon: { fontSize: 20 },
   pickerOptionText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15 },
+
+  // Lightbox
+  lightboxBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.96)", alignItems: "center", justifyContent: "center" },
+  lightboxImg: { width: SCREEN_W, height: SCREEN_W * 1.1 },
+  lightboxHint: { color: "rgba(255,255,255,0.7)", fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 16 },
+  lightboxClose: { position: "absolute", top: 52, right: 16, width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" },
+  lightboxCloseText: { color: "#fff", fontSize: 16, fontWeight: "600" },
 });

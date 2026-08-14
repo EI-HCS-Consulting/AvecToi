@@ -1037,13 +1037,14 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
                       </View>
                     ))}
                     <TouchableOpacity
-                      style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
+                      style={[styles.photoPickAdd, { backgroundColor: C.gold + "1c", borderColor: C.gold }]}
                       onPress={openFormPhotoPicker}
                       disabled={addingPhoto}
+                      activeOpacity={0.8}
                     >
                       {addingPhoto
-                        ? <ActivityIndicator color={C.accent} size="small" />
-                        : <Text style={[styles.photoPickAddText, { color: C.muted }]}>📷{"\n"}Ajouter</Text>
+                        ? <ActivityIndicator color={C.gold} size="small" />
+                        : <Text style={[styles.photoPickAddText, { color: C.gold }]}>📷{"\n"}Ajouter</Text>
                       }
                     </TouchableOpacity>
                   </View>
@@ -1225,13 +1226,14 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
                   </View>
                 ) : (
                   <TouchableOpacity
-                    style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
+                    style={[styles.photoAddBanner, { backgroundColor: C.gold + "1c", borderColor: C.gold }]}
                     onPress={openReplyPhotoPicker}
                     disabled={addingPhoto}
+                    activeOpacity={0.8}
                   >
                     {addingPhoto
-                      ? <ActivityIndicator color={C.accent} size="small" />
-                      : <Text style={[styles.photoPickAddText, { color: C.muted }]}>📷 Ajouter une photo (optionnel)</Text>
+                      ? <ActivityIndicator color={C.gold} size="small" />
+                      : <Text style={[styles.photoAddBannerText, { color: C.gold }]}>📷 Ajouter une photo (optionnel)</Text>
                     }
                   </TouchableOpacity>
                 )}
@@ -1430,8 +1432,10 @@ const styles = StyleSheet.create({
   photoPickItem: { position: "relative" },
   photoPickThumb: { width: 72, height: 72, borderRadius: 10 },
   photoPickRemove: { position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  photoPickAdd: { width: 72, height: 72, borderRadius: 10, borderWidth: 1, borderStyle: "dashed", alignItems: "center", justifyContent: "center" },
-  photoPickAddText: { fontFamily: "DM_Sans_400Regular", fontSize: 11, textAlign: "center", lineHeight: 16 },
+  photoPickAdd: { width: 72, height: 72, borderRadius: 10, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  photoPickAddText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, textAlign: "center", lineHeight: 16 },
+  photoAddBanner: { flexDirection: "row", borderWidth: 1, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14, alignItems: "center", justifyContent: "center", marginBottom: 10 },
+  photoAddBannerText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13.5 },
 
   pinContext: { borderWidth: 1, borderRadius: 10, padding: 12, marginBottom: 16 },
   pinContextText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 20, fontStyle: "italic" },
