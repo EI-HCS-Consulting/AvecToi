@@ -164,6 +164,15 @@ export function isMyReservation(
   if (r.type === "Intervention") {
     return !!intervenantProfileId && r.intervenant_profile_id === intervenantProfileId;
   }
+  // Une réservation créée par l'admin (ex. nuitée arrangée par téléphone/
+  // accueil, voir AdminAddReservation.tsx) porte le PIN sentinelle "ADMIN"
+  // plutôt qu'un vrai PIN visiteur — elle ne peut donc jamais correspondre à
+  // myPin. On retombe alors sur le prénom+nom pour la reconnaître comme
+  // "mienne" (sinon elle disparaît du panneau perso dès que "Afficher mes
+  // créneaux" est actif, alors qu'elle est bien la sienne).
+  if (r.pin === "ADMIN") {
+    return !!myPrenom && !!myNom && r.prenom === myPrenom && r.nom === myNom;
+  }
   if (!myPin || r.pin !== myPin) return false;
   if (myPrenom && myNom) {
     return r.prenom === myPrenom && r.nom === myNom;

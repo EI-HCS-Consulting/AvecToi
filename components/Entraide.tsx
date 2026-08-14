@@ -46,6 +46,18 @@ const CATEGORY_ICONS: Record<TaskCategory, string> = {
   autre: "💡",
 };
 
+// Titre inséré automatiquement dans "Titre du besoin" quand on choisit une
+// catégorie (voir selectCategory) — modifiable ensuite à la main, l'auto-
+// remplissage ne réécrase jamais une saisie manuelle (voir autoTitleRef).
+const CATEGORY_AUTO_TITLES: Record<TaskCategory, string> = {
+  repas: "Besoin Repas",
+  affaires: "Besoin Affaires",
+  courses: "Besoin Courses",
+  transport: "Besoin covoiturage",
+  administratif: "Besoin Administratif",
+  autre: "Autre besoin",
+};
+
 const CATEGORY_LABELS: Record<TaskCategory, string> = {
   repas: "Repas",
   affaires: "Affaires",
@@ -238,7 +250,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [fTForNom, setFTForNom] = useState("");
   // Dernier titre généré automatiquement (catégorie/date) — permet de ne
   // jamais écraser un titre que la personne a personnalisé à la main.
-  const autoTransportTitleRef = useRef("");
+  const autoTitleRef = useRef("");
   // Largeur de pastille du switch "Aller simple / Aller-retour", reprise
   // par le switch "Flexible / Horaire fixe" juste en dessous pour que les
   // deux curseurs aient la même taille.
@@ -250,23 +262,21 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
   function selectCategory(cat: TaskCategory) {
     setFCat(cat);
-    if (cat === "transport" && !editTask && !fTitle.trim()) {
-      autoTransportTitleRef.current = "Besoin covoiturage";
-      setFTitle("Besoin covoiturage");
-    } else if (cat !== "transport" && !editTask && fTitle === autoTransportTitleRef.current) {
-      // Quitte la catégorie Transport : le titre auto-généré ("Besoin
-      // covoiturage" ou sa variante datée) n'a plus de sens ailleurs — on
-      // l'efface, sauf si la personne l'a modifié à la main entre-temps.
-      autoTransportTitleRef.current = "";
-      setFTitle("");
+    // N'écrase le titre que s'il est vide ou encore égal au dernier titre
+    // auto-inséré (personne n'a tapé sa propre saisie depuis) — sinon on
+    // laisse la saisie manuelle intacte.
+    if (!editTask && (!fTitle.trim() || fTitle === autoTitleRef.current)) {
+      const next = CATEGORY_AUTO_TITLES[cat];
+      autoTitleRef.current = next;
+      setFTitle(next);
     }
   }
 
   function handleTransportDateSelect(iso: string) {
     setFTDate(iso);
-    if (!fTitle.trim() || fTitle === autoTransportTitleRef.current) {
+    if (!fTitle.trim() || fTitle === autoTitleRef.current) {
       const next = `Besoin covoiturage : ${toFrShort(new Date(iso + "T12:00:00"))}`;
-      autoTransportTitleRef.current = next;
+      autoTitleRef.current = next;
       setFTitle(next);
     }
   }
@@ -516,7 +526,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       return;
     }
     setEditTask(null);
-    setFTitle(""); setFDesc(""); setFCat("autre");
+    autoTitleRef.current = CATEGORY_AUTO_TITLES.autre;
+    setFTitle(autoTitleRef.current); setFDesc(""); setFCat("autre");
     setFPhotoUri(null); setFExistingPhoto(null);
     setClaimOnCreate(false);
     setClaimPrenom(""); setClaimNom(""); setClaimPin("");
@@ -529,7 +540,6 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setFTCalMonth(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
     setFDateLimite(""); setFDLPickerOpen(false); setFUrgent(false);
     setFDLCalMonth(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
-    autoTransportTitleRef.current = "";
     setTaskForm(true);
   }
 
@@ -2343,15 +2353,23 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               const tpl = CHECKLIST_TEMPLATES[checklistContext];
               const color = C[tpl.colorKey];
               const items = tpl.groups.flatMap((g) => g.items);
+              // "Tout cocher/décocher" ne porte que sur les items du modèle
+              // encore sélectionnables (déjà-publiés exclus, ils sont non
+              // interactifs — voir dup ci-dessous) : comparer à items.length
+              // (qui inclut les déjà-publiés) empêchait le compte de jamais
+              // atteindre le total dès qu'un item était déjà publié, figeant
+              // le bouton sur "Tout cocher" sans effet visible.
+              const selectableCount = items.filter((item) => !findDuplicateAdminTask(item.title)).length;
               const customCount = checklistCustomItems.filter((title) => !findDuplicateAdminTask(title)).length;
               const checkedCount = items.filter((item, i) => checklistChecked[i] && !findDuplicateAdminTask(item.title)).length + customCount;
+              const checkedTemplateCount = checkedCount - customCount;
               let runningIndex = -1;
               return (
                 <>
                   <Text style={[styles.sheetTitle, { color: C.text }]}>{tpl.icon} {tpl.label}</Text>
-                  <TouchableOpacity onPress={() => toggleAllChecklist(checkedCount < items.length)} activeOpacity={0.7}>
+                  <TouchableOpacity onPress={() => toggleAllChecklist(checkedTemplateCount < selectableCount)} activeOpacity={0.7}>
                     <Text style={[styles.checklistToggleAll, { color }]}>
-                      {checkedCount === items.length ? "Tout décocher" : "Tout cocher"}
+                      {checkedTemplateCount === selectableCount ? "Tout décocher" : "Tout cocher"}
                     </Text>
                   </TouchableOpacity>
 
@@ -2571,18 +2589,21 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       <Modal
         visible={!!claimTarget || thanksModal}
         transparent
-        animationType="slide"
+        animationType={thanksModal ? "fade" : "slide"}
         onRequestClose={() => (thanksModal ? setThanksModal(false) : setClaimTarget(null))}
       >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <TouchableOpacity
-            style={styles.overlay}
+            style={thanksModal ? styles.centeredOverlay : styles.overlay}
             activeOpacity={1}
             onPress={() => { if (thanksModal) setThanksModal(false); else if (!claimSaving) setClaimTarget(null); }}
           >
-            <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
+            <ScrollView
+              contentContainerStyle={thanksModal ? styles.centeredOverlayScroll : styles.overlayScroll}
+              keyboardShouldPersistTaps="handled"
+            >
               <TouchableOpacity activeOpacity={1}>
-                <View style={[styles.sheet, { backgroundColor: C.card, borderColor: thanksModal ? C.gold : C.accent }]}>
+                <View style={[thanksModal ? styles.centeredSheet : styles.sheet, { backgroundColor: C.card, borderColor: thanksModal ? C.gold : C.accent }]}>
                   {thanksModal ? (
                     <>
                       <View style={{ alignItems: "center", marginBottom: 16 }}>
@@ -3344,6 +3365,7 @@ const styles = StyleSheet.create({
 
   // Centered overlay / sheet (for small popups, distinct from the bottom-sheet pair above)
   centeredOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center" },
+  centeredOverlayScroll: { flexGrow: 1, justifyContent: "center", alignItems: "center" },
   centeredSheet: { width: "88%", borderRadius: 20, borderWidth: 1, padding: 24 },
 
   sheetTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, marginBottom: 4 },
