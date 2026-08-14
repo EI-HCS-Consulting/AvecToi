@@ -479,6 +479,7 @@ export interface SupportMessageReply {
   author_prenom: string;
   author_nom: string;
   author_pin: string | null;
+  photo: string | null;
   created_at: string;
   // Suppression "douce" par l'admin (réponse d'un autre utilisateur que lui) :
   // reste visible avec un bandeau rouge pour l'auteur uniquement, masqué pour

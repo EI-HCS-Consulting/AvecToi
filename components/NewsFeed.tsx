@@ -1008,34 +1008,6 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
                     textAlignVertical="top"
                   />
 
-                  {/* Photos */}
-                  <Text style={[styles.fieldLabel, { color: C.gold }]}>Photos (optionnel)</Text>
-                  <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator={false} style={{ marginBottom: 10, height: 84, flexShrink: 0 }}>
-                    <View style={{ flexDirection: "row", gap: 8, paddingVertical: 4 }}>
-                      {formPhotos.map((p, i) => (
-                        <View key={i} style={styles.photoPickItem}>
-                          <Image source={{ uri: p.uri }} style={styles.photoPickThumb} resizeMode="cover" />
-                          <TouchableOpacity
-                            style={[styles.photoPickRemove, { backgroundColor: C.danger }]}
-                            onPress={() => removePhoto(i)}
-                          >
-                            <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>✕</Text>
-                          </TouchableOpacity>
-                        </View>
-                      ))}
-                      <TouchableOpacity
-                        style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
-                        onPress={openFormPhotoPicker}
-                        disabled={addingPhoto}
-                      >
-                        {addingPhoto
-                          ? <ActivityIndicator color={C.accent} size="small" />
-                          : <Text style={[styles.photoPickAddText, { color: C.muted }]}>📷{"\n"}Ajouter</Text>
-                        }
-                      </TouchableOpacity>
-                    </View>
-                  </ScrollView>
-
                   {/* PIN (visiteur uniquement, à la création, si pas de PIN mémorisé) */}
                   {!isAdmin && !editTarget && !sessionPin && (
                     <>
@@ -1047,8 +1019,36 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
                   )}
                 </ScrollView>
 
-                {/* Hors du ScrollView : toujours visibles, jamais besoin de
-                    scroller pour valider ou annuler. */}
+                {/* Hors du ScrollView, juste au-dessus du bouton Publier :
+                    toujours entièrement visible, même quand le clavier ouvert
+                    force un scroll-to-focus sur le champ de saisie. */}
+                <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 10 }]}>Photos (optionnel)</Text>
+                <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={{ marginBottom: 10, height: 84, flexShrink: 0 }}>
+                  <View style={{ flexDirection: "row", gap: 8, paddingVertical: 4 }}>
+                    {formPhotos.map((p, i) => (
+                      <View key={i} style={styles.photoPickItem}>
+                        <Image source={{ uri: p.uri }} style={styles.photoPickThumb} resizeMode="cover" />
+                        <TouchableOpacity
+                          style={[styles.photoPickRemove, { backgroundColor: C.danger }]}
+                          onPress={() => removePhoto(i)}
+                        >
+                          <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>✕</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                    <TouchableOpacity
+                      style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
+                      onPress={openFormPhotoPicker}
+                      disabled={addingPhoto}
+                    >
+                      {addingPhoto
+                        ? <ActivityIndicator color={C.accent} size="small" />
+                        : <Text style={[styles.photoPickAddText, { color: C.muted }]}>📷{"\n"}Ajouter</Text>
+                      }
+                    </TouchableOpacity>
+                  </View>
+                </ScrollView>
+
                 <View style={styles.sheetBtns}>
                   <TouchableOpacity
                     onPress={closeForm}
@@ -1182,26 +1182,6 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
                     textAlignVertical="top"
                   />
 
-                  {replyPhotoUri ? (
-                    <View style={[styles.photoPickItem, { marginBottom: 10 }]}>
-                      <Image source={{ uri: replyPhotoUri }} style={styles.photoPickThumb} resizeMode="cover" />
-                      <TouchableOpacity style={[styles.photoPickRemove, { backgroundColor: C.danger }]} onPress={removeReplyPhoto}>
-                        <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>✕</Text>
-                      </TouchableOpacity>
-                    </View>
-                  ) : (
-                    <TouchableOpacity
-                      style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
-                      onPress={openReplyPhotoPicker}
-                      disabled={addingPhoto}
-                    >
-                      {addingPhoto
-                        ? <ActivityIndicator color={C.accent} size="small" />
-                        : <Text style={[styles.photoPickAddText, { color: C.muted }]}>📷 Ajouter une photo (optionnel)</Text>
-                      }
-                    </TouchableOpacity>
-                  )}
-
                   {!(formPrenom.trim() && formNom.trim()) && (
                     <View style={{ flexDirection: "row", gap: 8 }}>
                       <TextInput
@@ -1232,6 +1212,29 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
                     </>
                   )}
                 </ScrollView>
+
+                {/* Hors du ScrollView, juste au-dessus du bouton Envoyer :
+                    toujours entièrement visible, même quand le clavier ouvert
+                    force un scroll-to-focus sur le champ de saisie. */}
+                {replyPhotoUri ? (
+                  <View style={[styles.photoPickItem, { marginBottom: 10 }]}>
+                    <Image source={{ uri: replyPhotoUri }} style={styles.photoPickThumb} resizeMode="cover" />
+                    <TouchableOpacity style={[styles.photoPickRemove, { backgroundColor: C.danger }]} onPress={removeReplyPhoto}>
+                      <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
+                    onPress={openReplyPhotoPicker}
+                    disabled={addingPhoto}
+                  >
+                    {addingPhoto
+                      ? <ActivityIndicator color={C.accent} size="small" />
+                      : <Text style={[styles.photoPickAddText, { color: C.muted }]}>📷 Ajouter une photo (optionnel)</Text>
+                    }
+                  </TouchableOpacity>
+                )}
 
                 <View style={styles.sheetBtns}>
                   <TouchableOpacity
