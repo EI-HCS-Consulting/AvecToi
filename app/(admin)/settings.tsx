@@ -2410,7 +2410,7 @@ export default function SettingsScreen() {
                           style={[styles.saveNotesBtn, { backgroundColor: C.card, borderWidth: 1, borderColor: C.orange, marginTop: 8 }]}
                           onPress={() => setNewsIntervenantModalVisible(true)}
                         >
-                          <Text style={[styles.saveNotesBtnText, { color: C.orange }]}>📰 Publications Nouvelles des intervenants</Text>
+                          <Text style={[styles.saveNotesBtnText, { color: C.orange }]}>📰 Nouvelles des intervenants</Text>
                         </TouchableOpacity>
                       </>
                     )}
