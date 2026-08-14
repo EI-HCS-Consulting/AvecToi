@@ -142,16 +142,24 @@ export default function AdminAccountScreen() {
     setAdminMotto(tempMotto.trim());
     setAdminPin(tempPin);
 
-    // Recopie le PIN dans patient_spaces.admin_pin : dénormalisé depuis
-    // user_metadata pour être consultable via l'API publique / le dashboard
+    // Recopie PIN + nom dans patient_spaces : dénormalisés depuis
+    // user_metadata pour être consultables via l'API publique / le dashboard
     // Supabase (auth.users n'est pas exposé), même principe que admin_email
-    // (migration 20260726_patient_spaces_admin_email.sql). Sans cette
-    // recopie, la colonne resterait figée à sa valeur de création de
-    // l'espace (vide, le PIN n'existant pas encore à ce moment-là).
+    // (migration 20260726_patient_spaces_admin_email.sql). admin_firstname/
+    // admin_lastname ne sont sinon renseignés qu'une fois, à la création de
+    // l'espace (PatientOnboarding.tsx) — sans cette recopie, ils restent
+    // figés à cette valeur initiale (potentiellement vide) même après que
+    // l'admin renseigne ou modifie son nom ici, ce qui fait dégénérer
+    // isMyReservation() vers un simple match de PIN (non fiable, PIN pas
+    // garanti unique dans l'espace) côté calendrier admin.
     if (adminUserId) {
       await supabase
         .from("patient_spaces")
-        .update({ admin_pin: tempPin || null })
+        .update({
+          admin_pin: tempPin || null,
+          admin_firstname: tempFirstname.trim() || null,
+          admin_lastname: tempLastname.trim() || null,
+        })
         .eq("admin_id", adminUserId);
     }
 
