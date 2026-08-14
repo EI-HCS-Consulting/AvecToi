@@ -668,7 +668,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
       >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !msgSaving && setShowAddModal(false)}>
-            <TouchableOpacity activeOpacity={1}>
+            <TouchableOpacity activeOpacity={1} style={{ width: "88%" }}>
               <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
                 <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <Text style={[styles.sheetTitle, { color: C.text }]}>💛 Laisser un message</Text>
@@ -775,7 +775,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
       <Modal visible={!!editTarget} transparent animationType="fade" onRequestClose={() => !editSaving && setEditTarget(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !editSaving && setEditTarget(null)}>
-            <TouchableOpacity activeOpacity={1}>
+            <TouchableOpacity activeOpacity={1} style={{ width: "88%" }}>
               <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
                 <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <Text style={[styles.sheetTitle, { color: C.text }]}>✏️ Modifier le message</Text>
@@ -838,7 +838,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
       >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !replySaving && setReplyTarget(null)}>
-            <TouchableOpacity activeOpacity={1}>
+            <TouchableOpacity activeOpacity={1} style={{ width: "88%" }}>
               <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
                 <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <Text style={[styles.sheetTitle, { color: C.text }]}>🙏 Répondre</Text>
@@ -1064,5 +1064,5 @@ const styles = StyleSheet.create({
 
   // Centered overlay / sheet (for small/medium popups, distinct from the bottom-sheet pair above)
   centeredOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center" },
-  centeredSheet: { width: "88%", borderRadius: 20, borderWidth: 1, padding: 24 },
+  centeredSheet: { width: "100%", borderRadius: 20, borderWidth: 1, padding: 24 },
 });

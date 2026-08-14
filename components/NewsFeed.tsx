@@ -845,7 +845,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
       >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !formSaving && closeForm()}>
-            <TouchableOpacity activeOpacity={1}>
+            <TouchableOpacity activeOpacity={1} style={{ width: "88%" }}>
               <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
                 <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <Text style={[styles.sheetTitle, { color: C.text }]}>
@@ -893,7 +893,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
 
                   {/* Photos */}
                   <Text style={[styles.fieldLabel, { color: C.gold }]}>Photos (optionnel)</Text>
-                  <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }}>
+                  <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator={false} style={{ marginBottom: 10, height: 84, flexShrink: 0 }}>
                     <View style={{ flexDirection: "row", gap: 8, paddingVertical: 4 }}>
                       {formPhotos.map((p, i) => (
                         <View key={i} style={styles.photoPickItem}>
@@ -969,7 +969,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
       {/* ── MODAL PIN ─────────────────────────────────────────────────────── */}
       <Modal visible={!!pinModal} transparent animationType="fade" onRequestClose={() => setPinModal(null)}>
         <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => setPinModal(null)}>
-          <TouchableOpacity activeOpacity={1}>
+          <TouchableOpacity activeOpacity={1} style={{ width: "88%" }}>
             <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent }]}>
             <View style={{ alignItems: "center", marginBottom: 16 }}>
               <Text style={{ fontSize: 32, marginBottom: 6 }}>🔐</Text>
@@ -1036,7 +1036,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
       >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !replySaving && setReplyTarget(null)}>
-            <TouchableOpacity activeOpacity={1}>
+            <TouchableOpacity activeOpacity={1} style={{ width: "88%" }}>
               <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
                 <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <Text style={[styles.sheetTitle, { color: C.text }]}>🙏 Répondre</Text>
@@ -1269,7 +1269,7 @@ const styles = StyleSheet.create({
 
   // Centered overlay / sheet (for small popups, distinct from the bottom-sheet pair above)
   centeredOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center" },
-  centeredSheet: { width: "88%", borderRadius: 20, borderWidth: 1, padding: 24 },
+  centeredSheet: { width: "100%", borderRadius: 20, borderWidth: 1, padding: 24 },
 
   input: { borderWidth: 1, borderRadius: 10, padding: 12, fontFamily: "DM_Sans_400Regular", fontSize: 15, marginBottom: 10 },
   textarea: { height: 110, textAlignVertical: "top" },
