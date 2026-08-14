@@ -808,9 +808,12 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
           >
             <TouchableOpacity activeOpacity={1} style={{ width: "88%" }}>
               <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "94%" }]}>
-                <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-                  <Text style={[styles.sheetTitle, { color: C.text }]}>💛 Laisser un message</Text>
+                {/* Hors du ScrollView : le titre doit rester visible même
+                    quand le clavier ouvert force un scroll-to-focus sur le
+                    champ de saisie, sinon il se retrouve caché en haut. */}
+                <Text style={[styles.sheetTitle, { color: C.text }]}>💛 Laisser un message</Text>
 
+                <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <TextInput
                     ref={msgTextRef}
                     style={[styles.input, styles.msgArea, { height: 140, backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 12 }]}
@@ -923,9 +926,12 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
           >
             <TouchableOpacity activeOpacity={1} style={{ width: "88%" }}>
               <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "94%" }]}>
-                <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-                  <Text style={[styles.sheetTitle, { color: C.text }]}>✏️ Modifier le message</Text>
+                {/* Hors du ScrollView : le titre doit rester visible même
+                    quand le clavier ouvert force un scroll-to-focus sur le
+                    champ de saisie, sinon il se retrouve caché en haut. */}
+                <Text style={[styles.sheetTitle, { color: C.text }]}>✏️ Modifier le message</Text>
 
+                <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <TextInput
                     style={[styles.input, styles.msgArea, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 12 }]}
                     placeholder="Un mot d'encouragement…"

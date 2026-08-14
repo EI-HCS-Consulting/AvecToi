@@ -964,11 +964,14 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
           >
             <TouchableOpacity activeOpacity={1} style={{ width: "88%" }}>
               <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "94%" }]}>
-                <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-                  <Text style={[styles.sheetTitle, { color: C.text }]}>
-                    {editTarget ? "✏️ Modifier la nouvelle" : "📰 Nouvelle du jour"}
-                  </Text>
+                {/* Hors du ScrollView : le titre doit rester visible même
+                    quand le clavier ouvert force un scroll-to-focus sur le
+                    champ de saisie, sinon il se retrouve caché en haut. */}
+                <Text style={[styles.sheetTitle, { color: C.text }]}>
+                  {editTarget ? "✏️ Modifier la nouvelle" : "📰 Nouvelle du jour"}
+                </Text>
 
+                <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   {/* Champs auteur — uniquement si l'identité n'est pas encore
                       connue (première publication de ce visiteur/admin) ;
                       une fois connue (session visiteur ou profil admin),
@@ -1022,33 +1025,34 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
                 {/* Hors du ScrollView, juste au-dessus du bouton Publier :
                     toujours entièrement visible, même quand le clavier ouvert
                     force un scroll-to-focus sur le champ de saisie. */}
-                <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 10 }]}>Photos (optionnel)</Text>
-                <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={{ marginBottom: 10, height: 84, flexShrink: 0 }}>
-                  <View style={{ flexDirection: "row", gap: 8, paddingVertical: 4 }}>
-                    {formPhotos.map((p, i) => (
-                      <View key={i} style={styles.photoPickItem}>
-                        <Image source={{ uri: p.uri }} style={styles.photoPickThumb} resizeMode="cover" />
-                        <TouchableOpacity
-                          style={[styles.photoPickRemove, { backgroundColor: C.danger }]}
-                          onPress={() => removePhoto(i)}
-                        >
-                          <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>✕</Text>
-                        </TouchableOpacity>
-                      </View>
-                    ))}
-                    <TouchableOpacity
-                      style={[styles.photoPickAdd, { backgroundColor: C.gold + "1c", borderColor: C.gold }]}
-                      onPress={openFormPhotoPicker}
-                      disabled={addingPhoto}
-                      activeOpacity={0.8}
-                    >
-                      {addingPhoto
-                        ? <ActivityIndicator color={C.gold} size="small" />
-                        : <Text style={[styles.photoPickAddText, { color: C.gold }]}>📷{"\n"}Ajouter</Text>
-                      }
-                    </TouchableOpacity>
-                  </View>
-                </ScrollView>
+                {formPhotos.length > 0 && (
+                  <ScrollView horizontal nestedScrollEnabled showsHorizontalScrollIndicator={false} keyboardShouldPersistTaps="handled" style={{ marginBottom: 10, height: 84, flexShrink: 0 }}>
+                    <View style={{ flexDirection: "row", gap: 8, paddingVertical: 4 }}>
+                      {formPhotos.map((p, i) => (
+                        <View key={i} style={styles.photoPickItem}>
+                          <Image source={{ uri: p.uri }} style={styles.photoPickThumb} resizeMode="cover" />
+                          <TouchableOpacity
+                            style={[styles.photoPickRemove, { backgroundColor: C.danger }]}
+                            onPress={() => removePhoto(i)}
+                          >
+                            <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>✕</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
+                  </ScrollView>
+                )}
+                <TouchableOpacity
+                  style={[styles.photoAddBanner, { backgroundColor: C.gold + "1c", borderColor: C.gold }]}
+                  onPress={openFormPhotoPicker}
+                  disabled={addingPhoto}
+                  activeOpacity={0.8}
+                >
+                  {addingPhoto
+                    ? <ActivityIndicator color={C.gold} size="small" />
+                    : <Text style={[styles.photoAddBannerText, { color: C.gold }]}>📷 Ajouter une photo (optionnel)</Text>
+                  }
+                </TouchableOpacity>
 
                 <View style={styles.sheetBtns}>
                   <TouchableOpacity
@@ -1432,8 +1436,6 @@ const styles = StyleSheet.create({
   photoPickItem: { position: "relative" },
   photoPickThumb: { width: 72, height: 72, borderRadius: 10 },
   photoPickRemove: { position: "absolute", top: -6, right: -6, width: 20, height: 20, borderRadius: 10, alignItems: "center", justifyContent: "center" },
-  photoPickAdd: { width: 72, height: 72, borderRadius: 10, borderWidth: 1, alignItems: "center", justifyContent: "center" },
-  photoPickAddText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, textAlign: "center", lineHeight: 16 },
   photoAddBanner: { flexDirection: "row", borderWidth: 1, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14, alignItems: "center", justifyContent: "center", marginBottom: 10 },
   photoAddBannerText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13.5 },
 
