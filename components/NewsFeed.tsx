@@ -901,9 +901,13 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
         onShow={() => setTimeout(() => formTextRef.current?.focus(), 60)}
       >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-          <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !formSaving && closeForm()}>
+          <TouchableOpacity
+            style={[styles.centeredOverlay, { justifyContent: "flex-start", paddingTop: 32 }]}
+            activeOpacity={1}
+            onPress={() => !formSaving && closeForm()}
+          >
             <TouchableOpacity activeOpacity={1} style={{ width: "88%" }}>
-              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
+              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "92%" }]}>
                 <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <Text style={[styles.sheetTitle, { color: C.text }]}>
                     {editTarget ? "✏️ Modifier la nouvelle" : "📰 Nouvelle du jour"}
@@ -1092,9 +1096,13 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
         onShow={() => setTimeout(() => newsReplyTextRef.current?.focus(), 60)}
       >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-          <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !replySaving && setReplyTarget(null)}>
+          <TouchableOpacity
+            style={[styles.centeredOverlay, { justifyContent: "flex-start", paddingTop: 32 }]}
+            activeOpacity={1}
+            onPress={() => !replySaving && setReplyTarget(null)}
+          >
             <TouchableOpacity activeOpacity={1} style={{ width: "88%" }}>
-              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "88%" }]}>
+              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "92%" }]}>
                 {/* Hors du ScrollView : le contexte (à qui on répond) doit rester
                     visible même quand le clavier ouvert force un scroll-to-focus
                     sur le champ de saisie, sinon il se retrouve rogné en haut. */}
@@ -1108,7 +1116,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
                 <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <TextInput
                     ref={newsReplyTextRef}
-                    style={[styles.input, styles.textarea, { height: 80, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                    style={[styles.input, styles.textarea, { height: 120, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
                     placeholder="Ta réponse…"
                     placeholderTextColor={C.muted}
                     value={replyText}
@@ -1336,7 +1344,7 @@ const styles = StyleSheet.create({
   pickerOptionText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15 },
 
   input: { borderWidth: 1, borderRadius: 10, padding: 12, fontFamily: "DM_Sans_400Regular", fontSize: 15, marginBottom: 10 },
-  textarea: { height: 110, textAlignVertical: "top" },
+  textarea: { height: 150, textAlignVertical: "top" },
   fieldLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 },
 
   photoPickItem: { position: "relative" },
