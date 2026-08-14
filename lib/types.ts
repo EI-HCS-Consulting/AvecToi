@@ -280,6 +280,21 @@ export interface NewsEntry {
   deleted_by_admin: boolean;
 }
 
+// Réponse à une nouvelle ("Nouvelles du jour") — même principe que
+// SupportMessageReply (Mur de soutien), voir
+// supabase/migrations/20260814_news_entry_replies.sql.
+export interface NewsEntryReply {
+  id: string;
+  entry_id: string;
+  space_id: string;
+  reply_text: string;
+  author_prenom: string;
+  author_nom: string;
+  author_pin: string | null;
+  created_at: string;
+  deleted_by_admin: boolean;
+}
+
 // Un aidant qui ne peut pas honorer l'horaire demandé pour un besoin
 // Transport peut proposer un autre créneau (aller et/ou retour, voire un
 // autre jour) au lieu de prendre en charge directement — voir

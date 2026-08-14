@@ -480,8 +480,8 @@ function BookingFlow(
       <Modal visible={!!bookingTarget && !confirmed} transparent animationType="slide" onRequestClose={() => setBookingTarget(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => !saving && setBookingTarget(null)}>
-            <ScrollView contentContainerStyle={styles.overlayScroll} keyboardShouldPersistTaps="handled">
-              <TouchableOpacity activeOpacity={1}>
+            <ScrollView contentContainerStyle={styles.overlayScrollCentered} keyboardShouldPersistTaps="handled">
+              <TouchableOpacity activeOpacity={1} style={styles.sheetWrap}>
                 <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
                   <Text style={[styles.sheetTitle, { color: C.text }]}>
                     {type === "Nuit" ? "🌙 Réserver une nuit" : `🕐 Visite ${bookingTarget?.slot}`}
@@ -882,6 +882,13 @@ export default forwardRef(BookingFlow);
 const styles = StyleSheet.create({
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "flex-end" },
   overlayScroll: { flexGrow: 1, justifyContent: "flex-end" },
+  // Variante centrée de overlayScroll, réservée à la MODAL RÉSERVATION (voir
+  // sheetWrap) : cappe et centre horizontalement le bottom-sheet sur les
+  // écrans larges (tablette/web), où il s'étirait sinon d'un bord à l'autre.
+  // Les autres modales "sheet" du fichier (ex. MODAL ÉDITION COMPLÈTE)
+  // continuent d'utiliser overlayScroll telle quelle, en pleine largeur.
+  overlayScrollCentered: { flexGrow: 1, justifyContent: "flex-end", alignItems: "center" },
+  sheetWrap: { width: "100%", maxWidth: 480 },
   sheet: { borderTopLeftRadius: 20, borderTopRightRadius: 20, borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, padding: 24, paddingBottom: 40, marginBottom: 12 },
 
   // Centered (non-bottom-sheet) overlay/sheet — used by small popups (confirmed, pinModal).
