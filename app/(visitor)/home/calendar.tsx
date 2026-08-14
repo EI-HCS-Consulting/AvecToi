@@ -135,8 +135,18 @@ export default function VisitorCalendarScreen() {
   // retombe sur la liste complète plutôt que sur un panneau vide le temps du
   // fetch.
   const identityReady = !!myPin || !!intervenantProfileId;
-  const panelReservations = mesCreneauxOnly && identityReady
+  const myReservations = identityReady
     ? reservations.filter((r) => isMyReservation(r, myPin, intervenantProfileId, myPrenom, myNom))
+    : reservations;
+  // "Afficher mes créneaux" ne doit pas masquer un autre visiteur partageant
+  // EXACTEMENT un de mes créneaux (ex. 2 visiteurs sur le même horaire) —
+  // savoir qui est présent avec soi lors d'une visite est une information
+  // importante à garder visible, même filtre activé. On élargit donc aux
+  // réservations dont le date+créneau correspond à l'un des miens, sans pour
+  // autant réafficher tout le monde comme quand le filtre est désactivé.
+  const myPanelSlotKeys = new Set(myReservations.map((r) => `${r.date}|${r.creneau}`));
+  const panelReservations = mesCreneauxOnly && identityReady
+    ? reservations.filter((r) => myPanelSlotKeys.has(`${r.date}|${r.creneau}`))
     : reservations;
 
   const selectedIso = toISO(selectedDay);
@@ -390,7 +400,15 @@ export default function VisitorCalendarScreen() {
         </View>
 
         <View style={{ marginTop: 16 }}>
-          <IntervenantPlanningPanel C={C} reservations={panelReservations} soinsMode={soinsMode} />
+          <IntervenantPlanningPanel
+            C={C}
+            reservations={panelReservations}
+            soinsMode={soinsMode}
+            myPin={myPin}
+            myPrenom={myPrenom}
+            myNom={myNom}
+            onEdit={(r) => flowRef.current?.openPinModal(r)}
+          />
         </View>
       </ScrollView>
 
