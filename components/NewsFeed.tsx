@@ -956,7 +956,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
         onRequestClose={closeForm}
         onShow={() => setTimeout(() => formTextRef.current?.focus(), 60)}
       >
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
           <TouchableOpacity
             style={[styles.centeredOverlay, { justifyContent: "flex-end", paddingBottom: 12 }]}
             activeOpacity={1}
@@ -1151,7 +1151,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
         onRequestClose={() => !replySaving && setReplyTarget(null)}
         onShow={() => setTimeout(() => newsReplyTextRef.current?.focus(), 60)}
       >
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={{ flex: 1 }}>
           <TouchableOpacity
             style={[styles.centeredOverlay, { justifyContent: "flex-end", paddingBottom: 12 }]}
             activeOpacity={1}
