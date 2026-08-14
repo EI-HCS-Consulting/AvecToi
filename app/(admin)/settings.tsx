@@ -24,6 +24,7 @@ import VisitorsBlock from "@/components/VisitorsBlock";
 import IntervenantsBlock from "@/components/IntervenantsBlock";
 import IntervenantPriorityModal from "@/components/IntervenantPriorityModal";
 import NightIntervenantModal from "@/components/NightIntervenantModal";
+import NewsIntervenantModal from "@/components/NewsIntervenantModal";
 import NightVisitorModal from "@/components/NightVisitorModal";
 import { resolvePlaceFromMapsUrl } from "@/lib/address";
 import { generateSlots, formatHourMinute } from "@/lib/slotUtils";
@@ -715,6 +716,7 @@ export default function SettingsScreen() {
   const [intervenantsToggling, setIntervenantsToggling] = useState(false);
   const [priorityModalVisible, setPriorityModalVisible] = useState(false);
   const [nightIntervenantModalVisible, setNightIntervenantModalVisible] = useState(false);
+  const [newsIntervenantModalVisible, setNewsIntervenantModalVisible] = useState(false);
   const [nightVisitorModalVisible, setNightVisitorModalVisible] = useState(false);
   const [oneVisitPerDayToggling, setOneVisitPerDayToggling] = useState(false);
   const nightHoursInit = useRef(false);
@@ -2404,6 +2406,12 @@ export default function SettingsScreen() {
                         >
                           <Text style={[styles.saveNotesBtnText, { color: C.orange }]}>⚡ Priorité des créneaux intervenants</Text>
                         </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.saveNotesBtn, { backgroundColor: C.card, borderWidth: 1, borderColor: C.orange, marginTop: 8 }]}
+                          onPress={() => setNewsIntervenantModalVisible(true)}
+                        >
+                          <Text style={[styles.saveNotesBtnText, { color: C.orange }]}>📰 Publications Nouvelles des intervenants</Text>
+                        </TouchableOpacity>
                       </>
                     )}
                   </View>
@@ -3479,6 +3487,17 @@ export default function SettingsScreen() {
           onClose={() => setNightIntervenantModalVisible(false)}
           spaceId={space.id}
           currentMode={slotConfig.night_intervenant_mode ?? "disabled"}
+          C={C}
+          onSaved={() => { refreshSlotConfig(); showToast("Modification enregistrée"); }}
+        />
+      )}
+
+      {space && slotConfig && (
+        <NewsIntervenantModal
+          visible={newsIntervenantModalVisible}
+          onClose={() => setNewsIntervenantModalVisible(false)}
+          spaceId={space.id}
+          currentMode={slotConfig.news_intervenant_mode ?? "disabled"}
           C={C}
           onSaved={() => { refreshSlotConfig(); showToast("Modification enregistrée"); }}
         />

@@ -5,7 +5,7 @@ import { isSpaceCapped } from "@/lib/freemiumCap";
 import NewsFeed from "@/components/NewsFeed";
 
 export default function AdminNewsScreen() {
-  const { space, loading, hasSpace, reservations } = useSpace();
+  const { space, loading, hasSpace, reservations, slotConfig } = useSpace();
   const { theme: C } = useDisplayMode();
 
   if (loading) {
@@ -30,7 +30,7 @@ export default function AdminNewsScreen() {
       C={C}
       isAdmin={true}
       capped={isSpaceCapped(space, reservations)}
-      intervenantNewsVisibleToVisitors={space.intervenant_news_visible_to_visitors}
+      newsIntervenantMode={slotConfig?.news_intervenant_mode ?? "disabled"}
     />
   );
 }

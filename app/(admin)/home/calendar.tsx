@@ -12,6 +12,7 @@ import { LOGO_GREEN, LOGO_PURPLE } from "@/lib/themes";
 import SpaceHeader from "@/components/SpaceHeader";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import WeekStrip from "@/components/WeekStrip";
+import IntervenantPlanningPanel from "@/components/IntervenantPlanningPanel";
 import AdminSlotsList from "@/components/AdminSlotsList";
 import SoinsDayDetail from "@/components/SoinsDayDetail";
 import AdminAddReservation, { type AdminAddReservationHandle } from "@/components/AdminAddReservation";
@@ -148,8 +149,8 @@ export default function AdminCalendarScreen() {
       <SpaceHeader space={space} active="calendar" basePath="/(admin)/home" C={C} />
 
       <ScrollView contentContainerStyle={styles.scroll}>
-        {/* Bloc sans titre regroupant les 2 switches (Mensuel/Hebdo +
-            Visites/Soins) juste sous le header. */}
+        {/* Switch Mensuel/Hebdo seul — règle uniquement la forme du
+            calendrier juste en dessous, placé avant lui pour ça. */}
         <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginBottom: 14 }]}>
           <SegmentedSwitch
             value={planningView === "hebdo"}
@@ -160,9 +161,6 @@ export default function AdminCalendarScreen() {
             minWidthRatio={0.5}
             onThumbWidth={setViewThumbWidth}
           />
-          {space.intervenants_enabled && (
-            <SegmentedSwitch value={soinsMode} onChange={setSoinsMode} leftLabel="Visites" rightLabel="Soins" C={C} thumbWidth={viewThumbWidth || undefined} />
-          )}
         </View>
 
         <TouchableOpacity
@@ -348,6 +346,26 @@ export default function AdminCalendarScreen() {
         )}
         </>
         )}
+
+        {/* Switch Visites/Soins, déplacé sous le calendrier — ne règle que
+            le filtre appliqué au panneau réservations juste en dessous (le
+            calendrier, lui, affiche toujours la vérité complète). Pas de
+            bouton "Afficher mes créneaux" ici : contrairement au visiteur/
+            intervenant, l'admin n'a pas d'identité personnelle (PIN) à
+            filtrer dessus — le panneau liste toujours tout le monde. */}
+        {space.intervenants_enabled && (
+          <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 16 }]}>
+            <SegmentedSwitch value={soinsMode} onChange={setSoinsMode} leftLabel="Visites" rightLabel="Soins" C={C} thumbWidth={viewThumbWidth || undefined} />
+          </View>
+        )}
+
+        <View style={{ marginTop: 16 }}>
+          <IntervenantPlanningPanel
+            C={C}
+            reservations={reservations}
+            soinsMode={soinsMode}
+          />
+        </View>
       </ScrollView>
 
       <AdminAddReservation

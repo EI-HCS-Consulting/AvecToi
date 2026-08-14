@@ -16,6 +16,7 @@ import VisitorProfileModal from "@/components/VisitorProfileModal";
 import ConfirmModal from "@/components/ConfirmModal";
 import type { NewsEntry, NewsEntryReply } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
+import { LOGO_PURPLE } from "@/lib/themes";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 const PHOTO_BUCKET = "news-photos";
@@ -35,10 +36,12 @@ interface Props {
   // publications de CE viewer sont marquées author_role "intervenant" et
   // s'il voit le canal intervenants+admin en entier (voir filtrage plus bas).
   viewerRole?: "visiteur" | "intervenant";
-  // patient_spaces.intervenant_news_visible_to_visitors — écrases par
-  // l'admin via le bouton du header ci-dessous, propagé en temps réel par
-  // SpaceContext/VisitorContext (realtime sur patient_spaces).
-  intervenantNewsVisibleToVisitors: boolean;
+  // slot_config.news_intervenant_mode — réglé depuis Paramètres > Règles >
+  // Planning des intervenants (voir components/NewsIntervenantModal.tsx),
+  // propagé en temps réel par SpaceContext/VisitorContext (realtime sur
+  // slot_config). Détermine si les publications des intervenants (et de
+  // l'admin, qui suit la même règle) sont visibles des visiteurs.
+  newsIntervenantMode: "disabled" | "some" | "all";
 }
 
 // ─── Utils ────────────────────────────────────────────────────────────────────
@@ -75,29 +78,48 @@ function sanitize(str: string) {
 }
 
 // ─── Composant principal ──────────────────────────────────────────────────────
-export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "visiteur", intervenantNewsVisibleToVisitors }: Props) {
+export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "visiteur", newsIntervenantMode }: Props) {
   const router = useRouter();
   const effectiveRole: "visiteur" | "intervenant" | "admin" = isAdmin ? "admin" : viewerRole;
 
-  // Reflète la prop en local pour un retour visuel instantané au clic
-  // "Autoriser"/"Restreindre" — la prop elle-même ne sera mise à jour
-  // qu'après le round-trip realtime de patient_spaces (voir SpaceContext).
-  const [visibleToVisitors, setVisibleToVisitors] = useState(intervenantNewsVisibleToVisitors);
-  useEffect(() => { setVisibleToVisitors(intervenantNewsVisibleToVisitors); }, [intervenantNewsVisibleToVisitors]);
+  // IDs des intervenants autorisés à publier pour les visiteurs quand
+  // newsIntervenantMode === "some" (voir components/NewsIntervenantModal.tsx).
+  const [authorizedIntervenantIds, setAuthorizedIntervenantIds] = useState<Set<string>>(new Set());
 
-  async function toggleVisibility() {
-    const next = !visibleToVisitors;
-    setVisibleToVisitors(next);
-    const { error } = await supabase
-      .from("patient_spaces")
-      .update({ intervenant_news_visible_to_visitors: next })
-      .eq("id", spaceId);
-    if (error) {
-      setVisibleToVisitors(!next);
-      showToast("Erreur lors du changement de visibilité");
-    } else {
-      showToast(next ? "Visible aussi par les visiteurs ✓" : "Réservé aux intervenants et à l'admin ✓");
+  const loadAuthorizedIntervenants = useCallback(async () => {
+    if (newsIntervenantMode !== "some") { setAuthorizedIntervenantIds(new Set()); return; }
+    const { data } = await supabase
+      .from("news_authorized_intervenants")
+      .select("intervenant_profile_id")
+      .eq("space_id", spaceId);
+    setAuthorizedIntervenantIds(new Set((data || []).map((r) => r.intervenant_profile_id)));
+  }, [spaceId, newsIntervenantMode]);
+
+  useEffect(() => { loadAuthorizedIntervenants(); }, [loadAuthorizedIntervenants]);
+
+  useEffect(() => {
+    const channel = supabase
+      .channel(`news-authorized-intervenants:${spaceId}`)
+      .on("postgres_changes", {
+        event: "*", schema: "public", table: "news_authorized_intervenants",
+        filter: `space_id=eq.${spaceId}`,
+      }, loadAuthorizedIntervenants)
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [spaceId, loadAuthorizedIntervenants]);
+
+  // Une nouvelle d'intervenant/admin est-elle visible des visiteurs ? L'admin
+  // suit la même règle que les intervenants pour ses propres publications
+  // (pas de réglage séparé, voir Props.newsIntervenantMode).
+  function isNewsEntryVisibleToVisitor(e: NewsEntryWithUrls) {
+    if (e.author_role === "visiteur") return true;
+    if (newsIntervenantMode === "all") return true;
+    if (newsIntervenantMode === "some") {
+      return e.author_role === "intervenant"
+        ? !!e.intervenant_profile_id && authorizedIntervenantIds.has(e.intervenant_profile_id)
+        : false; // admin en mode "some" : pas de canal individuel pour lui, reste privé
     }
+    return false;
   }
 
   const { focusEntryId } = useLocalSearchParams<{ focusEntryId?: string }>();
@@ -163,6 +185,11 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
   const [syncingToSouvenirs, setSyncingToSouvenirs] = useState<string | null>(null);
 
   const [sessionPin, setSessionPin] = useState("");
+  // ID intervenant_profiles de l'intervenant connecté — rempli à la
+  // publication d'une nouvelle en author_role "intervenant" (voir
+  // handleSave), sert à vérifier son autorisation dans
+  // news_authorized_intervenants quand newsIntervenantMode = "some".
+  const [sessionIntervenantProfileId, setSessionIntervenantProfileId] = useState<string | null>(null);
 
   const [toast, setToast] = useState("");
 
@@ -226,17 +253,18 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
         setFormPrenom(s.prenom);
         setFormNom(s.nom);
         if (s.pin) setSessionPin(s.pin);
+        if (s.intervenantProfileId) setSessionIntervenantProfileId(s.intervenantProfileId);
       }
     });
   }, [isAdmin]);
 
   // Canal intervenants+admin : un visiteur ne voit que les nouvelles
-  // publiées par des visiteurs, plus celles d'intervenants/admin si l'admin
-  // a explicitement ouvert la visibilité (voir toggleVisibility ci-dessus).
+  // publiées par des visiteurs, plus celles d'intervenants/admin autorisées
+  // par newsIntervenantMode (voir isNewsEntryVisibleToVisitor ci-dessus).
   // Intervenants et admin voient toujours tout.
   const visibleEntries = entries.filter(
     (e) =>
-      (effectiveRole !== "visiteur" || e.author_role === "visiteur" || visibleToVisitors) &&
+      (effectiveRole !== "visiteur" || isNewsEntryVisibleToVisitor(e)) &&
       (!e.deleted_by_admin || (!isAdmin && e.author_pin === sessionPin)),
   );
 
@@ -300,6 +328,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
         setFormPrenom(s.prenom);
         setFormNom(s.nom);
         if (s.pin) setSessionPin(s.pin);
+        if (s.intervenantProfileId) setSessionIntervenantProfileId(s.intervenantProfileId);
       }
     }
     setShowForm(true);
@@ -554,6 +583,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
         author_nom: formNom.trim(),
         author_pin: isAdmin ? "ADMIN" : (sessionPin || formPin),
         author_role: effectiveRole,
+        intervenant_profile_id: effectiveRole === "intervenant" ? sessionIntervenantProfileId : null,
         photos: uploadedFilenames,
       });
 
@@ -710,11 +740,18 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
   function renderEntry({ item: entry }: { item: NewsEntryWithUrls }) {
     const canModify = isAdmin || entry.author_pin !== "ADMIN";
     const highlighted = highlightId === entry.id;
+    // Vue admin uniquement : distingue en un coup d'œil les publications
+    // visiteurs (orange) des publications intervenants (violet), le fil
+    // mélangeant les deux (voir isNewsEntryVisibleToVisitor pour la règle de
+    // visibilité côté visiteurs).
+    const entryAccentColor = isAdmin
+      ? entry.author_role === "visiteur" ? C.orange : entry.author_role === "intervenant" ? LOGO_PURPLE : C.border
+      : C.border;
     return (
       <View
         style={[
           styles.card,
-          { backgroundColor: C.card, borderColor: highlighted ? C.gold : C.border },
+          { backgroundColor: C.card, borderColor: highlighted ? C.gold : entryAccentColor },
           highlighted && { borderWidth: 2 },
         ]}
       >
@@ -858,16 +895,13 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
         <Text style={[styles.headerTitle, { color: C.text }]}>📰 Nouvelles du jour</Text>
         {effectiveRole !== "visiteur" && (
           <View style={styles.headerStatusRow}>
-            <Text style={[styles.headerStatusText, { color: visibleToVisitors ? C.success : C.muted }]}>
-              {visibleToVisitors ? "🔓 Visible aussi par les visiteurs" : "🔒 Dédié aux intervenants et à l'admin"}
+            <Text style={[styles.headerStatusText, { color: newsIntervenantMode !== "disabled" ? C.success : C.muted }]}>
+              {newsIntervenantMode === "all"
+                ? "🔓 Visible aussi par les visiteurs"
+                : newsIntervenantMode === "some"
+                ? "🔓 Visible aussi par les visiteurs (intervenants autorisés)"
+                : "🔒 Dédié aux intervenants et à l'admin"}
             </Text>
-            {isAdmin && (
-              <TouchableOpacity onPress={toggleVisibility} style={[styles.headerToggleBtn, { borderColor: C.accent }]} activeOpacity={0.75}>
-                <Text style={[styles.headerToggleBtnText, { color: C.accent }]}>
-                  {visibleToVisitors ? "Restreindre" : "Autoriser"}
-                </Text>
-              </TouchableOpacity>
-            )}
           </View>
         )}
       </View>
@@ -1380,8 +1414,6 @@ const styles = StyleSheet.create({
   headerTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18 },
   headerStatusRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 },
   headerStatusText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, flex: 1 },
-  headerToggleBtn: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5, marginLeft: 8 },
-  headerToggleBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11 },
   subHeader: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1 },
   subHeaderRow: { flexDirection: "row", gap: 10 },
   addBtn: { flex: 1, minWidth: 0, borderRadius: 10, paddingVertical: 12, alignItems: "center" },
