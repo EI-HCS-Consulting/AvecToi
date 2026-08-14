@@ -29,6 +29,14 @@ export default function VisitorCalendarScreen() {
   // l'occupation des soins (interventions) — remplace l'ancien raccourci
   // "Voir les nuitées".
   const [soinsMode, setSoinsMode] = useState(false);
+  // Basculer sur "Soins" désactive "Afficher mes créneaux" : ce filtre
+  // s'appliquait au mode qu'on quitte (visites/nuitées) et resterait sinon
+  // actif sans que rien à l'écran n'indique pourquoi le panneau des soins
+  // paraît vide au premier soin non-personnel.
+  function handleSoinsModeChange(next: boolean) {
+    setSoinsMode(next);
+    if (next) setMesCreneauxOnly(false);
+  }
   // Un intervenant voit, en plus du cadre violet visible par tous (soin ce
   // jour-là), l'intérieur de la case remplie en violet quand le soin lui est
   // assigné à LUI précisément — voir home/slots.tsx pour role/intervenantProfileId.
@@ -379,7 +387,7 @@ export default function VisitorCalendarScreen() {
             visites/nuitées), donc le bloc reste affiché dans tous les cas. */}
         <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 16 }]}>
           {space.intervenants_enabled && (
-            <SegmentedSwitch value={soinsMode} onChange={setSoinsMode} leftLabel="Visites" rightLabel="Soins" C={C} thumbWidth={viewThumbWidth || undefined} />
+            <SegmentedSwitch value={soinsMode} onChange={handleSoinsModeChange} leftLabel="Visites" rightLabel="Soins" C={C} thumbWidth={viewThumbWidth || undefined} />
           )}
           <View style={styles.toggleRow}>
             <View style={{ flex: 1 }}>
