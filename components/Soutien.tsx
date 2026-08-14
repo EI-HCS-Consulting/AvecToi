@@ -667,9 +667,13 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
         onShow={() => setTimeout(() => msgTextRef.current?.focus(), 60)}
       >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-          <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !msgSaving && setShowAddModal(false)}>
+          <TouchableOpacity
+            style={[styles.centeredOverlay, { justifyContent: "flex-start", paddingTop: 32 }]}
+            activeOpacity={1}
+            onPress={() => !msgSaving && setShowAddModal(false)}
+          >
             <TouchableOpacity activeOpacity={1} style={{ width: "88%" }}>
-              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
+              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "92%" }]}>
                 <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <Text style={[styles.sheetTitle, { color: C.text }]}>💛 Laisser un message</Text>
 
@@ -774,9 +778,13 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
       {/* ── MODAL ÉDITION ─────────────────────────────────────────────────── */}
       <Modal visible={!!editTarget} transparent animationType="fade" onRequestClose={() => !editSaving && setEditTarget(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-          <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !editSaving && setEditTarget(null)}>
+          <TouchableOpacity
+            style={[styles.centeredOverlay, { justifyContent: "flex-start", paddingTop: 32 }]}
+            activeOpacity={1}
+            onPress={() => !editSaving && setEditTarget(null)}
+          >
             <TouchableOpacity activeOpacity={1} style={{ width: "88%" }}>
-              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
+              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "92%" }]}>
                 <ScrollView style={{ flexShrink: 1 }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
                   <Text style={[styles.sheetTitle, { color: C.text }]}>✏️ Modifier le message</Text>
 
@@ -837,9 +845,13 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
         onShow={() => setTimeout(() => soutienReplyTextRef.current?.focus(), 60)}
       >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-          <TouchableOpacity style={styles.centeredOverlay} activeOpacity={1} onPress={() => !replySaving && setReplyTarget(null)}>
+          <TouchableOpacity
+            style={[styles.centeredOverlay, { justifyContent: "flex-start", paddingTop: 32 }]}
+            activeOpacity={1}
+            onPress={() => !replySaving && setReplyTarget(null)}
+          >
             <TouchableOpacity activeOpacity={1} style={{ width: "88%" }}>
-              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "88%" }]}>
+              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "92%" }]}>
                 {/* Hors du ScrollView : le contexte (à qui on répond) doit rester
                     visible même quand le clavier ouvert force un scroll-to-focus
                     sur le champ de saisie, sinon il se retrouve rogné en haut. */}
@@ -1018,7 +1030,7 @@ const styles = StyleSheet.create({
 
   listPad: { padding: 14, paddingBottom: 40 },
 
-  msgArea: { height: 80, textAlignVertical: "top" },
+  msgArea: { height: 130, textAlignVertical: "top" },
   postBtn: { borderRadius: 10, paddingVertical: 12, alignItems: "center", marginTop: 4 },
   postBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#0D1B2E" },
   msgCard: { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 },
