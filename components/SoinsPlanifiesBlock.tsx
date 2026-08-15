@@ -6,10 +6,12 @@ import { isSlotFullyPast } from "@/lib/slotUtils";
 import type { Theme } from "@/lib/themes";
 import type { Reservation } from "@/lib/types";
 
-// Bloc "Soins planifiés" — triés anté-chronologiquement (le plus récent/
-// tardif en haut, le plus ancien tout en bas). Extrait ici en composant
-// autonome pour être réutilisé dans (admin)/intervenants.tsx et
-// (visitor)/soins.tsx sans dupliquer la requête.
+// Bloc "Soins planifiés" — triés anté-chronologiquement par défaut (le plus
+// récent/tardif en haut, le plus ancien tout en bas), sauf pour les soins à
+// venir de (admin)/intervenants.tsx qui utilise chronological (le prochain
+// soin en haut, voir plus bas). Extrait ici en composant autonome pour être
+// réutilisé dans (admin)/intervenants.tsx et (visitor)/soins.tsx sans
+// dupliquer la requête.
 interface Props {
   spaceId: string;
   C: Theme;
@@ -29,6 +31,13 @@ interface Props {
   // (onglet "Mes soins" de l'intervenant) garde son comportement d'origine,
   // une seule liste tournée vers ce qui reste à faire.
   includePast?: boolean;
+  // Affiche les soins à venir dans l'ordre chronologique (le plus proche en
+  // premier) au lieu de l'ordre anté-chronologique par défaut ci-dessus —
+  // utilisé par (admin)/intervenants.tsx (Planning des intervenants), où
+  // l'admin veut voir en premier le prochain soin à venir. Les soins passés
+  // (includePast) gardent l'ordre anté-chronologique (le plus récent en
+  // haut) quel que soit ce réglage.
+  chronological?: boolean;
 }
 
 function SoinRow({ r, isLast, C, onPress }: { r: Reservation; isLast: boolean; C: Theme; onPress: () => void }) {
@@ -51,7 +60,7 @@ function SoinRow({ r, isLast, C, onPress }: { r: Reservation; isLast: boolean; C
   );
 }
 
-export default function SoinsPlanifiesBlock({ spaceId, C, filterIntervenantProfileId, onPressRow, includePast = false }: Props) {
+export default function SoinsPlanifiesBlock({ spaceId, C, filterIntervenantProfileId, onPressRow, includePast = false, chronological = false }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [soins, setSoins] = useState<Reservation[]>([]);
@@ -80,7 +89,11 @@ export default function SoinsPlanifiesBlock({ spaceId, C, filterIntervenantProfi
     return onPressRow ? () => onPressRow(r.date) : () => router.push({ pathname: "/(admin)/home/slots", params: { focusDate: r.date } } as any);
   }
 
-  const upcoming = soins.filter((r) => !isSlotFullyPast(r.date, r.creneau));
+  const upcomingDesc = soins.filter((r) => !isSlotFullyPast(r.date, r.creneau));
+  // soins est trié date/créneau descendant (voir la requête ci-dessus) :
+  // reverse() suffit à obtenir l'ordre chronologique ascendant demandé,
+  // sans requête ni tri supplémentaire.
+  const upcoming = chronological ? [...upcomingDesc].reverse() : upcomingDesc;
   const past = includePast ? soins.filter((r) => isSlotFullyPast(r.date, r.creneau)) : [];
 
   return (

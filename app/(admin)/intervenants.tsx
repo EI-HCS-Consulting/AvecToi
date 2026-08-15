@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
 import { useSpace } from "@/lib/SpaceContext";
 import { supabase } from "@/lib/supabase";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
-import { getMonday, getDayStatus } from "@/lib/slotUtils";
+import { getMonday, getDayStatus, isReservationDatePast } from "@/lib/slotUtils";
 import { deleteLinkedCalendarEvent } from "@/lib/calendarSync";
 import AdminAddIntervention, { type AdminAddInterventionHandle } from "@/components/AdminAddIntervention";
 import AdminEditReservation, { type AdminEditReservationHandle } from "@/components/AdminEditReservation";
@@ -148,7 +148,7 @@ export default function AdminIntervenantsScreen() {
           onWeekChange={setWeekAnchor}
           monthAnchor={monthAnchor}
           onMonthChange={setMonthAnchor}
-          onDayPress={setDayPopupIso}
+          onDayPress={(iso) => { if (!isReservationDatePast(iso)) setDayPopupIso(iso); }}
         />
 
         <TouchableOpacity
@@ -158,7 +158,7 @@ export default function AdminIntervenantsScreen() {
           <Text style={styles.addBtnText}>+ Ajouter une intervention</Text>
         </TouchableOpacity>
 
-        <SoinsPlanifiesBlock spaceId={space.id} C={C} includePast />
+        <SoinsPlanifiesBlock spaceId={space.id} C={C} includePast chronological />
 
         <Text style={[styles.sectionTitle, { color: C.gold, marginTop: 24 }]}>Fiches intervenants</Text>
         <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
