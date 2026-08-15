@@ -89,6 +89,30 @@ export function AdminSpaceProvider({ adminId, children }: { adminId: string; chi
       return;
     }
 
+    // admin_firstname/admin_lastname ne sont normalement resynchronisés
+    // qu'à la sauvegarde du profil (account.tsx handleSaveProfile) — un
+    // admin qui n'a jamais rouvert "Modifier mon profil" depuis la création
+    // de l'espace (ou depuis l'ajout de ces colonnes) reste avec des champs
+    // vides en base. Sans nom fiable, isMyReservation()/identityReady
+    // dégénèrent silencieusement (bande verte jamais affichée, "Afficher mes
+    // créneaux" sans effet — voir home/calendar.tsx). On rattrape donc ici,
+    // à chaque chargement de l'espace, en comparant à la source de vérité
+    // (auth user_metadata) plutôt que d'attendre une sauvegarde manuelle.
+    const { data: userData } = await supabase.auth.getUser();
+    const metaFirstname = userData.user?.user_metadata?.firstname?.trim() || null;
+    const metaLastname = userData.user?.user_metadata?.lastname?.trim() || null;
+    if (
+      (metaFirstname || metaLastname) &&
+      (metaFirstname !== spaceData.admin_firstname || metaLastname !== spaceData.admin_lastname)
+    ) {
+      await supabase
+        .from("patient_spaces")
+        .update({ admin_firstname: metaFirstname, admin_lastname: metaLastname })
+        .eq("id", spaceData.id);
+      spaceData.admin_firstname = metaFirstname;
+      spaceData.admin_lastname = metaLastname;
+    }
+
     setSpace(spaceData);
 
     const startDate = new Date(spaceData.start_date + "T00:00:00");
