@@ -13,7 +13,6 @@ import MesSoinsList from "@/components/MesSoinsList";
 import MetierPickerModal from "@/components/MetierPickerModal";
 import SoinPickerModal from "@/components/SoinPickerModal";
 import SoinDurationModal from "@/components/SoinDurationModal";
-import { normalizePhone } from "@/lib/phone";
 import { propagateSoinChange } from "@/lib/interventionTypesSync";
 import { metierLabel } from "@/lib/metiers";
 import type { Theme } from "@/lib/themes";
@@ -62,7 +61,6 @@ export default function IntervenantFicheModal({
 }: Props) {
   const [ficheePrenom, setFichePrenom] = useState(prenom);
   const [ficheNom, setFicheNom] = useState(nom);
-  const [ficheTelephone, setFicheTelephone] = useState("");
   const [fichePhraseTotem, setFichePhraseTotem] = useState("");
   // Clé du métier (voir lib/metiers.ts) — sert aussi d'icône de repli pour
   // l'avatar sans photo.
@@ -88,7 +86,12 @@ export default function IntervenantFicheModal({
   // intervenant_profiles ci-dessous.
   const [loadedPrenom, setLoadedPrenom] = useState(prenom);
   const [loadedNom, setLoadedNom] = useState(nom);
-  const [loadedTelephone, setLoadedTelephone] = useState("");
+  // Non éditable ici (voir suppression du champ Téléphone ci-dessous) — gardé
+  // tel quel pour le répercuter inchangé dans onSaved, dont l'appelant
+  // (app/(visitor)/account.tsx) dépend toujours pour sa propre session locale.
+  // La seule source d'écriture du téléphone reste désormais "Mes informations"
+  // (syncIntervenantContact dans account.tsx).
+  const [existingTelephone, setExistingTelephone] = useState<string | null>(null);
   const [loadedPhraseTotem, setLoadedPhraseTotem] = useState("");
   const [loadedMetier, setLoadedMetier] = useState<string | null>(null);
   // existingPhoto : nom de fichier déjà enregistré. pickedPhotoUri : uri
@@ -121,6 +124,8 @@ export default function IntervenantFicheModal({
       supabase
         .from("intervenant_profiles")
         .select("prenom, nom, photo, photo_updated_at, telephone, phrase_totem, metier, metier_secondaire")
+        // telephone n'est plus édité ici (voir existingTelephone plus haut),
+        // juste lu pour le répercuter tel quel dans onSaved.
         .eq("id", intervenantProfileId)
         .maybeSingle(),
     ]).then(([, { data: profileData }]) => {
@@ -139,8 +144,7 @@ export default function IntervenantFicheModal({
         setFicheNom(profileData.nom);
         setLoadedNom(profileData.nom);
       }
-      setFicheTelephone(profileData?.telephone ?? "");
-      setLoadedTelephone(profileData?.telephone ?? "");
+      setExistingTelephone(profileData?.telephone ?? null);
       setFichePhraseTotem(profileData?.phrase_totem ?? "");
       setLoadedPhraseTotem(profileData?.phrase_totem ?? "");
       setFicheMetier(profileData?.metier ?? null);
@@ -237,13 +241,11 @@ export default function IntervenantFicheModal({
     try {
       const trimmedPrenom = ficheePrenom.trim();
       const trimmedNom = ficheNom.trim();
-      const trimmedTelephone = normalizePhone(ficheTelephone);
       const trimmedPhraseTotem = fichePhraseTotem.trim();
 
       const updatePayload: Record<string, string | null> = {};
       if (trimmedPrenom !== loadedPrenom) updatePayload.prenom = trimmedPrenom;
       if (trimmedNom !== loadedNom) updatePayload.nom = trimmedNom;
-      if (trimmedTelephone !== loadedTelephone) updatePayload.telephone = trimmedTelephone || null;
       if (trimmedPhraseTotem !== loadedPhraseTotem) updatePayload.phrase_totem = trimmedPhraseTotem || null;
       if (ficheMetier !== loadedMetier) updatePayload.metier = ficheMetier;
       if (Object.keys(updatePayload).length > 0) {
@@ -293,7 +295,7 @@ export default function IntervenantFicheModal({
 
       onSaved(
         intervenantProfileId, trimmedPrenom, trimmedNom,
-        trimmedTelephone || null, trimmedPhraseTotem || null,
+        existingTelephone, trimmedPhraseTotem || null,
         finalPhoto, finalPhotoUpdatedAt, ficheMetier,
       );
     } catch (e: any) {
@@ -307,15 +309,11 @@ export default function IntervenantFicheModal({
     <>
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent>
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={[styles.overlay, { flexGrow: 1, justifyContent: "center", paddingVertical: 16 }]}
-          keyboardShouldPersistTaps="handled"
-        >
+        <View style={styles.overlay}>
           <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
             <Text style={[styles.title, { color: C.text }]}>🩺 Fiche intervenant</Text>
             <Text style={[styles.subtitle, { color: C.muted }]}>
-              Modifie ton prénom, ton nom, tes coordonnées, ton métier ou tes soins pratiqués.
+              Modifie ton prénom, ton nom, ton métier ou tes soins pratiqués.
             </Text>
 
             {loading ? (
@@ -334,6 +332,12 @@ export default function IntervenantFicheModal({
               </>
             ) : (
               <>
+              {/* Corps borné (voir styles.body) : le titre ci-dessus et les
+                  boutons Enregistrer/Annuler ci-dessous restent hors du
+                  ScrollView, donc toujours visibles/atteignables quel que
+                  soit le contenu défilé — corrige le popup qui grandissait
+                  sans limite et rendait le bouton Annuler inatteignable. */}
+              <ScrollView style={styles.body} showsVerticalScrollIndicator keyboardShouldPersistTaps="handled">
                 <TouchableOpacity style={styles.photoPicker} onPress={pickPhoto} activeOpacity={0.8}>
                   <PatientAvatar
                     photoUrl={pickedPhotoUri ?? (existingPhoto ? intervenantPhotoUrl(existingPhoto, existingPhotoUpdatedAt) : null)}
@@ -365,14 +369,6 @@ export default function IntervenantFicheModal({
                   />
                 </View>
 
-                <TextInput
-                  style={[styles.input, styles.fullInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                  placeholder="Téléphone (optionnel)"
-                  placeholderTextColor={C.muted}
-                  value={ficheTelephone}
-                  onChangeText={setFicheTelephone}
-                  keyboardType="phone-pad"
-                />
                 <TextInput
                   style={[styles.input, styles.fullInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
                   placeholder="Phrase totem (optionnel)"
@@ -422,31 +418,30 @@ export default function IntervenantFicheModal({
 
                 <View style={[styles.separator, { borderTopColor: C.border }]} />
                 <Text style={[styles.metierLabel, { color: C.gold }]}>Mes soins</Text>
-                <ScrollView style={styles.soinsScroll} nestedScrollEnabled showsVerticalScrollIndicator>
-                  <MesSoinsList
-                    key={soinsVersion}
-                    intervenantProfileId={intervenantProfileId}
-                    metiers={[ficheMetier, ficheMetierSecondaire]}
-                    C={C}
-                  />
-                </ScrollView>
+                <MesSoinsList
+                  key={soinsVersion}
+                  intervenantProfileId={intervenantProfileId}
+                  metiers={[ficheMetier, ficheMetierSecondaire]}
+                  C={C}
+                />
+              </ScrollView>
 
-                <TouchableOpacity
-                  style={[styles.saveBtn, { backgroundColor: C.accent }, !canSave && { opacity: 0.5 }]}
-                  onPress={handleSave}
-                  disabled={!canSave}
-                  activeOpacity={0.85}
-                >
-                  {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.saveBtnText}>Enregistrer</Text>}
-                </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.saveBtn, { backgroundColor: C.accent }, !canSave && { opacity: 0.5 }]}
+                onPress={handleSave}
+                disabled={!canSave}
+                activeOpacity={0.85}
+              >
+                {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.saveBtnText}>Enregistrer</Text>}
+              </TouchableOpacity>
 
-                <TouchableOpacity onPress={onClose} style={styles.cancelBtn}>
-                  <Text style={[styles.cancelBtnText, { color: C.muted }]}>Annuler</Text>
-                </TouchableOpacity>
+              <TouchableOpacity onPress={onClose} style={styles.cancelBtn}>
+                <Text style={[styles.cancelBtnText, { color: C.muted }]}>Annuler</Text>
+              </TouchableOpacity>
               </>
             )}
           </View>
-        </ScrollView>
+        </View>
       </KeyboardAvoidingView>
     </Modal>
 
@@ -497,6 +492,7 @@ const styles = StyleSheet.create({
   card: {
     width: "100%",
     maxWidth: 400,
+    maxHeight: "85%",
     borderRadius: 20,
     borderWidth: 1,
     padding: 24,
@@ -544,10 +540,11 @@ const styles = StyleSheet.create({
   addSoinBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 12, paddingVertical: 13, marginBottom: 20, marginTop: 4 },
   addSoinBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" },
   separator: { borderTopWidth: 1, marginVertical: 16 },
-  // Hauteur bornée : sans ça, la liste des soins (MesSoinsList, une simple
-  // View qui grandit avec le nombre de soins) fait s'agrandir toute la carte
-  // sans limite au fil des ajouts — voir le ScrollView imbriqué ci-dessus.
-  soinsScroll: { maxHeight: 260, marginBottom: 4 },
+  // Hauteur bornée (même convention que DaySoinsModal/IntervenantProfileModal) :
+  // le corps défilable est borné indépendamment du titre et des boutons
+  // Enregistrer/Annuler ci-dessous, qui restent hors du ScrollView et donc
+  // toujours visibles quel que soit le nombre de soins ajoutés.
+  body: { maxHeight: 420, marginBottom: 4 },
   removeBtn: {
     width: 32,
     height: 32,
