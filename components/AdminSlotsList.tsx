@@ -84,18 +84,7 @@ export default function AdminSlotsList({
 
             {occ.length === 0
               ? <Text style={[styles.slotEmpty, { color: C.muted }]}>Aucun visiteur inscrit</Text>
-              : occ.map((r) => {
-                // Un accompagnant (même group_id) partage le même événement
-                // d'alerte — on regroupe leurs noms sur une seule bannière/un
-                // seul bouton "Vu, relayé", affichée sur le premier membre du
-                // groupe rencontré dans ce créneau plutôt que dupliquée.
-                const alertCohort = r.alert_message
-                  ? occ.filter((x) => x.alert_message && (r.group_id ? x.group_id === r.group_id : x.id === r.id))
-                  : [];
-                const isAlertLeader = alertCohort.length > 0 && alertCohort[0].id === r.id;
-                const alertNeedsAck = alertCohort.some((c) => c.pin === "ADMIN" && !c.alert_seen);
-
-                return (
+              : occ.map((r) => (
                 <View key={r.id} style={[styles.resaRow, { borderColor: C.border }]}>
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.resaName, { color: C.success }]}>● {r.prenom} {r.nom}</Text>
@@ -103,21 +92,6 @@ export default function AdminSlotsList({
                       <Text style={[styles.bookedBy, { color: C.muted }]}>Programmé par : {r.booked_by_prenom} {r.booked_by_nom}</Text>
                     ) : null}
                     {r.telephone ? <Text style={[styles.resaTel, { color: C.muted }]}>{r.telephone}</Text> : null}
-                    {isAlertLeader ? (
-                      <View style={[styles.alertBanner, { backgroundColor: "rgba(233,69,96,0.12)", borderColor: "rgba(233,69,96,0.4)" }]}>
-                        {alertCohort.length > 1 && (
-                          <Text style={[styles.alertNames, { color: C.danger }]}>
-                            {alertCohort.map((c) => `${c.prenom} ${c.nom}`).join(", ")}
-                          </Text>
-                        )}
-                        <Text style={[styles.alertText, { color: C.danger }]}>{r.alert_message}</Text>
-                        {alertNeedsAck && (
-                          <TouchableOpacity style={[styles.ackBtn, { borderColor: C.danger }]} onPress={() => onAckAlert(alertCohort)}>
-                            <Text style={[styles.ackBtnText, { color: C.danger }]}>Vu, relayé ✓</Text>
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                    ) : null}
                   </View>
                   {!dayIsPast && !slotPast && (
                     <TouchableOpacity style={[styles.editResaBtn, { borderColor: C.border }]} onPress={() => onEdit(r)}>
@@ -125,9 +99,34 @@ export default function AdminSlotsList({
                     </TouchableOpacity>
                   )}
                 </View>
-                );
-              })
+              ))
             }
+
+            {(() => {
+              // Un même changement de règles peut recaser plusieurs
+              // visiteurs différents (pas forcément le même group_id) sur ce
+              // même créneau — une seule bannière/un seul "Vu, relayé" pour
+              // tout le bloc plutôt qu'un message identique répété par
+              // visiteur.
+              const alertOccupants = occ.filter((o) => o.alert_message);
+              if (alertOccupants.length === 0) return null;
+              const toAck = alertOccupants.filter((o) => o.pin === "ADMIN" && !o.alert_seen);
+              return (
+                <View style={[styles.alertBanner, { backgroundColor: "rgba(233,69,96,0.12)", borderColor: "rgba(233,69,96,0.4)" }]}>
+                  {alertOccupants.length > 1 && (
+                    <Text style={[styles.alertNames, { color: C.danger }]}>
+                      {alertOccupants.map((o) => `${o.prenom} ${o.nom}`).join(", ")}
+                    </Text>
+                  )}
+                  <Text style={[styles.alertText, { color: C.danger }]}>{alertOccupants[0].alert_message}</Text>
+                  {toAck.length > 0 && (
+                    <TouchableOpacity style={[styles.ackBtn, { borderColor: C.danger }]} onPress={() => onAckAlert(toAck)}>
+                      <Text style={[styles.ackBtnText, { color: C.danger }]}>Vu, relayé ✓</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              );
+            })()}
           </View>
         );
       })}

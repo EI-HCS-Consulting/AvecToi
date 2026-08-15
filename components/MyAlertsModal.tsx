@@ -1,22 +1,25 @@
 import { View, Text, TouchableOpacity, Modal, ScrollView, StyleSheet } from "react-native";
-import { useRouter } from "expo-router";
-import { useVisitorSpace } from "@/lib/VisitorContext";
-import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
-import { supabase } from "@/lib/supabase";
 import type { Reservation, ReservationChangeHistoryEntry } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
-// Sous-menu "Mes alertes" (Mon compte, juste avant "Se déconnecter") —
+// Sous-menu "Mes alertes" (Mon compte, juste après "Mes Checklists") —
 // regroupe en un seul endroit les recasages/annulations automatiques posés
 // par book_intervention() (intervention prioritaire) et
 // apply_slot_rule_change() (changement de règles fait par l'admin) sur les
-// réservations "Visite"/"Nuit" de ce visiteur/intervenant. Complète
+// réservations "Visite"/"Nuit" de ce visiteur/intervenant/admin. Complète
 // RebookingAlertModal (popup bloquant à l'ouverture de l'app pour la toute
-// première alerte non lue) : ici on peut consulter à tout moment les
-// alertes actives (activeAlerts, prop calculée dans account.tsx à partir de
-// myReservations) et l'historique permanent (reservation_change_history,
-// jamais effacé, contrairement aux champs alert_* qui disparaissent dès que
-// la réservation concernée est modifiée/vue).
+// première alerte non lue, visiteur/intervenant uniquement) : ici on peut
+// consulter à tout moment les alertes actives (activeAlerts, prop calculée
+// par l'écran appelant à partir de ses réservations) et l'historique
+// permanent (reservation_change_history, jamais effacé, contrairement aux
+// champs alert_* qui disparaissent dès que la réservation concernée est
+// modifiée/vue).
+//
+// Composant volontairement sans contexte (pas de useVisitorSpace/useSpace) :
+// visiteur, intervenant et admin l'utilisent tous les trois depuis des
+// écrans (et des contextes React) différents — onModify/onMarkSeen laissent
+// chaque appelant brancher sa propre navigation et sa propre synchro
+// calendrier/BDD.
 function frDate(iso: string | null): string {
   return iso
     ? new Date(iso + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })
@@ -35,30 +38,14 @@ interface Props {
   C: Theme;
   activeAlerts: Reservation[];
   history: ReservationChangeHistoryEntry[];
-  onRefresh: () => void;
+  onModify: (r: Reservation) => void;
+  onMarkSeen: (r: Reservation) => void | Promise<void>;
 }
 
-export default function MyAlertsModal({ visible, onClose, C, activeAlerts, history, onRefresh }: Props) {
-  const { slotConfig, setSelectedDay, setPendingEditReservationId } = useVisitorSpace();
-  const router = useRouter();
-
+export default function MyAlertsModal({ visible, onClose, C, activeAlerts, history, onModify, onMarkSeen }: Props) {
   function handleModify(r: Reservation) {
-    setPendingEditReservationId(r.id);
     onClose();
-    if (r.type === "Nuit") {
-      router.push("/(visitor)/home/nights" as any);
-    } else {
-      setSelectedDay(new Date(r.date + "T12:00:00"));
-      router.push("/(visitor)/home/slots" as any);
-    }
-  }
-
-  async function handleMarkSeen(r: Reservation) {
-    await supabase.from("reservations").update({ alert_seen: true }).eq("id", r.id);
-    if (r.alert_type === "rebooked" && slotConfig) {
-      await updateLinkedCalendarEvent(r.id, r.date, r.creneau, r.type, slotConfig);
-    }
-    onRefresh();
+    onModify(r);
   }
 
   return (
@@ -82,7 +69,7 @@ export default function MyAlertsModal({ visible, onClose, C, activeAlerts, histo
                       >
                         <Text style={[styles.activeMessage, { color: C.text }]}>{r.alert_message}</Text>
                         <View style={styles.activeRow}>
-                          <TouchableOpacity style={[styles.smallBtn, { borderColor: C.border }]} onPress={() => handleMarkSeen(r)}>
+                          <TouchableOpacity style={[styles.smallBtn, { borderColor: C.border }]} onPress={() => onMarkSeen(r)}>
                             <Text style={[styles.smallBtnText, { color: C.muted }]}>Marquer comme lu</Text>
                           </TouchableOpacity>
                           <TouchableOpacity style={[styles.smallBtn, { backgroundColor: C.accent }]} onPress={() => handleModify(r)}>
