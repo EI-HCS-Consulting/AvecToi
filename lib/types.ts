@@ -221,6 +221,13 @@ export interface InterventionType {
   label: string;
   duration_minutes: number;
   created_at: string;
+  // Dénormalisé depuis intervenant_profiles, synchronisé en continu par
+  // trigger (voir migration 20260815_intervention_types_intervenant_identity.sql)
+  // — pas utilisé côté app pour l'instant (toujours accessible via
+  // intervenant_profile_id), juste pour parcourir la table côté Supabase.
+  prenom?: string | null;
+  nom?: string | null;
+  metier?: string | null;
 }
 
 // Trace permanente d'un recasage/annulation automatique posé par

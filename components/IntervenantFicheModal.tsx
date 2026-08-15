@@ -422,12 +422,14 @@ export default function IntervenantFicheModal({
 
                 <View style={[styles.separator, { borderTopColor: C.border }]} />
                 <Text style={[styles.metierLabel, { color: C.gold }]}>Mes soins</Text>
-                <MesSoinsList
-                  key={soinsVersion}
-                  intervenantProfileId={intervenantProfileId}
-                  metiers={[ficheMetier, ficheMetierSecondaire]}
-                  C={C}
-                />
+                <ScrollView style={styles.soinsScroll} nestedScrollEnabled showsVerticalScrollIndicator>
+                  <MesSoinsList
+                    key={soinsVersion}
+                    intervenantProfileId={intervenantProfileId}
+                    metiers={[ficheMetier, ficheMetierSecondaire]}
+                    C={C}
+                  />
+                </ScrollView>
 
                 <TouchableOpacity
                   style={[styles.saveBtn, { backgroundColor: C.accent }, !canSave && { opacity: 0.5 }]}
@@ -542,6 +544,10 @@ const styles = StyleSheet.create({
   addSoinBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 12, paddingVertical: 13, marginBottom: 20, marginTop: 4 },
   addSoinBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" },
   separator: { borderTopWidth: 1, marginVertical: 16 },
+  // Hauteur bornée : sans ça, la liste des soins (MesSoinsList, une simple
+  // View qui grandit avec le nombre de soins) fait s'agrandir toute la carte
+  // sans limite au fil des ajouts — voir le ScrollView imbriqué ci-dessus.
+  soinsScroll: { maxHeight: 260, marginBottom: 4 },
   removeBtn: {
     width: 32,
     height: 32,
