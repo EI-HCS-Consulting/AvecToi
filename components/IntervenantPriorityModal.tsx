@@ -123,7 +123,12 @@ export default function IntervenantPriorityModal({ visible, onClose, spaceId, cu
 
           <TouchableOpacity
             style={[styles.option, { borderColor: mode === "selected" ? C.orange : C.border, backgroundColor: mode === "selected" ? `${C.orange}18` : "transparent" }]}
-            onPress={() => setMode("selected")}
+            onPress={() => {
+              if (mode !== "selected") {
+                setIntervenants((list) => list.map((it) => ({ ...it, priority_slots: false })));
+              }
+              setMode("selected");
+            }}
             activeOpacity={0.8}
           >
             <View style={[styles.radio, { borderColor: mode === "selected" ? C.orange : C.muted }]}>
