@@ -27,10 +27,24 @@ interface Props {
   monthAnchor: { year: number; month: number };
   onMonthChange: (m: { year: number; month: number }) => void;
   onDayPress: (iso: string) => void;
+  // Nom du patient / lieu du soin par space_id (voir lib/address.ts,
+  // careLocationDetail) — fournis uniquement en vue cross-space
+  // (mes-espaces-patients.tsx), où chaque ligne peut appartenir à un
+  // patient/espace différent. Quand présent, la ligne affiche patient +
+  // type (durée) + lieu + intervenant au lieu du type + intervenant
+  // habituel (vue admin single-space, sans ces props).
+  patientNameBySpaceId?: Record<string, string>;
+  locationBySpaceId?: Record<string, string>;
+  // Tap sur un soin précis plutôt que sur le jour entier — utilisé par
+  // mes-espaces-patients.tsx pour ouvrir l'édition de ce soin (jour,
+  // horaire, type). Remplace onDayPress quand fourni ; l'admin (un seul
+  // espace, popup jour) continue d'utiliser onDayPress seul.
+  onSoinPress?: (r: Reservation) => void;
 }
 
 export default function SoinsPeriodBlock({
   C, reservations, view, weekAnchor, onWeekChange, monthAnchor, onMonthChange, onDayPress,
+  patientNameBySpaceId, locationBySpaceId, onSoinPress,
 }: Props) {
   const dates = view === "hebdo" ? getWeekDates(weekAnchor) : getDaysInMonth(monthAnchor.year, monthAnchor.month);
   const isoSet = new Set(dates.map(toISO));
@@ -115,16 +129,40 @@ export default function SoinsPeriodBlock({
                   {dayDate.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}
                   {isToday ? " · Aujourd'hui" : ""}
                 </Text>
-                {byDay[iso].map((r) => (
-                  <TouchableOpacity key={r.id} style={styles.soinRow} activeOpacity={0.7} onPress={() => onDayPress(iso)}>
-                    <Text style={[styles.soinTime, { color: C.orange }]}>{r.creneau}</Text>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.soinLabel, { color: C.text }]} numberOfLines={1}>{r.intervention_label ?? "Intervention"}</Text>
-                      <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>{r.prenom} {r.nom}</Text>
-                    </View>
-                    <Text style={[styles.chevron, { color: C.muted }]}>›</Text>
-                  </TouchableOpacity>
-                ))}
+                {byDay[iso].map((r) => {
+                  const patientName = patientNameBySpaceId?.[r.space_id];
+                  const location = locationBySpaceId?.[r.space_id];
+                  return (
+                    <TouchableOpacity
+                      key={r.id}
+                      style={styles.soinRow}
+                      activeOpacity={0.7}
+                      onPress={() => (onSoinPress ? onSoinPress(r) : onDayPress(iso))}
+                    >
+                      <Text style={[styles.soinTime, { color: C.orange }]}>{r.creneau}</Text>
+                      <View style={{ flex: 1 }}>
+                        {patientName ? (
+                          <>
+                            <Text style={[styles.soinLabel, { color: C.text }]} numberOfLines={1}>{patientName}</Text>
+                            <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>
+                              {r.intervention_label ?? "Intervention"}{r.duration_minutes ? ` (${r.duration_minutes} min)` : ""}
+                            </Text>
+                            {!!location && (
+                              <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>📍 {location}</Text>
+                            )}
+                            <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>{r.prenom} {r.nom}</Text>
+                          </>
+                        ) : (
+                          <>
+                            <Text style={[styles.soinLabel, { color: C.text }]} numberOfLines={1}>{r.intervention_label ?? "Intervention"}</Text>
+                            <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>{r.prenom} {r.nom}</Text>
+                          </>
+                        )}
+                      </View>
+                      <Text style={[styles.chevron, { color: C.muted }]}>›</Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             );
           })

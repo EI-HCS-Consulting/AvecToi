@@ -60,6 +60,15 @@ interface Props {
   // (includePast) gardent l'ordre anté-chronologique (le plus récent en
   // haut) quel que soit ce réglage.
   chronological?: boolean;
+  // Titre de la rubrique — défaut "Soins planifiés" (historique). Utilisé
+  // par mes-espaces-patients.tsx ("Autres soins planifiés"), pour ne pas
+  // faire doublon avec le planning déjà affiché au-dessus.
+  title?: string;
+  // Masque les soins à venir dont la date est <= cette date ISO — utilisé
+  // par mes-espaces-patients.tsx pour exclure la période déjà visible dans
+  // SoinsPeriodBlock au-dessus (dernier jour de la semaine/du mois affiché).
+  // Ne s'applique pas aux soins passés (includePast).
+  excludeUpToDate?: string;
 }
 
 function SoinRow({ r, isLast, C, onPress, patientName, location }: { r: Reservation; isLast: boolean; C: Theme; onPress: () => void; patientName?: string; location?: string }) {
@@ -85,7 +94,7 @@ function SoinRow({ r, isLast, C, onPress, patientName, location }: { r: Reservat
   );
 }
 
-export default function SoinsPlanifiesBlock({ spaceId, C, filterIntervenantProfileId, filterIntervenantProfileIds, locationBySpaceId, patientNameBySpaceId, onPressRow, includePast = false, chronological = false }: Props) {
+export default function SoinsPlanifiesBlock({ spaceId, C, filterIntervenantProfileId, filterIntervenantProfileIds, locationBySpaceId, patientNameBySpaceId, onPressRow, includePast = false, chronological = false, title = "Soins planifiés", excludeUpToDate }: Props) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [soins, setSoins] = useState<Reservation[]>([]);
@@ -116,7 +125,7 @@ export default function SoinsPlanifiesBlock({ spaceId, C, filterIntervenantProfi
     return onPressRow ? () => onPressRow(r.date, r) : () => router.push({ pathname: "/(admin)/home/slots", params: { focusDate: r.date } } as any);
   }
 
-  const upcomingDesc = soins.filter((r) => !isSlotFullyPast(r.date, r.creneau));
+  const upcomingDesc = soins.filter((r) => !isSlotFullyPast(r.date, r.creneau) && (!excludeUpToDate || r.date > excludeUpToDate));
   // soins est trié date/créneau descendant (voir la requête ci-dessus) :
   // reverse() suffit à obtenir l'ordre chronologique ascendant demandé,
   // sans requête ni tri supplémentaire.
@@ -126,7 +135,7 @@ export default function SoinsPlanifiesBlock({ spaceId, C, filterIntervenantProfi
   return (
     <>
       <Text style={[styles.sectionTitle, { color: C.gold }]}>
-        Soins planifiés{upcoming.length > 0 ? ` (${upcoming.length})` : ""}
+        {title}{upcoming.length > 0 ? ` (${upcoming.length})` : ""}
       </Text>
       <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
         {loading ? (
