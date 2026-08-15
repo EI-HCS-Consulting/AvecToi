@@ -82,8 +82,7 @@ export default function VisitorSlotsList({
                 return (
                   <View style={[styles.interventionBanner, { backgroundColor: "rgba(249,115,22,0.12)", borderColor: C.orange }]}>
                     <Text style={[styles.interventionText, { color: C.orange }]}>
-                      🩺 {intervention.intervention_label} ({intervention.duration_minutes} min) — prioritaire sur les visites
-                      {!myInterventionHere && ` · ${intervention.prenom} ${intervention.nom}${byMetier ? ` (${byMetier})` : ""}`}
+                      🩺 {intervention.intervention_label} ({intervention.duration_minutes} min){!myInterventionHere && ` - ${intervention.prenom} ${intervention.nom}${byMetier ? ` (${byMetier})` : ""}`} - Prioritaire sur les visites
                     </Text>
                   </View>
                 );

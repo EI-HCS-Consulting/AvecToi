@@ -1,6 +1,7 @@
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { useSpace } from "@/lib/SpaceContext";
 import { getSlotOccupancy, getInterventionOverlap, isSlotPast } from "@/lib/slotUtils";
+import { metierLabel } from "@/lib/metiers";
 import type { Reservation } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -26,7 +27,7 @@ export default function AdminSlotsList({
   onEdit: (r: Reservation) => void;
   onAckAlert: (rs: Reservation[]) => void;
 }) {
-  const { getConfigForDate, getSlotsForDate } = useSpace();
+  const { getConfigForDate, getSlotsForDate, intervenantProfiles } = useSpace();
   const slotConfig = getConfigForDate(iso);
   const allSlots = getSlotsForDate(iso);
   if (!slotConfig) return null;
@@ -70,13 +71,16 @@ export default function AdminSlotsList({
               {!intervention && !full && !slotPast && !dayIsPast && capped && <Text style={[styles.fullTag, { color: C.muted }]}>Limite atteinte</Text>}
             </View>
 
-            {intervention && (
-              <View style={[styles.interventionBanner, { borderColor: C.orange, backgroundColor: "rgba(249,115,22,0.1)" }]}>
-                <Text style={[styles.interventionText, { color: C.text }]}>
-                  🩺 {intervention.intervention_label} ({intervention.duration_minutes} min) — {intervention.prenom} {intervention.nom} · prioritaire sur les visites
-                </Text>
-              </View>
-            )}
+            {intervention && (() => {
+              const byMetier = metierLabel(intervenantProfiles.find((p) => p.id === intervention.intervenant_profile_id)?.metier);
+              return (
+                <View style={[styles.interventionBanner, { borderColor: C.orange, backgroundColor: "rgba(249,115,22,0.1)" }]}>
+                  <Text style={[styles.interventionText, { color: C.text }]}>
+                    🩺 {intervention.intervention_label} ({intervention.duration_minutes} min) - {intervention.prenom} {intervention.nom}{byMetier ? ` (${byMetier})` : ""} - Prioritaire sur les visites
+                  </Text>
+                </View>
+              );
+            })()}
 
             {occ.length === 0
               ? <Text style={[styles.slotEmpty, { color: C.muted }]}>Aucun visiteur inscrit</Text>
