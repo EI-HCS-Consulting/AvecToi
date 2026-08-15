@@ -100,7 +100,7 @@ export default function IntervenantPriorityModal({ visible, onClose, spaceId, cu
   return (
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
       <View style={styles.overlay}>
-        <View style={[styles.card, { backgroundColor: C.card, borderColor: C.accent }]}>
+        <View style={[styles.card, { backgroundColor: C.card, borderColor: C.orange }]}>
           <Text style={[styles.title, { color: C.text }]}>Priorité des créneaux intervenants</Text>
           <Text style={[styles.desc, { color: C.muted }]}>
             Quand un créneau intervention chevauche des visites déjà réservées, ces visites sont automatiquement
@@ -108,36 +108,36 @@ export default function IntervenantPriorityModal({ visible, onClose, spaceId, cu
           </Text>
 
           <TouchableOpacity
-            style={[styles.option, { borderColor: mode === "all" ? C.accent : C.border, backgroundColor: mode === "all" ? `${C.accent}18` : "transparent" }]}
+            style={[styles.option, { borderColor: mode === "all" ? C.orange : C.border, backgroundColor: mode === "all" ? `${C.orange}18` : "transparent" }]}
             onPress={() => setMode("all")}
             activeOpacity={0.8}
           >
-            <View style={[styles.radio, { borderColor: mode === "all" ? C.accent : C.muted }]}>
-              {mode === "all" && <View style={[styles.radioDot, { backgroundColor: C.accent }]} />}
+            <View style={[styles.radio, { borderColor: mode === "all" ? C.orange : C.muted }]}>
+              {mode === "all" && <View style={[styles.radioDot, { backgroundColor: C.orange }]} />}
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.optionLabel, { color: C.text }]}>Tous les intervenants</Text>
-              <Text style={[styles.optionDesc, { color: C.muted }]}>Comportement actuel : chaque intervention est prioritaire sur les visites.</Text>
+              <Text style={[styles.optionDesc, { color: C.muted }]}>Chaque intervention est prioritaire sur les visites.</Text>
             </View>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.option, { borderColor: mode === "selected" ? C.accent : C.border, backgroundColor: mode === "selected" ? `${C.accent}18` : "transparent" }]}
+            style={[styles.option, { borderColor: mode === "selected" ? C.orange : C.border, backgroundColor: mode === "selected" ? `${C.orange}18` : "transparent" }]}
             onPress={() => setMode("selected")}
             activeOpacity={0.8}
           >
-            <View style={[styles.radio, { borderColor: mode === "selected" ? C.accent : C.muted }]}>
-              {mode === "selected" && <View style={[styles.radioDot, { backgroundColor: C.accent }]} />}
+            <View style={[styles.radio, { borderColor: mode === "selected" ? C.orange : C.muted }]}>
+              {mode === "selected" && <View style={[styles.radioDot, { backgroundColor: C.orange }]} />}
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.optionLabel, { color: C.text }]}>Seulement certains intervenants</Text>
-              <Text style={[styles.optionDesc, { color: C.muted }]}>Choisis ci-dessous lesquels sont prioritaires — les autres coexistent avec les visites.</Text>
+              <Text style={[styles.optionDesc, { color: C.muted }]}>Choix des intervenants prioritaires.</Text>
             </View>
           </TouchableOpacity>
 
           {mode === "selected" && (
             loading ? (
-              <ActivityIndicator color={C.accent} style={{ marginVertical: 20 }} />
+              <ActivityIndicator color={C.orange} style={{ marginVertical: 20 }} />
             ) : intervenants.length === 0 ? (
               <Text style={[styles.emptyText, { color: C.muted }]}>Aucun intervenant enregistré pour l'instant.</Text>
             ) : (
@@ -159,7 +159,7 @@ export default function IntervenantPriorityModal({ visible, onClose, spaceId, cu
                     <Switch
                       value={it.priority_slots}
                       onValueChange={() => toggleIntervenant(it.id)}
-                      trackColor={{ false: C.border, true: C.accent }}
+                      trackColor={{ false: C.border, true: C.orange }}
                       thumbColor="#fff"
                     />
                   </View>
@@ -169,7 +169,7 @@ export default function IntervenantPriorityModal({ visible, onClose, spaceId, cu
           )}
 
           <TouchableOpacity
-            style={[styles.saveBtn, { backgroundColor: C.accent }, saving && { opacity: 0.6 }]}
+            style={[styles.saveBtn, { backgroundColor: C.orange }, saving && { opacity: 0.6 }]}
             onPress={handleSave}
             disabled={saving}
           >

@@ -1,13 +1,16 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import { supabase } from "./supabase";
 import { generateSlots, resolveConfigForDate, toISO } from "./slotUtils";
-import type { PatientSpace, SlotConfig, SlotConfigHistoryEntry, Reservation } from "./types";
+import type { PatientSpace, SlotConfig, SlotConfigHistoryEntry, Reservation, IntervenantProfile } from "./types";
 
 interface SpaceContextValue {
   space: PatientSpace | null;
   slotConfig: SlotConfig | null;
   slots: string[];
   reservations: Reservation[];
+  // Fiches de tous les intervenants de l'espace — sert à afficher le métier
+  // de l'intervenant dans les blocs d'intervention (voir AdminSlotsList.tsx).
+  intervenantProfiles: IntervenantProfile[];
   loading: boolean;
   hasSpace: boolean;
   selectedDay: Date;
@@ -40,6 +43,7 @@ const SpaceContext = createContext<SpaceContextValue>({
   slotConfig: null,
   slots: [],
   reservations: [],
+  intervenantProfiles: [],
   loading: true,
   hasSpace: false,
   selectedDay: new Date(),
@@ -64,6 +68,7 @@ export function AdminSpaceProvider({ adminId, children }: { adminId: string; chi
   const [slots, setSlots] = useState<string[]>([]);
   const [configHistory, setConfigHistory] = useState<SlotConfigHistoryEntry[]>([]);
   const [reservations, setReservations] = useState<Reservation[]>([]);
+  const [intervenantProfiles, setIntervenantProfiles] = useState<IntervenantProfile[]>([]);
   const [loading, setLoading] = useState(true);
   // Cache des grilles de créneaux calculées pour des jours passés — évite de
   // relancer generateSlots() à chaque render pour le même historique/date.
@@ -214,10 +219,20 @@ export function AdminSpaceProvider({ adminId, children }: { adminId: string; chi
     setReservations(data || []);
   }, [space]);
 
+  const refreshIntervenantProfiles = useCallback(async () => {
+    if (!space) return;
+    const { data } = await supabase
+      .from("intervenant_profiles")
+      .select("*")
+      .eq("space_id", space.id);
+    setIntervenantProfiles(data || []);
+  }, [space]);
+
   useEffect(() => {
     if (!space) return;
 
     refreshReservations();
+    refreshIntervenantProfiles();
 
     // Reservations realtime
     const ch1 = supabase
@@ -262,16 +277,28 @@ export function AdminSpaceProvider({ adminId, children }: { adminId: string; chi
       )
       .subscribe();
 
+    // intervenant_profiles realtime — reflète le métier immédiatement si
+    // modifié depuis la fiche ou si un nouveau intervenant rejoint l'espace.
+    const ch4 = supabase
+      .channel(`space-admin-intervenant-profiles:${space.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "intervenant_profiles", filter: `space_id=eq.${space.id}` },
+        refreshIntervenantProfiles,
+      )
+      .subscribe();
+
     return () => {
       supabase.removeChannel(ch1);
       supabase.removeChannel(ch2);
       supabase.removeChannel(ch3);
+      supabase.removeChannel(ch4);
     };
-  }, [space?.id, refreshReservations]);
+  }, [space?.id, refreshReservations, refreshIntervenantProfiles]);
 
   return (
     <SpaceContext.Provider
-      value={{ space, slotConfig, slots, reservations, loading, hasSpace: !!space, selectedDay, setSelectedDay, pendingBookingSlot, setPendingBookingSlot, refreshReservations, refreshSpace, refreshSlotConfig, patchSpace, getConfigForDate, getSlotsForDate }}
+      value={{ space, slotConfig, slots, reservations, intervenantProfiles, loading, hasSpace: !!space, selectedDay, setSelectedDay, pendingBookingSlot, setPendingBookingSlot, refreshReservations, refreshSpace, refreshSlotConfig, patchSpace, getConfigForDate, getSlotsForDate }}
     >
       {children}
     </SpaceContext.Provider>
