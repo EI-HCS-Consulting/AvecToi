@@ -23,6 +23,7 @@ import IntervenantsListModal from "@/components/IntervenantsListModal";
 import { switchToLinkedSpace } from "@/lib/intervenantSpaceSwitch";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import MyChecklist from "@/components/MyChecklist";
+import MyAlertsModal from "@/components/MyAlertsModal";
 import type { Reservation, ReservationChangeHistoryEntry, SouvenirPhoto, NewsEntry, SupportMessage, Task } from "@/lib/types";
 
 function souvenirUrl(spaceId: string, filename: string) {
@@ -152,6 +153,7 @@ export default function VisitorAccountScreen() {
   // stylée (cf. handleLogout/handleSwitchSpace plus bas) plutôt qu'une Alert
   // native pour l'une et une modale custom pour l'autre.
   const [confirmModal, setConfirmModal] = useState<"logout" | "switchSpace" | null>(null);
+  const [alertsModalVisible, setAlertsModalVisible] = useState(false);
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pinPhase, setPinPhase] = useState<"verify" | "new" | "confirm">("verify");
   const [pinInput, setPinInput] = useState("");
@@ -803,6 +805,11 @@ export default function VisitorAccountScreen() {
     );
   }
 
+  // Alertes actives = réservations "Visite"/"Nuit" recasées/annulées par une
+  // intervention prioritaire (book_intervention) ou un changement de règles
+  // admin (apply_slot_rule_change) et pas encore vues — voir MyAlertsModal.
+  const myActiveAlerts = myReservations.filter((r) => r.alert_message && !r.alert_seen);
+
   const missingIdentityCard = (
     <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
       <Text style={[styles.cardDesc, { color: C.muted, marginBottom: 0 }]}>
@@ -1332,6 +1339,16 @@ export default function VisitorAccountScreen() {
           <Text style={[styles.switchLinkText, { color: C.muted }]}>Suivre un autre espace</Text>
         </TouchableOpacity>
 
+        <TouchableOpacity
+          style={[styles.patientProfileBtn, { marginTop: 10 }, myActiveAlerts.length > 0 && { backgroundColor: "#e94560" }]}
+          onPress={() => setAlertsModalVisible(true)}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.patientProfileBtnText}>
+            🔔 Mes alertes{myActiveAlerts.length > 0 ? ` (${myActiveAlerts.length})` : ""}
+          </Text>
+        </TouchableOpacity>
+
         <TouchableOpacity style={[styles.logoutBtn, { borderColor: "rgba(233,69,96,0.4)" }]} onPress={handleLogout}>
           <Text style={[styles.logoutBtnText, { color: "#e94560" }]}>🚪 Se déconnecter</Text>
         </TouchableOpacity>
@@ -1512,6 +1529,15 @@ export default function VisitorAccountScreen() {
           C={C}
         />
       )}
+
+      <MyAlertsModal
+        visible={alertsModalVisible}
+        onClose={() => setAlertsModalVisible(false)}
+        C={C}
+        activeAlerts={myActiveAlerts}
+        history={myChangeHistory}
+        onRefresh={() => space && loadActivity(space.id, prenom, nom)}
+      />
 
       {space && role === "intervenant" && intervenantProfileId && (
         <IntervenantFicheModal
