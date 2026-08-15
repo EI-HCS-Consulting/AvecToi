@@ -53,6 +53,7 @@ export default function IntervenantProfileModal({
   const [loading, setLoading] = useState(true);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [metier, setMetier] = useState<string | null>(null);
+  const [phraseTotem, setPhraseTotem] = useState<string | null>(null);
   const [soinsProposes, setSoinsProposes] = useState<InterventionType[]>([]);
   const [planifies, setPlanifies] = useState<Reservation[]>([]);
   const [faits, setFaits] = useState<Reservation[]>([]);
@@ -70,7 +71,7 @@ export default function IntervenantProfileModal({
         .order("creneau", { ascending: true }),
       supabase
         .from("intervenant_profiles")
-        .select("photo, photo_updated_at, metier")
+        .select("photo, photo_updated_at, metier, phrase_totem")
         .eq("id", intervenantProfileId)
         .maybeSingle(),
       supabase
@@ -85,6 +86,7 @@ export default function IntervenantProfileModal({
     setFaits(soins.filter((r) => isSlotFullyPast(r.date, r.creneau)).reverse());
     setPhotoUrl(profileData?.photo ? intervenantPhotoUrl(profileData.photo, profileData.photo_updated_at) : null);
     setMetier(profileData?.metier ?? null);
+    setPhraseTotem(profileData?.phrase_totem ?? null);
     setSoinsProposes(typesData || []);
     setLoading(false);
   }, [spaceId, intervenantProfileId]);
@@ -113,6 +115,9 @@ export default function IntervenantProfileModal({
               <Text style={[styles.sub, { color: C.muted }]}>
                 {metier ? metierLabel(metier) : "Fiche intervenant"}
               </Text>
+              {!!phraseTotem && (
+                <Text style={styles.totem} numberOfLines={2}>{phraseTotem}</Text>
+              )}
             </View>
           </View>
 
@@ -193,6 +198,10 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: "row", alignItems: "center", marginBottom: 12, paddingBottom: 16, borderBottomWidth: 1 },
   name: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18 },
   sub: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 2 },
+  // Couleur fixe (pas de token de thème) : même convention que
+  // PatientProfileModal/VisitorsBlock/SpaceHeader pour une phrase totem,
+  // voulue identique en Light et Dark.
+  totem: { fontFamily: "Caveat_600SemiBold", fontSize: 17, color: "#7EC8E3", marginTop: 3 },
   closeFooterBtn: { alignItems: "center", marginTop: 14 },
   closeFooterBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
 

@@ -4,18 +4,16 @@ import { useRouter } from "expo-router";
 import { useSpace } from "@/lib/SpaceContext";
 import { supabase } from "@/lib/supabase";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
-import { toISO, toFrLong, toFrShort, addDays, getMonday, getDayStatus } from "@/lib/slotUtils";
+import { getMonday, getDayStatus } from "@/lib/slotUtils";
 import { deleteLinkedCalendarEvent } from "@/lib/calendarSync";
 import AdminAddIntervention, { type AdminAddInterventionHandle } from "@/components/AdminAddIntervention";
 import AdminEditReservation, { type AdminEditReservationHandle } from "@/components/AdminEditReservation";
 import DeleteReservationConfirm, { type DeleteReservationConfirmHandle } from "@/components/DeleteReservationConfirm";
 import IntervenantProfileModal from "@/components/IntervenantProfileModal";
 import SoinsPlanifiesBlock from "@/components/SoinsPlanifiesBlock";
-import MiniCalendar from "@/components/MiniCalendar";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
-import WeeklyPlanningGrid from "@/components/WeeklyPlanningGrid";
-import PlanningLegend from "@/components/PlanningLegend";
-import DaySlotGrid from "@/components/DaySlotGrid";
+import SoinsPeriodBlock from "@/components/SoinsPeriodBlock";
+import DaySoinsModal from "@/components/DaySoinsModal";
 import SlotOccupantsModal, { type SelectedSlot } from "@/components/SlotOccupantsModal";
 import { metierLabel } from "@/lib/metiers";
 import type { Reservation, IntervenantProfile, InterventionType } from "@/lib/types";
@@ -36,14 +34,13 @@ export default function AdminIntervenantsScreen() {
   const deleteRef = useRef<DeleteReservationConfirmHandle>(null);
 
   const startDate = space ? new Date(space.start_date + "T00:00:00") : new Date();
-  const [selectedDay, setSelectedDay] = useState<Date>(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
-  });
-  const [calMonth, setCalMonth] = useState(() => ({ year: selectedDay.getFullYear(), month: selectedDay.getMonth() }));
   const [planningView, setPlanningView] = useState<"mensuel" | "hebdo">("mensuel");
   const [weekAnchor, setWeekAnchor] = useState(() => getMonday(new Date()));
+  const [monthAnchor, setMonthAnchor] = useState(() => {
+    const d = new Date();
+    return { year: d.getFullYear(), month: d.getMonth() };
+  });
+  const [dayPopupIso, setDayPopupIso] = useState<string | null>(null);
   const [viewingProfile, setViewingProfile] = useState<IntervenantProfile | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<SelectedSlot | null>(null);
   // Replié par défaut — reléguée en bas d'écran, derrière Planning et Soins
@@ -90,22 +87,20 @@ export default function AdminIntervenantsScreen() {
 
   useEffect(() => { refreshProfiles(); }, [refreshProfiles]);
 
-  // Le calendrier mensuel suit le pager jour par jour : passer au mois
-  // suivant/précédent via ‹ › recentre la grille dessous automatiquement.
-  useEffect(() => {
-    setCalMonth({ year: selectedDay.getFullYear(), month: selectedDay.getMonth() });
-  }, [selectedDay]);
-
   if (!space) return null;
 
-  const iso = toISO(selectedDay);
-  const dayInterventions = reservations
-    .filter((r) => r.type === "Intervention" && r.date === iso)
-    .sort((a, b) => a.creneau.localeCompare(b.creneau));
   const interventionDates = new Set(reservations.filter((r) => r.type === "Intervention").map((r) => r.date));
-  const dayConfig = getConfigForDate(iso) ?? slotConfig;
-  const daySlots = getSlotsForDate(iso);
-  const dayStatus = dayConfig ? getDayStatus(reservations, iso, selectedDay, dayConfig, daySlots, startDate, "Intervention") : "empty";
+
+  const dayPopupDay = dayPopupIso ? new Date(dayPopupIso + "T00:00:00") : null;
+  const dayPopupInterventions = dayPopupIso
+    ? reservations.filter((r) => r.type === "Intervention" && r.date === dayPopupIso).sort((a, b) => a.creneau.localeCompare(b.creneau))
+    : [];
+  const dayPopupConfig = dayPopupIso ? (getConfigForDate(dayPopupIso) ?? slotConfig) : null;
+  const dayPopupSlots = dayPopupIso ? getSlotsForDate(dayPopupIso) : [];
+  const dayPopupStatus =
+    dayPopupIso && dayPopupDay && dayPopupConfig
+      ? getDayStatus(reservations, dayPopupIso, dayPopupDay, dayPopupConfig, dayPopupSlots, startDate, "Intervention")
+      : "empty";
 
   function handleDelete(r: Reservation) {
     deleteRef.current?.open(r);
@@ -145,109 +140,23 @@ export default function AdminIntervenantsScreen() {
           />
         </View>
 
-        {planningView === "hebdo" && slotConfig ? (
-          <WeeklyPlanningGrid
-            C={C}
-            slotConfig={slotConfig}
-            reservations={reservations}
-            getSlotsForDate={getSlotsForDate}
-            getConfigForDate={getConfigForDate}
-            startDate={startDate}
-            weekAnchor={weekAnchor}
-            onWeekChange={setWeekAnchor}
-            readOnly={false}
-            onEdit={(r) => editRef.current?.open(r)}
-            onDelete={handleDelete}
-          />
-        ) : (
-          <>
-            <View style={{ marginBottom: 14 }}>
-              <MiniCalendar
-                selDate={iso}
-                onSelect={(newIso) => setSelectedDay(new Date(newIso + "T00:00:00"))}
-                calMonth={calMonth}
-                onMonthChange={setCalMonth}
-                startDate={startDate}
-                C={C}
-                size="lg"
-                markedDates={interventionDates}
-              />
-            </View>
+        <SoinsPeriodBlock
+          C={C}
+          reservations={reservations}
+          view={planningView}
+          weekAnchor={weekAnchor}
+          onWeekChange={setWeekAnchor}
+          monthAnchor={monthAnchor}
+          onMonthChange={setMonthAnchor}
+          onDayPress={setDayPopupIso}
+        />
 
-            <View style={[styles.dayNav, { backgroundColor: C.card, borderColor: C.border }]}>
-              <TouchableOpacity
-                onPress={() => {
-                  const prev = addDays(selectedDay, -1);
-                  if (prev >= startDate) setSelectedDay(prev);
-                }}
-                disabled={toISO(selectedDay) === toISO(startDate)}
-                style={[styles.navBtn, { borderColor: C.border }]}
-              >
-                <Text style={[styles.navBtnText, { color: C.text }]}>‹</Text>
-              </TouchableOpacity>
-              <View style={{ alignItems: "center" }}>
-                <Text style={[styles.dayTitle, { color: C.text }]}>{toFrLong(selectedDay)}</Text>
-                <Text style={[styles.daySub, { color: C.muted }]}>{toFrShort(selectedDay)}</Text>
-              </View>
-              <TouchableOpacity
-                onPress={() => setSelectedDay(addDays(selectedDay, 1))}
-                style={[styles.navBtn, { borderColor: C.border }]}
-              >
-                <Text style={[styles.navBtnText, { color: C.text }]}>›</Text>
-              </TouchableOpacity>
-            </View>
-
-            {dayConfig && (
-              <>
-                <PlanningLegend C={C} />
-                <DaySlotGrid
-                  C={C}
-                  iso={iso}
-                  day={selectedDay}
-                  config={dayConfig}
-                  daySlots={daySlots}
-                  reservations={reservations}
-                  status={dayStatus}
-                  showHeader={false}
-                  onSlotPress={(slotIso, slot, occupants) => setSelectedSlot({ iso: slotIso, slot, occupants })}
-                />
-              </>
-            )}
-
-            {dayInterventions.length === 0 ? (
-              <Text style={[styles.emptyText, { color: C.muted, marginBottom: 12 }]}>Aucune intervention ce jour-là.</Text>
-            ) : (
-              dayInterventions.map((r) => (
-                <View key={r.id} style={[styles.interventionCard, { backgroundColor: C.card, borderColor: C.orange }]}>
-                  <TouchableOpacity
-                    style={{ flex: 1 }}
-                    activeOpacity={0.7}
-                    onPress={() => router.push({ pathname: "/(admin)/home/slots", params: { focusDate: r.date } } as any)}
-                  >
-                    <Text style={[styles.interventionTime, { color: C.orange }]}>
-                      {r.creneau} · {r.duration_minutes} min
-                    </Text>
-                    <Text style={[styles.interventionLabel, { color: C.text }]}>{r.intervention_label}</Text>
-                    <Text style={[styles.interventionBy, { color: C.muted }]}>{r.prenom} {r.nom}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.editResaBtn, { borderColor: C.border }]} onPress={() => editRef.current?.open(r)}>
-                    <Text style={[styles.editResaBtnText, { color: C.muted }]}>Modifier</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.deleteResaBtn, { borderColor: "rgba(233,69,96,0.4)" }]} onPress={() => handleDelete(r)}>
-                    <Text style={{ color: "#e94560", fontSize: 13 }}>✕</Text>
-                  </TouchableOpacity>
-                </View>
-              ))
-            )}
-
-            <TouchableOpacity
-              style={[styles.addBtn, { backgroundColor: C.orange }]}
-              onPress={() => addRef.current?.open(iso)}
-            >
-              <Text style={styles.addBtnText}>+ Ajouter une intervention</Text>
-            </TouchableOpacity>
-          </>
-        )}
+        <TouchableOpacity
+          style={[styles.addBtn, { backgroundColor: C.orange }]}
+          onPress={() => addRef.current?.open()}
+        >
+          <Text style={styles.addBtnText}>+ Ajouter une intervention</Text>
+        </TouchableOpacity>
 
         <SoinsPlanifiesBlock spaceId={space.id} C={C} includePast />
 
@@ -332,6 +241,23 @@ export default function AdminIntervenantsScreen() {
         onDelete={handleDelete}
       />
 
+      <DaySoinsModal
+        C={C}
+        visible={!!dayPopupIso}
+        iso={dayPopupIso}
+        day={dayPopupDay}
+        config={dayPopupConfig}
+        daySlots={dayPopupSlots}
+        reservations={reservations}
+        dayInterventions={dayPopupInterventions}
+        status={dayPopupStatus}
+        onClose={() => setDayPopupIso(null)}
+        onSlotPress={(slotIso, slot, occupants) => setSelectedSlot({ iso: slotIso, slot, occupants })}
+        onEdit={(r) => editRef.current?.open(r)}
+        onDelete={handleDelete}
+        onAddIntervention={() => dayPopupIso && addRef.current?.open(dayPopupIso)}
+      />
+
       {space && viewingProfile && (
         <IntervenantProfileModal
           visible={!!viewingProfile}
@@ -376,21 +302,7 @@ const styles = StyleSheet.create({
   typeChip: { borderWidth: 1, borderRadius: 8, paddingVertical: 5, paddingHorizontal: 10 },
   typeChipText: { fontFamily: "DM_Sans_400Regular", fontSize: 12 },
 
-  dayNav: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 14, borderRadius: 14, borderWidth: 1, marginBottom: 14 },
-  navBtn: { borderWidth: 1, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 14 },
-  navBtnText: { fontSize: 18, fontWeight: "600" },
-  dayTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 16, textTransform: "capitalize" },
-  daySub: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 2 },
-
-  interventionCard: { flexDirection: "row", alignItems: "center", gap: 8, borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 10 },
-  interventionTime: { fontFamily: "DM_Sans_700Bold", fontSize: 14, marginBottom: 2 },
-  interventionLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
-  interventionBy: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 2 },
-  editResaBtn: { borderWidth: 1, borderRadius: 7, paddingVertical: 6, paddingHorizontal: 10 },
-  editResaBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
-  deleteResaBtn: { width: 28, height: 28, borderWidth: 1, borderRadius: 8, alignItems: "center", justifyContent: "center" },
-
-  addBtn: { borderRadius: 12, paddingVertical: 15, alignItems: "center", marginTop: 6 },
+  addBtn: { borderRadius: 12, paddingVertical: 15, alignItems: "center", marginTop: 6, marginBottom: 24 },
   addBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" },
 
   toast: { position: "absolute", bottom: 24, alignSelf: "center", paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10 },
