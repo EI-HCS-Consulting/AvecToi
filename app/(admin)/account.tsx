@@ -11,11 +11,13 @@ import { File } from "expo-file-system";
 import { useSpace } from "@/lib/SpaceContext";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { supabase } from "@/lib/supabase";
+import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
 import PatientAvatar from "@/components/PatientAvatar";
 import PinPad from "@/components/PinPad";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import MyChecklist from "@/components/MyChecklist";
-import type { Reservation, NewsEntry, SupportMessage, Task } from "@/lib/types";
+import MyAlertsModal from "@/components/MyAlertsModal";
+import type { Reservation, ReservationChangeHistoryEntry, NewsEntry, SupportMessage, Task } from "@/lib/types";
 
 const CAT_ICONS: Record<Task["category"], string> = {
   repas: "🍽️",
@@ -40,11 +42,13 @@ const SHEET_MAX_HEIGHT = Dimensions.get("window").height * 0.72;
 
 export default function AdminAccountScreen() {
   const router = useRouter();
-  const { space, loading, hasSpace } = useSpace();
+  const { space, loading, hasSpace, getConfigForDate } = useSpace();
   const { mode, theme: C, setMode } = useDisplayMode();
 
   const [activityLoading, setActivityLoading] = useState(false);
   const [reservations, setReservations] = useState<Reservation[]>([]);
+  const [changeHistory, setChangeHistory] = useState<ReservationChangeHistoryEntry[]>([]);
+  const [alertsModalVisible, setAlertsModalVisible] = useState(false);
   const [news, setNews] = useState<NewsEntry[]>([]);
   const [messages, setMessages] = useState<SupportMessage[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -276,7 +280,7 @@ export default function AdminAccountScreen() {
   async function loadActivity(spaceId: string, p: string, n: string) {
     setActivityLoading(true);
     const hasIdentity = !!p.trim() && !!n.trim();
-    const [resv, resvBookedFor, newsData, msgs, tasksData] = await Promise.all([
+    const [resv, resvBookedFor, newsData, msgs, tasksData, changeHistoryData] = await Promise.all([
       hasIdentity
         ? supabase.from("reservations").select("*").eq("space_id", spaceId)
             .ilike("prenom", p.trim()).ilike("nom", n.trim()).order("date", { ascending: false })
@@ -288,6 +292,10 @@ export default function AdminAccountScreen() {
       supabase.from("news_entries").select("*").eq("space_id", spaceId).eq("author_pin", "ADMIN").order("created_at", { ascending: false }),
       supabase.from("support_messages").select("*").eq("space_id", spaceId).eq("author_pin", "ADMIN").order("created_at", { ascending: false }),
       supabase.from("tasks").select("*").eq("space_id", spaceId).eq("created_by", "admin").order("created_at", { ascending: false }),
+      hasIdentity
+        ? supabase.from("reservation_change_history").select("*").eq("space_id", spaceId)
+            .ilike("prenom", p.trim()).ilike("nom", n.trim()).order("changed_at", { ascending: false })
+        : Promise.resolve({ data: [] as ReservationChangeHistoryEntry[] }),
     ]);
     const bookedForIds = new Set((resv.data || []).map((r: Reservation) => r.id));
     const myResv = [
@@ -298,7 +306,33 @@ export default function AdminAccountScreen() {
     setNews(newsData.data || []);
     setMessages(msgs.data || []);
     setTasks(tasksData.data || []);
+    setChangeHistory(changeHistoryData.data || []);
     setActivityLoading(false);
+  }
+
+  // Alertes actives = réservations "Visite"/"Nuit" de l'admin lui-même
+  // recasées/annulées par une intervention prioritaire ou un changement de
+  // règles — voir MyAlertsModal et son usage côté visiteur (app/(visitor)/account.tsx).
+  // Triées par date/créneau croissants : la première à venir en premier.
+  const myActiveAlerts = reservations
+    .filter((r) => r.alert_message && !r.alert_seen)
+    .sort((a, b) => (a.date === b.date ? a.creneau.localeCompare(b.creneau) : a.date.localeCompare(b.date)));
+
+  function handleAlertModify(r: Reservation) {
+    if (r.type === "Nuit") {
+      router.push({ pathname: "/(admin)/home/nights", params: { focusDate: r.date } } as any);
+    } else {
+      router.push({ pathname: "/(admin)/home/slots", params: { focusDate: r.date } } as any);
+    }
+  }
+
+  async function handleAlertMarkSeen(r: Reservation) {
+    await supabase.from("reservations").update({ alert_seen: true }).eq("id", r.id);
+    const config = getConfigForDate(r.date);
+    if (r.alert_type === "rebooked" && config) {
+      await updateLinkedCalendarEvent(r.id, r.date, r.creneau, r.type, config);
+    }
+    if (space) loadActivity(space.id, adminFirstname, adminLastname);
   }
 
   // Une réservation faite avec un ou plusieurs accompagnants insère une ligne
@@ -590,6 +624,26 @@ export default function AdminAccountScreen() {
                   ownerNom={adminLastname}
                   ownerPin="ADMIN"
                   C={C}
+                />
+
+                <TouchableOpacity
+                  style={[styles.saveBtn, { backgroundColor: C.accent, marginTop: 16 }, myActiveAlerts.length > 0 && { backgroundColor: "#e94560" }]}
+                  onPress={() => setAlertsModalVisible(true)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.saveBtnText}>
+                    🔔 Mes alertes{myActiveAlerts.length > 0 ? ` (${myActiveAlerts.length})` : ""}
+                  </Text>
+                </TouchableOpacity>
+
+                <MyAlertsModal
+                  visible={alertsModalVisible}
+                  onClose={() => setAlertsModalVisible(false)}
+                  C={C}
+                  activeAlerts={myActiveAlerts}
+                  history={changeHistory}
+                  onModify={handleAlertModify}
+                  onMarkSeen={handleAlertMarkSeen}
                 />
 
                 <TouchableOpacity

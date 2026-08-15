@@ -33,13 +33,24 @@ export default function RebookingAlertModal() {
   const router = useRouter();
   const { theme: C } = useDisplayMode();
   const [mySession, setMySession] = useState<VisitorSession | null>(null);
+  // Cache localement (pas en BDD) l'alerte qu'on vient d'envoyer vers
+  // "Modifier" : le popup PIN de BookingFlow.tsx s'ouvre juste après la
+  // navigation, et laisser ce Modal-ci encore `visible` en même temps
+  // (reservations n'est pas encore rafraîchi, alert_seen toujours faux)
+  // faisait s'ouvrir puis se refermer aussitôt le second popup — deux
+  // <Modal> natifs simultanés ne coexistent pas proprement sur Android.
+  const [hiddenId, setHiddenId] = useState<string | null>(null);
 
   useEffect(() => {
     getVisitorSession().then(setMySession);
   }, []);
 
+  // Toujours commencer par la réservation la plus proche dans le temps,
+  // plutôt que l'ordre (non garanti) de `reservations`.
   const alerts = mySession
-    ? reservations.filter((r) => matchesSession(r, mySession) && r.alert_message && !r.alert_seen)
+    ? reservations
+        .filter((r) => matchesSession(r, mySession) && r.alert_message && !r.alert_seen && r.id !== hiddenId)
+        .sort((a, b) => (a.date === b.date ? a.creneau.localeCompare(b.creneau) : a.date.localeCompare(b.date)))
     : [];
   const current: Reservation | undefined = alerts[0];
 
@@ -54,6 +65,7 @@ export default function RebookingAlertModal() {
 
   function handleModify() {
     if (!current) return;
+    setHiddenId(current.id);
     setPendingEditReservationId(current.id);
     if (current.type === "Nuit") {
       router.push("/(visitor)/home/nights" as any);

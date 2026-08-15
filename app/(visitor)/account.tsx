@@ -12,6 +12,7 @@ import { useVisitorSpace } from "@/lib/VisitorContext";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { supabase } from "@/lib/supabase";
 import { getVisitorSession, saveVisitorSession, clearVisitorSession } from "@/lib/visitorSession";
+import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
 import { enterByDossierCode } from "@/lib/visitorEntry";
 import { normalizePhone } from "@/lib/phone";
 import { metierLabel } from "@/lib/metiers";
@@ -97,7 +98,7 @@ const SECTION_META: Record<AccountSectionKey, { icon: string; label: string }> =
 // servent qu'à pré-remplir les futurs formulaires de réservation ; le PIN
 // reste toujours ressaisi à la main pour confirmer une action sensible.
 export default function VisitorAccountScreen() {
-  const { space, token, setSelectedDay } = useVisitorSpace();
+  const { space, token, slotConfig, setSelectedDay, setPendingEditReservationId } = useVisitorSpace();
   const router = useRouter();
   const { mode, theme: C, setMode } = useDisplayMode();
 
@@ -808,7 +809,28 @@ export default function VisitorAccountScreen() {
   // Alertes actives = réservations "Visite"/"Nuit" recasées/annulées par une
   // intervention prioritaire (book_intervention) ou un changement de règles
   // admin (apply_slot_rule_change) et pas encore vues — voir MyAlertsModal.
-  const myActiveAlerts = myReservations.filter((r) => r.alert_message && !r.alert_seen);
+  // Triées par date/créneau croissants : la première à venir en premier.
+  const myActiveAlerts = myReservations
+    .filter((r) => r.alert_message && !r.alert_seen)
+    .sort((a, b) => (a.date === b.date ? a.creneau.localeCompare(b.creneau) : a.date.localeCompare(b.date)));
+
+  function handleAlertModify(r: Reservation) {
+    setPendingEditReservationId(r.id);
+    if (r.type === "Nuit") {
+      router.push("/(visitor)/home/nights" as any);
+    } else {
+      setSelectedDay(new Date(r.date + "T12:00:00"));
+      router.push("/(visitor)/home/slots" as any);
+    }
+  }
+
+  async function handleAlertMarkSeen(r: Reservation) {
+    await supabase.from("reservations").update({ alert_seen: true }).eq("id", r.id);
+    if (r.alert_type === "rebooked" && slotConfig) {
+      await updateLinkedCalendarEvent(r.id, r.date, r.creneau, r.type, slotConfig);
+    }
+    if (space) loadActivity(space.id, prenom, nom);
+  }
 
   const missingIdentityCard = (
     <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
@@ -1308,7 +1330,17 @@ export default function VisitorAccountScreen() {
         />
 
         <TouchableOpacity
-          style={styles.patientProfileBtn}
+          style={[styles.patientProfileBtn, myActiveAlerts.length > 0 && { backgroundColor: "#e94560" }]}
+          onPress={() => setAlertsModalVisible(true)}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.patientProfileBtnText}>
+            🔔 Mes alertes{myActiveAlerts.length > 0 ? ` (${myActiveAlerts.length})` : ""}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.patientProfileBtn, { marginTop: 10 }]}
           onPress={() => setPatientProfileVisible(true)}
           activeOpacity={0.85}
         >
@@ -1337,16 +1369,6 @@ export default function VisitorAccountScreen() {
 
         <TouchableOpacity style={styles.switchLink} onPress={handleSwitchSpace}>
           <Text style={[styles.switchLinkText, { color: C.muted }]}>Suivre un autre espace</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.patientProfileBtn, { marginTop: 10 }, myActiveAlerts.length > 0 && { backgroundColor: "#e94560" }]}
-          onPress={() => setAlertsModalVisible(true)}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.patientProfileBtnText}>
-            🔔 Mes alertes{myActiveAlerts.length > 0 ? ` (${myActiveAlerts.length})` : ""}
-          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={[styles.logoutBtn, { borderColor: "rgba(233,69,96,0.4)" }]} onPress={handleLogout}>
@@ -1536,7 +1558,8 @@ export default function VisitorAccountScreen() {
         C={C}
         activeAlerts={myActiveAlerts}
         history={myChangeHistory}
-        onRefresh={() => space && loadActivity(space.id, prenom, nom)}
+        onModify={handleAlertModify}
+        onMarkSeen={handleAlertMarkSeen}
       />
 
       {space && role === "intervenant" && intervenantProfileId && (
