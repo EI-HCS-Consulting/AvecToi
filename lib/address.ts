@@ -83,6 +83,33 @@ export function careLocationSummary(
 }
 
 /**
+ * Lieu du soin pour "Mes Espaces Patients" (planning cross-space d'un
+ * intervenant, app/(visitor)/home/mes-espaces-patients.tsx) : hôpital → même
+ * format que careLocationSummary (nom + service + chambre) ; domicile →
+ * adresse complète (rue, CP ville), contrairement au résumé "Domicile ·
+ * Ville" de careLocationSummary (PatientsList.tsx) — ici l'intervenant a
+ * besoin de l'adresse exacte pour s'y rendre, pas juste de la ville.
+ */
+export function careLocationDetail(
+  space: Pick<
+    PatientSpace,
+    "home_care_mode" | "hospital_name" | "hospital_service" | "hospital_room" | "home_address" | "home_address_line2" | "home_postal_code" | "home_city" | "home_country"
+  >,
+): string {
+  if (space.home_care_mode) {
+    const addr = joinAddress({
+      street: space.home_address,
+      line2: space.home_address_line2,
+      postalCode: space.home_postal_code,
+      city: space.home_city,
+      country: space.home_country,
+    });
+    return addr || "Domicile";
+  }
+  return careLocationSummary(space);
+}
+
+/**
  * Le segment /maps/place/<...>/ contient souvent le nom ET l'adresse
  * complète, séparés par des virgules :
  * "Hôpital Michallon - CHU Grenoble Alpes, Bd de la Chantourne, 38700 La Tronche"
