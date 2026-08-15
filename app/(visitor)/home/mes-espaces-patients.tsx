@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-import { View, Text, ScrollView, TouchableOpacity, Modal, StyleSheet, ActivityIndicator } from "react-native";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator } from "react-native";
 import { useRouter } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
@@ -7,10 +7,11 @@ import { getVisitorSession } from "@/lib/visitorSession";
 import { normalizePhone } from "@/lib/phone";
 import { careLocationDetail } from "@/lib/address";
 import { switchToLinkedSpace, type LinkedIntervenantSpaceRow } from "@/lib/intervenantSpaceSwitch";
-import { getMonday, toFrLong } from "@/lib/slotUtils";
+import { getMonday, getWeekDates, getDaysInMonth, toISO } from "@/lib/slotUtils";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import SoinsPeriodBlock from "@/components/SoinsPeriodBlock";
 import SoinsPlanifiesBlock from "@/components/SoinsPlanifiesBlock";
+import InterventionEditFlow, { type InterventionEditFlowHandle } from "@/components/InterventionEditFlow";
 import type { Reservation } from "@/lib/types";
 
 interface ProfileRow extends LinkedIntervenantSpaceRow {
@@ -54,7 +55,7 @@ export default function MesEspacesPatientsScreen() {
     const d = new Date();
     return { year: d.getFullYear(), month: d.getMonth() };
   });
-  const [dayPopupIso, setDayPopupIso] = useState<string | null>(null);
+  const editFlowRef = useRef<InterventionEditFlowHandle>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -127,10 +128,17 @@ export default function MesEspacesPatientsScreen() {
     }
   }
 
-  const dayPopupDay = dayPopupIso ? new Date(dayPopupIso + "T00:00:00") : null;
-  const dayPopupInterventions = dayPopupIso
-    ? reservations.filter((r) => r.date === dayPopupIso).sort((a, b) => a.creneau.localeCompare(b.creneau))
-    : [];
+  function handleSoinPress(r: Reservation) {
+    const row = profiles.find((p) => p.id === r.intervenant_profile_id);
+    if (!row) return;
+    editFlowRef.current?.open(r, row.pin);
+  }
+
+  // Dernier jour de la période actuellement affichée par SoinsPeriodBlock —
+  // "Autres soins planifiés" en dessous n'affiche que ce qui vient après,
+  // pour ne pas dupliquer ce qui est déjà visible dans la grille.
+  const periodDates = planningView === "hebdo" ? getWeekDates(weekAnchor) : getDaysInMonth(monthAnchor.year, monthAnchor.month);
+  const periodEndIso = toISO(periodDates[periodDates.length - 1]);
 
   if (loading) {
     return (
@@ -172,7 +180,10 @@ export default function MesEspacesPatientsScreen() {
               onWeekChange={setWeekAnchor}
               monthAnchor={monthAnchor}
               onMonthChange={setMonthAnchor}
-              onDayPress={setDayPopupIso}
+              onDayPress={() => {}}
+              patientNameBySpaceId={patientNameBySpaceId}
+              locationBySpaceId={locationBySpaceId}
+              onSoinPress={handleSoinPress}
             />
 
             <SoinsPlanifiesBlock
@@ -182,47 +193,15 @@ export default function MesEspacesPatientsScreen() {
               patientNameBySpaceId={patientNameBySpaceId}
               includePast
               chronological
+              title="Autres soins planifiés"
+              excludeUpToDate={periodEndIso}
               onPressRow={(_date, r) => handleRowPress(r)}
             />
           </>
         )}
       </ScrollView>
 
-      {/* Popup jour — lecture seule (pas d'ajout/édition ici, contrairement à
-          DaySoinsModal côté admin) : chaque intervention peut appartenir à un
-          espace/patient différent, la grille de créneaux d'un seul espace
-          n'aurait pas de sens ici. */}
-      <Modal visible={!!dayPopupIso} transparent animationType="fade" statusBarTranslucent onRequestClose={() => setDayPopupIso(null)}>
-        <View style={styles.overlay}>
-          <View style={[styles.popupCard, { backgroundColor: C.card, borderColor: C.accent }]}>
-            <Text style={[styles.popupTitle, { color: C.text }]} numberOfLines={1}>
-              {dayPopupDay ? toFrLong(dayPopupDay) : ""}
-            </Text>
-            <ScrollView style={styles.popupScroll} contentContainerStyle={{ paddingBottom: 4 }}>
-              {dayPopupInterventions.length === 0 ? (
-                <Text style={[styles.emptyText, { color: C.muted }]}>Aucune intervention ce jour-là.</Text>
-              ) : (
-                dayPopupInterventions.map((r) => (
-                  <View key={r.id} style={[styles.popupRow, { borderColor: C.orange }]}>
-                    <Text style={[styles.popupTime, { color: C.orange }]}>{r.creneau}</Text>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.popupLabel, { color: C.text }]}>
-                        {patientNameBySpaceId[r.space_id] ?? `${r.prenom} ${r.nom}`}{r.intervention_label ? ` — ${r.intervention_label}` : ""}
-                      </Text>
-                      {!!locationBySpaceId[r.space_id] && (
-                        <Text style={[styles.popupLocation, { color: C.muted }]} numberOfLines={2}>📍 {locationBySpaceId[r.space_id]}</Text>
-                      )}
-                    </View>
-                  </View>
-                ))
-              )}
-            </ScrollView>
-            <TouchableOpacity onPress={() => setDayPopupIso(null)} style={styles.closeFooterBtn}>
-              <Text style={[styles.closeFooterBtnText, { color: C.muted }]}>Fermer</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      <InterventionEditFlow ref={editFlowRef} C={C} onSaved={load} />
     </View>
   );
 }
@@ -235,16 +214,4 @@ const styles = StyleSheet.create({
   scroll: { padding: 16, paddingBottom: 40 },
   sectionTitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 10 },
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, textAlign: "center", marginVertical: 16 },
-
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.85)", justifyContent: "center", alignItems: "center", padding: 24 },
-  popupCard: { width: "100%", maxWidth: 420, maxHeight: "85%", borderRadius: 20, borderWidth: 1, padding: 24 },
-  popupTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, textTransform: "capitalize", marginBottom: 12 },
-  popupScroll: { maxHeight: 420 },
-  popupRow: { flexDirection: "row", alignItems: "flex-start", gap: 10, borderWidth: 1, borderRadius: 12, padding: 12, marginBottom: 8 },
-  popupTime: { fontFamily: "DM_Sans_700Bold", fontSize: 13, minWidth: 42 },
-  popupLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
-  popupLocation: { fontFamily: "DM_Sans_400Regular", fontSize: 11.5, marginTop: 2 },
-
-  closeFooterBtn: { alignItems: "center", marginTop: 14 },
-  closeFooterBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
 });
