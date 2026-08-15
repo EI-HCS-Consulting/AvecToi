@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  View, Text, TextInput, TouchableOpacity, Modal, StyleSheet,
+  View, Text, TouchableOpacity, Modal, StyleSheet,
   ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Alert,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
@@ -48,10 +48,14 @@ interface Props {
   ) => void;
 }
 
-// Fiche intervenant (édition) — photo, identité, coordonnées, métier
-// principal, 2ᵉ spécialisation optionnelle et liste des soins pratiqués
-// (rattachée à intervenant_profiles). La création (première connexion) est
-// désormais un flux séparé, voir components/IntervenantOnboardingFlow.tsx.
+// Fiche intervenant (édition) — photo, métier principal, 2ᵉ spécialisation
+// optionnelle et liste des soins pratiqués (rattachée à
+// intervenant_profiles). Prénom/nom/phrase totem sont affichés en lecture
+// seule (même rendu que la fiche publique, voir styles.ficheName/ficheTotem)
+// : leur édition se fait dans Mes informations (app/(visitor)/account.tsx,
+// motto = phrase_totem), qui les répercute via syncIntervenantContact — pas
+// de double saisie. La création (première connexion) est un flux séparé,
+// voir components/IntervenantOnboardingFlow.tsx.
 // Pas de FK reservations -> intervention_types (voir migration
 // 20260722_reservations_intervention_columns.sql) : supprimer/recréer les
 // types ici ne touche jamais les interventions déjà réservées, dont le
@@ -79,20 +83,16 @@ export default function IntervenantFicheModal({
   const [soinsVersion, setSoinsVersion] = useState(0);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  // Nom "source de vérité" pour la comparaison avant/après à l'enregistrement
-  // (voir handleSave) — ne peut pas se fier aux props prenom/nom : l'appelant
-  // admin (app/(admin)/intervenants.tsx) ne les connaît pas forcément à jour
-  // et passe des chaînes vides, d'où le rechargement systématique depuis
-  // intervenant_profiles ci-dessous.
-  const [loadedPrenom, setLoadedPrenom] = useState(prenom);
-  const [loadedNom, setLoadedNom] = useState(nom);
   // Non éditable ici (voir suppression du champ Téléphone ci-dessous) — gardé
   // tel quel pour le répercuter inchangé dans onSaved, dont l'appelant
   // (app/(visitor)/account.tsx) dépend toujours pour sa propre session locale.
   // La seule source d'écriture du téléphone reste désormais "Mes informations"
   // (syncIntervenantContact dans account.tsx).
   const [existingTelephone, setExistingTelephone] = useState<string | null>(null);
-  const [loadedPhraseTotem, setLoadedPhraseTotem] = useState("");
+  // Nom "source de vérité" pour la comparaison avant/après à l'enregistrement
+  // du métier (voir handleSave) — prénom/nom/totem ne sont plus éditables ici
+  // (affichés en lecture seule sous "Changer la photo", voir plus bas), donc
+  // seul le métier a encore besoin de cette comparaison.
   const [loadedMetier, setLoadedMetier] = useState<string | null>(null);
   // existingPhoto : nom de fichier déjà enregistré. pickedPhotoUri : uri
   // locale fraîchement choisie, pas encore uploadée (aperçu immédiat, upload
@@ -110,8 +110,6 @@ export default function IntervenantFicheModal({
     if (!visible) return;
     setFichePrenom(prenom);
     setFicheNom(nom);
-    setLoadedPrenom(prenom);
-    setLoadedNom(nom);
     setPickedPhotoUri(null);
     setOrphaned(false);
     setLoading(true);
@@ -136,17 +134,10 @@ export default function IntervenantFicheModal({
       }
       setExistingPhoto(profileData?.photo ?? null);
       setExistingPhotoUpdatedAt(profileData?.photo_updated_at ?? null);
-      if (profileData?.prenom) {
-        setFichePrenom(profileData.prenom);
-        setLoadedPrenom(profileData.prenom);
-      }
-      if (profileData?.nom) {
-        setFicheNom(profileData.nom);
-        setLoadedNom(profileData.nom);
-      }
+      if (profileData?.prenom) setFichePrenom(profileData.prenom);
+      if (profileData?.nom) setFicheNom(profileData.nom);
       setExistingTelephone(profileData?.telephone ?? null);
       setFichePhraseTotem(profileData?.phrase_totem ?? "");
-      setLoadedPhraseTotem(profileData?.phrase_totem ?? "");
       setFicheMetier(profileData?.metier ?? null);
       setLoadedMetier(profileData?.metier ?? null);
       setFicheMetierSecondaire(profileData?.metier_secondaire ?? null);
@@ -233,7 +224,7 @@ export default function IntervenantFicheModal({
     }
   }
 
-  const canSave = !!ficheePrenom.trim() && !!ficheNom.trim() && !saving;
+  const canSave = !saving;
 
   async function handleSave() {
     if (!canSave) return;
@@ -244,9 +235,6 @@ export default function IntervenantFicheModal({
       const trimmedPhraseTotem = fichePhraseTotem.trim();
 
       const updatePayload: Record<string, string | null> = {};
-      if (trimmedPrenom !== loadedPrenom) updatePayload.prenom = trimmedPrenom;
-      if (trimmedNom !== loadedNom) updatePayload.nom = trimmedNom;
-      if (trimmedPhraseTotem !== loadedPhraseTotem) updatePayload.phrase_totem = trimmedPhraseTotem || null;
       if (ficheMetier !== loadedMetier) updatePayload.metier = ficheMetier;
       if (Object.keys(updatePayload).length > 0) {
         const { error } = await supabase
@@ -313,7 +301,7 @@ export default function IntervenantFicheModal({
           <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
             <Text style={[styles.title, { color: C.text }]}>🩺 Fiche intervenant</Text>
             <Text style={[styles.subtitle, { color: C.muted }]}>
-              Modifie ton prénom, ton nom, ton métier ou tes soins pratiqués.
+              Modifie ta photo, ton métier ou tes soins pratiqués.
             </Text>
 
             {loading ? (
@@ -338,44 +326,26 @@ export default function IntervenantFicheModal({
                   soit le contenu défilé — corrige le popup qui grandissait
                   sans limite et rendait le bouton Annuler inatteignable. */}
               <ScrollView style={styles.body} showsVerticalScrollIndicator keyboardShouldPersistTaps="handled">
-                <TouchableOpacity style={styles.photoPicker} onPress={pickPhoto} activeOpacity={0.8}>
-                  <PatientAvatar
-                    photoUrl={pickedPhotoUri ?? (existingPhoto ? intervenantPhotoUrl(existingPhoto, existingPhotoUpdatedAt) : null)}
-                    firstname={ficheePrenom || prenom}
-                    lastname={ficheNom || nom}
-                    size={72}
-                    C={C}
-                    metier={ficheMetier}
-                  />
-                  <Text style={[styles.photoPickerText, { color: C.accent }]}>Changer la photo</Text>
-                </TouchableOpacity>
-
-                <View style={styles.row}>
-                  <TextInput
-                    style={[styles.input, styles.labelInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                    placeholder="Prénom"
-                    placeholderTextColor={C.muted}
-                    value={ficheePrenom}
-                    onChangeText={setFichePrenom}
-                    autoCapitalize="words"
-                  />
-                  <TextInput
-                    style={[styles.input, styles.labelInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                    placeholder="Nom"
-                    placeholderTextColor={C.muted}
-                    value={ficheNom}
-                    onChangeText={setFicheNom}
-                    autoCapitalize="words"
-                  />
+                <View style={styles.photoPicker}>
+                  <TouchableOpacity onPress={pickPhoto} activeOpacity={0.8} style={{ alignItems: "center", gap: 8 }}>
+                    <PatientAvatar
+                      photoUrl={pickedPhotoUri ?? (existingPhoto ? intervenantPhotoUrl(existingPhoto, existingPhotoUpdatedAt) : null)}
+                      firstname={ficheePrenom || prenom}
+                      lastname={ficheNom || nom}
+                      size={72}
+                      C={C}
+                      metier={ficheMetier}
+                    />
+                    <Text style={[styles.photoPickerText, { color: C.accent }]}>Changer la photo</Text>
+                  </TouchableOpacity>
+                  {/* Lecture seule : même rendu (police/couleur) que la fiche
+                      publique (IntervenantProfileModal) — prénom/nom/totem ne
+                      se modifient plus depuis ce champ, voir handleSave. */}
+                  <Text style={[styles.ficheName, { color: C.text }]}>{ficheePrenom} {ficheNom}</Text>
+                  {!!fichePhraseTotem && (
+                    <Text style={styles.ficheTotem} numberOfLines={2}>{fichePhraseTotem}</Text>
+                  )}
                 </View>
-
-                <TextInput
-                  style={[styles.input, styles.fullInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                  placeholder="Phrase totem (optionnel)"
-                  placeholderTextColor={C.muted}
-                  value={fichePhraseTotem}
-                  onChangeText={setFichePhraseTotem}
-                />
 
                 <Text style={[styles.metierLabel, { color: C.gold }]}>Métier / spécialisation (optionnel)</Text>
                 <TouchableOpacity
@@ -519,21 +489,27 @@ const styles = StyleSheet.create({
     fontFamily: "DM_Sans_600SemiBold",
     fontSize: 13,
   },
+  // Même rendu que le nom/la phrase totem sur la fiche publique
+  // (IntervenantProfileModal styles.name / styles.totem) — couleur du totem
+  // fixe (pas de token de thème), voulue identique en Light et Dark.
+  ficheName: {
+    fontFamily: "PlayfairDisplay_700Bold",
+    fontSize: 18,
+    textAlign: "center",
+  },
+  ficheTotem: {
+    fontFamily: "Caveat_600SemiBold",
+    fontSize: 17,
+    color: "#7EC8E3",
+    textAlign: "center",
+    marginTop: 3,
+  },
   row: {
     flexDirection: "row",
     gap: 8,
     marginBottom: 10,
     alignItems: "center",
   },
-  input: {
-    borderWidth: 1,
-    borderRadius: 10,
-    padding: 11,
-    fontFamily: "DM_Sans_400Regular",
-    fontSize: 14,
-  },
-  labelInput: { flex: 2 },
-  fullInput: { marginBottom: 10 },
   metierLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 },
   metierBtn: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 10, padding: 12, marginBottom: 16 },
   metierBtnText: { flex: 1, fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: "#fff" },
