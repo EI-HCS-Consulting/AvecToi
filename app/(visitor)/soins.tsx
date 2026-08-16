@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { View, Text, ScrollView, StyleSheet, ActivityIndicator } from "react-native";
+import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Linking } from "react-native";
 import { useRouter } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { useVisitorSpace } from "@/lib/VisitorContext";
 import { getVisitorSession } from "@/lib/visitorSession";
 import { normalizePhone } from "@/lib/phone";
-import { careLocationDetail } from "@/lib/address";
+import { careLocationDetail, mapsUrlForSpace } from "@/lib/address";
 import { switchToLinkedSpace, type LinkedIntervenantSpaceRow } from "@/lib/intervenantSpaceSwitch";
 import { getMonday, getWeekDates, getDaysInMonth, toISO, addDays } from "@/lib/slotUtils";
 import { getPatientColor } from "@/lib/themes";
@@ -18,6 +18,7 @@ import SoinsPeriodBlock from "@/components/SoinsPeriodBlock";
 import SoinsPlanifiesBlock from "@/components/SoinsPlanifiesBlock";
 import InterventionEditFlow, { type InterventionEditFlowHandle } from "@/components/InterventionEditFlow";
 import SoinActionModal from "@/components/SoinActionModal";
+import ConfirmModal from "@/components/ConfirmModal";
 import type { Reservation } from "@/lib/types";
 
 interface ProfileRow extends LinkedIntervenantSpaceRow {
@@ -34,11 +35,18 @@ interface ProfileRow extends LinkedIntervenantSpaceRow {
     hospital_name: string;
     hospital_service: string | null;
     hospital_room: string | null;
+    hospital_address: string;
+    hospital_address_line2: string | null;
+    hospital_postal_code: string | null;
+    hospital_city: string | null;
+    hospital_country: string | null;
+    hospital_maps_url: string;
     home_address: string | null;
     home_address_line2: string | null;
     home_postal_code: string | null;
     home_city: string | null;
     home_country: string | null;
+    home_maps_url: string | null;
   } | null;
 }
 
@@ -78,6 +86,10 @@ export default function VisitorPlanningScreen() {
   // ouvert. Un seul état partagé par les 3 blocs plutôt qu'un par bloc,
   // puisqu'un seul popup peut être ouvert à la fois.
   const [pendingSoin, setPendingSoin] = useState<Reservation | null>(null);
+  // Appui prolongé sur une case du calendrier — ISO du jour ciblé tant que le
+  // popup "Réserver un créneau" (handleCalendarDayLongPress) est ouvert, null
+  // sinon. Distinct de selectedIso, qui lui est mis à jour dès le tap simple.
+  const [bookPromptIso, setBookPromptIso] = useState<string | null>(null);
 
   const [planningView, setPlanningView] = useState<"mensuel" | "hebdo">("mensuel");
   const [weekAnchor, setWeekAnchor] = useState(() => getMonday(new Date()));
@@ -114,7 +126,7 @@ export default function VisitorPlanningScreen() {
     const { data: profileData, error } = await supabase
       .from("intervenant_profiles")
       .select(
-        "id, space_id, prenom, nom, pin, created_at, patient_spaces(invite_token, patient_firstname, patient_lastname, home_care_mode, hospital_name, hospital_service, hospital_room, home_address, home_address_line2, home_postal_code, home_city, home_country)",
+        "id, space_id, prenom, nom, pin, created_at, patient_spaces(invite_token, patient_firstname, patient_lastname, home_care_mode, hospital_name, hospital_service, hospital_room, hospital_address, hospital_address_line2, hospital_postal_code, hospital_city, hospital_country, hospital_maps_url, home_address, home_address_line2, home_postal_code, home_city, home_country, home_maps_url)",
       )
       .eq("telephone", normalized)
       .order("created_at", { ascending: true });
@@ -155,6 +167,7 @@ export default function VisitorPlanningScreen() {
   const locationBySpaceId: Record<string, string> = {};
   const patientNameBySpaceId: Record<string, string> = {};
   const colorBySpaceId: Record<string, string> = {};
+  const mapsUrlBySpaceId: Record<string, string> = {};
   const legendItems: { spaceId: string; name: string; color: string }[] = [];
   profiles.forEach((p, i) => {
     if (!p.patient_spaces) return;
@@ -164,6 +177,8 @@ export default function VisitorPlanningScreen() {
     locationBySpaceId[p.space_id] = location;
     patientNameBySpaceId[p.space_id] = name;
     colorBySpaceId[p.space_id] = color;
+    const mapsUrl = mapsUrlForSpace(p.patient_spaces);
+    if (mapsUrl) mapsUrlBySpaceId[p.space_id] = mapsUrl;
     legendItems.push({ spaceId: p.space_id, name, color });
   });
   const profileIds = profiles.map((p) => p.id);
@@ -177,16 +192,32 @@ export default function VisitorPlanningScreen() {
     ? profiles.filter((p) => p.space_id === selectedSpaceId).map((p) => p.id)
     : profileIds;
 
-  // Tap sur un jour du calendrier — n'a de sens que pour UN patient précis
-  // (impossible de savoir pour qui réserver depuis "Tous"). Si l'espace de ce
-  // patient est déjà l'espace actif de la session, on reste dans le même
-  // VisitorContext (comme un tap sur home/calendar.tsx). Sinon on doit
-  // d'abord basculer dessus (switchToLinkedSpace), en lui passant le jour
-  // ciblé pour enchaîner automatiquement vers l'écran de réservation une fois
-  // arrivé (voir home/calendar.tsx, param focusIso).
-  async function handleCalendarDayPress(iso: string) {
+  // Tap simple sur un jour du calendrier — se contente d'afficher les soins
+  // de ce jour dans le bloc "Planning du jour" ci-dessous, sans navigation.
+  function handleCalendarDayPress(iso: string) {
     setSelectedIso(iso);
-    if (!selectedSpaceId || switchingId) return;
+  }
+
+  // Appui prolongé sur un jour du calendrier — ouvre le popup "Réserver un
+  // créneau". N'a de sens que pour UN patient précis (impossible de savoir
+  // pour qui réserver depuis "Tous") : sans effet tant qu'aucun patient n'est
+  // sélectionné dans la légende, même garde-fou que l'ancien tap simple.
+  function handleCalendarDayLongPress(iso: string) {
+    if (!selectedSpaceId) return;
+    setSelectedIso(iso);
+    setBookPromptIso(iso);
+  }
+
+  // Confirmation du popup "Réserver un créneau" — si l'espace du patient est
+  // déjà l'espace actif de la session, on reste dans le même VisitorContext
+  // (comme un tap sur home/calendar.tsx). Sinon on doit d'abord basculer
+  // dessus (switchToLinkedSpace), en lui passant le jour ciblé pour enchaîner
+  // automatiquement vers l'écran de réservation une fois arrivé (voir
+  // home/calendar.tsx, param focusIso).
+  async function handleConfirmBookSlot() {
+    const iso = bookPromptIso;
+    setBookPromptIso(null);
+    if (!iso || !selectedSpaceId || switchingId) return;
     const row = profiles.find((p) => p.space_id === selectedSpaceId);
     if (!row) return;
     if (activeSpace?.id === selectedSpaceId) {
@@ -217,26 +248,14 @@ export default function VisitorPlanningScreen() {
     editFlowRef.current?.open(r, row.pin);
   }
 
-  // "Y Aller" — même logique qu'un tap sur une case du calendrier global
-  // (handleCalendarDayPress) mais ciblée sur l'espace/jour du soin tapé
-  // plutôt que sur selectedSpaceId/selectedIso.
-  async function handleYAllerPress() {
+  // "Y Aller" — ouvre le lien Google Maps du lieu d'intervention (voir
+  // mapsUrlForSpace, lib/address.ts), plutôt que de naviguer dans l'app.
+  function handleYAllerPress() {
     const r = pendingSoin;
     setPendingSoin(null);
-    if (!r || switchingId) return;
-    const row = profiles.find((p) => p.space_id === r.space_id);
-    if (!row) return;
-    if (activeSpace?.id === r.space_id) {
-      setSelectedDay(new Date(r.date + "T00:00:00"));
-      router.navigate("/(visitor)/home/slots");
-      return;
-    }
-    setSwitchingId(row.id);
-    try {
-      await switchToLinkedSpace(row, telephone ?? "", router, r.date);
-    } finally {
-      setSwitchingId(null);
-    }
+    if (!r) return;
+    const url = mapsUrlBySpaceId[r.space_id];
+    if (url) Linking.openURL(url).catch(() => {});
   }
 
   // Dernier jour de la période actuellement affichée par SoinsPeriodBlock —
@@ -288,6 +307,7 @@ export default function VisitorPlanningScreen() {
               onWeekNext={() => setWeekAnchor(addDays(weekAnchor, 7))}
               selectedIso={selectedIso}
               onDayPress={handleCalendarDayPress}
+              onDayLongPress={handleCalendarDayLongPress}
             />
             <View style={{ marginBottom: 20 }}>
               <PatientColorLegend C={C} items={legendItems} selectedSpaceId={selectedSpaceId} onSelect={setSelectedSpaceId} />
@@ -344,6 +364,24 @@ export default function VisitorPlanningScreen() {
         onModifier={handleModifierPress}
         onYAller={handleYAllerPress}
         onClose={() => setPendingSoin(null)}
+      />
+      <ConfirmModal
+        C={C}
+        visible={!!bookPromptIso}
+        icon="🩺"
+        title="Réserver un créneau"
+        message={
+          bookPromptIso
+            ? `Réserver un créneau pour ${selectedSpaceId ? patientNameBySpaceId[selectedSpaceId] : ""} le ${new Date(
+                bookPromptIso + "T00:00:00",
+              ).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })} ?`
+            : ""
+        }
+        cancelLabel="Fermer"
+        confirmLabel="Réserver"
+        destructive={false}
+        onCancel={() => setBookPromptIso(null)}
+        onConfirm={handleConfirmBookSlot}
       />
     </View>
   );

@@ -14,10 +14,11 @@ import type { Theme } from "@/lib/themes";
 // patient n'intervient plus dans le cadre, seulement dans le(s) trait(s) de
 // bord de case, voir dayPatientColors/STRIPE_LAYOUT), texte blanc sur fond
 // violet pour rester lisible en mode sombre. Aujourd'hui garde un cadre
-// doré/marron (C.gold) tant qu'aucun soin ne le recouvre. Un tap sur une case
-// déclenche onDayPress (voir soins.tsx) — le détail chronologique complet
-// reste dans les blocs SoinsPeriodBlock/SoinsPlanifiesBlock affichés juste en
-// dessous.
+// doré/marron (C.gold) tant qu'aucun soin ne le recouvre. Un tap simple
+// déclenche onDayPress (affiche les soins du jour, voir soins.tsx), un appui
+// prolongé déclenche onDayLongPress (ouvre le popup "Réserver un créneau")
+// — le détail chronologique complet reste dans les blocs
+// SoinsPeriodBlock/SoinsPlanifiesBlock affichés juste en dessous.
 const DAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
 const STRIPE = 4;
 
@@ -78,12 +79,14 @@ interface Props {
   // (soins.tsx). Contrôlé par le parent plutôt qu'en état local : les deux
   // doivent rester synchronisés avec le même jour.
   selectedIso: string;
-  // Tap sur une case jour — ouvre la réservation pour le patient sélectionné
-  // dans la légende (voir soins.tsx, selectedSpaceId). Sans effet ("Tous")
-  // tant qu'aucun patient précis n'est sélectionné : réserver depuis cette
-  // vue cumulée nécessite de savoir POUR QUI. Dans tous les cas, met à jour
-  // selectedIso côté parent.
+  // Tap simple sur une case jour — affiche les soins de ce jour dans le bloc
+  // "Planning du jour" du parent (soins.tsx), sans autre action.
   onDayPress: (iso: string) => void;
+  // Appui prolongé sur une case jour — ouvre le popup "Réserver un créneau"
+  // côté parent (soins.tsx). Sans effet ("Tous") tant qu'aucun patient précis
+  // n'est sélectionné dans la légende : réserver depuis cette vue cumulée
+  // nécessite de savoir POUR QUI (le parent applique ce garde-fou).
+  onDayLongPress: (iso: string) => void;
 }
 
 // Couleurs (une par patient distinct) ayant un soin ce jour-là, dans l'ordre
@@ -114,7 +117,7 @@ function DayStripes({ colors }: { colors: string[] }) {
 }
 
 export default function IntervenantGlobalCalendar({
-  C, reservations, colorBySpaceId, view, weekAnchor, monthAnchor, onMonthChange, onWeekPrev, onWeekNext, selectedIso, onDayPress,
+  C, reservations, colorBySpaceId, view, weekAnchor, monthAnchor, onMonthChange, onWeekPrev, onWeekNext, selectedIso, onDayPress, onDayLongPress,
 }: Props) {
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
 
@@ -146,6 +149,7 @@ export default function IntervenantGlobalCalendar({
                 key={iso}
                 activeOpacity={0.7}
                 onPress={() => onDayPress(iso)}
+                onLongPress={() => onDayLongPress(iso)}
                 style={[
                   styles.weekCell,
                   {
@@ -217,6 +221,7 @@ export default function IntervenantGlobalCalendar({
               key={iso}
               activeOpacity={0.7}
               onPress={() => onDayPress(iso)}
+              onLongPress={() => onDayLongPress(iso)}
               style={[
                 styles.cell,
                 {
