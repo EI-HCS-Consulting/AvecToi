@@ -62,6 +62,31 @@ export function activeAddressParts(space: PatientSpace): AddressParts {
 }
 
 /**
+ * Lien Google Maps vers le lieu d'intervention actif (domicile ou hôpital).
+ * Priorité au lien collé à la main par l'admin (home_maps_url/hospital_maps_url
+ * — plus fiable qu'une recherche par adresse pour un gros établissement),
+ * repli sur une recherche générée depuis l'adresse (ou, à défaut, le nom de
+ * l'hôpital) — même logique que SpaceHeader.tsx (bandeau visiteur) et l'edge
+ * function notify-guest-confirmation, ici factorisée pour le Planning
+ * intervenant (voir app/(visitor)/soins.tsx, bouton "Y Aller").
+ */
+export function mapsUrlForSpace(
+  space: Pick<
+    PatientSpace,
+    "home_care_mode" | "hospital_name" | "hospital_maps_url" | "home_maps_url" |
+    "hospital_address" | "hospital_address_line2" | "hospital_postal_code" | "hospital_city" | "hospital_country" |
+    "home_address" | "home_address_line2" | "home_postal_code" | "home_city" | "home_country"
+  >,
+): string | null {
+  const pasted = space.home_care_mode ? space.home_maps_url : space.hospital_maps_url;
+  if (pasted) return pasted;
+  const full = joinAddress(activeAddressParts(space as PatientSpace));
+  const locationName = space.home_care_mode ? "Domicile" : space.hospital_name;
+  const query = full || locationName;
+  return query ? googleMapsSearchUrl(query) : null;
+}
+
+/**
  * Résumé court du lieu d'intervention (1 ligne), pour PatientsList.tsx —
  * même logique que le bandeau SpaceHeader.tsx (infoLines) : domicile → ville,
  * hôpital → nom + "Service X · Chambre Y".
