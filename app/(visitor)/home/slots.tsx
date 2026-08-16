@@ -9,6 +9,7 @@ import InterventionBookingFlow, { type InterventionBookingFlowHandle } from "@/c
 import NightInterventionBookingFlow, { type NightInterventionBookingFlowHandle } from "@/components/NightInterventionBookingFlow";
 import VisitorSlotsList from "@/components/VisitorSlotsList";
 import { getNightReservation, isReservationDatePast, isSlotFullyPast, toISO, toFrLong, toFrShort, addDays, nightStartSlot, nightRangeLabel } from "@/lib/slotUtils";
+import { useOtherSpaceInterventions } from "@/lib/useOtherSpaceInterventions";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { isVisitorAuthorizedForNight } from "@/lib/nightVisitorAuth";
 import { isIntervenantAuthorizedForNight } from "@/lib/nightIntervenantAuth";
@@ -60,6 +61,8 @@ export default function SlotsScreen() {
     });
   }, []);
   const isMine = (r: Reservation) => !!myPin && r.pin === myPin;
+
+  const { otherSpaceInterventions } = useOtherSpaceInterventions(intervenantProfileId, space?.id ?? null);
 
   // Un intervenant ne peut réserver une nuitée que si l'admin l'a
   // explicitement autorisé (même règle que home/nights.tsx — voir
@@ -195,6 +198,7 @@ export default function SlotsScreen() {
           role={role}
           intervenantProfileId={intervenantProfileId}
           myPin={myPin}
+          otherSpaceInterventions={otherSpaceInterventions}
           onReserveVisit={(slotIso, slot) => flowRef.current?.openBooking(slotIso, slot)}
           onEditVisit={(r) => flowRef.current?.openPinModal(r)}
           onReserveIntervention={(slotIso, slot) => interventionFlowRef.current?.openBooking(slotIso, slot)}
@@ -295,6 +299,7 @@ export default function SlotsScreen() {
           intervenantProfileId={intervenantProfileId}
           pin={myPin}
           refreshReservations={refreshReservations}
+          otherSpaceInterventions={otherSpaceInterventions}
           homeCalendarPath={interventionHomeCalendarPath}
           homeCalendarLabel={interventionHomeCalendarLabel}
           C={C}
