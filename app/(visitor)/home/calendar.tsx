@@ -435,26 +435,6 @@ export default function VisitorCalendarScreen() {
               thumbColor="#fff"
             />
           </View>
-
-          {/* Vue cross-space : liste tous les espaces patients auxquels cet
-              intervenant est rattaché (même téléphone) et son planning
-              d'interventions sur l'ensemble (jamais de visites) — voir
-              app/(visitor)/home/mes-espaces-patients.tsx. */}
-          {role === "intervenant" && (
-            <TouchableOpacity
-              style={[styles.toggleRow, { marginTop: 14, paddingTop: 14, borderTopWidth: 1, borderTopColor: C.border }]}
-              onPress={() => router.push("/(visitor)/home/mes-espaces-patients" as any)}
-              activeOpacity={0.7}
-            >
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.toggleLabel, { color: C.text }]}>🗂️ Mes Espaces Patients</Text>
-                <Text style={[styles.toggleDesc, { color: C.muted }]}>
-                  Vue d&apos;ensemble de tes interventions sur tous tes espaces patients.
-                </Text>
-              </View>
-              <Text style={[styles.chevron, { color: C.muted }]}>›</Text>
-            </TouchableOpacity>
-          )}
         </View>
 
         <View style={{ marginTop: 16 }}>

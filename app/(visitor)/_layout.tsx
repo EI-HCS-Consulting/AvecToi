@@ -324,8 +324,8 @@ function VisitorTabs() {
       <Tabs.Screen
         name="soins"
         options={{
-          title: "Soins",
-          tabBarIcon: ({ color, size }) => <Ionicons name="medkit-outline" size={size} color={color} />,
+          title: "Planning",
+          tabBarIcon: ({ color, size }) => <Ionicons name="calendar-outline" size={size} color={color} />,
           href: role === "intervenant" ? undefined : null,
         }}
       />

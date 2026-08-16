@@ -67,6 +67,7 @@ function InterventionBookingFlow(
   const [saving, setSaving] = useState(false);
   const [dayBookedAlert, setDayBookedAlert] = useState(false);
   const [overlapAlert, setOverlapAlert] = useState(false);
+  const [otherSpaceOverlapAlert, setOtherSpaceOverlapAlert] = useState(false);
   const [confirmed, setConfirmed] = useState<ConfirmedBooking | null>(null);
   const [calendarAdded, setCalendarAdded] = useState(false);
 
@@ -117,6 +118,8 @@ function InterventionBookingFlow(
     if (error) {
       if (error.message.includes("INTERVENTION_CROSSES_MIDNIGHT")) {
         Alert.alert("Créneau impossible", "Cette intervention dépasserait minuit. Choisis un créneau plus tôt.");
+      } else if (error.message.includes("INTERVENTION_OVERLAP_OTHER_SPACE")) {
+        setOtherSpaceOverlapAlert(true);
       } else if (error.message.includes("INTERVENTION_OVERLAP_SELF")) {
         setOverlapAlert(true);
       } else if (error.message.includes("DAY_ALREADY_BOOKED")) {
@@ -350,6 +353,19 @@ function InterventionBookingFlow(
         confirmLabel="J'ai compris"
         onCancel={() => setOverlapAlert(false)}
         onConfirm={() => setOverlapAlert(false)}
+        C={C}
+      />
+
+      <ConfirmModal
+        visible={otherSpaceOverlapAlert}
+        icon="🗂️"
+        title="Créneau déjà pris ailleurs"
+        message="Tu es déjà engagé(e) sur ce créneau chez un autre patient. Tu ne peux pas le réserver depuis cet espace. Si tu as vraiment besoin de ce créneau ici, modifie d'abord ta réservation chez le premier patient pour le libérer."
+        singleButton
+        destructive={false}
+        confirmLabel="J'ai compris"
+        onCancel={() => setOtherSpaceOverlapAlert(false)}
+        onConfirm={() => setOtherSpaceOverlapAlert(false)}
         C={C}
       />
     </>

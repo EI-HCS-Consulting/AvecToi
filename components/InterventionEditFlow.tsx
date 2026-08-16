@@ -48,6 +48,7 @@ function InterventionEditFlow({ onSaved, C }: Props, ref: React.Ref<Intervention
   const [saving, setSaving] = useState(false);
   const [dayBookedAlert, setDayBookedAlert] = useState(false);
   const [overlapAlert, setOverlapAlert] = useState(false);
+  const [otherSpaceOverlapAlert, setOtherSpaceOverlapAlert] = useState(false);
 
   async function open(r: Reservation, pinArg: string) {
     const d = new Date(r.date + "T12:00:00");
@@ -116,6 +117,8 @@ function InterventionEditFlow({ onSaved, C }: Props, ref: React.Ref<Intervention
       setSaving(false);
       if (error.message.includes("INTERVENTION_CROSSES_MIDNIGHT")) {
         Alert.alert("Créneau impossible", "Cette intervention dépasserait minuit. Choisis un créneau plus tôt.");
+      } else if (error.message.includes("INTERVENTION_OVERLAP_OTHER_SPACE")) {
+        setOtherSpaceOverlapAlert(true);
       } else if (error.message.includes("INTERVENTION_OVERLAP_SELF")) {
         setOverlapAlert(true);
       } else if (error.message.includes("DAY_ALREADY_BOOKED")) {
@@ -254,6 +257,19 @@ function InterventionEditFlow({ onSaved, C }: Props, ref: React.Ref<Intervention
         confirmLabel="J'ai compris"
         onCancel={() => setOverlapAlert(false)}
         onConfirm={() => setOverlapAlert(false)}
+        C={C}
+      />
+
+      <ConfirmModal
+        visible={otherSpaceOverlapAlert}
+        icon="🗂️"
+        title="Créneau déjà pris ailleurs"
+        message="Tu es déjà engagé(e) sur ce créneau chez un autre patient. Tu ne peux pas le réserver depuis cet espace. Si tu as vraiment besoin de ce créneau ici, modifie d'abord ta réservation chez le premier patient pour le libérer."
+        singleButton
+        destructive={false}
+        confirmLabel="J'ai compris"
+        onCancel={() => setOtherSpaceOverlapAlert(false)}
+        onConfirm={() => setOtherSpaceOverlapAlert(false)}
         C={C}
       />
     </>
