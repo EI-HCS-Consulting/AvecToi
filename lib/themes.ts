@@ -80,3 +80,18 @@ export function getPatientColor(index: number): string {
   if (index < LOGO_COLORS.length) return LOGO_COLORS[index];
   return PASTEL_COLORS[(index - LOGO_COLORS.length) % PASTEL_COLORS.length];
 }
+
+// Éclaircit une couleur hex en la mélangeant avec du blanc (amount 0..1) —
+// utilisé pour le fond "plein" des cadres de jour du planning intervenant
+// (voir components/IntervenantGlobalCalendar.tsx), qui reprend la couleur du
+// patient en version pastel plutôt que la couleur pleine (réservée au cadre).
+export function lightenColor(hex: string, amount: number): string {
+  const clean = hex.replace("#", "");
+  const full = clean.length === 3 ? clean.split("").map((c) => c + c).join("") : clean;
+  const num = parseInt(full, 16);
+  const mix = (c: number) => Math.round(c + (255 - c) * amount);
+  const r = mix((num >> 16) & 255);
+  const g = mix((num >> 8) & 255);
+  const b = mix(num & 255);
+  return `#${[r, g, b].map((c) => c.toString(16).padStart(2, "0")).join("")}`;
+}
