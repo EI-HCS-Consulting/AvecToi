@@ -20,6 +20,11 @@ import InterventionEditFlow, { type InterventionEditFlowHandle } from "@/compone
 import type { Reservation } from "@/lib/types";
 
 interface ProfileRow extends LinkedIntervenantSpaceRow {
+  // Date de rattachement de l'intervenant à cet espace patient — sert à trier
+  // les profils par ordre d'arrivée (voir colorBySpaceId plus bas) plutôt que
+  // par space_id (UUID, ordre non chronologique), pour que la couleur d'un
+  // patient déjà présent ne change jamais quand un nouveau patient arrive.
+  created_at: string;
   patient_spaces: {
     invite_token: string;
     patient_firstname: string;
@@ -102,10 +107,10 @@ export default function VisitorPlanningScreen() {
     const { data: profileData, error } = await supabase
       .from("intervenant_profiles")
       .select(
-        "id, space_id, prenom, nom, pin, patient_spaces(invite_token, patient_firstname, patient_lastname, home_care_mode, hospital_name, hospital_service, hospital_room, home_address, home_address_line2, home_postal_code, home_city, home_country)",
+        "id, space_id, prenom, nom, pin, created_at, patient_spaces(invite_token, patient_firstname, patient_lastname, home_care_mode, hospital_name, hospital_service, hospital_room, home_address, home_address_line2, home_postal_code, home_city, home_country)",
       )
       .eq("telephone", normalized)
-      .order("space_id", { ascending: true });
+      .order("created_at", { ascending: true });
     if (error) console.error("[Planning] intervenant_profiles select failed:", error);
     const rows = (profileData as any as ProfileRow[]) ?? [];
     setProfiles(rows);
