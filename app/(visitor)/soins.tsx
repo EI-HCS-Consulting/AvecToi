@@ -177,6 +177,14 @@ export default function VisitorPlanningScreen() {
 
   useEffect(() => { load(); }, [load]);
 
+  // "Autres intervenants" n'a de sens que patient par patient (mélanger
+  // plusieurs patients à la fois rendrait le bloc illisible) — désactivé
+  // automatiquement dès qu'on revient en mode "Tous" (voir bouton masqué
+  // ci-dessous, PlanningDuJourBlock).
+  useEffect(() => {
+    if (!selectedSpaceId) setShowOtherIntervenants(false);
+  }, [selectedSpaceId]);
+
   useEffect(() => {
     if (focusSpaceHandled.current || !focusSpaceId || profiles.length === 0) return;
     focusSpaceHandled.current = true;
@@ -284,7 +292,12 @@ export default function VisitorPlanningScreen() {
 
   // Tap sur un soin dans un des blocs sous le calendrier — ouvre le popup
   // d'action (Modifier / Y Aller / Fermer) plutôt que d'agir directement.
+  // Aucune action si ce soin appartient à un AUTRE intervenant (visible
+  // uniquement quand showOtherIntervenants est actif) — seul l'intervenant
+  // qui l'a réservé peut le modifier, personne d'autre ne doit même voir le
+  // popup s'ouvrir.
   function openSoinActions(r: Reservation) {
+    if (!profileIds.includes(r.intervenant_profile_id ?? "")) return;
     setPendingSoin(r);
   }
 
@@ -294,7 +307,7 @@ export default function VisitorPlanningScreen() {
     if (!r) return;
     const row = profiles.find((p) => p.id === r.intervenant_profile_id);
     if (!row) return;
-    editFlowRef.current?.open(r, row.pin);
+    editFlowRef.current?.open(r, row.pin, patientNameBySpaceId[r.space_id]);
   }
 
   // "Y Aller" — ouvre le lien Google Maps du lieu d'intervention (voir
@@ -378,7 +391,7 @@ export default function VisitorPlanningScreen() {
               locationBySpaceId={locationBySpaceId}
               onSoinPress={openSoinActions}
               showOtherIntervenants={showOtherIntervenants}
-              onToggleOtherIntervenants={() => setShowOtherIntervenants((v) => !v)}
+              onToggleOtherIntervenants={selectedSpaceId ? () => setShowOtherIntervenants((v) => !v) : undefined}
             />
 
             <Text style={[styles.sectionTitle, { color: C.gold }]}>
