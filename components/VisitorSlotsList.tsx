@@ -2,8 +2,11 @@ import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { useVisitorSpace } from "@/lib/VisitorContext";
 import { getSlotOccupancy, getInterventionOverlap, isSlotFullyPast } from "@/lib/slotUtils";
 import { metierLabel } from "@/lib/metiers";
+import { guessFrenchArticle } from "@/lib/frenchGender";
+import type { OtherSpaceIntervention } from "@/lib/useOtherSpaceInterventions";
 import type { Reservation } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
+import { LOGO_PURPLE } from "@/lib/themes";
 
 // Liste des créneaux horaires "Visite" du jour, côté visiteur/intervenant —
 // extraite de app/(visitor)/home/slots.tsx pour être réutilisée telle quelle
@@ -15,7 +18,7 @@ import type { Theme } from "@/lib/themes";
 // écran (home/nights.tsx), non concernée par la réservation depuis la bande
 // Hebdo.
 export default function VisitorSlotsList({
-  iso, C, role, intervenantProfileId, myPin, bookable = true, onReserveVisit, onEditVisit, onReserveIntervention, onCancelIntervention,
+  iso, C, role, intervenantProfileId, myPin, bookable = true, otherSpaceInterventions = [], onReserveVisit, onEditVisit, onReserveIntervention, onCancelIntervention,
 }: {
   iso: string;
   C: Theme;
@@ -26,6 +29,10 @@ export default function VisitorSlotsList({
   // Hebdo du calendrier (E) — le jour reste consultable, seule la
   // réservation est masquée (Modifier/Annuler restent visibles).
   bookable?: boolean;
+  // Soins de CET intervenant chez d'autres patients (lib/useOtherSpaceInterventions)
+  // — sert à teinter en violet les créneaux déjà pris ailleurs. Vide pour un
+  // visiteur (non concerné).
+  otherSpaceInterventions?: OtherSpaceIntervention[];
   onReserveVisit: (iso: string, slot: string) => void;
   onEditVisit: (r: Reservation) => void;
   onReserveIntervention: (iso: string, slot: string) => void;
@@ -53,6 +60,13 @@ export default function VisitorSlotsList({
         const mine = occ.find(isMine);
         const intervention = getInterventionOverlap(reservations, iso, slot, dayConfig.slot_duration_minutes);
         const myInterventionHere = intervention && role === "intervenant" && intervention.intervenant_profile_id === intervenantProfileId;
+        // Soin déjà pris ailleurs (autre espace patient, même intervenant) qui
+        // chevauche ce créneau — n'a de sens que côté intervenant, et
+        // uniquement si ce créneau n'est pas déjà occupé ici (bannière orange
+        // existante déjà suffisamment explicite dans ce cas).
+        const otherSpaceSoin = !intervention && role === "intervenant"
+          ? (getInterventionOverlap(otherSpaceInterventions, iso, slot, dayConfig.slot_duration_minutes) as OtherSpaceIntervention | undefined)
+          : undefined;
 
         return (
           <View
@@ -60,8 +74,8 @@ export default function VisitorSlotsList({
             style={[
               styles.slotCard,
               {
-                backgroundColor: C.card,
-                borderColor: intervention ? C.orange : full ? "rgba(233,69,96,0.3)" : C.border,
+                backgroundColor: otherSpaceSoin ? `${LOGO_PURPLE}1F` : C.card,
+                borderColor: intervention ? C.orange : otherSpaceSoin ? LOGO_PURPLE : full ? "rgba(233,69,96,0.3)" : C.border,
                 opacity: past ? 0.5 : 1,
               },
             ]}
@@ -87,6 +101,13 @@ export default function VisitorSlotsList({
                   </View>
                 );
               })()}
+              {otherSpaceSoin && (
+                <View style={[styles.interventionBanner, { backgroundColor: `${LOGO_PURPLE}1F`, borderColor: LOGO_PURPLE }]}>
+                  <Text style={[styles.interventionText, { color: LOGO_PURPLE }]}>
+                    🗂️ Soin déjà programmé avec {otherSpaceSoin.patientName} pour {guessFrenchArticle(otherSpaceSoin.intervention_label ?? "")} {otherSpaceSoin.intervention_label}
+                  </Text>
+                </View>
+              )}
               {mine?.alert_message && !mine.alert_seen && (
                 <View style={[styles.alertBanner, { backgroundColor: "rgba(233,69,96,0.12)", borderColor: "rgba(233,69,96,0.4)" }]}>
                   <Text style={[styles.alertText, { color: C.danger }]}>{mine.alert_message}</Text>

@@ -7,9 +7,10 @@ import {
 import { useRouter } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { linkCalendarEvent, addToNativeCalendar, deleteLinkedCalendarEvent } from "@/lib/calendarSync";
-import { isReservationDatePast, isSlotFullyPast, toFrLong, toFrShort } from "@/lib/slotUtils";
+import { getInterventionOverlap, isReservationDatePast, isSlotFullyPast, toFrLong, toFrShort } from "@/lib/slotUtils";
 import { getSyncedInterventionTypes } from "@/lib/interventionTypesSync";
 import ConfirmModal from "@/components/ConfirmModal";
+import type { OtherSpaceIntervention } from "@/lib/useOtherSpaceInterventions";
 import type { Reservation, SlotConfig, PatientSpace, InterventionType } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -36,6 +37,12 @@ interface Props {
   intervenantProfileId: string;
   pin: string;
   refreshReservations: () => Promise<void>;
+  // Soins de cet intervenant chez d'autres patients (lib/useOtherSpaceInterventions)
+  // — permet d'afficher "Créneau déjà pris ailleurs" dès le tap sur le
+  // créneau, sans passer par le popup de choix du type d'intervention (le
+  // serveur refuserait de toute façon, voir book_intervention/
+  // INTERVENTION_OVERLAP_OTHER_SPACE, gardée en filet de sécurité ci-dessous).
+  otherSpaceInterventions?: OtherSpaceIntervention[];
   // Cible + libellé du bouton "Retour" une fois la réservation confirmée —
   // par défaut le calendrier de l'espace, mais home/slots.tsx passe l'onglet
   // Planning intervenant (avec le patient réservé présélectionné) quand la
@@ -56,7 +63,7 @@ interface ConfirmedBooking {
 }
 
 function InterventionBookingFlow(
-  { space, slotConfig, slots, reservations, intervenantProfileId, pin, refreshReservations, homeCalendarPath, homeCalendarLabel, C }: Props,
+  { space, slotConfig, slots, reservations, intervenantProfileId, pin, refreshReservations, otherSpaceInterventions = [], homeCalendarPath, homeCalendarLabel, C }: Props,
   ref: React.Ref<InterventionBookingFlowHandle>,
 ) {
   const router = useRouter();
@@ -88,6 +95,16 @@ function InterventionBookingFlow(
   function openBooking(iso: string, slot: string) {
     if (isSlotFullyPast(iso, slot)) {
       showToast("Ce créneau est déjà passé.");
+      return;
+    }
+    // Chevauchement connu côté client (même intervenant, autre espace
+    // patient) : on affiche l'alerte tout de suite plutôt que d'ouvrir le
+    // popup de choix du type d'intervention pour rien — la RPC le refuserait
+    // de toute façon (INTERVENTION_OVERLAP_OTHER_SPACE), gardée en filet de
+    // sécurité dans handleBook pour les cas non couverts côté client
+    // (ex. réservation concurrente faite entre-temps depuis l'autre espace).
+    if (getInterventionOverlap(otherSpaceInterventions, iso, slot, slotConfig.slot_duration_minutes)) {
+      setOtherSpaceOverlapAlert(true);
       return;
     }
     setSelectedTypeId(types[0]?.id ?? null);
