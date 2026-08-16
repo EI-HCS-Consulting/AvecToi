@@ -27,16 +27,14 @@ export default function VisitorCalendarScreen() {
   const [blockedDayModal, setBlockedDayModal] = useState<Date | null>(null);
   // false = planning global (visites/nuitées), true = ne montre que
   // l'occupation des soins (interventions) — remplace l'ancien raccourci
-  // "Voir les nuitées".
+  // "Voir les nuitées". Par défaut sur "Soins" pour un intervenant (voir
+  // l'effet d'identité plus bas), sur "Visites" pour les 2 autres rôles.
+  // "Afficher mes créneaux" reste indépendant du switch et n'est plus reset
+  // en changeant de mode : un intervenant doit pouvoir le garder actif en
+  // passant de Soins à Visites (et inversement) pour voir ses propres
+  // créneaux mélangés à la vérité complète de l'autre catégorie — voir
+  // frameVisible plus bas.
   const [soinsMode, setSoinsMode] = useState(false);
-  // Basculer sur "Soins" désactive "Afficher mes créneaux" : ce filtre
-  // s'appliquait au mode qu'on quitte (visites/nuitées) et resterait sinon
-  // actif sans que rien à l'écran n'indique pourquoi le panneau des soins
-  // paraît vide au premier soin non-personnel.
-  function handleSoinsModeChange(next: boolean) {
-    setSoinsMode(next);
-    if (next) setMesCreneauxOnly(false);
-  }
   // Un intervenant voit, en plus du cadre violet visible par tous (soin ce
   // jour-là), l'intérieur de la case remplie en violet quand le soin lui est
   // assigné à LUI précisément — voir home/slots.tsx pour role/intervenantProfileId.
@@ -68,7 +66,12 @@ export default function VisitorCalendarScreen() {
   const [viewThumbWidth, setViewThumbWidth] = useState(0);
   useEffect(() => {
     getVisitorSession().then((s) => {
-      setRole(s?.role ?? "visiteur");
+      const r = s?.role ?? "visiteur";
+      setRole(r);
+      // Défaut Soins pour un intervenant : c'est l'information qui le
+      // concerne au premier chef en arrivant sur son calendrier — ne
+      // s'applique qu'au chargement initial, jamais après un choix manuel.
+      if (r === "intervenant") setSoinsMode(true);
       setIntervenantProfileId(s?.intervenantProfileId ?? null);
       setMyPin(s?.pin ?? null);
       setMyPrenom(s?.prenom ?? null);
@@ -247,6 +250,9 @@ export default function VisitorCalendarScreen() {
             const iso = toISO(day);
             const dayConfig = getConfigForDate(iso) ?? slotConfig;
             const daySlots = getSlotsForDate(iso);
+            // `status` sert au blocage/navigation (tap sur la case) et suit
+            // le type du mode actif (Visite/Intervention). La pastille, elle,
+            // ne représente plus jamais que les visites — voir visiteStatus.
             const status = getDayStatus(reservations, iso, day, dayConfig, daySlots, startDate, soinsMode ? "Intervention" : "Visite");
             const isToday = toISO(day) === toISO(today);
             const isSelected = toISO(day) === toISO(selectedDay);
@@ -259,30 +265,41 @@ export default function VisitorCalendarScreen() {
             const isBlocked = status === "past" && !isPast;
             const dimmed = isPast || isBlocked;
 
-            const dotColor =
-              status === "full" ? C.danger :
-              status === "partial" ? C.orange :
-              status === "empty" ? C.success : "transparent";
+            // Pastille Dispo/Partiel/Complet : ne représente plus que les
+            // visites (jamais les soins, qui ont leur propre cadre violet) et
+            // ne s'affiche qu'en mode Visites — en mode Soins, seul le cadre
+            // violet reste visible.
+            const visiteStatus = getDayStatus(reservations, iso, day, dayConfig, daySlots, startDate, "Visite");
+            const dotColor = soinsMode ? "transparent" :
+              visiteStatus === "full" ? C.danger :
+              visiteStatus === "partial" ? C.orange :
+              visiteStatus === "empty" ? C.success : "transparent";
 
             // Bande verte en bas de case = strictement personnelle (comparée
             // au PIN de la session courante) : visite/nuitée réservée par MOI
             // ou, si je suis intervenant, soin réservé par MOI — jamais les
             // réservations d'un autre visiteur/intervenant ni de l'admin.
-            // Bordure violette = un soin existe ce jour-là, pour TOUT le
-            // monde (remplace la bordure grise par défaut, ne déborde jamais
-            // de la case) — un intervenant voit donc les deux ensemble sur
-            // ses propres jours de soin : bande verte (perso) + cadre violet
-            // (soin planifié, visible de tous).
+            // Toujours visible, quel que soit le mode ou "Afficher mes
+            // créneaux" — reste individuelle pour les 3 profils.
             const familyBooked = reservations.some((r) => r.date === iso && isMyReservation(r, myPin, intervenantProfileId, myPrenom, myNom));
             // Case remplie en violet uniquement pour l'intervenant assigné à
             // CE soin — les autres intervenants (comme les visiteurs/admin)
             // ne voient que le cadre violet ci-dessous.
             const myInterventionToday = role === "intervenant" && !!intervenantProfileId &&
               reservations.some((r) => r.date === iso && r.type === "Intervention" && r.intervenant_profile_id === intervenantProfileId);
-            // Cadre violet : tous les soins de tous les intervenants, sans
-            // filtrage — la vue Soins doit rester une vérité complète pour
-            // tout le monde, "Afficher mes créneaux" ne le concerne pas.
             const interventionBooked = reservations.some((r) => r.date === iso && r.type === "Intervention");
+            // Cadre violet : en mode Soins, tous les soins de tous les
+            // intervenants (vérité complète) — sauf pour un intervenant qui a
+            // activé "Afficher mes créneaux", où le calendrier lui-même se
+            // filtre pour ne montrer que SES cadres violets, mélangés aux
+            // traits verts. En mode Visites, aucun cadre par défaut (seules
+            // les pastilles comptent) — sauf, là aussi, pour un intervenant
+            // avec "Afficher mes créneaux" actif : ses propres soins
+            // apparaissent quand même, mélangés aux pastilles.
+            const frameVisible = soinsMode
+              ? (role === "intervenant" && mesCreneauxOnly ? myInterventionToday : interventionBooked)
+              : (role === "intervenant" && mesCreneauxOnly && myInterventionToday);
+            const fillPurple = frameVisible && myInterventionToday;
 
             return (
               <TouchableOpacity
@@ -290,9 +307,9 @@ export default function VisitorCalendarScreen() {
                 style={[
                   styles.cell,
                   {
-                    backgroundColor: isSelected ? C.accent : dimmed ? "transparent" : myInterventionToday ? LOGO_PURPLE : C.card,
-                    borderColor: isSelected ? C.accent : interventionBooked ? LOGO_PURPLE : isToday ? C.gold : C.border,
-                    borderWidth: isToday || interventionBooked ? 2 : 1,
+                    backgroundColor: isSelected ? C.accent : dimmed ? "transparent" : fillPurple ? LOGO_PURPLE : C.card,
+                    borderColor: isSelected ? C.accent : frameVisible ? LOGO_PURPLE : isToday ? C.gold : C.border,
+                    borderWidth: isToday || frameVisible ? 2 : 1,
                     opacity: dimmed ? 0.3 : 1,
                   },
                 ]}
@@ -308,7 +325,7 @@ export default function VisitorCalendarScreen() {
                 activeOpacity={0.7}
               >
                 <View style={styles.cellInner}>
-                  <Text style={[styles.cellDate, { color: isSelected || myInterventionToday ? "#fff" : isToday ? C.gold : C.text }]}>
+                  <Text style={[styles.cellDate, { color: isSelected || fillPurple ? "#fff" : isToday ? C.gold : C.text }]}>
                     {day.getDate()}
                   </Text>
                   <View style={[styles.dot, { backgroundColor: dotColor }]} />
@@ -322,8 +339,11 @@ export default function VisitorCalendarScreen() {
           {Array(trailingFillers).fill(null).map((_, i) => <View key={`t${i}`} style={styles.cell} />)}
         </View>
 
-        {/* Legend */}
+        {/* Legend — les pastilles ne représentent que les visites, d'où le
+            préfixe "Visiteurs :" qui le rappelle ; la ligne reste centrée
+            sous le calendrier comme avant. */}
         <View style={styles.legend}>
+          <Text style={[styles.legendPrefix, { color: C.muted }]}>Visiteurs :</Text>
           {([[C.success, "Dispo"], [C.orange, "Partiel"], [C.danger, "Complet"]] as [string, string][]).map(
             ([color, label]) => (
               <View key={label} style={styles.legendItem}>
@@ -366,6 +386,7 @@ export default function VisitorCalendarScreen() {
           onSelectDay={(iso) => setSelectedDay(new Date(iso + "T00:00:00"))}
           onDayPress={handleWeekDayPress}
           soinsMode={soinsMode}
+          mesCreneauxOnly={mesCreneauxOnly}
           role={role}
           intervenantProfileId={intervenantProfileId}
           myPin={myPin}
@@ -378,24 +399,33 @@ export default function VisitorCalendarScreen() {
         )}
 
         {/* Switch Visites/Soins + "Afficher mes créneaux" regroupés dans un
-            même bloc, placé sous le calendrier : eux seuls règlent
-            l'affichage du panneau perso juste en dessous (le calendrier,
-            lui, affiche toujours la vérité complète — voir
-            panelReservations plus haut). Le switch Visites/Soins n'existe
-            que si les intervenants sont activés dans l'espace ; le bouton
-            "Afficher mes créneaux" reste utile même sans eux (filtre
-            visites/nuitées), donc le bloc reste affiché dans tous les cas. */}
+            même bloc, placé sous le calendrier : ils règlent l'affichage du
+            panneau perso juste en dessous (voir panelReservations plus
+            haut), et pour un intervenant, également celui des cadres violets
+            du calendrier lui-même (voir frameVisible plus haut — un
+            intervenant qui active "Afficher mes créneaux" ne voit plus, en
+            mode Soins, que ses propres cadres, et voit ses propres cadres
+            apparaître même en mode Visites). Pour les visiteurs/admin, le
+            calendrier reste une vérité complète quel que soit ce réglage.
+            Le switch Visites/Soins n'existe que si les intervenants sont
+            activés dans l'espace ; le bouton "Afficher mes créneaux" reste
+            utile même sans eux (filtre visites/nuitées), donc le bloc reste
+            affiché dans tous les cas, pour les 3 profils. */}
         <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 16 }]}>
           {space.intervenants_enabled && (
-            <SegmentedSwitch value={soinsMode} onChange={handleSoinsModeChange} leftLabel="Visites" rightLabel="Soins" C={C} thumbWidth={viewThumbWidth || undefined} />
+            <SegmentedSwitch value={soinsMode} onChange={setSoinsMode} leftLabel="Visites" rightLabel="Soins" C={C} thumbWidth={viewThumbWidth || undefined} />
           )}
           <View style={styles.toggleRow}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.toggleLabel, { color: C.text }]}>👁️ Afficher mes créneaux</Text>
               <Text style={[styles.toggleDesc, { color: C.muted }]}>
                 {mesCreneauxOnly
-                  ? `Le panneau ci-dessous ne liste que t${role === "intervenant" ? "es propres soins" : "es propres visites/nuitées"}. Le calendrier, lui, affiche toujours tout le monde.`
-                  : `Le panneau ci-dessous liste les ${role === "intervenant" ? "soins" : "visites/nuitées"} de tout le monde.`}
+                  ? role === "intervenant"
+                    ? "Le panneau ci-dessous ne liste que tes propres soins. Le calendrier ne montre plus que tes propres cadres violets, mélangés aux traits verts de tout le monde."
+                    : `Le panneau ci-dessous ne liste que t${soinsMode ? "es propres soins" : "es propres visites/nuitées"}. Le calendrier, lui, affiche toujours tout le monde.`
+                  : soinsMode
+                    ? "Le panneau ci-dessous liste les soins de tous les intervenants de l'espace patient."
+                    : "Le panneau ci-dessous liste les visites/nuitées de tout le monde."}
               </Text>
             </View>
             <Switch
@@ -552,7 +582,11 @@ const styles = StyleSheet.create({
   dot: { width: 4, height: 4, borderRadius: 2 },
   visitStripe: { position: "absolute", left: 0, right: 0, bottom: 0, height: 4 },
   legend: { flexDirection: "row", justifyContent: "center", gap: 20 },
-  legendRow2: { marginTop: 8 },
+  legendPrefix: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11 },
+  // Ecart plus large que la ligne du dessus pour bien séparer "Mes créneaux"
+  // de "Intervenant"/"Soin" — les deux notions sont trop souvent confondues
+  // sinon.
+  legendRow2: { marginTop: 8, gap: 40 },
   legendItem: { flexDirection: "row", alignItems: "center", gap: 5 },
   legendDot: { width: 8, height: 8, borderRadius: 4 },
   legendFrame: { width: 14, height: 14, borderRadius: 4, borderWidth: 2 },

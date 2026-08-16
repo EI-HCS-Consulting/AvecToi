@@ -39,13 +39,6 @@ export default function AdminCalendarScreen() {
   // PIN sentinelle "ADMIN") sont reconnues comme "siennes" au même titre
   // qu'un visiteur ordinaire — voir isMyReservation (lib/slotUtils.ts).
   const [mesCreneauxOnly, setMesCreneauxOnly] = useState(true);
-  // Basculer sur "Soins" désactive "Afficher mes créneaux" — l'admin n'a
-  // jamais de fiche intervenant, donc aucune réservation ne matcherait le
-  // filtre en mode Soins ; même comportement que le visiteur.
-  function handleSoinsModeChange(next: boolean) {
-    setSoinsMode(next);
-    if (next) setMesCreneauxOnly(false);
-  }
   // Mensuel/Hebdo — la vue Hebdo permet de réserver directement un créneau
   // du jour sélectionné (D) sans passer par l'écran dédié (home/slots.tsx),
   // qui reste accessible en Mensuel (tap sur un jour).
@@ -267,6 +260,9 @@ export default function AdminCalendarScreen() {
             const iso = toISO(day);
             const dayConfig = getConfigForDate(iso) ?? slotConfig;
             const daySlots = getSlotsForDate(iso);
+            // `status` sert au blocage/navigation (tap sur la case) et suit
+            // le type du mode actif. La pastille, elle, ne représente plus
+            // jamais que les visites — voir visiteStatus.
             const status = getDayStatus(reservations, iso, day, dayConfig, daySlots, startDate, soinsMode ? "Intervention" : "Visite");
             const isToday = toISO(day) === toISO(today);
             const isSelected = toISO(day) === toISO(selectedDay);
@@ -276,20 +272,26 @@ export default function AdminCalendarScreen() {
             // jour simplement passé s'ouvre, en lecture, pour voir qui est
             // venu ce jour-là.
             const isDisabled = status === "past";
-            const dotColor =
-              status === "full" ? C.danger :
-              status === "partial" ? C.orange :
-              status === "empty" ? C.success : "transparent";
+            // Pastille Dispo/Partiel/Complet : ne représente plus que les
+            // visites, et ne s'affiche qu'en mode Visites — en mode Soins,
+            // seul le cadre violet reste visible.
+            const visiteStatus = getDayStatus(reservations, iso, day, dayConfig, daySlots, startDate, "Visite");
+            const dotColor = soinsMode ? "transparent" :
+              visiteStatus === "full" ? C.danger :
+              visiteStatus === "partial" ? C.orange :
+              visiteStatus === "empty" ? C.success : "transparent";
 
             // Bande verte en bas de case = strictement personnelle (mes
             // propres visites/nuitées, voir isMyReservation/identityReady
-            // plus haut) — jamais celles d'un autre visiteur. Bordure
-            // violette = créneau bloqué par un intervenant (remplace la
-            // bordure grise par défaut, ne déborde jamais de la case),
-            // toujours la vérité complète quel que soit "Afficher mes
-            // créneaux".
+            // plus haut) — jamais celles d'un autre visiteur. Toujours
+            // visible, quel que soit le mode ou "Afficher mes créneaux".
             const familyBooked = reservations.some((r) => r.date === iso && isMyReservation(r, effectiveMyPin, null, myPrenom, myNom));
+            // Cadre violet : uniquement en mode Soins (l'admin n'a jamais de
+            // fiche intervenant, donc pas de filtrage "mes cadres" possible
+            // ici — toujours la vérité complète des soins de tous les
+            // intervenants).
             const interventionBooked = reservations.some((r) => r.date === iso && r.type === "Intervention");
+            const frameVisible = soinsMode && interventionBooked;
 
             return (
               <TouchableOpacity
@@ -298,8 +300,8 @@ export default function AdminCalendarScreen() {
                   styles.cell,
                   {
                     backgroundColor: isSelected ? C.accent : isPast ? "transparent" : C.card,
-                    borderColor: isSelected ? C.accent : interventionBooked ? LOGO_PURPLE : isToday ? C.gold : C.border,
-                    borderWidth: isToday || interventionBooked ? 2 : 1,
+                    borderColor: isSelected ? C.accent : frameVisible ? LOGO_PURPLE : isToday ? C.gold : C.border,
+                    borderWidth: isToday || frameVisible ? 2 : 1,
                     opacity: isPast ? 0.3 : 1,
                   },
                 ]}
@@ -329,6 +331,7 @@ export default function AdminCalendarScreen() {
         </View>
 
         <View style={styles.legend}>
+          <Text style={[styles.legendPrefix, { color: C.muted }]}>Visiteurs :</Text>
           {([[C.success, "Dispo"], [C.orange, "Partiel"], [C.danger, "Complet"]] as [string, string][]).map(
             ([color, label]) => (
               <View key={label} style={styles.legendItem}>
@@ -372,6 +375,7 @@ export default function AdminCalendarScreen() {
           onSelectDay={(iso) => setSelectedDay(new Date(iso + "T00:00:00"))}
           onDayPress={handleWeekDayPress}
           soinsMode={soinsMode}
+          mesCreneauxOnly={mesCreneauxOnly}
           role="visiteur"
           intervenantProfileId={null}
           myPin={effectiveMyPin}
@@ -392,7 +396,7 @@ export default function AdminCalendarScreen() {
             filtrer les visites/nuitées. */}
         <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 16 }]}>
           {space.intervenants_enabled && (
-            <SegmentedSwitch value={soinsMode} onChange={handleSoinsModeChange} leftLabel="Visites" rightLabel="Soins" C={C} thumbWidth={viewThumbWidth || undefined} />
+            <SegmentedSwitch value={soinsMode} onChange={setSoinsMode} leftLabel="Visites" rightLabel="Soins" C={C} thumbWidth={viewThumbWidth || undefined} />
           )}
           <View style={styles.toggleRow}>
             <View style={{ flex: 1 }}>
@@ -400,7 +404,9 @@ export default function AdminCalendarScreen() {
               <Text style={[styles.toggleDesc, { color: C.muted }]}>
                 {mesCreneauxOnly
                   ? "Le panneau ci-dessous ne liste que vos propres visites/nuitées. Le calendrier, lui, affiche toujours tout le monde."
-                  : "Le panneau ci-dessous liste les visites/nuitées de tout le monde."}
+                  : soinsMode
+                    ? "Le panneau ci-dessous liste les soins de tous les intervenants de l'espace patient."
+                    : "Le panneau ci-dessous liste les visites/nuitées de tout le monde."}
               </Text>
             </View>
             <Switch
@@ -549,7 +555,10 @@ const styles = StyleSheet.create({
   dot: { width: 4, height: 4, borderRadius: 2 },
   visitStripe: { position: "absolute", left: 0, right: 0, bottom: 0, height: 4 },
   legend: { flexDirection: "row", justifyContent: "center", gap: 20 },
-  legendRow2: { marginTop: 8 },
+  legendPrefix: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11 },
+  // Ecart plus large que la ligne du dessus pour bien séparer "Mes créneaux"
+  // de "Intervenant"/"Soin".
+  legendRow2: { marginTop: 8, gap: 40 },
   legendItem: { flexDirection: "row", alignItems: "center", gap: 5 },
   legendDot: { width: 8, height: 8, borderRadius: 4 },
   legendFrame: { width: 14, height: 14, borderRadius: 4, borderWidth: 2 },
