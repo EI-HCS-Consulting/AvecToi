@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { getDaysInMonth, getWeekDates, toISO } from "@/lib/slotUtils";
 import { lightenColor } from "@/lib/themes";
@@ -29,10 +29,16 @@ interface Props {
   onMonthChange: (m: { year: number; month: number }) => void;
   onWeekPrev: () => void;
   onWeekNext: () => void;
+  // Jour actuellement retenu (ISO) — pilote à la fois le cadre "vidé" ci-
+  // dessous et le bloc "Planning du jour" affiché par le parent (soins.tsx).
+  // Contrôlé par le parent plutôt qu'en état local : les deux doivent rester
+  // synchronisés avec le même jour.
+  selectedIso: string;
   // Tap sur une case jour — ouvre la réservation pour le patient sélectionné
   // dans la légende (voir soins.tsx, selectedSpaceId). Sans effet ("Tous")
   // tant qu'aucun patient précis n'est sélectionné : réserver depuis cette
-  // vue cumulée nécessite de savoir POUR QUI.
+  // vue cumulée nécessite de savoir POUR QUI. Dans tous les cas, met à jour
+  // selectedIso côté parent.
   onDayPress: (iso: string) => void;
 }
 
@@ -66,15 +72,9 @@ function frameStyle(C: Theme, isToday: boolean, isSelected: boolean, patientColo
 }
 
 export default function IntervenantGlobalCalendar({
-  C, reservations, colorBySpaceId, view, weekAnchor, monthAnchor, onMonthChange, onWeekPrev, onWeekNext, onDayPress,
+  C, reservations, colorBySpaceId, view, weekAnchor, monthAnchor, onMonthChange, onWeekPrev, onWeekNext, selectedIso, onDayPress,
 }: Props) {
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
-  const [selectedIso, setSelectedIso] = useState(() => toISO(today));
-
-  function handlePress(iso: string) {
-    setSelectedIso(iso);
-    onDayPress(iso);
-  }
 
   if (view === "hebdo") {
     const dates = getWeekDates(weekAnchor);
@@ -102,7 +102,7 @@ export default function IntervenantGlobalCalendar({
               <TouchableOpacity
                 key={iso}
                 activeOpacity={0.7}
-                onPress={() => handlePress(iso)}
+                onPress={() => onDayPress(iso)}
                 style={[styles.weekCell, frameStyle(C, isToday, isSelected, patientColor)]}
               >
                 <Text style={[styles.weekDayLabel, { color: C.muted }]}>{DAY_LABELS[(day.getDay() + 6) % 7]}</Text>
@@ -158,7 +158,7 @@ export default function IntervenantGlobalCalendar({
             <TouchableOpacity
               key={iso}
               activeOpacity={0.7}
-              onPress={() => handlePress(iso)}
+              onPress={() => onDayPress(iso)}
               style={[styles.cell, frameStyle(C, isToday, isSelected, patientColor)]}
             >
               <Text style={[styles.cellDate, { color: isToday ? C.gold : C.text }]}>{day.getDate()}</Text>

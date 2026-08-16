@@ -13,6 +13,7 @@ import { getPatientColor } from "@/lib/themes";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import IntervenantGlobalCalendar from "@/components/IntervenantGlobalCalendar";
 import PatientColorLegend from "@/components/PatientColorLegend";
+import PlanningDuJourBlock from "@/components/PlanningDuJourBlock";
 import SoinsPeriodBlock from "@/components/SoinsPeriodBlock";
 import SoinsPlanifiesBlock from "@/components/SoinsPlanifiesBlock";
 import InterventionEditFlow, { type InterventionEditFlowHandle } from "@/components/InterventionEditFlow";
@@ -60,6 +61,11 @@ export default function VisitorPlanningScreen() {
   // de jours planifiés en dessous à ne montrer que ce patient, et permet de
   // réserver pour lui en tapant un jour (voir handleCalendarDayPress).
   const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null);
+  // Jour retenu par le calendrier (ISO) — aujourd'hui par défaut, mis à jour
+  // à chaque tap sur une case (voir handleCalendarDayPress). Pilote le bloc
+  // "Planning du jour" ci-dessous, qui affiche les soins de ce seul jour ;
+  // les autres jours restent dans la rubrique Planning mensuel/hebdo.
+  const [selectedIso, setSelectedIso] = useState<string>(() => toISO(new Date()));
 
   const [planningView, setPlanningView] = useState<"mensuel" | "hebdo">("mensuel");
   const [weekAnchor, setWeekAnchor] = useState(() => getMonday(new Date()));
@@ -153,6 +159,7 @@ export default function VisitorPlanningScreen() {
   // ciblé pour enchaîner automatiquement vers l'écran de réservation une fois
   // arrivé (voir home/calendar.tsx, param focusIso).
   async function handleCalendarDayPress(iso: string) {
+    setSelectedIso(iso);
     if (!selectedSpaceId || switchingId) return;
     const row = profiles.find((p) => p.space_id === selectedSpaceId);
     if (!row) return;
@@ -233,16 +240,28 @@ export default function VisitorPlanningScreen() {
               onMonthChange={setMonthAnchor}
               onWeekPrev={() => setWeekAnchor(addDays(weekAnchor, -7))}
               onWeekNext={() => setWeekAnchor(addDays(weekAnchor, 7))}
+              selectedIso={selectedIso}
               onDayPress={handleCalendarDayPress}
             />
             <View style={[styles.legendCard, { backgroundColor: C.card, borderColor: C.border }]}>
               <PatientColorLegend C={C} items={legendItems} selectedSpaceId={selectedSpaceId} onSelect={setSelectedSpaceId} />
             </View>
 
-            <Text style={[styles.sectionTitle, { color: C.gold }]}>Planning</Text>
+            <PlanningDuJourBlock
+              C={C}
+              iso={selectedIso}
+              reservations={displayReservations.filter((r) => r.date === selectedIso)}
+              patientNameBySpaceId={patientNameBySpaceId}
+              locationBySpaceId={locationBySpaceId}
+              onSoinPress={handleSoinPress}
+            />
+
+            <Text style={[styles.sectionTitle, { color: C.gold }]}>
+              {planningView === "hebdo" ? "Planning hebdo" : "Planning mensuel"}
+            </Text>
             <SoinsPeriodBlock
               C={C}
-              reservations={displayReservations}
+              reservations={displayReservations.filter((r) => r.date !== selectedIso)}
               view={planningView}
               weekAnchor={weekAnchor}
               onWeekChange={setWeekAnchor}
@@ -283,5 +302,5 @@ const styles = StyleSheet.create({
   sectionTitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 10 },
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, textAlign: "center", marginVertical: 16 },
 
-  legendCard: { borderWidth: 1, borderRadius: 14, padding: 16, marginTop: 6, marginBottom: 20 },
+  legendCard: { borderWidth: 1, borderRadius: 14, padding: 16, marginTop: 0, marginBottom: 20 },
 });
