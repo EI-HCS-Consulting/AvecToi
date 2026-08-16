@@ -27,6 +27,17 @@ export default function PatientColorLegend({ C, items, selectedSpaceId, onSelect
   if (items.length === 0) return null;
   return (
     <View style={styles.grid}>
+      {items.map((item) => (
+        <TouchableOpacity key={item.spaceId} style={styles.item} onPress={() => onSelect(item.spaceId)} activeOpacity={0.7}>
+          <View style={[styles.swatch, { backgroundColor: item.color }]} />
+          <Text
+            style={[styles.label, { color: C.text }, selectedSpaceId === item.spaceId && styles.labelActive]}
+            numberOfLines={1}
+          >
+            {item.name}
+          </Text>
+        </TouchableOpacity>
+      ))}
       <TouchableOpacity style={styles.item} onPress={() => onSelect(null)} activeOpacity={0.7}>
         <View
           style={[
@@ -43,17 +54,6 @@ export default function PatientColorLegend({ C, items, selectedSpaceId, onSelect
           Tous
         </Text>
       </TouchableOpacity>
-      {items.map((item) => (
-        <TouchableOpacity key={item.spaceId} style={styles.item} onPress={() => onSelect(item.spaceId)} activeOpacity={0.7}>
-          <View style={[styles.swatch, { backgroundColor: item.color }]} />
-          <Text
-            style={[styles.label, { color: C.text }, selectedSpaceId === item.spaceId && styles.labelActive]}
-            numberOfLines={1}
-          >
-            {item.name}
-          </Text>
-        </TouchableOpacity>
-      ))}
     </View>
   );
 }

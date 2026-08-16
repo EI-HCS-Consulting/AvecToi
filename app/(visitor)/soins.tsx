@@ -223,28 +223,20 @@ export default function VisitorPlanningScreen() {
               />
             </View>
 
-            <View style={[styles.calCard, { backgroundColor: C.card, borderColor: C.border }]}>
-              <IntervenantGlobalCalendar
-                C={C}
-                reservations={displayReservations}
-                colorBySpaceId={colorBySpaceId}
-                view={planningView}
-                weekAnchor={weekAnchor}
-                monthAnchor={monthAnchor}
-                onMonthChange={setMonthAnchor}
-                onWeekPrev={() => setWeekAnchor(addDays(weekAnchor, -7))}
-                onWeekNext={() => setWeekAnchor(addDays(weekAnchor, 7))}
-                onDayPress={handleCalendarDayPress}
-              />
-              <View
-                style={[
-                  styles.legendSep,
-                  { borderTopColor: C.border },
-                  planningView === "mensuel" && styles.legendSepTight,
-                ]}
-              >
-                <PatientColorLegend C={C} items={legendItems} selectedSpaceId={selectedSpaceId} onSelect={setSelectedSpaceId} />
-              </View>
+            <IntervenantGlobalCalendar
+              C={C}
+              reservations={displayReservations}
+              colorBySpaceId={colorBySpaceId}
+              view={planningView}
+              weekAnchor={weekAnchor}
+              monthAnchor={monthAnchor}
+              onMonthChange={setMonthAnchor}
+              onWeekPrev={() => setWeekAnchor(addDays(weekAnchor, -7))}
+              onWeekNext={() => setWeekAnchor(addDays(weekAnchor, 7))}
+              onDayPress={handleCalendarDayPress}
+            />
+            <View style={[styles.legendCard, { backgroundColor: C.card, borderColor: C.border }]}>
+              <PatientColorLegend C={C} items={legendItems} selectedSpaceId={selectedSpaceId} onSelect={setSelectedSpaceId} />
             </View>
 
             <Text style={[styles.sectionTitle, { color: C.gold }]}>Planning</Text>
@@ -291,7 +283,5 @@ const styles = StyleSheet.create({
   sectionTitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 10 },
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, textAlign: "center", marginVertical: 16 },
 
-  calCard: { borderWidth: 1, borderRadius: 14, padding: 16, marginBottom: 20 },
-  legendSep: { borderTopWidth: 1, marginTop: 14, paddingTop: 12 },
-  legendSepTight: { marginTop: 4, paddingTop: 8 },
+  legendCard: { borderWidth: 1, borderRadius: 14, padding: 16, marginTop: 6, marginBottom: 20 },
 });
