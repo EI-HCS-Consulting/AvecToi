@@ -19,6 +19,12 @@ export async function switchToLinkedSpace(
   row: LinkedIntervenantSpaceRow,
   telephone: string,
   router: ReturnType<typeof useRouter>,
+  // Jour à cibler une fois arrivé sur le calendrier du nouvel espace — voir
+  // app/(visitor)/home/calendar.tsx (param focusIso) qui, en le recevant,
+  // enchaîne directement vers home/slots.tsx sur ce jour. Utilisé par le
+  // Planning global intervenant (app/(visitor)/soins.tsx) quand on tape un
+  // jour pour un patient dont l'espace n'est pas déjà l'espace actif.
+  focusIso?: string,
 ): Promise<void> {
   if (!row.patient_spaces) return;
   await saveVisitorSession({
@@ -35,6 +41,8 @@ export async function switchToLinkedSpace(
   });
   router.replace({
     pathname: "/(visitor)/home/calendar",
-    params: { spaceId: row.space_id, token: row.patient_spaces.invite_token },
+    params: focusIso
+      ? { spaceId: row.space_id, token: row.patient_spaces.invite_token, focusIso }
+      : { spaceId: row.space_id, token: row.patient_spaces.invite_token },
   } as any);
 }
