@@ -73,9 +73,15 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
   // Popup de sélection avant import d'un modèle — tous les items du modèle
   // (y compris ceux déjà cochés "fait" dans l'espace patient d'origine, un
   // modèle n'a pas de statut, voir saveGroupAsTemplate) apparaissent
-  // pré-cochés ; l'intervenant peut en décocher avant d'importer.
+  // pré-cochés, sauf ceux déjà présents dans ce dossier patient (n'importe
+  // quelle checklist, pas seulement une réimportation du même modèle — voir
+  // findExistingChecklistItem) qui sont grisés pour éviter les doublons.
   const [importTpl, setImportTpl] = useState<IntervenantChecklistTemplate | null>(null);
   const [tplChecked, setTplChecked] = useState<Record<number, boolean>>({});
+  // Quand tous les items d'un modèle sont déjà présents dans ce dossier
+  // patient — popup purement informatif (ConfirmModal singleButton) plutôt
+  // que la sélection, qui n'aurait plus rien d'importable.
+  const [fullyImportedTplName, setFullyImportedTplName] = useState<string | null>(null);
 
   // Sélection multiple (restant appuyé sur un item, comme dans le Mur
   // d'Entraide) — pour supprimer plusieurs items de sa checklist en une fois.
@@ -126,6 +132,16 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     const norm = title.trim().toLowerCase();
     if (!norm) return undefined;
     return existingTasks.find((t) => t.title.trim().toLowerCase() === norm);
+  }
+
+  // Anti-doublon à l'import d'un modèle — cherche dans toutes les checklists
+  // de ce dossier patient (pas seulement une réimportation du même modèle),
+  // puisqu'un item peut déjà exister ailleurs (ajouté à la main, ou importé
+  // depuis un autre modèle).
+  function findExistingChecklistItem(title: string): PersonalChecklistItem | undefined {
+    const norm = title.trim().toLowerCase();
+    if (!norm) return undefined;
+    return items.find((it) => it.title.trim().toLowerCase() === norm);
   }
 
   async function toggleItem(item: PersonalChecklistItem) {
@@ -237,8 +253,13 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
 
   function openTemplateImport(tpl: IntervenantChecklistTemplate) {
     if (!tpl.items.length) return;
+    if (tpl.items.every((title) => !!findExistingChecklistItem(title))) {
+      setTemplatesPicker(false);
+      setFullyImportedTplName(tpl.name);
+      return;
+    }
     const checked: Record<number, boolean> = {};
-    tpl.items.forEach((_, i) => { checked[i] = true; });
+    tpl.items.forEach((title, i) => { if (!findExistingChecklistItem(title)) checked[i] = true; });
     setTplChecked(checked);
     setImportTpl(tpl);
     setTemplatesPicker(false);
@@ -250,13 +271,13 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
 
   function toggleAllTplItems(tpl: IntervenantChecklistTemplate, on: boolean) {
     const next: Record<number, boolean> = {};
-    tpl.items.forEach((_, i) => { next[i] = on; });
+    tpl.items.forEach((title, i) => { if (!findExistingChecklistItem(title)) next[i] = on; });
     setTplChecked(next);
   }
 
   async function confirmImportTemplate() {
     if (!importTpl) return;
-    const selected = importTpl.items.filter((_, i) => tplChecked[i]);
+    const selected = importTpl.items.filter((title, i) => tplChecked[i] && !findExistingChecklistItem(title));
     if (!selected.length) return;
     setImportingTemplateId(importTpl.id);
     const rows = selected.map((title) => ({
@@ -770,21 +791,29 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
               </Text>
             ) : (
               <ScrollView style={styles.scroll} showsVerticalScrollIndicator nestedScrollEnabled>
-                {templates.map((tpl) => (
-                  <TouchableOpacity
-                    key={tpl.id}
-                    style={[styles.checklistCard, { borderColor: C.gold, backgroundColor: C.gold + "14" }]}
-                    onPress={() => openTemplateImport(tpl)}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.checklistCardIcon}>📋</Text>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.checklistCardTitle, { color: C.text }]}>{tpl.name}</Text>
-                      <Text style={[styles.checklistCardCount, { color: C.muted }]}>{tpl.items.length} items</Text>
-                    </View>
-                    <Text style={[styles.checklistCardArrow, { color: C.gold }]}>→</Text>
-                  </TouchableOpacity>
-                ))}
+                {templates.map((tpl) => {
+                  const fully = tpl.items.length > 0 && tpl.items.every((title) => !!findExistingChecklistItem(title));
+                  return (
+                    <TouchableOpacity
+                      key={tpl.id}
+                      style={[
+                        styles.checklistCard,
+                        fully ? { borderColor: C.border, backgroundColor: C.border + "14" } : { borderColor: C.gold, backgroundColor: C.gold + "14" },
+                      ]}
+                      onPress={() => openTemplateImport(tpl)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.checklistCardIcon, fully && { opacity: 0.5 }]}>📋</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.checklistCardTitle, { color: fully ? C.muted : C.text }]}>{tpl.name}</Text>
+                        <Text style={[styles.checklistCardCount, { color: C.muted }]}>
+                          {fully ? "Déjà entièrement importée dans cet espace patient" : `${tpl.items.length} items`}
+                        </Text>
+                      </View>
+                      <Text style={[styles.checklistCardArrow, { color: fully ? C.muted : C.gold }]}>→</Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </ScrollView>
             )}
             <TouchableOpacity
@@ -812,39 +841,44 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !importingTemplateId && setImportTpl(null)} />
           <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.gold }]}>
             {importTpl && (() => {
-              const checkedCount = importTpl.items.filter((_, i) => tplChecked[i]).length;
+              const selectableCount = importTpl.items.filter((title) => !findExistingChecklistItem(title)).length;
+              const checkedCount = importTpl.items.filter((title, i) => tplChecked[i] && !findExistingChecklistItem(title)).length;
               const importing = importingTemplateId === importTpl.id;
               return (
                 <>
                   <Text style={[styles.sheetTitle, { color: C.text }]}>📋 {importTpl.name}</Text>
                   <Text style={[styles.intro, { color: C.muted }]}>
-                    Tous les items du modèle sont pré-cochés, y compris ceux déjà faits dans l&apos;autre dossier patient. Décoche ce qui ne s&apos;applique pas ici.
+                    Choisis les items qui sont adaptés à ce patient.
                   </Text>
-                  <TouchableOpacity onPress={() => toggleAllTplItems(importTpl, checkedCount < importTpl.items.length)} activeOpacity={0.7}>
+                  <TouchableOpacity onPress={() => toggleAllTplItems(importTpl, checkedCount < selectableCount)} activeOpacity={0.7}>
                     <Text style={[styles.toggleAll, { color: C.gold }]}>
-                      {checkedCount === importTpl.items.length ? "Tout décocher" : "Tout cocher"}
+                      {checkedCount === selectableCount ? "Tout décocher" : "Tout cocher"}
                     </Text>
                   </TouchableOpacity>
 
                   <ScrollView style={styles.scroll} showsVerticalScrollIndicator nestedScrollEnabled>
                     {importTpl.items.map((title, i) => {
                       const checked = !!tplChecked[i];
+                      const dup = findExistingChecklistItem(title);
                       return (
                         <TouchableOpacity
                           key={i}
-                          style={styles.itemRow}
-                          onPress={() => toggleTplItem(i)}
+                          style={[styles.itemRow, !!dup && { opacity: 0.55 }]}
+                          onPress={() => !dup && toggleTplItem(i)}
                           activeOpacity={0.7}
                         >
                           <View
                             style={[
                               styles.box,
-                              { borderColor: checked ? C.gold : C.border, backgroundColor: checked ? C.gold : "transparent" },
+                              { borderColor: checked && !dup ? C.gold : C.border, backgroundColor: checked && !dup ? C.gold : "transparent" },
                             ]}
                           >
-                            {checked && <Text style={styles.boxMark}>✓</Text>}
+                            {checked && !dup && <Text style={styles.boxMark}>✓</Text>}
                           </View>
-                          <Text style={[styles.itemTitle, { color: checked ? C.text : C.muted, flex: 1 }]}>{title}</Text>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.itemTitle, { color: checked && !dup ? C.text : C.muted }]}>{title}</Text>
+                            {!!dup && <Text style={[styles.dupHint, { color: C.muted }]}>déjà dans ce dossier patient</Text>}
+                          </View>
                         </TouchableOpacity>
                       );
                     })}
@@ -875,6 +909,19 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
           </View>
         </View>
       </Modal>
+
+      <ConfirmModal
+        visible={!!fullyImportedTplName}
+        icon="✅"
+        title={`📋 ${fullyImportedTplName ?? ""}`}
+        message="Checklist déjà entièrement importée dans cet espace patient."
+        confirmLabel="J'ai compris"
+        destructive={false}
+        singleButton
+        onCancel={() => setFullyImportedTplName(null)}
+        onConfirm={() => setFullyImportedTplName(null)}
+        C={C}
+      />
 
       {/* ── MODAL : choix de la checklist à importer ────────────────────── */}
       <Modal visible={picker} transparent animationType="fade" onRequestClose={() => setPicker(false)}>
