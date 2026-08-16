@@ -37,6 +37,10 @@ interface Props {
   // créneaux (home/slots.tsx), exactement comme la grille Mensuel.
   onDayPress: (iso: string) => void;
   soinsMode: boolean;
+  // "Afficher mes créneaux" (home/calendar.tsx) — pour un intervenant,
+  // filtre aussi les cadres violets de la bande elle-même (pas seulement le
+  // panneau perso sous le calendrier) : voir frameVisible plus bas.
+  mesCreneauxOnly: boolean;
   role: "visiteur" | "intervenant" | null;
   intervenantProfileId: string | null;
   // PIN de la session courante — restreint la bande verte (familyBooked) aux
@@ -56,7 +60,7 @@ interface Props {
 
 export default function WeekStrip({
   C, slotConfig, reservations, getSlotsForDate, getConfigForDate, startDate,
-  weekAnchor, onWeekChange, selectedIso, onSelectDay, onDayPress, soinsMode, role,
+  weekAnchor, onWeekChange, selectedIso, onSelectDay, onDayPress, soinsMode, mesCreneauxOnly, role,
   intervenantProfileId, myPin, myPrenom, myNom, admissionIso, dischargeIso,
 }: Props) {
   const weekDates = getWeekDates(weekAnchor);
@@ -101,17 +105,31 @@ export default function WeekStrip({
           const iso = toISO(day);
           const config = getConfigForDate(iso) ?? slotConfig;
           const daySlots = getSlotsForDate(iso);
+          // `status` sert au blocage/navigation via onDayPress → suit le
+          // type du mode actif. La pastille, elle, ne représente plus jamais
+          // que les visites — voir visiteStatus.
           const status = getDayStatus(reservations, iso, day, config, daySlots, startDate, soinsMode ? "Intervention" : "Visite");
-          const dotColor =
-            status === "full" ? C.danger : status === "partial" ? C.orange : status === "empty" ? C.success : "transparent";
+          const visiteStatus = getDayStatus(reservations, iso, day, config, daySlots, startDate, "Visite");
+          const dotColor = soinsMode ? "transparent" :
+            visiteStatus === "full" ? C.danger : visiteStatus === "partial" ? C.orange : visiteStatus === "empty" ? C.success : "transparent";
           // Bande verte strictement personnelle (visite/nuitée réservée par
           // MOI, ou soin réservé par MOI si je suis intervenant) — jamais les
           // réservations d'un autre visiteur/intervenant, ni de l'admin (role
           // === null, sans PIN ni fiche : ne matche jamais isMyReservation).
+          // Toujours visible, quel que soit le mode ou "Afficher mes
+          // créneaux".
           const familyBooked = reservations.some((r) => r.date === iso && isMyReservation(r, myPin, intervenantProfileId, myPrenom, myNom));
           const myInterventionToday = role === "intervenant" && !!intervenantProfileId &&
             reservations.some((r) => r.date === iso && r.type === "Intervention" && r.intervenant_profile_id === intervenantProfileId);
           const interventionBooked = reservations.some((r) => r.date === iso && r.type === "Intervention");
+          // Cadre violet : même règle que la grille Mensuel (home/calendar.tsx)
+          // — vérité complète en mode Soins, sauf pour un intervenant avec
+          // "Afficher mes créneaux" actif (filtré à ses seuls cadres, y
+          // compris en mode Visites où aucun cadre n'apparaît sinon).
+          const frameVisible = soinsMode
+            ? (role === "intervenant" && mesCreneauxOnly ? myInterventionToday : interventionBooked)
+            : (role === "intervenant" && mesCreneauxOnly && myInterventionToday);
+          const fillPurple = frameVisible && myInterventionToday;
           const isSelected = iso === selectedIso;
           const isToday = iso === todayIso;
           // Grisage (E) : uniquement les jours strictement avant la date
@@ -128,9 +146,9 @@ export default function WeekStrip({
               style={[
                 styles.stripCell,
                 {
-                  backgroundColor: isSelected ? C.accent : myInterventionToday ? LOGO_PURPLE : C.card,
-                  borderColor: isSelected ? C.accent : interventionBooked ? LOGO_PURPLE : isToday ? C.gold : C.border,
-                  borderWidth: isToday || interventionBooked ? 2 : 1,
+                  backgroundColor: isSelected ? C.accent : fillPurple ? LOGO_PURPLE : C.card,
+                  borderColor: isSelected ? C.accent : frameVisible ? LOGO_PURPLE : isToday ? C.gold : C.border,
+                  borderWidth: isToday || frameVisible ? 2 : 1,
                   opacity: beforeAdmission ? 0.4 : 1,
                 },
               ]}
@@ -145,10 +163,10 @@ export default function WeekStrip({
                   <Text style={styles.badgeHouseText}>🏠</Text>
                 </View>
               )}
-              <Text style={[styles.stripDow, { color: isSelected || myInterventionToday ? "#fff" : C.muted }]}>
+              <Text style={[styles.stripDow, { color: isSelected || fillPurple ? "#fff" : C.muted }]}>
                 {WEEKDAY_LABELS[day.getDay() === 0 ? 6 : day.getDay() - 1]}
               </Text>
-              <Text style={[styles.stripDate, { color: isSelected || myInterventionToday ? "#fff" : isToday ? C.gold : C.text }]}>
+              <Text style={[styles.stripDate, { color: isSelected || fillPurple ? "#fff" : isToday ? C.gold : C.text }]}>
                 {day.getDate()}
               </Text>
               <View style={[styles.stripDot, { backgroundColor: dotColor }]} />
@@ -193,7 +211,9 @@ const styles = StyleSheet.create({
   badgeCrossText: { color: "#fff", fontSize: 9, fontWeight: "700", lineHeight: 11 },
   badgeHouseText: { fontSize: 11, lineHeight: 13 },
 
-  stripLegend: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 16, marginBottom: 4 },
+  // Ecart plus large qu'avant pour bien séparer "Mes créneaux" de
+  // "Intervenant"/"Soin" — mêmes valeurs que la légende de la vue Mensuel.
+  stripLegend: { flexDirection: "row", justifyContent: "center", alignItems: "center", gap: 40, marginBottom: 4 },
   legendItem: { flexDirection: "row", alignItems: "center", gap: 5 },
   legendStripeSwatch: { width: 12, height: 12, borderRadius: 4, borderWidth: 1 },
   stripLegendFrame: { width: 12, height: 12, borderRadius: 4, borderWidth: 2 },
