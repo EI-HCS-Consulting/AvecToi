@@ -126,6 +126,20 @@ export default function VisitorPlanningScreen() {
 
   useEffect(() => { load(); }, [load]);
 
+  // En Hebdo, dès qu'on change de semaine (ou qu'on bascule sur Hebdo), le
+  // curseur jour saute automatiquement sur le premier soin de la semaine
+  // affichée — le bloc "Planning du jour" en dessous suit alors sans action
+  // supplémentaire. Si la semaine n'a aucun soin, on laisse selectedIso tel
+  // quel (pas d'instruction pour ce cas). Filtré sur le patient sélectionné
+  // dans la légende, comme le reste de l'onglet (voir displayReservations).
+  useEffect(() => {
+    if (planningView !== "hebdo") return;
+    const weekIsos = getWeekDates(weekAnchor).map(toISO);
+    const pool = selectedSpaceId ? reservations.filter((r) => r.space_id === selectedSpaceId) : reservations;
+    const firstSoinIso = weekIsos.find((iso) => pool.some((r) => r.date === iso));
+    if (firstSoinIso) setSelectedIso(firstSoinIso);
+  }, [planningView, weekAnchor, selectedSpaceId, reservations]);
+
   const locationBySpaceId: Record<string, string> = {};
   const patientNameBySpaceId: Record<string, string> = {};
   const colorBySpaceId: Record<string, string> = {};
@@ -243,7 +257,7 @@ export default function VisitorPlanningScreen() {
               selectedIso={selectedIso}
               onDayPress={handleCalendarDayPress}
             />
-            <View style={[styles.legendCard, { backgroundColor: C.card, borderColor: C.border }]}>
+            <View style={{ marginBottom: 20 }}>
               <PatientColorLegend C={C} items={legendItems} selectedSpaceId={selectedSpaceId} onSelect={setSelectedSpaceId} />
             </View>
 
@@ -301,6 +315,4 @@ const styles = StyleSheet.create({
   scroll: { padding: 16, paddingBottom: 40 },
   sectionTitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 10 },
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, textAlign: "center", marginVertical: 16 },
-
-  legendCard: { borderWidth: 1, borderRadius: 14, padding: 16, marginTop: 0, marginBottom: 20 },
 });

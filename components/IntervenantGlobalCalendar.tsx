@@ -1,23 +1,23 @@
 import { useMemo } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { getDaysInMonth, getWeekDates, toISO } from "@/lib/slotUtils";
-import { lightenColor } from "@/lib/themes";
+import { LOGO_PURPLE } from "@/lib/themes";
 import type { Reservation } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
 // Calendrier "Planning" de l'onglet intervenant (app/(visitor)/soins.tsx) —
 // cumule l'affichage de TOUS les soins de l'intervenant à travers TOUS ses
 // espaces patients (contrairement au calendrier familial habituel,
-// home/calendar.tsx, limité à un seul espace). Un jour ayant un soin porte un
-// cadre coloré (couleur du patient, voir colorBySpaceId, calculé par le
-// parent à partir de lib/themes.ts getPatientColor) — plein par défaut,
-// vidé de son fond dès qu'il est sélectionné (tap). Aujourd'hui garde
-// toujours un cadre doré/marron (C.gold) vide, quel que soit son état de
-// sélection ou la présence d'un soin. Un tap sur une case déclenche
-// onDayPress (voir soins.tsx) — le détail chronologique complet reste dans
-// les blocs SoinsPeriodBlock/SoinsPlanifiesBlock affichés juste en dessous.
+// home/calendar.tsx, limité à un seul espace). Reprend exactement l'affichage
+// des cases jour de home/calendar.tsx : cadre + fond violet (LOGO_PURPLE) plein
+// dès qu'un soin existe ce jour-là (peu importe le patient — la couleur du
+// patient n'intervient plus dans le cadre, seulement dans le trait de bas de
+// case, voir stripeColorForDay), texte blanc sur fond violet pour rester
+// lisible en mode sombre. Aujourd'hui garde un cadre doré/marron (C.gold) tant
+// qu'aucun soin ne le recouvre. Un tap sur une case déclenche onDayPress (voir
+// soins.tsx) — le détail chronologique complet reste dans les blocs
+// SoinsPeriodBlock/SoinsPlanifiesBlock affichés juste en dessous.
 const DAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
-const FILL_AMOUNT = 0.78;
 
 interface Props {
   C: Theme;
@@ -29,10 +29,10 @@ interface Props {
   onMonthChange: (m: { year: number; month: number }) => void;
   onWeekPrev: () => void;
   onWeekNext: () => void;
-  // Jour actuellement retenu (ISO) — pilote à la fois le cadre "vidé" ci-
-  // dessous et le bloc "Planning du jour" affiché par le parent (soins.tsx).
-  // Contrôlé par le parent plutôt qu'en état local : les deux doivent rester
-  // synchronisés avec le même jour.
+  // Jour actuellement retenu (ISO) — pilote à la fois le fond plein (accent)
+  // ci-dessous et le bloc "Planning du jour" affiché par le parent
+  // (soins.tsx). Contrôlé par le parent plutôt qu'en état local : les deux
+  // doivent rester synchronisés avec le même jour.
   selectedIso: string;
   // Tap sur une case jour — ouvre la réservation pour le patient sélectionné
   // dans la légende (voir soins.tsx, selectedSpaceId). Sans effet ("Tous")
@@ -42,11 +42,13 @@ interface Props {
   onDayPress: (iso: string) => void;
 }
 
-// Couleur du cadre d'un jour — celle du premier patient (dans l'ordre de la
-// légende, donc de colorBySpaceId) ayant un soin ce jour-là. Un seul cadre
-// par case ne peut représenter qu'une couleur ; l'ordre est déterministe
-// (ordre d'insertion de colorBySpaceId = ordre des profils chargés).
-function colorForDay(reservations: Reservation[], iso: string, colorBySpaceId: Record<string, string>): string | null {
+// Couleur du trait de bas de case pour un jour — celle du premier patient
+// (dans l'ordre de la légende, donc de colorBySpaceId) ayant un soin ce
+// jour-là. Un seul trait par case ne peut représenter qu'une couleur ;
+// l'ordre est déterministe (ordre d'insertion de colorBySpaceId = ordre des
+// profils chargés). Sert aussi à détecter si un soin existe ce jour-là (cadre
+// + fond violet), indépendamment de la couleur retenue pour le trait.
+function stripeColorForDay(reservations: Reservation[], iso: string, colorBySpaceId: Record<string, string>): string | null {
   const spacesToday = new Set<string>();
   for (const r of reservations) {
     if (r.date === iso && r.type === "Intervention") spacesToday.add(r.space_id);
@@ -55,20 +57,6 @@ function colorForDay(reservations: Reservation[], iso: string, colorBySpaceId: R
     if (spacesToday.has(spaceId)) return colorBySpaceId[spaceId];
   }
   return null;
-}
-
-function frameStyle(C: Theme, isToday: boolean, isSelected: boolean, patientColor: string | null) {
-  if (isToday) {
-    return { borderColor: C.gold, backgroundColor: C.card, borderWidth: 2 };
-  }
-  if (patientColor) {
-    return {
-      borderColor: patientColor,
-      backgroundColor: isSelected ? C.card : lightenColor(patientColor, FILL_AMOUNT),
-      borderWidth: 2,
-    };
-  }
-  return { borderColor: C.border, backgroundColor: C.card, borderWidth: 1 };
 }
 
 export default function IntervenantGlobalCalendar({
@@ -97,16 +85,32 @@ export default function IntervenantGlobalCalendar({
             const iso = toISO(day);
             const isToday = iso === toISO(today);
             const isSelected = iso === selectedIso;
-            const patientColor = colorForDay(reservations, iso, colorBySpaceId);
+            const patientColor = stripeColorForDay(reservations, iso, colorBySpaceId);
             return (
               <TouchableOpacity
                 key={iso}
                 activeOpacity={0.7}
                 onPress={() => onDayPress(iso)}
-                style={[styles.weekCell, frameStyle(C, isToday, isSelected, patientColor)]}
+                style={[
+                  styles.weekCell,
+                  {
+                    backgroundColor: isSelected ? C.accent : patientColor ? LOGO_PURPLE : C.card,
+                    borderColor: isSelected ? C.accent : patientColor ? LOGO_PURPLE : isToday ? C.gold : C.border,
+                    borderWidth: isToday || patientColor ? 2 : 1,
+                  },
+                ]}
               >
-                <Text style={[styles.weekDayLabel, { color: C.muted }]}>{DAY_LABELS[(day.getDay() + 6) % 7]}</Text>
-                <Text style={[styles.cellDate, { color: isToday ? C.gold : C.text }]}>{day.getDate()}</Text>
+                <View style={styles.weekCellInner}>
+                  <Text style={[styles.weekDayLabel, { color: isSelected || patientColor ? "#fff" : C.muted }]}>
+                    {DAY_LABELS[(day.getDay() + 6) % 7]}
+                  </Text>
+                  <Text style={[styles.cellDate, { color: isSelected || patientColor ? "#fff" : isToday ? C.gold : C.text }]}>
+                    {day.getDate()}
+                  </Text>
+                </View>
+                {!!patientColor && (
+                  <View pointerEvents="none" style={[styles.visitStripe, { backgroundColor: patientColor }]} />
+                )}
               </TouchableOpacity>
             );
           })}
@@ -153,15 +157,29 @@ export default function IntervenantGlobalCalendar({
           const iso = toISO(day);
           const isToday = iso === toISO(today);
           const isSelected = iso === selectedIso;
-          const patientColor = colorForDay(reservations, iso, colorBySpaceId);
+          const patientColor = stripeColorForDay(reservations, iso, colorBySpaceId);
           return (
             <TouchableOpacity
               key={iso}
               activeOpacity={0.7}
               onPress={() => onDayPress(iso)}
-              style={[styles.cell, frameStyle(C, isToday, isSelected, patientColor)]}
+              style={[
+                styles.cell,
+                {
+                  backgroundColor: isSelected ? C.accent : patientColor ? LOGO_PURPLE : C.card,
+                  borderColor: isSelected ? C.accent : patientColor ? LOGO_PURPLE : isToday ? C.gold : C.border,
+                  borderWidth: isToday || patientColor ? 2 : 1,
+                },
+              ]}
             >
-              <Text style={[styles.cellDate, { color: isToday ? C.gold : C.text }]}>{day.getDate()}</Text>
+              <View style={styles.cellInner}>
+                <Text style={[styles.cellDate, { color: isSelected || patientColor ? "#fff" : isToday ? C.gold : C.text }]}>
+                  {day.getDate()}
+                </Text>
+              </View>
+              {!!patientColor && (
+                <View pointerEvents="none" style={[styles.visitStripe, { backgroundColor: patientColor }]} />
+              )}
             </TouchableOpacity>
           );
         })}
@@ -181,31 +199,36 @@ const styles = StyleSheet.create({
 
   dayLabels: { flexDirection: "row", justifyContent: "center", gap: 3, marginBottom: 4 },
   dayLabel: { width: "13.5%", textAlign: "center", fontFamily: "DM_Sans_600SemiBold", fontSize: 10 },
-  grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 3 },
+  grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 3, marginBottom: 10 },
   cell: {
     width: "13.5%",
     aspectRatio: 1,
     borderRadius: 8,
-    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
   },
+  cellInner: { flex: 1, width: "100%", alignItems: "center", justifyContent: "center" },
   // Cases de remplissage (avant le 1er / après le dernier jour du mois) —
   // bord transparent pour éviter le défaut React Native (noir) d'un
   // borderWidth sans borderColor explicite.
-  fillerCell: { borderColor: "transparent" },
+  fillerCell: { borderColor: "transparent", borderWidth: 1 },
   cellDate: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, includeFontPadding: false },
+  // Trait de bas de case indiquant le patient concerné (seul signal coloré
+  // par patient — le cadre/fond reste toujours violet uniforme, voir
+  // home/calendar.tsx, styles.visitStripe).
+  visitStripe: { position: "absolute", left: 0, right: 0, bottom: 0, height: 4 },
 
-  weekRow: { flexDirection: "row", justifyContent: "center", gap: 4 },
+  weekRow: { flexDirection: "row", justifyContent: "center", gap: 4, marginBottom: 10 },
   weekCell: {
     flex: 1,
     aspectRatio: 0.72,
     borderRadius: 10,
-    borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 3,
     paddingVertical: 6,
+    overflow: "hidden",
   },
+  weekCellInner: { alignItems: "center", justifyContent: "center", gap: 3 },
   weekDayLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 10 },
 });
