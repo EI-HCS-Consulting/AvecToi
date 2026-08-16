@@ -466,6 +466,7 @@ export default function VisitorCalendarScreen() {
             myPrenom={myPrenom}
             myNom={myNom}
             onEdit={(r) => flowRef.current?.openPinModal(r)}
+            myIntervenantProfileId={role === "intervenant" && mesCreneauxOnly ? intervenantProfileId : null}
           />
         </View>
       </ScrollView>

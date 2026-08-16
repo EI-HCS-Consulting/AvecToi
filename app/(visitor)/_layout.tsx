@@ -272,13 +272,29 @@ function VisitorTabs() {
     >
       <Tabs.Screen
         name="home"
-        options={{ href: null }}
+        options={{
+          href: role === "intervenant" ? undefined : null,
+          title: "Accueil",
+          tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" size={size} color={color} />,
+        }}
+        listeners={{
+          // Le groupe "home" est un Stack à plusieurs écrans (calendrier,
+          // créneaux, nuits...) sans route "index" — un appui direct sur cet
+          // onglet doit toujours ramener au calendrier plutôt que de
+          // dépendre de l'état interne du Stack.
+          tabPress: (e) => {
+            if (role !== "intervenant") return;
+            e.preventDefault();
+            router.push("/(visitor)/home/calendar" as any);
+          },
+        }}
       />
       <Tabs.Screen
         name="news"
         options={{
           title: "Nouvelles",
           tabBarIcon: ({ color, size }) => <Ionicons name="newspaper-outline" size={size} color={color} />,
+          href: role === "intervenant" ? null : undefined,
         }}
       />
       <Tabs.Screen
