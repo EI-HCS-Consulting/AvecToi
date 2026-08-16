@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { getDaysInMonth, getWeekDates, toISO } from "@/lib/slotUtils";
-import { LOGO_PURPLE } from "@/lib/themes";
+import { LOGO_PURPLE, LOGO_PURPLE_SOFT } from "@/lib/themes";
 import type { Reservation } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -21,24 +21,47 @@ import type { Theme } from "@/lib/themes";
 const DAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
 const STRIPE = 4;
 
-// Épaisseur de trait (bas, droite, haut, gauche) — pour 1 seul patient ce
-// jour-là, un trait plein en bas de case. Dès 2 patients, le tour du cadre se
-// répartit par demi-côtés dans le sens horaire, en partant du bas-gauche :
-// bas-gauche, bas-droite, droite-bas, droite-haut, haut-droite, haut-gauche,
-// gauche-haut, gauche-bas — 8 patients au maximum ferment la boucle en
-// revenant au point bas-gauche ; au-delà, on n'ajoute plus rien sur la case
-// (le patient concerné reste malgré tout listé dans les blocs Planning du
-// jour / Planning mensuel-hebdo / Autres soins planifiés).
-const STRIPE_SEGMENTS: Array<Record<string, number | string>> = [
-  { left: 0, bottom: 0, width: "50%", height: STRIPE },
-  { right: 0, bottom: 0, width: "50%", height: STRIPE },
-  { right: 0, bottom: 0, width: STRIPE, height: "50%" },
-  { right: 0, top: 0, width: STRIPE, height: "50%" },
-  { right: 0, top: 0, width: "50%", height: STRIPE },
-  { left: 0, top: 0, width: "50%", height: STRIPE },
-  { left: 0, top: 0, width: STRIPE, height: "50%" },
-  { left: 0, bottom: 0, width: STRIPE, height: "50%" },
+// Épaisseur de trait — pour les 4 premiers patients d'une même case jour,
+// chacun reçoit un trait plein sur un côté entier, dans l'ordre bas / droite
+// / haut / gauche. À partir du 5ème patient, les traits commencent à se
+// diviser en deux moitiés : le bas se divise en premier (5ème patient),
+// puis la droite (6ème), le haut (7ème) et enfin la gauche (8ème) — 8
+// patients au maximum ferment ainsi le tour de case ; au-delà, on n'ajoute
+// plus rien sur la case (le patient concerné reste malgré tout listé dans
+// les blocs Planning du jour / Planning mensuel-hebdo / Autres soins
+// planifiés).
+const EDGE_FULL: Array<Record<string, number | string>> = [
+  { left: 0, right: 0, bottom: 0, height: STRIPE }, // bas
+  { right: 0, top: 0, bottom: 0, width: STRIPE }, // droite
+  { left: 0, right: 0, top: 0, height: STRIPE }, // haut
+  { left: 0, top: 0, bottom: 0, width: STRIPE }, // gauche
 ];
+const EDGE_HALVES: Array<[Record<string, number | string>, Record<string, number | string>]> = [
+  [{ left: 0, bottom: 0, width: "50%", height: STRIPE }, { right: 0, bottom: 0, width: "50%", height: STRIPE }], // bas
+  [{ right: 0, bottom: 0, width: STRIPE, height: "50%" }, { right: 0, top: 0, width: STRIPE, height: "50%" }], // droite
+  [{ right: 0, top: 0, width: "50%", height: STRIPE }, { left: 0, top: 0, width: "50%", height: STRIPE }], // haut
+  [{ left: 0, top: 0, width: STRIPE, height: "50%" }, { left: 0, bottom: 0, width: STRIPE, height: "50%" }], // gauche
+];
+
+// Construit les traits de bord à afficher pour une case jour à partir des
+// couleurs distinctes des patients ce jour-là (voir dayPatientColors) — un
+// côté plein par patient pour les 4 premiers, puis des moitiés de côté à
+// partir du 5ème (voir commentaire EDGE_FULL/EDGE_HALVES ci-dessus).
+function buildEdgeSegments(colors: string[]): { style: Record<string, number | string>; color: string }[] {
+  const count = colors.length;
+  const segments: { style: Record<string, number | string>; color: string }[] = [];
+  for (let e = 0; e < 4; e++) {
+    if (count <= e) break;
+    const splitThreshold = 5 + e;
+    if (count >= splitThreshold) {
+      segments.push({ style: EDGE_HALVES[e][0], color: colors[e] });
+      segments.push({ style: EDGE_HALVES[e][1], color: colors[4 + e] });
+    } else {
+      segments.push({ style: EDGE_FULL[e], color: colors[e] });
+    }
+  }
+  return segments;
+}
 
 interface Props {
   C: Theme;
@@ -80,13 +103,11 @@ function dayPatientColors(reservations: Reservation[], iso: string, colorBySpace
 
 function DayStripes({ colors }: { colors: string[] }) {
   if (colors.length === 0) return null;
-  if (colors.length === 1) {
-    return <View pointerEvents="none" style={[styles.stripeBase, { left: 0, right: 0, bottom: 0, height: STRIPE, backgroundColor: colors[0] }]} />;
-  }
+  const segments = buildEdgeSegments(colors);
   return (
     <>
-      {colors.slice(0, 8).map((color, i) => (
-        <View key={i} pointerEvents="none" style={[styles.stripeBase, STRIPE_SEGMENTS[i], { backgroundColor: color }]} />
+      {segments.map((seg, i) => (
+        <View key={i} pointerEvents="none" style={[styles.stripeBase, seg.style, { backgroundColor: seg.color }]} />
       ))}
     </>
   );
@@ -128,7 +149,7 @@ export default function IntervenantGlobalCalendar({
                 style={[
                   styles.weekCell,
                   {
-                    backgroundColor: isSelected ? C.accent : hasSoin ? LOGO_PURPLE : C.card,
+                    backgroundColor: isSelected ? C.accent : hasSoin ? LOGO_PURPLE_SOFT : C.card,
                     borderColor: isSelected ? C.accent : hasSoin ? LOGO_PURPLE : isToday ? C.gold : C.border,
                     borderWidth: isToday || hasSoin ? 2 : 1,
                   },
@@ -199,7 +220,7 @@ export default function IntervenantGlobalCalendar({
               style={[
                 styles.cell,
                 {
-                  backgroundColor: isSelected ? C.accent : hasSoin ? LOGO_PURPLE : C.card,
+                  backgroundColor: isSelected ? C.accent : hasSoin ? LOGO_PURPLE_SOFT : C.card,
                   borderColor: isSelected ? C.accent : hasSoin ? LOGO_PURPLE : isToday ? C.gold : C.border,
                   borderWidth: isToday || hasSoin ? 2 : 1,
                 },
