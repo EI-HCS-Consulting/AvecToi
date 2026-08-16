@@ -10,9 +10,9 @@ import type { Theme } from "@/lib/themes";
 // home/calendar.tsx, limité à un seul espace). Un jour ne porte plus une
 // seule pastille de statut mais une petite pastille par patient distinct
 // ayant un soin ce jour-là (voir colorBySpaceId, calculé par le parent à
-// partir de lib/themes.ts getPatientColor). Purement informatif : aucun tap
-// n'ouvre de détail ici, le détail chronologique reste dans les blocs
-// SoinsPeriodBlock/SoinsPlanifiesBlock affichés juste en dessous.
+// partir de lib/themes.ts getPatientColor). Un tap sur une case déclenche
+// onDayPress (voir soins.tsx) — le détail chronologique complet reste dans
+// les blocs SoinsPeriodBlock/SoinsPlanifiesBlock affichés juste en dessous.
 const DAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
 const MAX_DOTS = 4;
 
@@ -26,6 +26,11 @@ interface Props {
   onMonthChange: (m: { year: number; month: number }) => void;
   onWeekPrev: () => void;
   onWeekNext: () => void;
+  // Tap sur une case jour — ouvre la réservation pour le patient sélectionné
+  // dans la légende (voir soins.tsx, selectedSpaceId). Sans effet ("Tous")
+  // tant qu'aucun patient précis n'est sélectionné : réserver depuis cette
+  // vue cumulée nécessite de savoir POUR QUI.
+  onDayPress: (iso: string) => void;
 }
 
 function dotsForDay(reservations: Reservation[], iso: string, colorBySpaceId: Record<string, string>): string[] {
@@ -58,7 +63,7 @@ function DayDots({ colors, mutedColor }: { colors: string[]; mutedColor: string 
 }
 
 export default function IntervenantGlobalCalendar({
-  C, reservations, colorBySpaceId, view, weekAnchor, monthAnchor, onMonthChange, onWeekPrev, onWeekNext,
+  C, reservations, colorBySpaceId, view, weekAnchor, monthAnchor, onMonthChange, onWeekPrev, onWeekNext, onDayPress,
 }: Props) {
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
 
@@ -84,8 +89,10 @@ export default function IntervenantGlobalCalendar({
             const isToday = iso === toISO(today);
             const colors = dotsForDay(reservations, iso, colorBySpaceId);
             return (
-              <View
+              <TouchableOpacity
                 key={iso}
+                activeOpacity={0.7}
+                onPress={() => onDayPress(iso)}
                 style={[
                   styles.weekCell,
                   { borderColor: isToday ? C.gold : C.border, backgroundColor: C.card },
@@ -95,7 +102,7 @@ export default function IntervenantGlobalCalendar({
                 <Text style={[styles.weekDayLabel, { color: C.muted }]}>{DAY_LABELS[(day.getDay() + 6) % 7]}</Text>
                 <Text style={[styles.cellDate, { color: isToday ? C.gold : C.text }]}>{day.getDate()}</Text>
                 <DayDots colors={colors} mutedColor={C.muted} />
-              </View>
+              </TouchableOpacity>
             );
           })}
         </View>
@@ -140,8 +147,10 @@ export default function IntervenantGlobalCalendar({
           const isToday = iso === toISO(today);
           const colors = dotsForDay(reservations, iso, colorBySpaceId);
           return (
-            <View
+            <TouchableOpacity
               key={iso}
+              activeOpacity={0.7}
+              onPress={() => onDayPress(iso)}
               style={[
                 styles.cell,
                 { borderColor: isToday ? C.gold : C.border, backgroundColor: C.card, borderWidth: isToday ? 2 : 1 },
@@ -149,7 +158,7 @@ export default function IntervenantGlobalCalendar({
             >
               <Text style={[styles.cellDate, { color: isToday ? C.gold : C.text }]}>{day.getDate()}</Text>
               <DayDots colors={colors} mutedColor={C.muted} />
-            </View>
+            </TouchableOpacity>
           );
         })}
         {Array(trailingFillers).fill(null).map((_, i) => <View key={`t${i}`} style={styles.cell} />)}

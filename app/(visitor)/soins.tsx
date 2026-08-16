@@ -3,6 +3,7 @@ import { View, Text, ScrollView, StyleSheet, ActivityIndicator } from "react-nat
 import { useRouter } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
+import { useVisitorSpace } from "@/lib/VisitorContext";
 import { getVisitorSession } from "@/lib/visitorSession";
 import { normalizePhone } from "@/lib/phone";
 import { careLocationDetail } from "@/lib/address";
@@ -48,11 +49,17 @@ interface ProfileRow extends LinkedIntervenantSpaceRow {
 export default function VisitorPlanningScreen() {
   const router = useRouter();
   const { theme: C } = useDisplayMode();
+  const { space: activeSpace, setSelectedDay } = useVisitorSpace();
   const [loading, setLoading] = useState(true);
   const [telephone, setTelephone] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [switchingId, setSwitchingId] = useState<string | null>(null);
+  // Filtre "Tous" (null) / un seul patient (space_id) — piloté par un tap
+  // sur la légende (PatientColorLegend). Entraîne le calendrier ET les blocs
+  // de jours planifiés en dessous à ne montrer que ce patient, et permet de
+  // réserver pour lui en tapant un jour (voir handleCalendarDayPress).
+  const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null);
 
   const [planningView, setPlanningView] = useState<"mensuel" | "hebdo">("mensuel");
   const [weekAnchor, setWeekAnchor] = useState(() => getMonday(new Date()));
@@ -129,6 +136,39 @@ export default function VisitorPlanningScreen() {
   });
   const profileIds = profiles.map((p) => p.id);
 
+  // Vue filtrée sur un seul patient (calendrier + blocs de jours en dessous)
+  // — "Tous" (selectedSpaceId === null) garde la vérité complète.
+  const displayReservations = selectedSpaceId
+    ? reservations.filter((r) => r.space_id === selectedSpaceId)
+    : reservations;
+  const displayProfileIds = selectedSpaceId
+    ? profiles.filter((p) => p.space_id === selectedSpaceId).map((p) => p.id)
+    : profileIds;
+
+  // Tap sur un jour du calendrier — n'a de sens que pour UN patient précis
+  // (impossible de savoir pour qui réserver depuis "Tous"). Si l'espace de ce
+  // patient est déjà l'espace actif de la session, on reste dans le même
+  // VisitorContext (comme un tap sur home/calendar.tsx). Sinon on doit
+  // d'abord basculer dessus (switchToLinkedSpace), en lui passant le jour
+  // ciblé pour enchaîner automatiquement vers l'écran de réservation une fois
+  // arrivé (voir home/calendar.tsx, param focusIso).
+  async function handleCalendarDayPress(iso: string) {
+    if (!selectedSpaceId || switchingId) return;
+    const row = profiles.find((p) => p.space_id === selectedSpaceId);
+    if (!row) return;
+    if (activeSpace?.id === selectedSpaceId) {
+      setSelectedDay(new Date(iso + "T00:00:00"));
+      router.navigate("/(visitor)/home/slots");
+      return;
+    }
+    setSwitchingId(row.id);
+    try {
+      await switchToLinkedSpace(row, telephone ?? "", router, iso);
+    } finally {
+      setSwitchingId(null);
+    }
+  }
+
   async function handleRowPress(r: Reservation) {
     const row = profiles.find((p) => p.space_id === r.space_id);
     if (!row || switchingId) return;
@@ -186,7 +226,7 @@ export default function VisitorPlanningScreen() {
             <View style={[styles.calCard, { backgroundColor: C.card, borderColor: C.border }]}>
               <IntervenantGlobalCalendar
                 C={C}
-                reservations={reservations}
+                reservations={displayReservations}
                 colorBySpaceId={colorBySpaceId}
                 view={planningView}
                 weekAnchor={weekAnchor}
@@ -194,16 +234,23 @@ export default function VisitorPlanningScreen() {
                 onMonthChange={setMonthAnchor}
                 onWeekPrev={() => setWeekAnchor(addDays(weekAnchor, -7))}
                 onWeekNext={() => setWeekAnchor(addDays(weekAnchor, 7))}
+                onDayPress={handleCalendarDayPress}
               />
-              <View style={[styles.legendSep, { borderTopColor: C.border }]}>
-                <PatientColorLegend C={C} items={legendItems} />
+              <View
+                style={[
+                  styles.legendSep,
+                  { borderTopColor: C.border },
+                  planningView === "mensuel" && styles.legendSepTight,
+                ]}
+              >
+                <PatientColorLegend C={C} items={legendItems} selectedSpaceId={selectedSpaceId} onSelect={setSelectedSpaceId} />
               </View>
             </View>
 
             <Text style={[styles.sectionTitle, { color: C.gold }]}>Planning</Text>
             <SoinsPeriodBlock
               C={C}
-              reservations={reservations}
+              reservations={displayReservations}
               view={planningView}
               weekAnchor={weekAnchor}
               onWeekChange={setWeekAnchor}
@@ -217,7 +264,7 @@ export default function VisitorPlanningScreen() {
 
             <SoinsPlanifiesBlock
               C={C}
-              filterIntervenantProfileIds={profileIds}
+              filterIntervenantProfileIds={displayProfileIds}
               locationBySpaceId={locationBySpaceId}
               patientNameBySpaceId={patientNameBySpaceId}
               includePast
@@ -246,4 +293,5 @@ const styles = StyleSheet.create({
 
   calCard: { borderWidth: 1, borderRadius: 14, padding: 16, marginBottom: 20 },
   legendSep: { borderTopWidth: 1, marginTop: 14, paddingTop: 12 },
+  legendSepTight: { marginTop: 4, paddingTop: 8 },
 });

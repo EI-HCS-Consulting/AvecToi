@@ -16,13 +16,14 @@ import WeekStrip from "@/components/WeekStrip";
 import IntervenantPlanningPanel from "@/components/IntervenantPlanningPanel";
 import BookingFlow, { type BookingFlowHandle } from "@/components/BookingFlow";
 import InterventionBookingFlow, { type InterventionBookingFlowHandle } from "@/components/InterventionBookingFlow";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 
 const DAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
 
 export default function VisitorCalendarScreen() {
   const { space, slotConfig, slots, reservations, selectedDay, setSelectedDay, setPendingBookingSlot, token, refreshReservations, getConfigForDate, getSlotsForDate, mesCreneauxOnly, setMesCreneauxOnly } = useVisitorSpace();
   const router = useRouter();
+  const { focusIso } = useLocalSearchParams<{ focusIso?: string }>();
   const [nextDispoModal, setNextDispoModal] = useState<{ date: Date; iso: string; slot: string } | null>(null);
   const [blockedDayModal, setBlockedDayModal] = useState<Date | null>(null);
   // false = planning global (visites/nuitées), true = ne montre que
@@ -89,6 +90,22 @@ export default function VisitorCalendarScreen() {
 
   const [calMonth, setCalMonth] = useState({ year: initialDay.getFullYear(), month: initialDay.getMonth() });
   const [weekAnchor, setWeekAnchor] = useState(() => getMonday(initialDay));
+
+  // Arrivée via le Planning global intervenant (soins.tsx) après un
+  // changement d'espace patient (lib/intervenantSpaceSwitch.ts) — enchaîne
+  // directement vers l'écran de réservation sur le jour ciblé, comme un tap
+  // direct sur ce jour l'aurait fait ici. Un ref pour ne déclencher qu'une
+  // seule fois (évite une boucle si l'utilisateur revient ensuite sur ce
+  // calendrier).
+  const focusHandled = useRef(false);
+  useEffect(() => {
+    if (focusHandled.current || !focusIso || !space) return;
+    focusHandled.current = true;
+    const day = new Date(focusIso + "T00:00:00");
+    setSelectedDay(day);
+    setCalMonth({ year: day.getFullYear(), month: day.getMonth() });
+    router.navigate("/(visitor)/home/slots");
+  }, [focusIso, space]);
 
   const flowRef = useRef<BookingFlowHandle>(null);
   const interventionFlowRef = useRef<InterventionBookingFlowHandle>(null);
