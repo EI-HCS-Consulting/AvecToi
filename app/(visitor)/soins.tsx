@@ -75,6 +75,14 @@ export default function VisitorPlanningScreen() {
   const [telephone, setTelephone] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
   const [reservations, setReservations] = useState<Reservation[]>([]);
+  // Soins des AUTRES intervenants (même espaces patients que moi, tout
+  // intervenant confondu) — chargés à part de `reservations` (mes soins à
+  // moi uniquement) pour rester optionnels : n'entrent dans les blocs
+  // "Planning du jour"/"Planning mensuel/hebdo" que si showOtherIntervenants
+  // est actif (bouton sur la ligne de PlanningDuJourBlock). Le calendrier
+  // global (IntervenantGlobalCalendar) au-dessus n'en tient jamais compte.
+  const [otherIntervenantsReservations, setOtherIntervenantsReservations] = useState<Reservation[]>([]);
+  const [showOtherIntervenants, setShowOtherIntervenants] = useState(false);
   const [switchingId, setSwitchingId] = useState<string | null>(null);
   // Filtre "Tous" (null) / un seul patient (space_id) — piloté par un tap
   // sur la légende (PatientColorLegend). Entraîne le calendrier ET les blocs
@@ -151,6 +159,19 @@ export default function VisitorPlanningScreen() {
     } else {
       setReservations([]);
     }
+
+    const spaceIds = rows.map((r) => r.space_id);
+    if (spaceIds.length > 0) {
+      const { data: allSpaceResa } = await supabase
+        .from("reservations")
+        .select("*")
+        .eq("type", "Intervention")
+        .in("space_id", spaceIds);
+      const ownIdSet = new Set(ids);
+      setOtherIntervenantsReservations((allSpaceResa || []).filter((r) => !ownIdSet.has(r.intervenant_profile_id ?? "")));
+    } else {
+      setOtherIntervenantsReservations([]);
+    }
     setLoading(false);
   }, []);
 
@@ -204,6 +225,17 @@ export default function VisitorPlanningScreen() {
     ? profiles.filter((p) => p.space_id === selectedSpaceId).map((p) => p.id)
     : profileIds;
 
+  // Soins des autres intervenants, filtrés comme displayReservations
+  // (patient sélectionné dans la légende) puis mélangés à mes propres soins
+  // uniquement si showOtherIntervenants est actif — voir PlanningDuJourBlock/
+  // SoinsPeriodBlock plus bas, seuls blocs concernés (pas le calendrier).
+  const displayOtherReservations = selectedSpaceId
+    ? otherIntervenantsReservations.filter((r) => r.space_id === selectedSpaceId)
+    : otherIntervenantsReservations;
+  const plannedReservations = showOtherIntervenants
+    ? [...displayReservations, ...displayOtherReservations]
+    : displayReservations;
+
   // Tap simple sur un jour du calendrier — se contente d'afficher les soins
   // de ce jour dans le bloc "Planning du jour" ci-dessous, sans navigation.
   function handleCalendarDayPress(iso: string) {
@@ -214,8 +246,9 @@ export default function VisitorPlanningScreen() {
   // créneau". Si un patient précis est sélectionné dans la légende, le popup
   // ne demande qu'une confirmation ; en mode "Tous", il demande d'abord pour
   // quel patient (voir BookSlotPromptModal), impossible à deviner depuis la
-  // vue cumulée.
+  // vue cumulée. Aucune action sur un jour déjà passé — rien à réserver.
   function handleCalendarDayLongPress(iso: string) {
+    if (iso < toISO(new Date())) return;
     setSelectedIso(iso);
     setBookPromptIso(iso);
   }
@@ -300,7 +333,7 @@ export default function VisitorPlanningScreen() {
         <Text style={[styles.headerTitle, { color: C.text }]}>Planning</Text>
       </View>
       <Text style={[styles.headerSubtitle, { color: C.muted }]}>
-        Toutes tes interventions, sur tous tes espaces patients.
+        Tes interventions sur tous tes espaces patients.
       </Text>
 
       <ScrollView contentContainerStyle={styles.scroll}>
@@ -340,10 +373,12 @@ export default function VisitorPlanningScreen() {
             <PlanningDuJourBlock
               C={C}
               iso={selectedIso}
-              reservations={displayReservations.filter((r) => r.date === selectedIso)}
+              reservations={plannedReservations.filter((r) => r.date === selectedIso)}
               patientNameBySpaceId={patientNameBySpaceId}
               locationBySpaceId={locationBySpaceId}
               onSoinPress={openSoinActions}
+              showOtherIntervenants={showOtherIntervenants}
+              onToggleOtherIntervenants={() => setShowOtherIntervenants((v) => !v)}
             />
 
             <Text style={[styles.sectionTitle, { color: C.gold }]}>
@@ -351,7 +386,7 @@ export default function VisitorPlanningScreen() {
             </Text>
             <SoinsPeriodBlock
               C={C}
-              reservations={displayReservations.filter((r) => r.date !== selectedIso)}
+              reservations={plannedReservations.filter((r) => r.date !== selectedIso)}
               view={planningView}
               weekAnchor={weekAnchor}
               onWeekChange={setWeekAnchor}

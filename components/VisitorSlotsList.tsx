@@ -18,7 +18,7 @@ import { LOGO_PURPLE } from "@/lib/themes";
 // écran (home/nights.tsx), non concernée par la réservation depuis la bande
 // Hebdo.
 export default function VisitorSlotsList({
-  iso, C, role, intervenantProfileId, myPin, bookable = true, otherSpaceInterventions = [], onReserveVisit, onEditVisit, onReserveIntervention, onCancelIntervention,
+  iso, C, role, intervenantProfileId, myPin, bookable = true, otherSpaceInterventions = [], onReserveVisit, onEditVisit, onReserveIntervention, onCancelIntervention, onLongPressOtherSpaceSoin,
 }: {
   iso: string;
   C: Theme;
@@ -37,6 +37,11 @@ export default function VisitorSlotsList({
   onEditVisit: (r: Reservation) => void;
   onReserveIntervention: (iso: string, slot: string) => void;
   onCancelIntervention: (r: Reservation) => void;
+  // Appui prolongé sur la bannière violette "Soin déjà programmé avec..." —
+  // ouvre un popup proposant de modifier ce soin chez l'autre patient (voir
+  // home/slots.tsx). Absent côté visiteur (otherSpaceInterventions est de
+  // toute façon vide pour ce rôle, cf. plus bas).
+  onLongPressOtherSpaceSoin?: (soin: OtherSpaceIntervention) => void;
 }) {
   const { reservations, getConfigForDate, getSlotsForDate, intervenantProfiles } = useVisitorSpace();
   const dayConfig = getConfigForDate(iso);
@@ -102,11 +107,17 @@ export default function VisitorSlotsList({
                 );
               })()}
               {otherSpaceSoin && (
-                <View style={[styles.interventionBanner, { backgroundColor: `${LOGO_PURPLE}1F`, borderColor: LOGO_PURPLE }]}>
+                <TouchableOpacity
+                  style={[styles.interventionBanner, { backgroundColor: `${LOGO_PURPLE}1F`, borderColor: LOGO_PURPLE }]}
+                  onLongPress={() => onLongPressOtherSpaceSoin?.(otherSpaceSoin)}
+                  delayLongPress={400}
+                  activeOpacity={0.7}
+                  disabled={!onLongPressOtherSpaceSoin}
+                >
                   <Text style={[styles.interventionText, { color: LOGO_PURPLE }]}>
                     🗂️ Soin déjà programmé avec {otherSpaceSoin.patientName} pour {guessFrenchArticle(otherSpaceSoin.intervention_label ?? "")} {otherSpaceSoin.intervention_label}
                   </Text>
-                </View>
+                </TouchableOpacity>
               )}
               {mine?.alert_message && !mine.alert_seen && (
                 <View style={[styles.alertBanner, { backgroundColor: "rgba(233,69,96,0.12)", borderColor: "rgba(233,69,96,0.4)" }]}>

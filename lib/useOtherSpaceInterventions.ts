@@ -6,6 +6,11 @@ import type { Reservation } from "./types";
 
 export interface OtherSpaceIntervention extends Reservation {
   patientName: string;
+  // PIN de la fiche intervenant DANS L'ESPACE DE CE SOIN (r.space_id) —
+  // distinct du PIN de session courant (autre espace) : requis pour ouvrir
+  // InterventionEditFlow sur ce soin (voir home/slots.tsx, long-press sur la
+  // bannière violette "Soin déjà programmé avec...").
+  pin: string;
 }
 
 // Soins "Intervention" de CET intervenant (même téléphone, cf.
@@ -47,11 +52,12 @@ export function useOtherSpaceInterventions(
 
     const { data: profileData } = await supabase
       .from("intervenant_profiles")
-      .select("id, space_id, patient_spaces(patient_firstname, patient_lastname)")
+      .select("id, space_id, pin, patient_spaces(patient_firstname, patient_lastname)")
       .eq("telephone", normalized);
     const rows = (profileData as any as {
       id: string;
       space_id: string;
+      pin: string;
       patient_spaces: { patient_firstname: string; patient_lastname: string } | null;
     }[]) ?? [];
     const otherRows = rows.filter((r) => r.space_id !== currentSpaceId);
@@ -62,10 +68,12 @@ export function useOtherSpaceInterventions(
     }
 
     const nameBySpaceId: Record<string, string> = {};
+    const pinBySpaceId: Record<string, string> = {};
     otherRows.forEach((r) => {
       if (r.patient_spaces) {
         nameBySpaceId[r.space_id] = `${r.patient_spaces.patient_firstname} ${r.patient_spaces.patient_lastname}`;
       }
+      pinBySpaceId[r.space_id] = r.pin;
     });
 
     const { data: resaData } = await supabase
@@ -73,7 +81,7 @@ export function useOtherSpaceInterventions(
       .select("*")
       .in("intervenant_profile_id", ids)
       .eq("type", "Intervention");
-    setList((resaData || []).map((r) => ({ ...r, patientName: nameBySpaceId[r.space_id] ?? "" })));
+    setList((resaData || []).map((r) => ({ ...r, patientName: nameBySpaceId[r.space_id] ?? "", pin: pinBySpaceId[r.space_id] ?? "" })));
   }, [intervenantProfileId, currentSpaceId]);
 
   useEffect(() => {
