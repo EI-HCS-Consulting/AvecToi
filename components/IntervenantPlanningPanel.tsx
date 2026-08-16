@@ -33,6 +33,12 @@ interface Props {
   // modification équivalent depuis ce panneau) et pour les rôles autres que
   // visiteur, qui n'ont pas de réservation "à eux" ici.
   onEdit?: (r: Reservation) => void;
+  // Fourni uniquement quand un intervenant regarde ce panneau en mode
+  // Visites avec "Afficher mes créneaux" actif (voir home/calendar.tsx) :
+  // laisse remonter, au milieu des visites/nuitées, ses propres soins
+  // (type Intervention) plutôt que de les exclure comme le ferait le filtre
+  // normal de ce mode.
+  myIntervenantProfileId?: string | null;
 }
 
 function PlanningCard({
@@ -53,13 +59,16 @@ function PlanningCard({
           {soinsMode ? (done ? "Effectué" : "Planifié") : (done ? "Passée" : "À venir")}
         </Text>
       </View>
-      {/* Un seul titre "Visite"/"Nuitée" pour tout le groupe (tous les
-          membres du groupe partagent le même créneau donc le même type) —
-          en soins, le libellé reste par personne, un même créneau pouvant en
-          théorie porter des soins différents. */}
+      {/* Un seul titre "Visite"/"Nuitée"/"Soin" pour tout le groupe (tous les
+          membres du groupe partagent le même créneau donc, en pratique
+          presque toujours, le même type) — en soins, le libellé reste par
+          personne, un même créneau pouvant en théorie porter des soins
+          différents. En mode Visites, un intervenant qui affiche "mes
+          créneaux" peut voir remonter ici son propre soin (voir
+          myIntervenantProfileId) : "Soin" plutôt que "Visite" dans ce cas. */}
       {!soinsMode && (
         <Text style={[styles.historyLabel, { color: C.text }]}>
-          {first.type === "Nuit" ? "Nuitée" : "Visite"}
+          {first.type === "Nuit" ? "Nuitée" : first.type === "Intervention" ? "Soin" : "Visite"}
         </Text>
       )}
       {group.map((r, i) => {
@@ -73,7 +82,7 @@ function PlanningCard({
           && isMyReservation(r, myPin ?? null, null, myPrenom ?? null, myNom ?? null);
         return (
           <View key={r.id} style={i > 0 ? { marginTop: 8 } : undefined}>
-            {soinsMode && (
+            {(soinsMode || r.type === "Intervention") && (
               <Text style={[styles.historyLabel, { color: C.text }]}>{r.intervention_label}</Text>
             )}
             <View style={styles.historyByRow}>
@@ -105,10 +114,15 @@ function groupByDateCreneau(list: Reservation[]): Reservation[][] {
   return Array.from(map.values());
 }
 
-export default function IntervenantPlanningPanel({ C, reservations, soinsMode, myPin, myPrenom, myNom, onEdit }: Props) {
+export default function IntervenantPlanningPanel({ C, reservations, soinsMode, myPin, myPrenom, myNom, onEdit, myIntervenantProfileId }: Props) {
   const [historyOpen, setHistoryOpen] = useState(false);
 
-  const filtered = reservations.filter((r) => (soinsMode ? r.type === "Intervention" : r.type === "Visite" || r.type === "Nuit"));
+  const filtered = reservations.filter((r) =>
+    soinsMode
+      ? r.type === "Intervention"
+      : r.type === "Visite" || r.type === "Nuit"
+        || (!!myIntervenantProfileId && r.type === "Intervention" && r.intervenant_profile_id === myIntervenantProfileId)
+  );
 
   // Liste "à venir" : chronologique, la prochaine réservation en premier.
   // Historique : anté-chronologique, la plus récemment passée en premier.
