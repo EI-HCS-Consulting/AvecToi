@@ -59,14 +59,26 @@ export const LOGO_NAVY = "#22436B"; // bonhomme bleu marine (haut-gauche)
 export const LOGO_ORANGE = "#E8923C"; // bonhomme orange (bas-gauche)
 export const LOGO_SKYBLUE = "#8FCBEA"; // cœur bleu ciel (centre)
 
-// Les 5 couleurs distinctes du logo, dans l'ordre utilisé pour attribuer une
-// couleur à chaque patient sur le planning global d'un intervenant (voir
-// components/IntervenantGlobalCalendar.tsx, components/PatientColorLegend.tsx)
-// — un patient par couleur, réutilisées dans le même ordre pour rester
-// cohérentes entre le calendrier et sa légende.
-export const LOGO_COLORS = [LOGO_NAVY, LOGO_GREEN, LOGO_ORANGE, LOGO_PURPLE, LOGO_SKYBLUE];
+// Fond "plein" des cases jour ayant un soin, sur le planning global
+// intervenant (voir IntervenantGlobalCalendar.tsx) — LOGO_PURPLE éclairci
+// pour laisser plus de marge de contraste aux traits de bord par patient. Le
+// cadre lui-même reste LOGO_PURPLE plein, comme sur home/calendar.tsx.
+export const LOGO_PURPLE_SOFT = "#9A76C2";
 
-// Au-delà du 5ème patient (au-delà des couleurs du logo), palette pastel de
+// Rose utilisé à la place de LOGO_PURPLE dans PATIENT_PALETTE ci-dessous : un
+// trait violet serait quasi invisible sur le fond violet des jours de soin.
+const PATIENT_ROSE = "#EF87B0";
+
+// Palette utilisée pour attribuer une couleur à chaque patient sur le
+// planning global d'un intervenant (voir components/IntervenantGlobalCalendar.tsx,
+// components/PatientColorLegend.tsx) — un patient par couleur, réutilisées
+// dans le même ordre pour rester cohérentes entre le calendrier et sa
+// légende. Reprend 4 des 5 couleurs du logo (LOGO_PURPLE est remplacé par
+// PATIENT_ROSE, voir ci-dessus) pour que chaque trait reste visible sur le
+// fond violet des jours de soin.
+export const PATIENT_PALETTE = [LOGO_NAVY, LOGO_GREEN, LOGO_ORANGE, PATIENT_ROSE, LOGO_SKYBLUE];
+
+// Au-delà du 5ème patient (au-delà de PATIENT_PALETTE), palette pastel de
 // secours — bouclée si un intervenant est rattaché à plus de 15 patients.
 export const PASTEL_COLORS = [
   "#FFB3BA", "#FFDFBA", "#FFFFBA", "#BAFFC9", "#BAE1FF",
@@ -74,9 +86,9 @@ export const PASTEL_COLORS = [
 ];
 
 // Couleur attribuée au (index+1)-ème patient d'un intervenant — les 5
-// premiers reprennent les couleurs du logo, au-delà on bascule sur la
-// palette pastel (voir PASTEL_COLORS).
+// premiers reprennent PATIENT_PALETTE, au-delà on bascule sur la palette
+// pastel (voir PASTEL_COLORS).
 export function getPatientColor(index: number): string {
-  if (index < LOGO_COLORS.length) return LOGO_COLORS[index];
-  return PASTEL_COLORS[(index - LOGO_COLORS.length) % PASTEL_COLORS.length];
+  if (index < PATIENT_PALETTE.length) return PATIENT_PALETTE[index];
+  return PASTEL_COLORS[(index - PATIENT_PALETTE.length) % PASTEL_COLORS.length];
 }
