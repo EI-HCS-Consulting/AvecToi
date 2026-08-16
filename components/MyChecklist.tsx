@@ -84,6 +84,12 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [bulkDeleteSaving, setBulkDeleteSaving] = useState(false);
 
+  // Suppression d'une checklist perso nommée en entier (clic prolongé sur son
+  // en-tête) — utile notamment pour retirer une checklist importée depuis un
+  // modèle (📥 Mes modèles) qui ne conviendrait pas telle quelle.
+  const [deleteGroupConfirm, setDeleteGroupConfirm] = useState<string | null>(null);
+  const [deleteGroupSaving, setDeleteGroupSaving] = useState(false);
+
   const [picker, setPicker] = useState(false);
   const [importCtx, setImportCtx] = useState<ChecklistContext | null>(null);
   const [importChecked, setImportChecked] = useState<Record<number, boolean>>({});
@@ -302,6 +308,19 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     setBulkDeleteSaving(false);
     setBulkDeleteConfirm(false);
     exitSelection();
+    loadItems();
+  }
+
+  async function confirmDeleteGroup() {
+    if (!deleteGroupConfirm) return;
+    const targets = groupItems(deleteGroupConfirm);
+    setDeleteGroupSaving(true);
+    const taskIds = targets.map((it) => it.task_id).filter((id): id is string => !!id);
+    if (taskIds.length) await supabase.from("tasks").delete().in("id", taskIds);
+    await supabase.from("personal_checklist_items").delete().in("id", targets.map((it) => it.id));
+    setDeleteGroupSaving(false);
+    if (openGroup === deleteGroupConfirm) setOpenGroup(null);
+    setDeleteGroupConfirm(null);
     loadItems();
   }
 
@@ -546,6 +565,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                   <TouchableOpacity
                     style={[styles.groupHeader, { borderBottomColor: C.border }]}
                     onPress={() => { exitSelection(); setOpenGroup(isOpen ? null : name); }}
+                    onLongPress={() => setDeleteGroupConfirm(name)}
                     activeOpacity={0.75}
                   >
                     <Text style={[styles.groupHeaderText, { color: C.text }]}>
@@ -637,6 +657,22 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
         saving={bulkDeleteSaving}
         onCancel={() => setBulkDeleteConfirm(false)}
         onConfirm={confirmBulkDelete}
+        C={C}
+      />
+
+      <ConfirmModal
+        visible={!!deleteGroupConfirm}
+        icon="🗑️"
+        title={`Supprimer la checklist "${deleteGroupConfirm ?? ""}" ?`}
+        message={
+          deleteGroupConfirm && groupItems(deleteGroupConfirm).some((it) => it.task_id)
+            ? "Tous ses items seront supprimés, y compris ceux retirés du Mur d'Entraide."
+            : "Tous ses items seront supprimés."
+        }
+        confirmLabel="Supprimer"
+        saving={deleteGroupSaving}
+        onCancel={() => setDeleteGroupConfirm(null)}
+        onConfirm={confirmDeleteGroup}
         C={C}
       />
 
