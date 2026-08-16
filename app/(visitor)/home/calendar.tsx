@@ -23,7 +23,7 @@ const DAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
 export default function VisitorCalendarScreen() {
   const { space, slotConfig, slots, reservations, selectedDay, setSelectedDay, setPendingBookingSlot, token, refreshReservations, getConfigForDate, getSlotsForDate, mesCreneauxOnly, setMesCreneauxOnly } = useVisitorSpace();
   const router = useRouter();
-  const { focusIso } = useLocalSearchParams<{ focusIso?: string }>();
+  const { focusIso, returnTo, returnSpaceId } = useLocalSearchParams<{ focusIso?: string; returnTo?: string; returnSpaceId?: string }>();
   const [nextDispoModal, setNextDispoModal] = useState<{ date: Date; iso: string; slot: string } | null>(null);
   const [blockedDayModal, setBlockedDayModal] = useState<Date | null>(null);
   // false = planning global (visites/nuitées), true = ne montre que
@@ -104,7 +104,10 @@ export default function VisitorCalendarScreen() {
     const day = new Date(focusIso + "T00:00:00");
     setSelectedDay(day);
     setCalMonth({ year: day.getFullYear(), month: day.getMonth() });
-    router.navigate("/(visitor)/home/slots");
+    router.navigate({
+      pathname: "/(visitor)/home/slots",
+      params: returnTo ? { returnTo, returnSpaceId: returnSpaceId ?? "" } : {},
+    } as any);
   }, [focusIso, space]);
 
   const flowRef = useRef<BookingFlowHandle>(null);

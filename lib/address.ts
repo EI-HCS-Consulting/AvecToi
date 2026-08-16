@@ -81,8 +81,12 @@ export function mapsUrlForSpace(
   const pasted = space.home_care_mode ? space.home_maps_url : space.hospital_maps_url;
   if (pasted) return pasted;
   const full = joinAddress(activeAddressParts(space as PatientSpace));
+  // Pour un hôpital, la recherche part du NOM précis renseigné par l'admin
+  // avant l'adresse (pas l'adresse seule) — un gros établissement peut avoir
+  // plusieurs entrées sur la même rue, et le nom exact lève l'ambiguïté que
+  // l'adresse seule ne lève pas.
   const locationName = space.home_care_mode ? "Domicile" : space.hospital_name;
-  const query = full || locationName;
+  const query = space.home_care_mode ? full || locationName : [locationName, full].filter(Boolean).join(", ") || locationName;
   return query ? googleMapsSearchUrl(query) : null;
 }
 

@@ -36,7 +36,12 @@ interface Props {
   intervenantProfileId: string;
   pin: string;
   refreshReservations: () => Promise<void>;
-  homeCalendarPath: "/(visitor)/home/calendar";
+  // Cible + libellé du bouton "Retour" une fois la réservation confirmée —
+  // par défaut le calendrier de l'espace, mais home/slots.tsx passe l'onglet
+  // Planning intervenant (avec le patient réservé présélectionné) quand la
+  // réservation vient du popup "Réserver un créneau" de app/(visitor)/soins.tsx.
+  homeCalendarPath: "/(visitor)/home/calendar" | { pathname: string; params?: Record<string, string> };
+  homeCalendarLabel?: string;
   C: Theme;
 }
 
@@ -51,7 +56,7 @@ interface ConfirmedBooking {
 }
 
 function InterventionBookingFlow(
-  { space, slotConfig, slots, reservations, intervenantProfileId, pin, refreshReservations, homeCalendarPath, C }: Props,
+  { space, slotConfig, slots, reservations, intervenantProfileId, pin, refreshReservations, homeCalendarPath, homeCalendarLabel, C }: Props,
   ref: React.Ref<InterventionBookingFlowHandle>,
 ) {
   const router = useRouter();
@@ -290,11 +295,11 @@ function InterventionBookingFlow(
             </TouchableOpacity>
 
             <TouchableOpacity
-              onPress={() => { setConfirmed(null); setBookingTarget(null); router.navigate(homeCalendarPath); }}
+              onPress={() => { setConfirmed(null); setBookingTarget(null); router.navigate(homeCalendarPath as any); }}
               activeOpacity={0.75}
               style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.orange, backgroundColor: `${C.orange}22`, alignItems: "center", justifyContent: "center", marginTop: 10 }}
             >
-              <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.orange }}>← Retour au calendrier</Text>
+              <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.orange }}>{homeCalendarLabel ?? "← Retour au calendrier"}</Text>
             </TouchableOpacity>
           </View>
         </View>

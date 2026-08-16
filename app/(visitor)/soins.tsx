@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { View, Text, ScrollView, StyleSheet, ActivityIndicator, Linking } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { useVisitorSpace } from "@/lib/VisitorContext";
@@ -18,7 +18,7 @@ import SoinsPeriodBlock from "@/components/SoinsPeriodBlock";
 import SoinsPlanifiesBlock from "@/components/SoinsPlanifiesBlock";
 import InterventionEditFlow, { type InterventionEditFlowHandle } from "@/components/InterventionEditFlow";
 import SoinActionModal from "@/components/SoinActionModal";
-import ConfirmModal from "@/components/ConfirmModal";
+import BookSlotPromptModal from "@/components/BookSlotPromptModal";
 import type { Reservation } from "@/lib/types";
 
 interface ProfileRow extends LinkedIntervenantSpaceRow {
@@ -65,6 +65,12 @@ export default function VisitorPlanningScreen() {
   const router = useRouter();
   const { theme: C } = useDisplayMode();
   const { space: activeSpace, setSelectedDay } = useVisitorSpace();
+  // Retour depuis une réservation faite via le popup "Réserver un créneau"
+  // (voir handleConfirmBookSlot ci-dessous → home/slots.tsx →
+  // InterventionBookingFlow "← Retour au planning") — présélectionne le
+  // patient pour qui le soin vient d'être réservé, une seule fois.
+  const { focusSpaceId } = useLocalSearchParams<{ focusSpaceId?: string }>();
+  const focusSpaceHandled = useRef(false);
   const [loading, setLoading] = useState(true);
   const [telephone, setTelephone] = useState<string | null>(null);
   const [profiles, setProfiles] = useState<ProfileRow[]>([]);
@@ -150,6 +156,12 @@ export default function VisitorPlanningScreen() {
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    if (focusSpaceHandled.current || !focusSpaceId || profiles.length === 0) return;
+    focusSpaceHandled.current = true;
+    if (profiles.some((p) => p.space_id === focusSpaceId)) setSelectedSpaceId(focusSpaceId);
+  }, [focusSpaceId, profiles]);
+
   // En Hebdo, dès qu'on change de semaine (ou qu'on bascule sur Hebdo), le
   // curseur jour saute automatiquement sur le premier soin de la semaine
   // affichée — le bloc "Planning du jour" en dessous suit alors sans action
@@ -199,35 +211,39 @@ export default function VisitorPlanningScreen() {
   }
 
   // Appui prolongé sur un jour du calendrier — ouvre le popup "Réserver un
-  // créneau". N'a de sens que pour UN patient précis (impossible de savoir
-  // pour qui réserver depuis "Tous") : sans effet tant qu'aucun patient n'est
-  // sélectionné dans la légende, même garde-fou que l'ancien tap simple.
+  // créneau". Si un patient précis est sélectionné dans la légende, le popup
+  // ne demande qu'une confirmation ; en mode "Tous", il demande d'abord pour
+  // quel patient (voir BookSlotPromptModal), impossible à deviner depuis la
+  // vue cumulée.
   function handleCalendarDayLongPress(iso: string) {
-    if (!selectedSpaceId) return;
     setSelectedIso(iso);
     setBookPromptIso(iso);
   }
 
-  // Confirmation du popup "Réserver un créneau" — si l'espace du patient est
-  // déjà l'espace actif de la session, on reste dans le même VisitorContext
-  // (comme un tap sur home/calendar.tsx). Sinon on doit d'abord basculer
-  // dessus (switchToLinkedSpace), en lui passant le jour ciblé pour enchaîner
-  // automatiquement vers l'écran de réservation une fois arrivé (voir
-  // home/calendar.tsx, param focusIso).
-  async function handleConfirmBookSlot() {
+  // Confirmation du popup "Réserver un créneau", pour le patient choisi
+  // (spaceId) — si son espace est déjà l'espace actif de la session, on
+  // reste dans le même VisitorContext (comme un tap sur home/calendar.tsx).
+  // Sinon on doit d'abord basculer dessus (switchToLinkedSpace), en lui
+  // passant le jour ciblé pour enchaîner automatiquement vers l'écran de
+  // réservation une fois arrivé (voir home/calendar.tsx, param focusIso).
+  // Les params returnTo/returnSpaceId font le chemin inverse une fois le
+  // soin réservé (voir home/slots.tsx, InterventionBookingFlow) pour
+  // ramener sur cet onglet avec ce même patient présélectionné.
+  async function handleConfirmBookSlot(spaceId: string) {
     const iso = bookPromptIso;
     setBookPromptIso(null);
-    if (!iso || !selectedSpaceId || switchingId) return;
-    const row = profiles.find((p) => p.space_id === selectedSpaceId);
+    if (!iso || switchingId) return;
+    const row = profiles.find((p) => p.space_id === spaceId);
     if (!row) return;
-    if (activeSpace?.id === selectedSpaceId) {
+    const returnParams = { returnTo: "planning", returnSpaceId: spaceId };
+    if (activeSpace?.id === spaceId) {
       setSelectedDay(new Date(iso + "T00:00:00"));
-      router.navigate("/(visitor)/home/slots");
+      router.navigate({ pathname: "/(visitor)/home/slots", params: returnParams } as any);
       return;
     }
     setSwitchingId(row.id);
     try {
-      await switchToLinkedSpace(row, telephone ?? "", router, iso);
+      await switchToLinkedSpace(row, telephone ?? "", router, iso, returnParams);
     } finally {
       setSwitchingId(null);
     }
@@ -274,7 +290,15 @@ export default function VisitorPlanningScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
-      <Text style={[styles.headerTitle, { color: C.text }]}>📅 Planning</Text>
+      <View style={styles.headerTitleRow}>
+        <View style={[styles.calBadge, { borderColor: C.border, backgroundColor: C.card }]}>
+          <View style={[styles.calBadgeHeader, { backgroundColor: C.danger }]}>
+            <Text style={styles.calBadgeMonth}>MAI</Text>
+          </View>
+          <Text style={[styles.calBadgeDay, { color: C.text }]}>28</Text>
+        </View>
+        <Text style={[styles.headerTitle, { color: C.text }]}>Planning</Text>
+      </View>
       <Text style={[styles.headerSubtitle, { color: C.muted }]}>
         Toutes tes interventions, sur tous tes espaces patients.
       </Text>
@@ -365,23 +389,15 @@ export default function VisitorPlanningScreen() {
         onYAller={handleYAllerPress}
         onClose={() => setPendingSoin(null)}
       />
-      <ConfirmModal
+      <BookSlotPromptModal
         C={C}
         visible={!!bookPromptIso}
-        icon="🩺"
-        title="Réserver un créneau"
-        message={
-          bookPromptIso
-            ? `Réserver un créneau pour ${selectedSpaceId ? patientNameBySpaceId[selectedSpaceId] : ""} le ${new Date(
-                bookPromptIso + "T00:00:00",
-              ).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })} ?`
-            : ""
-        }
-        cancelLabel="Fermer"
-        confirmLabel="Réserver"
-        destructive={false}
-        onCancel={() => setBookPromptIso(null)}
-        onConfirm={handleConfirmBookSlot}
+        iso={bookPromptIso}
+        selectedSpaceId={selectedSpaceId}
+        legendItems={legendItems}
+        patientNameBySpaceId={patientNameBySpaceId}
+        onChoosePatient={handleConfirmBookSlot}
+        onClose={() => setBookPromptIso(null)}
       />
     </View>
   );
@@ -389,8 +405,16 @@ export default function VisitorPlanningScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, paddingTop: 52 },
+  headerTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8 },
   headerTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 22, textAlign: "center" },
   headerSubtitle: { fontFamily: "DM_Sans_400Regular", fontSize: 13, textAlign: "center", marginTop: 4, marginBottom: 8, paddingHorizontal: 24 },
+
+  // Petit picto "calendrier à effeuiller" fixé sur le 28 Mai (l'emoji 📅
+  // dépend du rendu de chaque plateforme, jamais du contrôle de l'app).
+  calBadge: { width: 22, height: 22, borderRadius: 5, borderWidth: 1, overflow: "hidden", alignItems: "center", justifyContent: "flex-end" },
+  calBadgeHeader: { position: "absolute", top: 0, left: 0, right: 0, height: 8, alignItems: "center", justifyContent: "center" },
+  calBadgeMonth: { fontFamily: "DM_Sans_700Bold", fontSize: 5, color: "#fff", letterSpacing: 0.2 },
+  calBadgeDay: { fontFamily: "DM_Sans_700Bold", fontSize: 11, lineHeight: 12, marginBottom: 1 },
 
   scroll: { padding: 16, paddingBottom: 40 },
   sectionTitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 10 },

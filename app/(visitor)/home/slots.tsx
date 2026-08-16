@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from "react-native";
+import { useLocalSearchParams } from "expo-router";
 import { useVisitorSpace } from "@/lib/VisitorContext";
 import { getVisitorSession } from "@/lib/visitorSession";
 import SpaceHeader from "@/components/SpaceHeader";
@@ -19,6 +20,17 @@ import type { Reservation, SlotConfig } from "@/lib/types";
 export default function SlotsScreen() {
   const { space, slotConfig, slots, reservations, selectedDay, setSelectedDay, refreshReservations, token, pendingBookingSlot, setPendingBookingSlot, pendingEditReservationId, setPendingEditReservationId, getConfigForDate } = useVisitorSpace();
   const { theme: C } = useDisplayMode();
+  // Arrivée depuis le popup "Réserver un créneau" du Planning intervenant
+  // (app/(visitor)/soins.tsx, via home/calendar.tsx qui fait suivre ces
+  // params) — une fois la réservation confirmée, InterventionBookingFlow
+  // doit ramener sur l'onglet Planning avec ce patient présélectionné
+  // plutôt que sur le calendrier de l'espace (comportement par défaut).
+  const { returnTo, returnSpaceId } = useLocalSearchParams<{ returnTo?: string; returnSpaceId?: string }>();
+  const returnToPlanning = returnTo === "planning";
+  const interventionHomeCalendarPath = returnToPlanning
+    ? { pathname: "/(visitor)/soins", params: { focusSpaceId: returnSpaceId ?? "" } }
+    : ("/(visitor)/home/calendar" as const);
+  const interventionHomeCalendarLabel = returnToPlanning ? "← Retour au planning" : undefined;
   const flowRef = useRef<BookingFlowHandle>(null);
   const nightFlowRef = useRef<BookingFlowHandle>(null);
   const interventionFlowRef = useRef<InterventionBookingFlowHandle>(null);
@@ -283,7 +295,8 @@ export default function SlotsScreen() {
           intervenantProfileId={intervenantProfileId}
           pin={myPin}
           refreshReservations={refreshReservations}
-          homeCalendarPath="/(visitor)/home/calendar"
+          homeCalendarPath={interventionHomeCalendarPath}
+          homeCalendarLabel={interventionHomeCalendarLabel}
           C={C}
         />
       )}
