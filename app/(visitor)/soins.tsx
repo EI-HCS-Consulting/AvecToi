@@ -180,10 +180,13 @@ export default function VisitorPlanningScreen() {
   // "Autres intervenants" n'a de sens que patient par patient (mélanger
   // plusieurs patients à la fois rendrait le bloc illisible) — désactivé
   // automatiquement dès qu'on revient en mode "Tous" (voir bouton masqué
-  // ci-dessous, PlanningDuJourBlock).
+  // ci-dessous, PlanningDuJourBlock). Sans effet si un seul patient est
+  // rattaché : dans ce cas "Tous" et "ce patient" sont équivalents, donc le
+  // bouton reste affiché (toujours inactif par défaut, l'utilisateur clique
+  // s'il veut voir).
   useEffect(() => {
-    if (!selectedSpaceId) setShowOtherIntervenants(false);
-  }, [selectedSpaceId]);
+    if (!selectedSpaceId && profiles.length !== 1) setShowOtherIntervenants(false);
+  }, [selectedSpaceId, profiles.length]);
 
   useEffect(() => {
     if (focusSpaceHandled.current || !focusSpaceId || profiles.length === 0) return;
@@ -391,7 +394,9 @@ export default function VisitorPlanningScreen() {
               locationBySpaceId={locationBySpaceId}
               onSoinPress={openSoinActions}
               showOtherIntervenants={showOtherIntervenants}
-              onToggleOtherIntervenants={selectedSpaceId ? () => setShowOtherIntervenants((v) => !v) : undefined}
+              onToggleOtherIntervenants={
+                selectedSpaceId || profileIds.length === 1 ? () => setShowOtherIntervenants((v) => !v) : undefined
+              }
             />
 
             <Text style={[styles.sectionTitle, { color: C.gold }]}>

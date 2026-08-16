@@ -73,6 +73,7 @@ export default function PlanningDuJourBlock({ C, iso, reservations, patientNameB
                 {!!locationBySpaceId[r.space_id] && (
                   <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>📍 {locationBySpaceId[r.space_id]}</Text>
                 )}
+                <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>{r.prenom} {r.nom}</Text>
               </View>
               <Text style={[styles.chevron, { color: C.muted }]}>›</Text>
             </TouchableOpacity>

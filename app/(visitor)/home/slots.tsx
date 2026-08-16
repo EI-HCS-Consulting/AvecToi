@@ -178,31 +178,38 @@ export default function SlotsScreen() {
   const iso = toISO(selectedDay);
   const dayConfig = getConfigForDate(iso) ?? slotConfig;
 
+  // Flèches jour précédent/suivant — dupliquées en haut (avant les créneaux)
+  // et en bas (après la Nuitée), pour naviguer sans remonter tout en haut de
+  // l'écran une fois arrivé en bas de la journée.
+  const dayNav = (
+    <View style={[styles.dayNav, { backgroundColor: C.card, borderColor: C.border }]}>
+      <TouchableOpacity
+        onPress={() => { const prev = findNextAllowedDay(selectedDay, -1); if (prev) setSelectedDay(prev); }}
+        disabled={toISO(selectedDay) === toISO(startDate)}
+        style={[styles.navBtn, { borderColor: C.border }]}
+      >
+        <Text style={[styles.navBtnText, { color: C.text }]}>‹</Text>
+      </TouchableOpacity>
+      <View style={{ alignItems: "center" }}>
+        <Text style={[styles.dayTitle, { color: C.text }]}>{toFrLong(selectedDay)}</Text>
+        <Text style={[styles.daySub, { color: C.muted }]}>{toFrShort(selectedDay)}</Text>
+      </View>
+      <TouchableOpacity
+        onPress={() => { const next = findNextAllowedDay(selectedDay, 1); if (next) setSelectedDay(next); }}
+        style={[styles.navBtn, { borderColor: C.border }]}
+      >
+        <Text style={[styles.navBtnText, { color: C.text }]}>›</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
       <SpaceHeader space={space} active="slots" basePath="/(visitor)/home" C={C} />
 
       <ScrollView contentContainerStyle={styles.scroll}>
         {/* Day navigation */}
-        <View style={[styles.dayNav, { backgroundColor: C.card, borderColor: C.border }]}>
-          <TouchableOpacity
-            onPress={() => { const prev = findNextAllowedDay(selectedDay, -1); if (prev) setSelectedDay(prev); }}
-            disabled={toISO(selectedDay) === toISO(startDate)}
-            style={[styles.navBtn, { borderColor: C.border }]}
-          >
-            <Text style={[styles.navBtnText, { color: C.text }]}>‹</Text>
-          </TouchableOpacity>
-          <View style={{ alignItems: "center" }}>
-            <Text style={[styles.dayTitle, { color: C.text }]}>{toFrLong(selectedDay)}</Text>
-            <Text style={[styles.daySub, { color: C.muted }]}>{toFrShort(selectedDay)}</Text>
-          </View>
-          <TouchableOpacity
-            onPress={() => { const next = findNextAllowedDay(selectedDay, 1); if (next) setSelectedDay(next); }}
-            style={[styles.navBtn, { borderColor: C.border }]}
-          >
-            <Text style={[styles.navBtnText, { color: C.text }]}>›</Text>
-          </TouchableOpacity>
-        </View>
+        {dayNav}
 
         {/* Slots */}
         <VisitorSlotsList
@@ -273,6 +280,8 @@ export default function SlotsScreen() {
             </View>
           );
         })()}
+
+        <View style={{ marginTop: 6 }}>{dayNav}</View>
       </ScrollView>
 
       <BookingFlow
