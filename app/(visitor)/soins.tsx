@@ -17,6 +17,7 @@ import PlanningDuJourBlock from "@/components/PlanningDuJourBlock";
 import SoinsPeriodBlock from "@/components/SoinsPeriodBlock";
 import SoinsPlanifiesBlock from "@/components/SoinsPlanifiesBlock";
 import InterventionEditFlow, { type InterventionEditFlowHandle } from "@/components/InterventionEditFlow";
+import SoinActionModal from "@/components/SoinActionModal";
 import type { Reservation } from "@/lib/types";
 
 interface ProfileRow extends LinkedIntervenantSpaceRow {
@@ -71,6 +72,12 @@ export default function VisitorPlanningScreen() {
   // "Planning du jour" ci-dessous, qui affiche les soins de ce seul jour ;
   // les autres jours restent dans la rubrique Planning mensuel/hebdo.
   const [selectedIso, setSelectedIso] = useState<string>(() => toISO(new Date()));
+  // Soin tapé dans un des blocs sous le calendrier (Planning du jour,
+  // Planning mensuel/hebdo, Autres soins planifiés) — non-null tant que le
+  // popup d'action (Modifier / Y Aller / Fermer, voir SoinActionModal) est
+  // ouvert. Un seul état partagé par les 3 blocs plutôt qu'un par bloc,
+  // puisqu'un seul popup peut être ouvert à la fois.
+  const [pendingSoin, setPendingSoin] = useState<Reservation | null>(null);
 
   const [planningView, setPlanningView] = useState<"mensuel" | "hebdo">("mensuel");
   const [weekAnchor, setWeekAnchor] = useState(() => getMonday(new Date()));
@@ -195,21 +202,41 @@ export default function VisitorPlanningScreen() {
     }
   }
 
-  async function handleRowPress(r: Reservation) {
-    const row = profiles.find((p) => p.space_id === r.space_id);
-    if (!row || switchingId) return;
-    setSwitchingId(row.id);
-    try {
-      await switchToLinkedSpace(row, telephone ?? "", router);
-    } finally {
-      setSwitchingId(null);
-    }
+  // Tap sur un soin dans un des blocs sous le calendrier — ouvre le popup
+  // d'action (Modifier / Y Aller / Fermer) plutôt que d'agir directement.
+  function openSoinActions(r: Reservation) {
+    setPendingSoin(r);
   }
 
-  function handleSoinPress(r: Reservation) {
+  function handleModifierPress() {
+    const r = pendingSoin;
+    setPendingSoin(null);
+    if (!r) return;
     const row = profiles.find((p) => p.id === r.intervenant_profile_id);
     if (!row) return;
     editFlowRef.current?.open(r, row.pin);
+  }
+
+  // "Y Aller" — même logique qu'un tap sur une case du calendrier global
+  // (handleCalendarDayPress) mais ciblée sur l'espace/jour du soin tapé
+  // plutôt que sur selectedSpaceId/selectedIso.
+  async function handleYAllerPress() {
+    const r = pendingSoin;
+    setPendingSoin(null);
+    if (!r || switchingId) return;
+    const row = profiles.find((p) => p.space_id === r.space_id);
+    if (!row) return;
+    if (activeSpace?.id === r.space_id) {
+      setSelectedDay(new Date(r.date + "T00:00:00"));
+      router.navigate("/(visitor)/home/slots");
+      return;
+    }
+    setSwitchingId(row.id);
+    try {
+      await switchToLinkedSpace(row, telephone ?? "", router, r.date);
+    } finally {
+      setSwitchingId(null);
+    }
   }
 
   // Dernier jour de la période actuellement affichée par SoinsPeriodBlock —
@@ -272,7 +299,7 @@ export default function VisitorPlanningScreen() {
               reservations={displayReservations.filter((r) => r.date === selectedIso)}
               patientNameBySpaceId={patientNameBySpaceId}
               locationBySpaceId={locationBySpaceId}
-              onSoinPress={handleSoinPress}
+              onSoinPress={openSoinActions}
             />
 
             <Text style={[styles.sectionTitle, { color: C.gold }]}>
@@ -289,7 +316,7 @@ export default function VisitorPlanningScreen() {
               onDayPress={() => {}}
               patientNameBySpaceId={patientNameBySpaceId}
               locationBySpaceId={locationBySpaceId}
-              onSoinPress={handleSoinPress}
+              onSoinPress={openSoinActions}
             />
 
             <SoinsPlanifiesBlock
@@ -301,13 +328,23 @@ export default function VisitorPlanningScreen() {
               chronological
               title="Autres soins planifiés"
               excludeUpToDate={periodEndIso}
-              onPressRow={(_date, r) => handleRowPress(r)}
+              onPressRow={(_date, r) => openSoinActions(r)}
             />
           </>
         )}
       </ScrollView>
 
       <InterventionEditFlow ref={editFlowRef} C={C} onSaved={load} />
+      <SoinActionModal
+        C={C}
+        visible={!!pendingSoin}
+        reservation={pendingSoin}
+        patientNameBySpaceId={patientNameBySpaceId}
+        locationBySpaceId={locationBySpaceId}
+        onModifier={handleModifierPress}
+        onYAller={handleYAllerPress}
+        onClose={() => setPendingSoin(null)}
+      />
     </View>
   );
 }
