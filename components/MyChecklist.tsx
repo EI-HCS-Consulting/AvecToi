@@ -70,6 +70,12 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
   const [templates, setTemplates] = useState<IntervenantChecklistTemplate[]>([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [importingTemplateId, setImportingTemplateId] = useState<string | null>(null);
+  // Popup de sélection avant import d'un modèle — tous les items du modèle
+  // (y compris ceux déjà cochés "fait" dans l'espace patient d'origine, un
+  // modèle n'a pas de statut, voir saveGroupAsTemplate) apparaissent
+  // pré-cochés ; l'intervenant peut en décocher avant d'importer.
+  const [importTpl, setImportTpl] = useState<IntervenantChecklistTemplate | null>(null);
+  const [tplChecked, setTplChecked] = useState<Record<number, boolean>>({});
 
   // Sélection multiple (restant appuyé sur un item, comme dans le Mur
   // d'Entraide) — pour supprimer plusieurs items de sa checklist en une fois.
@@ -223,10 +229,31 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     setLoadingTemplates(false);
   }
 
-  async function importTemplate(tpl: IntervenantChecklistTemplate) {
+  function openTemplateImport(tpl: IntervenantChecklistTemplate) {
     if (!tpl.items.length) return;
-    setImportingTemplateId(tpl.id);
-    const rows = tpl.items.map((title) => ({
+    const checked: Record<number, boolean> = {};
+    tpl.items.forEach((_, i) => { checked[i] = true; });
+    setTplChecked(checked);
+    setImportTpl(tpl);
+    setTemplatesPicker(false);
+  }
+
+  function toggleTplItem(i: number) {
+    setTplChecked((prev) => ({ ...prev, [i]: !prev[i] }));
+  }
+
+  function toggleAllTplItems(tpl: IntervenantChecklistTemplate, on: boolean) {
+    const next: Record<number, boolean> = {};
+    tpl.items.forEach((_, i) => { next[i] = on; });
+    setTplChecked(next);
+  }
+
+  async function confirmImportTemplate() {
+    if (!importTpl) return;
+    const selected = importTpl.items.filter((_, i) => tplChecked[i]);
+    if (!selected.length) return;
+    setImportingTemplateId(importTpl.id);
+    const rows = selected.map((title) => ({
       space_id: spaceId,
       owner_prenom: ownerPrenom,
       owner_nom: ownerNom,
@@ -235,7 +262,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
       status: "a_faire" as const,
       task_id: null,
       checklist_context: null,
-      custom_checklist_name: tpl.name,
+      custom_checklist_name: importTpl.name,
     }));
     const { error } = await supabase.from("personal_checklist_items").insert(rows);
     setImportingTemplateId(null);
@@ -243,8 +270,9 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
       Alert.alert("Erreur", "Impossible d'importer le modèle : " + error.message);
       return;
     }
-    setTemplatesPicker(false);
-    setOpenGroup(tpl.name);
+    const importedName = importTpl.name;
+    setImportTpl(null);
+    setOpenGroup(importedName);
     loadItems();
   }
 
@@ -696,7 +724,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
           <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.gold }]}>
             <Text style={[styles.sheetTitle, { color: C.text }]}>📥 Mes modèles</Text>
             <Text style={[styles.intro, { color: C.muted }]}>
-              Importe une checklist que tu as enregistrée comme modèle (💾, depuis un autre dossier patient) dans ce dossier-ci.
+              Retrouve ici les checklists que tu as enregistrées comme modèle (💾, depuis un autre dossier patient). Choisis-en une pour sélectionner les items à importer dans ce dossier-ci.
             </Text>
             {loadingTemplates ? (
               <ActivityIndicator color={C.gold} style={{ marginVertical: 16 }} />
@@ -710,8 +738,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                   <TouchableOpacity
                     key={tpl.id}
                     style={[styles.checklistCard, { borderColor: C.gold, backgroundColor: C.gold + "14" }]}
-                    onPress={() => importTemplate(tpl)}
-                    disabled={importingTemplateId === tpl.id}
+                    onPress={() => openTemplateImport(tpl)}
                     activeOpacity={0.8}
                   >
                     <Text style={styles.checklistCardIcon}>📋</Text>
@@ -719,10 +746,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                       <Text style={[styles.checklistCardTitle, { color: C.text }]}>{tpl.name}</Text>
                       <Text style={[styles.checklistCardCount, { color: C.muted }]}>{tpl.items.length} items</Text>
                     </View>
-                    {importingTemplateId === tpl.id
-                      ? <ActivityIndicator color={C.gold} />
-                      : <Text style={[styles.checklistCardArrow, { color: C.gold }]}>→</Text>
-                    }
+                    <Text style={[styles.checklistCardArrow, { color: C.gold }]}>→</Text>
                   </TouchableOpacity>
                 ))}
               </ScrollView>
@@ -742,6 +766,76 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
             >
               <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.muted }}>Fermer</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── MODAL : sélection des items d'un modèle à importer ───────────── */}
+      <Modal visible={!!importTpl} transparent animationType="fade" onRequestClose={() => !importingTemplateId && setImportTpl(null)}>
+        <View style={styles.overlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !importingTemplateId && setImportTpl(null)} />
+          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.gold }]}>
+            {importTpl && (() => {
+              const checkedCount = importTpl.items.filter((_, i) => tplChecked[i]).length;
+              const importing = importingTemplateId === importTpl.id;
+              return (
+                <>
+                  <Text style={[styles.sheetTitle, { color: C.text }]}>📋 {importTpl.name}</Text>
+                  <Text style={[styles.intro, { color: C.muted }]}>
+                    Tous les items du modèle sont pré-cochés, y compris ceux déjà faits dans l&apos;autre dossier patient. Décoche ce qui ne s&apos;applique pas ici.
+                  </Text>
+                  <TouchableOpacity onPress={() => toggleAllTplItems(importTpl, checkedCount < importTpl.items.length)} activeOpacity={0.7}>
+                    <Text style={[styles.toggleAll, { color: C.gold }]}>
+                      {checkedCount === importTpl.items.length ? "Tout décocher" : "Tout cocher"}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <ScrollView style={styles.scroll} showsVerticalScrollIndicator nestedScrollEnabled>
+                    {importTpl.items.map((title, i) => {
+                      const checked = !!tplChecked[i];
+                      return (
+                        <TouchableOpacity
+                          key={i}
+                          style={styles.itemRow}
+                          onPress={() => toggleTplItem(i)}
+                          activeOpacity={0.7}
+                        >
+                          <View
+                            style={[
+                              styles.box,
+                              { borderColor: checked ? C.gold : C.border, backgroundColor: checked ? C.gold : "transparent" },
+                            ]}
+                          >
+                            {checked && <Text style={styles.boxMark}>✓</Text>}
+                          </View>
+                          <Text style={[styles.itemTitle, { color: checked ? C.text : C.muted, flex: 1 }]}>{title}</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+
+                  <View style={styles.sheetBtns}>
+                    <TouchableOpacity
+                      style={[styles.btnSecondary, { borderColor: C.border }]}
+                      onPress={() => setImportTpl(null)}
+                      disabled={importing}
+                    >
+                      <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Retour</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btnPrimary, { backgroundColor: C.gold, opacity: checkedCount === 0 || importing ? 0.5 : 1 }]}
+                      onPress={confirmImportTemplate}
+                      disabled={checkedCount === 0 || importing}
+                    >
+                      {importing
+                        ? <ActivityIndicator color="#fff" />
+                        : <Text style={styles.btnPrimaryText}>Importer {checkedCount > 0 ? `(${checkedCount})` : ""}</Text>
+                      }
+                    </TouchableOpacity>
+                  </View>
+                </>
+              );
+            })()}
           </View>
         </View>
       </Modal>
