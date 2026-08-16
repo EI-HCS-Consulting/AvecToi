@@ -7,9 +7,11 @@ import SpaceHeader from "@/components/SpaceHeader";
 import BookingFlow, { type BookingFlowHandle } from "@/components/BookingFlow";
 import InterventionBookingFlow, { type InterventionBookingFlowHandle } from "@/components/InterventionBookingFlow";
 import NightInterventionBookingFlow, { type NightInterventionBookingFlowHandle } from "@/components/NightInterventionBookingFlow";
+import InterventionEditFlow, { type InterventionEditFlowHandle } from "@/components/InterventionEditFlow";
+import ConfirmModal from "@/components/ConfirmModal";
 import VisitorSlotsList from "@/components/VisitorSlotsList";
 import { getNightReservation, isReservationDatePast, isSlotFullyPast, toISO, toFrLong, toFrShort, addDays, nightStartSlot, nightRangeLabel } from "@/lib/slotUtils";
-import { useOtherSpaceInterventions } from "@/lib/useOtherSpaceInterventions";
+import { useOtherSpaceInterventions, type OtherSpaceIntervention } from "@/lib/useOtherSpaceInterventions";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { isVisitorAuthorizedForNight } from "@/lib/nightVisitorAuth";
 import { isIntervenantAuthorizedForNight } from "@/lib/nightIntervenantAuth";
@@ -36,6 +38,13 @@ export default function SlotsScreen() {
   const nightFlowRef = useRef<BookingFlowHandle>(null);
   const interventionFlowRef = useRef<InterventionBookingFlowHandle>(null);
   const nightInterventionFlowRef = useRef<NightInterventionBookingFlowHandle>(null);
+  const otherSoinEditFlowRef = useRef<InterventionEditFlowHandle>(null);
+  // Appui prolongé sur la bannière violette "Soin déjà programmé avec..."
+  // (VisitorSlotsList) — popup Modifier/Fermer, puis bascule sur "Modifier ce
+  // soin" (InterventionEditFlow) pour l'espace de CE patient X, sans jamais
+  // changer d'espace actif (le composant est déjà capable de charger le
+  // slot_config/les types d'intervention de r.space_id lui-même).
+  const [conflictSoin, setConflictSoin] = useState<OtherSpaceIntervention | null>(null);
 
   const startDate = space ? new Date(space.start_date + "T00:00:00") : new Date();
 
@@ -51,6 +60,10 @@ export default function SlotsScreen() {
   const [intervenantProfileId, setIntervenantProfileId] = useState<string | null>(null);
   const [myPrenom, setMyPrenom] = useState("");
   const [myNom, setMyNom] = useState("");
+  // Dépend de `token` : un changement d'espace patient (switchToLinkedSpace,
+  // depuis le Planning global intervenant) ne démonte pas cet écran — sans
+  // ça, role/intervenantProfileId restaient ceux de l'ancien espace alors
+  // que `reservations` (VisitorContext) avait déjà basculé sur le nouveau.
   useEffect(() => {
     getVisitorSession().then((s) => {
       setMyPin(s?.pin ?? null);
@@ -59,10 +72,10 @@ export default function SlotsScreen() {
       setMyPrenom(s?.prenom ?? "");
       setMyNom(s?.nom ?? "");
     });
-  }, []);
+  }, [token]);
   const isMine = (r: Reservation) => !!myPin && r.pin === myPin;
 
-  const { otherSpaceInterventions } = useOtherSpaceInterventions(intervenantProfileId, space?.id ?? null);
+  const { otherSpaceInterventions, refresh: refreshOtherSpaceInterventions } = useOtherSpaceInterventions(intervenantProfileId, space?.id ?? null);
 
   // Un intervenant ne peut réserver une nuitée que si l'admin l'a
   // explicitement autorisé (même règle que home/nights.tsx — voir
@@ -203,6 +216,7 @@ export default function SlotsScreen() {
           onEditVisit={(r) => flowRef.current?.openPinModal(r)}
           onReserveIntervention={(slotIso, slot) => interventionFlowRef.current?.openBooking(slotIso, slot)}
           onCancelIntervention={(r) => interventionFlowRef.current?.openCancel(r)}
+          onLongPressOtherSpaceSoin={(soin) => setConflictSoin(soin)}
         />
 
         {/* Nuitée du jour — ajoutée à la fin de la liste des créneaux, même
@@ -320,6 +334,28 @@ export default function SlotsScreen() {
           C={C}
         />
       )}
+
+      <InterventionEditFlow
+        ref={otherSoinEditFlowRef}
+        C={C}
+        onSaved={refreshOtherSpaceInterventions}
+      />
+      <ConfirmModal
+        visible={!!conflictSoin}
+        icon="🗂️"
+        title="Modifier ce soin ?"
+        message={conflictSoin ? `Le soin déjà programmé avec ${conflictSoin.patientName} (${conflictSoin.intervention_label}) t'empêche de réserver ici. Tu peux le modifier pour libérer ce créneau.` : undefined}
+        cancelLabel="Fermer"
+        confirmLabel="Modifier"
+        destructive={false}
+        onCancel={() => setConflictSoin(null)}
+        onConfirm={() => {
+          const soin = conflictSoin;
+          setConflictSoin(null);
+          if (soin) otherSoinEditFlowRef.current?.open(soin, soin.pin);
+        }}
+        C={C}
+      />
     </View>
   );
 }

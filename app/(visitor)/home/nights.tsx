@@ -30,6 +30,8 @@ export default function VisitorNightsScreen() {
   const [intervenantProfileId, setIntervenantProfileId] = useState<string | null>(null);
   const [myPrenom, setMyPrenom] = useState("");
   const [myNom, setMyNom] = useState("");
+  // Dépend de `token` — voir home/slots.tsx pour le détail (changement
+  // d'espace patient sans démontage de l'écran).
   useEffect(() => {
     getVisitorSession().then((s) => {
       setMyPin(s?.pin ?? null);
@@ -38,7 +40,7 @@ export default function VisitorNightsScreen() {
       setMyPrenom(s?.prenom ?? "");
       setMyNom(s?.nom ?? "");
     });
-  }, []);
+  }, [token]);
   const isMine = (r: Reservation) => !!myPin && r.pin === myPin;
 
   // Autorisation des visiteurs "famille" (voir slot_config.night_visitor_mode,

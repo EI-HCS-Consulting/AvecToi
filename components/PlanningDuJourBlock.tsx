@@ -16,16 +16,42 @@ interface Props {
   patientNameBySpaceId: Record<string, string>;
   locationBySpaceId: Record<string, string>;
   onSoinPress: (r: Reservation) => void;
+  // Bouton "Autres intervenants" affiché sur la même ligne que le titre —
+  // inclut, quand actif, les soins des autres intervenants (mêmes espaces
+  // patients) dans ce bloc ET dans "Planning mensuel/hebdo" juste en dessous
+  // (voir soins.tsx, plannedReservations). Absent : pas de bouton (usages
+  // hors onglet Planning intervenant, s'il y en a un jour).
+  showOtherIntervenants?: boolean;
+  onToggleOtherIntervenants?: () => void;
 }
 
-export default function PlanningDuJourBlock({ C, iso, reservations, patientNameBySpaceId, locationBySpaceId, onSoinPress }: Props) {
+export default function PlanningDuJourBlock({ C, iso, reservations, patientNameBySpaceId, locationBySpaceId, onSoinPress, showOtherIntervenants, onToggleOtherIntervenants }: Props) {
   const isToday = iso === toISO(new Date());
   const dayDate = new Date(iso + "T00:00:00");
   const sorted = [...reservations].sort((a, b) => a.creneau.localeCompare(b.creneau));
 
   return (
     <>
-      <Text style={[styles.sectionTitle, { color: C.gold }]}>Planning du jour</Text>
+      <View style={styles.titleRow}>
+        <Text style={[styles.sectionTitle, { color: C.gold, marginBottom: 0 }]}>Planning du jour</Text>
+        {onToggleOtherIntervenants && (
+          <TouchableOpacity
+            onPress={onToggleOtherIntervenants}
+            activeOpacity={0.75}
+            style={[
+              styles.otherToggle,
+              {
+                backgroundColor: showOtherIntervenants ? C.gold : "transparent",
+                borderColor: C.gold,
+              },
+            ]}
+          >
+            <Text style={[styles.otherToggleText, { color: showOtherIntervenants ? "#fff" : C.gold }]}>
+              👥 Autres intervenants
+            </Text>
+          </TouchableOpacity>
+        )}
+      </View>
       <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
         <Text style={[styles.dayTitle, { color: isToday ? C.gold : C.text }]}>
           {dayDate.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}
@@ -58,6 +84,9 @@ export default function PlanningDuJourBlock({ C, iso, reservations, patientNameB
 }
 
 const styles = StyleSheet.create({
+  titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 8 },
+  otherToggle: { borderWidth: 1, borderRadius: 8, paddingVertical: 5, paddingHorizontal: 10 },
+  otherToggleText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11 },
   sectionTitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 10 },
   card: { borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 20 },
   dayTitle: { fontFamily: "DM_Sans_700Bold", fontSize: 13, textTransform: "capitalize", marginBottom: 8 },

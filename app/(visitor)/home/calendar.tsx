@@ -65,6 +65,13 @@ export default function VisitorCalendarScreen() {
   // Soins reprend la largeur naturelle calculée par Mensuel/Hebdo au lieu
   // d'en calculer une indépendamment (même mécanisme que Entraide.tsx).
   const [viewThumbWidth, setViewThumbWidth] = useState(0);
+  // Dépend de `token` (pas juste []) : après un changement d'espace patient
+  // depuis le Planning global intervenant (switchToLinkedSpace, qui fait un
+  // router.replace vers cet écran sans le démonter), reservations se
+  // recharge déjà pour le nouvel espace (VisitorContext, effet sur token),
+  // mais role/intervenantProfileId/myPin restaient sinon ceux de l'ancien
+  // espace — myInterventionToday comparait alors des soins du nouvel espace
+  // à un intervenant_profile_id de l'ancien, qui ne matchait jamais.
   useEffect(() => {
     getVisitorSession().then((s) => {
       const r = s?.role ?? "visiteur";
@@ -78,7 +85,7 @@ export default function VisitorCalendarScreen() {
       setMyPrenom(s?.prenom ?? null);
       setMyNom(s?.nom ?? null);
     });
-  }, []);
+  }, [token]);
 
   const { theme: C } = useDisplayMode();
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
