@@ -25,7 +25,7 @@ import type { Theme } from "@/lib/themes";
 // propre calcul de chevauchement.
 
 export interface InterventionEditFlowHandle {
-  open: (r: Reservation, pin: string) => void;
+  open: (r: Reservation, pin: string, patientName?: string) => void;
 }
 
 interface Props {
@@ -35,6 +35,7 @@ interface Props {
 
 function InterventionEditFlow({ onSaved, C }: Props, ref: React.Ref<InterventionEditFlowHandle>) {
   const [target, setTarget] = useState<Reservation | null>(null);
+  const [patientLabel, setPatientLabel] = useState("");
   const [pin, setPin] = useState("");
   const [loadingCtx, setLoadingCtx] = useState(false);
   const [slots, setSlots] = useState<string[]>([]);
@@ -50,9 +51,10 @@ function InterventionEditFlow({ onSaved, C }: Props, ref: React.Ref<Intervention
   const [overlapAlert, setOverlapAlert] = useState(false);
   const [otherSpaceOverlapAlert, setOtherSpaceOverlapAlert] = useState(false);
 
-  async function open(r: Reservation, pinArg: string) {
+  async function open(r: Reservation, pinArg: string, patientName?: string) {
     const d = new Date(r.date + "T12:00:00");
     setTarget(r);
+    setPatientLabel(patientName ?? "");
     setPin(pinArg);
     setEditDate(r.date);
     setEditSlot(r.creneau);
@@ -147,6 +149,7 @@ function InterventionEditFlow({ onSaved, C }: Props, ref: React.Ref<Intervention
                   <Text style={[styles.sheetTitle, { color: C.text }]}>✏️ Modifier ce soin</Text>
                   <Text style={[styles.sheetSub, { color: C.muted }]}>
                     Soin d&apos;origine : {target && toFrShort(new Date(target.date + "T12:00:00"))} {target?.creneau}
+                    {patientLabel ? ` pour ${patientLabel}` : ""}.
                   </Text>
 
                   {loadingCtx ? (

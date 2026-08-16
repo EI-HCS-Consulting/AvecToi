@@ -352,7 +352,7 @@ export default function SlotsScreen() {
         onConfirm={() => {
           const soin = conflictSoin;
           setConflictSoin(null);
-          if (soin) otherSoinEditFlowRef.current?.open(soin, soin.pin);
+          if (soin) otherSoinEditFlowRef.current?.open(soin, soin.pin, soin.patientName);
         }}
         C={C}
       />
