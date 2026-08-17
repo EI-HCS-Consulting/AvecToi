@@ -9,7 +9,7 @@ import {
 } from "@/lib/slotUtils";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { getVisitorSession } from "@/lib/visitorSession";
-import { LOGO_GREEN, LOGO_PURPLE, getPatientColor } from "@/lib/themes";
+import { LOGO_GREEN, LOGO_PURPLE, LOGO_NAVY, VISITES_ORANGE_FILL, VISITES_DANGER_FILL, getPatientColor } from "@/lib/themes";
 import { careLocationDetail, mapsUrlForSpace } from "@/lib/address";
 import SpaceHeader from "@/components/SpaceHeader";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
@@ -273,7 +273,14 @@ export default function VisitorCalendarScreen() {
     .filter((r) => r.type === "Visite")
     .filter((r) => !selectedVisiteurKey || visiteurIdentityKey(r.prenom, r.nom) === selectedVisiteurKey);
 
+  // Aucune action si cette visite n'appartient pas à la personne qui regarde
+  // (isMyReservation compare PIN + prénom/nom, et gère le cas d'une
+  // réservation "ADMIN" arrangée pour un visiteur précis — voir lib/slotUtils.ts)
+  // — même garde-fou que openSoinActions côté intervenant (soins.tsx) : un
+  // visiteur ne doit même pas voir le popup s'ouvrir sur la visite d'un
+  // autre visiteur, ni sur une réservation admin qui n'est pas la sienne.
   function openVisiteActions(r: Reservation) {
+    if (!isMyReservation(r, myPin, intervenantProfileId, myPrenom, myNom)) return;
     setPendingVisite(r);
   }
   function handleModifierVisitePress() {
@@ -420,10 +427,17 @@ export default function VisitorCalendarScreen() {
               visiteStatus === "full" ? C.danger :
               visiteStatus === "partial" ? C.orange :
               visiteStatus === "empty" ? C.success : "transparent";
-            // Fond Orange/Rouge (Partiel/Complet) — mode Visites uniquement,
-            // vérité globale d'occupation de l'espace, non filtrée par
-            // selectedVisiteurKey (voir Contexte du plan).
-            const visitesFill = soinsMode ? null : visiteStatus === "full" ? C.danger : visiteStatus === "partial" ? C.orange : null;
+            // Fond pastel Orange/Rouge (Partiel/Complet) — mode Visites
+            // uniquement, vérité globale d'occupation de l'espace, non
+            // filtrée par selectedVisiteurKey (voir Contexte du plan).
+            const visitesFill = soinsMode ? null : visiteStatus === "full" ? VISITES_DANGER_FILL : visiteStatus === "partial" ? VISITES_ORANGE_FILL : null;
+            // Point vert "Dispo" (mode Visites uniquement) — uniquement les
+            // jours sans aucune visite/nuitée réservée ce jour-là ; Partiel/
+            // Complet restent représentés par visitesFill ci-dessus, sans point.
+            const visitesDispoDot = !soinsMode && visiteStatus === "empty";
+            // Fond pastel clair : texte foncé plutôt que blanc pour rester
+            // lisible (contrairement à l'ancien fond saturé C.orange/C.danger).
+            const pastelText = !soinsMode && !!visitesFill;
             // Traits de bord par visiteur (mode Visites uniquement) —
             // remplace la bande verte "familyBooked" ci-dessous, filtré par
             // la légende (selectedVisiteurKey).
@@ -467,7 +481,7 @@ export default function VisitorCalendarScreen() {
               ? (role === "intervenant" && mesCreneauxOnly ? myInterventionToday : interventionBooked)
               : (role === "intervenant" && mesCreneauxOnly && myInterventionToday);
             const fillPurple = frameVisible && myInterventionToday;
-            const whiteText = soinsMode ? (isSelected || fillPurple) : (isSelected || !!visitesFill);
+            const whiteText = soinsMode ? (isSelected || fillPurple) : isSelected;
 
             return (
               <TouchableOpacity
@@ -502,10 +516,11 @@ export default function VisitorCalendarScreen() {
                 activeOpacity={0.7}
               >
                 <View style={styles.cellInner}>
-                  <Text style={[styles.cellDate, { color: whiteText ? "#fff" : isToday ? C.gold : C.text }]}>
+                  <Text style={[styles.cellDate, { color: whiteText ? "#fff" : isToday ? C.gold : pastelText ? LOGO_NAVY : C.text }]}>
                     {day.getDate()}
                   </Text>
                   {soinsMode && <View style={[styles.dot, { backgroundColor: dotColor }]} />}
+                  {visitesDispoDot && <View style={[styles.dot, { backgroundColor: C.success }]} />}
                 </View>
                 {soinsMode ? (
                   !!familyBooked && (
@@ -553,7 +568,7 @@ export default function VisitorCalendarScreen() {
           </>
         ) : (
           <View style={styles.legend}>
-            {([[C.orange, "Partiel"], [C.danger, "Complet"]] as [string, string][]).map(
+            {([[C.success, "Dispo"], [VISITES_ORANGE_FILL, "Partiel"], [VISITES_DANGER_FILL, "Complet"]] as [string, string][]).map(
               ([color, label]) => (
                 <View key={label} style={styles.legendItem}>
                   <View style={[styles.legendDot, { backgroundColor: color }]} />
@@ -611,8 +626,12 @@ export default function VisitorCalendarScreen() {
             calendrier reste une vérité complète quel que soit ce réglage.
             Le switch Visites/Soins n'existe que si les intervenants sont
             activés dans l'espace ; le bouton "Afficher mes créneaux" reste
-            utile même sans eux (filtre visites/nuitées), donc le bloc reste
-            affiché dans tous les cas, pour les 3 profils. */}
+            utile même sans eux (filtre visites/nuitées). Bloc réservé au
+            profil intervenant : pour un visiteur, la légende par visiteur
+            (PatientColorLegend, filtrable) juste en dessous couvre déjà ce
+            besoin ("voir seulement mes visites"), ce bloc n'a donc plus
+            d'utilité pour ce profil. */}
+        {role === "intervenant" && (
         <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 16 }]}>
           {space.intervenants_enabled && (
             <SegmentedSwitch value={soinsMode} onChange={setSoinsMode} leftLabel="Visites" rightLabel="Soins" C={C} thumbWidth={viewThumbWidth || undefined} />
@@ -622,9 +641,7 @@ export default function VisitorCalendarScreen() {
               <Text style={[styles.toggleLabel, { color: C.text }]}>👁️ Afficher mes créneaux</Text>
               <Text style={[styles.toggleDesc, { color: C.muted }]}>
                 {mesCreneauxOnly
-                  ? role === "intervenant"
-                    ? "Le panneau ci-dessous ne liste que tes propres soins. Le calendrier ne montre plus que tes propres cadres violets, mélangés aux traits verts de tout le monde."
-                    : `Le panneau ci-dessous ne liste que t${soinsMode ? "es propres soins" : "es propres visites/nuitées"}. Le calendrier, lui, affiche toujours tout le monde.`
+                  ? "Le panneau ci-dessous ne liste que tes propres soins. Le calendrier ne montre plus que tes propres cadres violets, mélangés aux traits verts de tout le monde."
                   : soinsMode
                     ? "Le panneau ci-dessous liste les soins de tous les intervenants de l'espace patient."
                     : "Le panneau ci-dessous liste les visites/nuitées de tout le monde."}
@@ -638,6 +655,7 @@ export default function VisitorCalendarScreen() {
             />
           </View>
         </View>
+        )}
 
         {!soinsMode && (
           <View style={{ marginTop: 16 }}>
