@@ -126,6 +126,7 @@ export default function IntervenantEntryScreen() {
               autoCapitalize="characters"
               autoCorrect={false}
               maxLength={7}
+              autoFocus={mode === "code"}
             />
 
             <TouchableOpacity

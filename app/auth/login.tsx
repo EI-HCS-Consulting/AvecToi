@@ -62,6 +62,7 @@ export default function LoginScreen() {
             keyboardType="email-address"
             autoCapitalize="none"
             autoCorrect={false}
+            autoFocus
           />
           <View style={styles.passwordRow}>
             <TextInput

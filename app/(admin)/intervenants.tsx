@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
 import { useSpace } from "@/lib/SpaceContext";
 import { supabase } from "@/lib/supabase";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
-import { getMonday, getDayStatus, isReservationDatePast } from "@/lib/slotUtils";
+import { getMonday, getDayStatus, isReservationDatePast, addDays } from "@/lib/slotUtils";
 import { deleteLinkedCalendarEvent } from "@/lib/calendarSync";
 import AdminAddIntervention, { type AdminAddInterventionHandle } from "@/components/AdminAddIntervention";
 import AdminEditReservation, { type AdminEditReservationHandle } from "@/components/AdminEditReservation";
@@ -15,6 +15,9 @@ import SegmentedSwitch from "@/components/SegmentedSwitch";
 import SoinsPeriodBlock from "@/components/SoinsPeriodBlock";
 import DaySoinsModal from "@/components/DaySoinsModal";
 import SlotOccupantsModal, { type SelectedSlot } from "@/components/SlotOccupantsModal";
+import IntervenantGlobalCalendar from "@/components/IntervenantGlobalCalendar";
+import PatientColorLegend from "@/components/PatientColorLegend";
+import { getPatientColor } from "@/lib/themes";
 import { metierLabel } from "@/lib/metiers";
 import type { Reservation, IntervenantProfile, InterventionType } from "@/lib/types";
 
@@ -41,6 +44,13 @@ export default function AdminIntervenantsScreen() {
     return { year: d.getFullYear(), month: d.getMonth() };
   });
   const [dayPopupIso, setDayPopupIso] = useState<string | null>(null);
+  // Filtre "Tous" (null) / un seul intervenant (profile id) — piloté par un
+  // tap sur la légende (PatientColorLegend, réutilisée telle quelle). "Tous"
+  // reproduit exactement l'ancienne vue unique de cet écran (voir
+  // filteredReservations plus bas). Entraîne le calendrier, le planning
+  // mensuel/hebdo et le popup jour à ne montrer que les soins de cet
+  // intervenant.
+  const [selectedIntervenantId, setSelectedIntervenantId] = useState<string | null>(null);
   const [viewingProfile, setViewingProfile] = useState<IntervenantProfile | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<SelectedSlot | null>(null);
   // Replié par défaut — reléguée en bas d'écran, derrière Planning et Soins
@@ -91,12 +101,33 @@ export default function AdminIntervenantsScreen() {
 
   const interventionDates = new Set(reservations.filter((r) => r.type === "Intervention").map((r) => r.date));
 
+  // Une couleur par intervenant (même principe que IntervenantGlobalCalendar
+  // côté visiteur, voir soins.tsx) — profils déjà triés par prenom
+  // (refreshProfiles), donc l'ordre (et la couleur) de chacun reste stable.
+  const colorByIntervenantId: Record<string, string> = {};
+  const legendItems: { id: string; name: string; color: string }[] = [];
+  profiles.forEach((p, i) => {
+    const color = getPatientColor(i);
+    colorByIntervenantId[p.id] = color;
+    legendItems.push({ id: p.id, name: `${p.prenom} ${p.nom}`, color });
+  });
+
+  // "Tous" (selectedIntervenantId === null) reproduit exactement l'ancienne
+  // vue unique de cet écran, avant l'ajout du filtre par intervenant.
+  const filteredReservations = selectedIntervenantId
+    ? reservations.filter((r) => r.intervenant_profile_id === selectedIntervenantId)
+    : reservations;
+
   const dayPopupDay = dayPopupIso ? new Date(dayPopupIso + "T00:00:00") : null;
   const dayPopupInterventions = dayPopupIso
-    ? reservations.filter((r) => r.type === "Intervention" && r.date === dayPopupIso).sort((a, b) => a.creneau.localeCompare(b.creneau))
+    ? filteredReservations.filter((r) => r.type === "Intervention" && r.date === dayPopupIso).sort((a, b) => a.creneau.localeCompare(b.creneau))
     : [];
   const dayPopupConfig = dayPopupIso ? (getConfigForDate(dayPopupIso) ?? slotConfig) : null;
   const dayPopupSlots = dayPopupIso ? getSlotsForDate(dayPopupIso) : [];
+  // Le popup jour (grille de créneaux + statut) reste basé sur TOUTES les
+  // réservations, quel que soit le filtre intervenant — l'occupation réelle
+  // du jour ne dépend pas de qui on regarde. Seule la liste d'interventions
+  // listée en dessous (dayPopupInterventions) suit le filtre.
   const dayPopupStatus =
     dayPopupIso && dayPopupDay && dayPopupConfig
       ? getDayStatus(reservations, dayPopupIso, dayPopupDay, dayPopupConfig, dayPopupSlots, startDate, "Intervention")
@@ -140,9 +171,28 @@ export default function AdminIntervenantsScreen() {
           />
         </View>
 
+        <IntervenantGlobalCalendar
+          C={C}
+          reservations={filteredReservations}
+          colorByGroupId={colorByIntervenantId}
+          getGroupId={(r) => r.intervenant_profile_id ?? ""}
+          view={planningView}
+          weekAnchor={weekAnchor}
+          monthAnchor={monthAnchor}
+          onMonthChange={setMonthAnchor}
+          onWeekPrev={() => setWeekAnchor(addDays(weekAnchor, -7))}
+          onWeekNext={() => setWeekAnchor(addDays(weekAnchor, 7))}
+          selectedIso={dayPopupIso ?? ""}
+          onDayPress={(iso) => { if (!isReservationDatePast(iso)) setDayPopupIso(iso); }}
+          onDayLongPress={(iso) => { if (!isReservationDatePast(iso)) addRef.current?.open(iso); }}
+        />
+        <View style={{ marginBottom: 14 }}>
+          <PatientColorLegend C={C} items={legendItems} selectedId={selectedIntervenantId} onSelect={setSelectedIntervenantId} />
+        </View>
+
         <SoinsPeriodBlock
           C={C}
-          reservations={reservations}
+          reservations={filteredReservations}
           view={planningView}
           weekAnchor={weekAnchor}
           onWeekChange={setWeekAnchor}
@@ -158,7 +208,7 @@ export default function AdminIntervenantsScreen() {
           <Text style={styles.addBtnText}>+ Ajouter une intervention</Text>
         </TouchableOpacity>
 
-        <SoinsPlanifiesBlock spaceId={space.id} C={C} includePast chronological />
+        <SoinsPlanifiesBlock spaceId={space.id} C={C} filterIntervenantProfileId={selectedIntervenantId} includePast chronological />
 
         <Text style={[styles.sectionTitle, { color: C.gold, marginTop: 24 }]}>Fiches intervenants</Text>
         <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>

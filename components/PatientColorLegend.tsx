@@ -11,7 +11,7 @@ import type { Theme } from "@/lib/themes";
 // le calendrier et les blocs de jours planifiés en dessous sur ce seul
 // patient — voir selectedSpaceId/onSelect dans soins.tsx.
 interface Item {
-  spaceId: string;
+  id: string;
   name: string;
   color: string;
 }
@@ -19,19 +19,19 @@ interface Item {
 interface Props {
   C: Theme;
   items: Item[];
-  selectedSpaceId: string | null;
-  onSelect: (spaceId: string | null) => void;
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
 }
 
-export default function PatientColorLegend({ C, items, selectedSpaceId, onSelect }: Props) {
+export default function PatientColorLegend({ C, items, selectedId, onSelect }: Props) {
   if (items.length === 0) return null;
   return (
     <View style={styles.grid}>
       {items.map((item) => (
-        <TouchableOpacity key={item.spaceId} style={styles.item} onPress={() => onSelect(item.spaceId)} activeOpacity={0.7}>
+        <TouchableOpacity key={item.id} style={styles.item} onPress={() => onSelect(item.id)} activeOpacity={0.7}>
           <View style={[styles.swatch, { backgroundColor: item.color }]} />
           <Text
-            style={[styles.label, { color: C.text }, selectedSpaceId === item.spaceId && styles.labelActive]}
+            style={[styles.label, { color: C.text }, selectedId === item.id && styles.labelActive]}
             numberOfLines={1}
           >
             {item.name}
@@ -44,11 +44,11 @@ export default function PatientColorLegend({ C, items, selectedSpaceId, onSelect
             styles.swatch,
             styles.allSwatch,
             { borderColor: C.text },
-            selectedSpaceId === null && { backgroundColor: C.text },
+            selectedId === null && { backgroundColor: C.text },
           ]}
         />
         <Text
-          style={[styles.label, { color: C.text }, selectedSpaceId === null && styles.labelActive]}
+          style={[styles.label, { color: C.text }, selectedId === null && styles.labelActive]}
           numberOfLines={1}
         >
           Tous

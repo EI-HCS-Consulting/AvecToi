@@ -212,7 +212,7 @@ export default function VisitorPlanningScreen() {
   const patientNameBySpaceId: Record<string, string> = {};
   const colorBySpaceId: Record<string, string> = {};
   const mapsUrlBySpaceId: Record<string, string> = {};
-  const legendItems: { spaceId: string; name: string; color: string }[] = [];
+  const legendItems: { id: string; spaceId: string; name: string; color: string }[] = [];
   profiles.forEach((p, i) => {
     if (!p.patient_spaces) return;
     const location = careLocationDetail(p.patient_spaces);
@@ -223,7 +223,7 @@ export default function VisitorPlanningScreen() {
     colorBySpaceId[p.space_id] = color;
     const mapsUrl = mapsUrlForSpace(p.patient_spaces);
     if (mapsUrl) mapsUrlBySpaceId[p.space_id] = mapsUrl;
-    legendItems.push({ spaceId: p.space_id, name, color });
+    legendItems.push({ id: p.space_id, spaceId: p.space_id, name, color });
   });
   const profileIds = profiles.map((p) => p.id);
 
@@ -371,7 +371,8 @@ export default function VisitorPlanningScreen() {
             <IntervenantGlobalCalendar
               C={C}
               reservations={displayReservations}
-              colorBySpaceId={colorBySpaceId}
+              colorByGroupId={colorBySpaceId}
+              getGroupId={(r) => r.space_id}
               view={planningView}
               weekAnchor={weekAnchor}
               monthAnchor={monthAnchor}
@@ -383,7 +384,7 @@ export default function VisitorPlanningScreen() {
               onDayLongPress={handleCalendarDayLongPress}
             />
             <View style={{ marginBottom: 20 }}>
-              <PatientColorLegend C={C} items={legendItems} selectedSpaceId={selectedSpaceId} onSelect={setSelectedSpaceId} />
+              <PatientColorLegend C={C} items={legendItems} selectedId={selectedSpaceId} onSelect={setSelectedSpaceId} />
             </View>
 
             <PlanningDuJourBlock
