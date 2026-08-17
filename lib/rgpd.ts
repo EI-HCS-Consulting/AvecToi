@@ -38,6 +38,20 @@ export function rgpdAlertMessage(space: Pick<PatientSpace, "purge_scheduled_at">
     : `Les données de cet espace ont atteint leur date de conservation (${purgeDateFr}) et vont être supprimées. Prolonge de ${RGPD_EXTENSION_DAYS} jours pour les conserver.`;
 }
 
+// Message affiché quand on clique "Prolonger" hors fenêtre d'alerte (plus de
+// RGPD_ALERT_WINDOW_DAYS jours avant l'échéance) — voir handleProlong,
+// app/(admin)/settings.tsx. Le bouton reste visible et cliquable en tout
+// temps, mais ne prolonge réellement qu'à partir de J-7 (isRgpdAlertActive) :
+// empêche de cliquer 10 fois d'avance pour repousser indéfiniment la date
+// avant même d'être dans la fenêtre. Une fois la prolongation effective
+// appliquée, la nouvelle échéance retombe hors fenêtre (+30 jours), donc un
+// nouveau clic immédiat retombe automatiquement sur ce message — pas besoin
+// d'un flag "déjà utilisé" séparé en base.
+export function rgpdEarlyProlongMessage(space: Pick<PatientSpace, "purge_scheduled_at">): string {
+  const daysLeft = purgeDaysLeft(space.purge_scheduled_at);
+  return `Il reste encore ${daysLeft} jour${daysLeft > 1 ? "s" : ""} avant l'échéance de conservation des données. Un rappel te sera envoyé ${RGPD_ALERT_WINDOW_DAYS} jours avant : tu pourras alors prolonger gratuitement de ${RGPD_EXTENSION_DAYS} jours.`;
+}
+
 // Met à jour purge_scheduled_at (+ end_date, gardé synchronisé depuis
 // l'origine — voir PatientOnboarding.tsx) en base. Renvoie le patch appliqué
 // (à répercuter sur le contexte via patchSpace si besoin d'un affichage

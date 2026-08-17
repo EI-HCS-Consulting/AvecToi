@@ -96,6 +96,7 @@ export default function SignupScreen() {
             value={firstname}
             onChangeText={setFirstname}
             autoCapitalize="words"
+            autoFocus
           />
           <TextInput
             style={styles.input}

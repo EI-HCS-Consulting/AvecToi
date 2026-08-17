@@ -30,7 +30,7 @@ import { resolvePlaceFromMapsUrl } from "@/lib/address";
 import { generateSlots, formatHourMinute } from "@/lib/slotUtils";
 import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
 import { canEnableIntervenants } from "@/lib/freemiumCap";
-import { RGPD_EXTENSION_DAYS, prolongSpace } from "@/lib/rgpd";
+import { RGPD_EXTENSION_DAYS, prolongSpace, isRgpdAlertActive, rgpdEarlyProlongMessage } from "@/lib/rgpd";
 import type { Theme } from "@/lib/themes";
 import { LOGO_PURPLE } from "@/lib/themes";
 import type { NewsEntry, Task, SupportMessage, SlotConfig, ReservationChangeHistoryEntry, Reservation } from "@/lib/types";
@@ -1529,8 +1529,17 @@ export default function SettingsScreen() {
   }
 
   // ── Prolongation RGPD ─────────────────────────────────────────────────────
+  // N'est réellement effective qu'à J-7 ou moins (isRgpdAlertActive) — avant
+  // ça, un clic se contente d'expliquer combien de jours il reste, plutôt que
+  // de prolonger, pour empêcher de cliquer plusieurs fois d'avance et
+  // repousser indéfiniment la date de suppression avant même la fenêtre
+  // d'alerte (voir rgpdEarlyProlongMessage, lib/rgpd.ts).
   function handleProlong() {
     if (!space) return;
+    if (!isRgpdAlertActive(space)) {
+      Alert.alert("Pas encore nécessaire", rgpdEarlyProlongMessage(space));
+      return;
+    }
     Alert.alert(
       "Prolonger l'espace",
       `Ajouter ${RGPD_EXTENSION_DAYS} jours à la date de conservation ? Toutes les données seront conservées ${RGPD_EXTENSION_DAYS} jours de plus.`,

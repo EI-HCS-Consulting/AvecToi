@@ -67,7 +67,11 @@ function buildEdgeSegments(colors: string[]): { style: Record<string, number | s
 interface Props {
   C: Theme;
   reservations: Reservation[];
-  colorBySpaceId: Record<string, string>;
+  colorByGroupId: Record<string, string>;
+  // Regroupement des couleurs par jour — par patient (r.space_id, voir
+  // soins.tsx) côté intervenant, par intervenant (r.intervenant_profile_id,
+  // voir app/(admin)/intervenants.tsx) côté admin.
+  getGroupId: (r: Reservation) => string;
   view: "mensuel" | "hebdo";
   weekAnchor: Date;
   monthAnchor: { year: number; month: number };
@@ -89,17 +93,18 @@ interface Props {
   onDayLongPress: (iso: string) => void;
 }
 
-// Couleurs (une par patient distinct) ayant un soin ce jour-là, dans l'ordre
-// de la légende (donc de colorBySpaceId, lui-même stable — voir soins.tsx,
-// profils triés par created_at). Longueur 0 = pas de soin ce jour-là.
-function dayPatientColors(reservations: Reservation[], iso: string, colorBySpaceId: Record<string, string>): string[] {
-  const spacesToday = new Set<string>();
+// Couleurs (une par groupe distinct — patient ou intervenant selon
+// getGroupId) ayant un soin ce jour-là, dans l'ordre de la légende (donc de
+// colorByGroupId, lui-même stable — voir soins.tsx/intervenants.tsx, profils
+// triés par created_at/prenom). Longueur 0 = pas de soin ce jour-là.
+function dayGroupColors(reservations: Reservation[], iso: string, colorByGroupId: Record<string, string>, getGroupId: (r: Reservation) => string): string[] {
+  const groupsToday = new Set<string>();
   for (const r of reservations) {
-    if (r.date === iso && r.type === "Intervention") spacesToday.add(r.space_id);
+    if (r.date === iso && r.type === "Intervention") groupsToday.add(getGroupId(r));
   }
   const colors: string[] = [];
-  for (const spaceId of Object.keys(colorBySpaceId)) {
-    if (spacesToday.has(spaceId)) colors.push(colorBySpaceId[spaceId]);
+  for (const groupId of Object.keys(colorByGroupId)) {
+    if (groupsToday.has(groupId)) colors.push(colorByGroupId[groupId]);
   }
   return colors;
 }
@@ -117,7 +122,7 @@ function DayStripes({ colors }: { colors: string[] }) {
 }
 
 export default function IntervenantGlobalCalendar({
-  C, reservations, colorBySpaceId, view, weekAnchor, monthAnchor, onMonthChange, onWeekPrev, onWeekNext, selectedIso, onDayPress, onDayLongPress,
+  C, reservations, colorByGroupId, getGroupId, view, weekAnchor, monthAnchor, onMonthChange, onWeekPrev, onWeekNext, selectedIso, onDayPress, onDayLongPress,
 }: Props) {
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
 
@@ -142,7 +147,7 @@ export default function IntervenantGlobalCalendar({
             const iso = toISO(day);
             const isToday = iso === toISO(today);
             const isSelected = iso === selectedIso;
-            const dayColors = dayPatientColors(reservations, iso, colorBySpaceId);
+            const dayColors = dayGroupColors(reservations, iso, colorByGroupId, getGroupId);
             const hasSoin = dayColors.length > 0;
             return (
               <TouchableOpacity
@@ -214,7 +219,7 @@ export default function IntervenantGlobalCalendar({
           const iso = toISO(day);
           const isToday = iso === toISO(today);
           const isSelected = iso === selectedIso;
-          const dayColors = dayPatientColors(reservations, iso, colorBySpaceId);
+          const dayColors = dayGroupColors(reservations, iso, colorByGroupId, getGroupId);
           const hasSoin = dayColors.length > 0;
           return (
             <TouchableOpacity
