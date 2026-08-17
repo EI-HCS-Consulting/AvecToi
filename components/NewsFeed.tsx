@@ -10,7 +10,7 @@ import * as ImageManipulator from "expo-image-manipulator";
 import { File } from "expo-file-system";
 import { supabase } from "@/lib/supabase";
 import { getVisitorSession, rememberAuthorPin, sessionPinMatches } from "@/lib/visitorSession";
-import { downloadAndShare, logSavedMedia } from "@/lib/mediaShare";
+import { downloadAndShare, logSavedMedia, isShareAvailable } from "@/lib/mediaShare";
 import PinPad from "@/components/PinPad";
 import VisitorProfileModal from "@/components/VisitorProfileModal";
 import ConfirmModal from "@/components/ConfirmModal";
@@ -174,6 +174,13 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
   const [mediaLightboxIdx, setMediaLightboxIdx] = useState<number | null>(null);
   const [downloadingMediaLightbox, setDownloadingMediaLightbox] = useState(false);
 
+  // Sélection multiple dans la grille "Médias" — appui long pour entrer,
+  // permet de télécharger/partager plusieurs photos d'un coup (même pattern
+  // que components/SouvenirsGallery.tsx).
+  const [mediaSelectMode, setMediaSelectMode] = useState(false);
+  const [mediaSelected, setMediaSelected] = useState<Set<number>>(new Set());
+  const [bulkDownloadingMedia, setBulkDownloadingMedia] = useState(false);
+
   // Fiche visiteur — ouverte en cliquant le nom de l'auteur (sauf admin)
   const [profileTarget, setProfileTarget] = useState<{ prenom: string; nom: string } | null>(null);
 
@@ -276,6 +283,44 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
       await logSavedMedia({ spaceId, sourceType: "news", sourceId: item.entry.id, photoUrl: item.url, savedByPin: myPin });
     }
     setDownloadingMediaLightbox(false);
+  }
+
+  function toggleMediaSelect(index: number) {
+    setMediaSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index); else next.add(index);
+      if (next.size === 0) setMediaSelectMode(false);
+      return next;
+    });
+  }
+
+  function selectAllMedia() {
+    setMediaSelected(new Set(mediaItems.map((_, i) => i)));
+  }
+
+  async function downloadSelectedMedia() {
+    const targets = mediaItems.filter((_, i) => mediaSelected.has(i));
+    if (targets.length === 0) return;
+    if (!(await isShareAvailable())) {
+      Alert.alert("Partage non disponible", "Le partage de fichiers n'est pas disponible sur cet appareil.");
+      return;
+    }
+    setBulkDownloadingMedia(true);
+    let ok = 0;
+    for (let i = 0; i < targets.length; i++) {
+      const item = targets[i];
+      const success = await downloadAndShare(item.url, `nouvelles_${item.entry.id}_${i}.jpg`);
+      if (success) {
+        ok++;
+        if (myPin && item.entry.author_pin && item.entry.author_pin !== myPin) {
+          await logSavedMedia({ spaceId, sourceType: "news", sourceId: item.entry.id, photoUrl: item.url, savedByPin: myPin });
+        }
+      }
+    }
+    setBulkDownloadingMedia(false);
+    setMediaSelectMode(false);
+    setMediaSelected(new Set());
+    showToast(`${ok}/${targets.length} photo${targets.length > 1 ? "s" : ""} partagée${targets.length > 1 ? "s" : ""}`);
   }
 
   // Arrivée depuis Souvenirs ("Voir l'original") via un lien profond
@@ -869,29 +914,82 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
       {loading ? (
         <View style={styles.centered}><ActivityIndicator color={C.accent} size="large" /></View>
       ) : viewMode === "media" ? (
-        mediaItems.length === 0 ? (
-          <View style={styles.centered}>
-            <Text style={{ fontSize: 40, marginBottom: 12 }}>🖼️</Text>
-            <Text style={[styles.emptyText, { color: C.muted }]}>Aucun média pour l'instant.</Text>
-          </View>
-        ) : (
-          <FlatList
-            key="media-grid"
-            data={mediaItems}
-            keyExtractor={(_, i) => String(i)}
-            numColumns={2}
-            contentContainerStyle={styles.mediaGrid}
-            renderItem={({ item, index }) => (
-              <TouchableOpacity
-                style={styles.mediaCell}
-                activeOpacity={0.85}
-                onPress={() => setMediaLightboxIdx(index)}
-              >
-                <Image source={{ uri: item.url }} style={styles.mediaCellImg} resizeMode="cover" />
-              </TouchableOpacity>
-            )}
-          />
-        )
+        <>
+          {mediaSelectMode && (
+            <View style={[styles.selectBar, { backgroundColor: C.card, borderBottomColor: C.border }]}>
+              <View style={styles.selectBarRow}>
+                <Text style={[styles.selectBarBtnText, { color: C.muted }]}>
+                  {mediaSelected.size} sélectionné{mediaSelected.size > 1 ? "s" : ""}
+                </Text>
+                <TouchableOpacity onPress={selectAllMedia} style={[styles.selectBarBtn, { borderColor: C.border }]}>
+                  <Text style={[styles.selectBarBtnText, { color: C.text }]}>Tout sélect. ({mediaItems.length})</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={styles.selectBarRow}>
+                <TouchableOpacity
+                  onPress={downloadSelectedMedia}
+                  disabled={mediaSelected.size === 0 || bulkDownloadingMedia}
+                  style={[
+                    styles.selectBarBtn,
+                    { flex: 1, borderColor: C.accent, backgroundColor: "rgba(46,117,182,0.15)" },
+                    mediaSelected.size === 0 && { opacity: 0.4 },
+                  ]}
+                >
+                  {bulkDownloadingMedia
+                    ? <ActivityIndicator color={C.accent} size="small" />
+                    : <Text style={[styles.selectBarBtnText, { color: C.accent, textAlign: "center" }]}>⬇️ Télécharger</Text>
+                  }
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => { setMediaSelectMode(false); setMediaSelected(new Set()); }}
+                  style={[styles.selectBarBtn, { borderColor: C.border }]}
+                >
+                  <Text style={[styles.selectBarBtnText, { color: C.muted }]}>Annuler</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+          {mediaItems.length === 0 ? (
+            <View style={styles.centered}>
+              <Text style={{ fontSize: 40, marginBottom: 12 }}>🖼️</Text>
+              <Text style={[styles.emptyText, { color: C.muted }]}>Aucun média pour l'instant.</Text>
+            </View>
+          ) : (
+            <FlatList
+              key="media-grid"
+              data={mediaItems}
+              keyExtractor={(_, i) => String(i)}
+              numColumns={2}
+              contentContainerStyle={styles.mediaGrid}
+              renderItem={({ item, index }) => {
+                const isSel = mediaSelected.has(index);
+                return (
+                  <TouchableOpacity
+                    style={[styles.mediaCell, isSel && { borderWidth: 3, borderColor: C.gold }]}
+                    activeOpacity={0.85}
+                    onPress={() => {
+                      if (mediaSelectMode) toggleMediaSelect(index);
+                      else setMediaLightboxIdx(index);
+                    }}
+                    onLongPress={() => {
+                      if (!mediaSelectMode) {
+                        setMediaSelectMode(true);
+                        setMediaSelected(new Set([index]));
+                      }
+                    }}
+                  >
+                    <Image source={{ uri: item.url }} style={styles.mediaCellImg} resizeMode="cover" />
+                    {isSel && (
+                      <View style={[styles.checkBadge, { backgroundColor: C.gold }]}>
+                        <Text style={styles.checkBadgeText}>✓</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              }}
+            />
+          )}
+        </>
       ) : visibleEntries.length === 0 ? (
         <View style={styles.centered}>
           <Text style={{ fontSize: 40, marginBottom: 12 }}>📰</Text>
@@ -1479,6 +1577,13 @@ const styles = StyleSheet.create({
   deletedBanner: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, lineHeight: 17, marginBottom: 8 },
   photoStrip: { paddingTop: 10, gap: 6 },
   photoThumb: { width: 100, height: 100, borderRadius: 10, borderWidth: 1 },
+
+  selectBar: { paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, gap: 8 },
+  selectBarRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  selectBarBtn: { borderWidth: 1, borderRadius: 8, paddingVertical: 8, paddingHorizontal: 12 },
+  selectBarBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
+  checkBadge: { position: "absolute", top: 6, right: 6, width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  checkBadgeText: { fontFamily: "DM_Sans_700Bold", fontSize: 13, color: "#0D1B2E" },
 
   mediaGrid: { padding: 6 },
   mediaCell: { flex: 1 / 2, aspectRatio: 1, margin: 4, borderRadius: 10, overflow: "hidden" },
