@@ -42,18 +42,22 @@ interface Props {
   // horaire, type). Remplace onDayPress quand fourni ; l'admin (un seul
   // espace, popup jour) continue d'utiliser onDayPress seul.
   onSoinPress?: (r: Reservation) => void;
+  // Type de réservation regroupé — "Intervention" par défaut (soins.tsx,
+  // vue intervenant). Passer "Visite" pour le planning des visites
+  // (home/calendar.tsx, mode Visites).
+  reservationType?: "Intervention" | "Visite";
 }
 
 export default function SoinsPeriodBlock({
   C, reservations, view, weekAnchor, onWeekChange, monthAnchor, onMonthChange, onDayPress,
-  patientNameBySpaceId, locationBySpaceId, onSoinPress,
+  patientNameBySpaceId, locationBySpaceId, onSoinPress, reservationType = "Intervention",
 }: Props) {
   const dates = view === "hebdo" ? getWeekDates(weekAnchor) : getDaysInMonth(monthAnchor.year, monthAnchor.month);
   const isoSet = new Set(dates.map(toISO));
 
   const byDay: Record<string, Reservation[]> = {};
   for (const r of reservations) {
-    if (r.type !== "Intervention" || !isoSet.has(r.date)) continue;
+    if (r.type !== reservationType || !isoSet.has(r.date)) continue;
     (byDay[r.date] ??= []).push(r);
   }
   for (const list of Object.values(byDay)) list.sort((a, b) => a.creneau.localeCompare(b.creneau));
@@ -148,7 +152,7 @@ export default function SoinsPeriodBlock({
                           <>
                             <Text style={[styles.soinLabel, { color: C.text }]} numberOfLines={1}>{patientName}</Text>
                             <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>
-                              {r.intervention_label ?? "Intervention"}{r.duration_minutes ? ` (${r.duration_minutes} min)` : ""}
+                              {r.intervention_label ?? reservationType}{r.duration_minutes ? ` (${r.duration_minutes} min)` : ""}
                             </Text>
                             {!!location && (
                               <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>📍 {location}</Text>
@@ -157,7 +161,7 @@ export default function SoinsPeriodBlock({
                           </>
                         ) : (
                           <>
-                            <Text style={[styles.soinLabel, { color: C.text }]} numberOfLines={1}>{r.intervention_label ?? "Intervention"}</Text>
+                            <Text style={[styles.soinLabel, { color: C.text }]} numberOfLines={1}>{r.intervention_label ?? reservationType}</Text>
                             <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>{r.prenom} {r.nom}</Text>
                           </>
                         )}

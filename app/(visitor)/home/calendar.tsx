@@ -1,22 +1,31 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import {
-  View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, Modal, Switch,
+  View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, Modal, Switch, Linking,
 } from "react-native";
 import { useVisitorSpace } from "@/lib/VisitorContext";
 import {
   getDayStatus, findNextAvailableSlot, getDaysInMonth, getMonday, addDays,
-  toISO, toFrLong, isMyReservation,
+  toISO, toFrLong, isMyReservation, visiteurIdentityKey,
 } from "@/lib/slotUtils";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { getVisitorSession } from "@/lib/visitorSession";
-import { LOGO_GREEN, LOGO_PURPLE } from "@/lib/themes";
+import { LOGO_GREEN, LOGO_PURPLE, getPatientColor } from "@/lib/themes";
+import { careLocationDetail, mapsUrlForSpace } from "@/lib/address";
 import SpaceHeader from "@/components/SpaceHeader";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import WeekStrip from "@/components/WeekStrip";
 import IntervenantPlanningPanel from "@/components/IntervenantPlanningPanel";
+import { DayStripes } from "@/components/DayEdgeStripes";
+import PatientColorLegend from "@/components/PatientColorLegend";
+import PlanningDuJourBlock from "@/components/PlanningDuJourBlock";
+import SoinsPeriodBlock from "@/components/SoinsPeriodBlock";
+import SoinsPlanifiesBlock from "@/components/SoinsPlanifiesBlock";
+import SoinActionModal from "@/components/SoinActionModal";
+import VisiteEditFlow, { type VisiteEditFlowHandle } from "@/components/VisiteEditFlow";
 import BookingFlow, { type BookingFlowHandle } from "@/components/BookingFlow";
 import InterventionBookingFlow, { type InterventionBookingFlowHandle } from "@/components/InterventionBookingFlow";
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router";
+import type { Reservation } from "@/lib/types";
 
 const DAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
 
@@ -65,6 +74,15 @@ export default function VisitorCalendarScreen() {
   // Soins reprend la largeur naturelle calculée par Mensuel/Hebdo au lieu
   // d'en calculer une indépendamment (même mécanisme que Entraide.tsx).
   const [viewThumbWidth, setViewThumbWidth] = useState(0);
+  // Filtre légende visiteurs (mode Visites) — 1 visiteur (visiteurIdentityKey)
+  // ou "Tous" (null). Filtre les traits de bord (DayStripes) et les panneaux
+  // sous le calendrier ; jamais le fond Partiel/Complet (vérité globale de
+  // capacité, voir dayVisiteurColors/visitesFill plus bas).
+  const [selectedVisiteurKey, setSelectedVisiteurKey] = useState<string | null>(null);
+  // Visite tapée dans un des blocs sous le calendrier (mode Visites) — non-null
+  // tant que le popup d'action (Modifier / Y Aller / Fermer, SoinActionModal)
+  // est ouvert.
+  const [pendingVisite, setPendingVisite] = useState<Reservation | null>(null);
   // Dépend de `token` (pas juste []) : après un changement d'espace patient
   // depuis le Planning global intervenant (switchToLinkedSpace, qui fait un
   // router.replace vers cet écran sans le démonter), reservations se
@@ -136,6 +154,7 @@ export default function VisitorCalendarScreen() {
 
   const flowRef = useRef<BookingFlowHandle>(null);
   const interventionFlowRef = useRef<InterventionBookingFlowHandle>(null);
+  const visiteEditFlowRef = useRef<VisiteEditFlowHandle>(null);
 
   const monthDays = getDaysInMonth(calMonth.year, calMonth.month);
   const firstDow = (new Date(calMonth.year, calMonth.month, 1).getDay() + 6) % 7;
@@ -218,14 +237,85 @@ export default function VisitorCalendarScreen() {
     ? toISO(addDays(weekAnchor, 6))
     : toISO(new Date(calMonth.year, calMonth.month + 1, 0));
 
-  // Tap sur une case de la bande Hebdo — même comportement que le tap sur une
-  // case de la grille Mensuel (onPress ci-dessous) : jour bloqué par l'admin
-  // → modal, sinon navigation vers l'écran dédié des créneaux.
+  // Légende visiteurs (mode Visites) — regroupe les réservations Visite par
+  // identité approximée (visiteurIdentityKey), la personne qui regarde
+  // toujours en premier, le reste trié alphabétiquement (nom puis prénom,
+  // comme VisitorsBlock.tsx). Couleur = getPatientColor(index) sur cet ordre.
+  const visiteurGroups: Record<string, { prenom: string; nom: string }> = {};
+  for (const r of reservations) {
+    if (r.type !== "Visite") continue;
+    const key = visiteurIdentityKey(r.prenom, r.nom);
+    if (!visiteurGroups[key]) visiteurGroups[key] = { prenom: r.prenom, nom: r.nom };
+  }
+  const myVisiteurKey = myPrenom && myNom ? visiteurIdentityKey(myPrenom, myNom) : null;
+  const otherVisiteurKeys = Object.keys(visiteurGroups)
+    .filter((k) => k !== myVisiteurKey)
+    .sort((a, b) => {
+      const ga = visiteurGroups[a], gb = visiteurGroups[b];
+      return `${ga.nom} ${ga.prenom}`.localeCompare(`${gb.nom} ${gb.prenom}`, "fr");
+    });
+  const orderedVisiteurKeys = [
+    ...(myVisiteurKey && visiteurGroups[myVisiteurKey] ? [myVisiteurKey] : []),
+    ...otherVisiteurKeys,
+  ];
+  const visiteurColorByKey: Record<string, string> = {};
+  orderedVisiteurKeys.forEach((key, i) => { visiteurColorByKey[key] = getPatientColor(i); });
+  const visiteurLegendItems = orderedVisiteurKeys.map((key) => ({
+    id: key,
+    name: `${visiteurGroups[key].prenom} ${visiteurGroups[key].nom}`,
+    color: visiteurColorByKey[key],
+  }));
+
+  // Réservations Visite pour les panneaux sous le calendrier (mode Visites) —
+  // reprend panelReservations (déjà filtré par "Afficher mes créneaux") et y
+  // ajoute le filtre légende visiteur.
+  const visitesPanelReservations = panelReservations
+    .filter((r) => r.type === "Visite")
+    .filter((r) => !selectedVisiteurKey || visiteurIdentityKey(r.prenom, r.nom) === selectedVisiteurKey);
+
+  function openVisiteActions(r: Reservation) {
+    setPendingVisite(r);
+  }
+  function handleModifierVisitePress() {
+    const r = pendingVisite;
+    setPendingVisite(null);
+    if (!r) return;
+    visiteEditFlowRef.current?.open(r);
+  }
+  function handleYAllerVisitePress() {
+    setPendingVisite(null);
+    if (!space) return;
+    const url = mapsUrlForSpace(space);
+    if (url) Linking.openURL(url).catch(() => {});
+  }
+
+  // Tap sur une case de la bande Hebdo. Mode Soins : comportement inchangé
+  // (navigation directe vers l'écran des créneaux). Mode Visites : sélectionne
+  // seulement le jour, sans naviguer — voir handleWeekDayLongPress pour ça.
   const handleWeekDayPress = (iso: string) => {
     const day = new Date(iso + "T00:00:00");
     const dayConfig = getConfigForDate(iso) ?? slotConfig;
     const daySlots = getSlotsForDate(iso);
     const status = getDayStatus(reservations, iso, day, dayConfig, daySlots, startDate, soinsMode ? "Intervention" : "Visite");
+    const isPast = iso < toISO(today);
+    const isBlocked = status === "past" && !isPast;
+    if (isBlocked) {
+      setBlockedDayModal(day);
+      return;
+    }
+    setSelectedDay(day);
+    setCalMonth({ year: day.getFullYear(), month: day.getMonth() });
+    if (soinsMode) router.navigate("/(visitor)/home/slots");
+  };
+
+  // Appui prolongé sur une case de la bande Hebdo — mode Visites uniquement :
+  // reprend l'ancien comportement du tap simple (navigation vers l'écran des
+  // créneaux pour ce jour).
+  const handleWeekDayLongPress = (iso: string) => {
+    const day = new Date(iso + "T00:00:00");
+    const dayConfig = getConfigForDate(iso) ?? slotConfig;
+    const daySlots = getSlotsForDate(iso);
+    const status = getDayStatus(reservations, iso, day, dayConfig, daySlots, startDate, "Visite");
     const isPast = iso < toISO(today);
     const isBlocked = status === "past" && !isPast;
     if (isBlocked) {
@@ -323,20 +413,41 @@ export default function VisitorCalendarScreen() {
 
             // Pastille Dispo/Partiel/Complet : ne représente plus que les
             // visites (jamais les soins, qui ont leur propre cadre violet) et
-            // ne s'affiche qu'en mode Visites — en mode Soins, seul le cadre
-            // violet reste visible.
+            // ne s'affiche qu'en mode Soins — en mode Visites, le fond de
+            // case (visitesFill ci-dessous) remplace la pastille.
             const visiteStatus = getDayStatus(reservations, iso, day, dayConfig, daySlots, startDate, "Visite");
             const dotColor = soinsMode ? "transparent" :
               visiteStatus === "full" ? C.danger :
               visiteStatus === "partial" ? C.orange :
               visiteStatus === "empty" ? C.success : "transparent";
+            // Fond Orange/Rouge (Partiel/Complet) — mode Visites uniquement,
+            // vérité globale d'occupation de l'espace, non filtrée par
+            // selectedVisiteurKey (voir Contexte du plan).
+            const visitesFill = soinsMode ? null : visiteStatus === "full" ? C.danger : visiteStatus === "partial" ? C.orange : null;
+            // Traits de bord par visiteur (mode Visites uniquement) —
+            // remplace la bande verte "familyBooked" ci-dessous, filtré par
+            // la légende (selectedVisiteurKey).
+            const dayVisiteurColors: string[] = [];
+            if (!soinsMode) {
+              const keysToday = new Set<string>();
+              for (const r of reservations) {
+                if (r.date !== iso || r.type !== "Visite") continue;
+                const key = visiteurIdentityKey(r.prenom, r.nom);
+                if (selectedVisiteurKey && key !== selectedVisiteurKey) continue;
+                keysToday.add(key);
+              }
+              for (const key of Object.keys(visiteurColorByKey)) {
+                if (keysToday.has(key)) dayVisiteurColors.push(visiteurColorByKey[key]);
+              }
+            }
 
             // Bande verte en bas de case = strictement personnelle (comparée
             // au PIN de la session courante) : visite/nuitée réservée par MOI
             // ou, si je suis intervenant, soin réservé par MOI — jamais les
             // réservations d'un autre visiteur/intervenant ni de l'admin.
             // Toujours visible, quel que soit le mode ou "Afficher mes
-            // créneaux" — reste individuelle pour les 3 profils.
+            // créneaux" — reste individuelle pour les 3 profils. Mode Soins
+            // uniquement (mode Visites : voir dayVisiteurColors ci-dessus).
             const familyBooked = reservations.some((r) => r.date === iso && isMyReservation(r, myPin, intervenantProfileId, myPrenom, myNom));
             // Case remplie en violet uniquement pour l'intervenant assigné à
             // CE soin — les autres intervenants (comme les visiteurs/admin)
@@ -356,6 +467,7 @@ export default function VisitorCalendarScreen() {
               ? (role === "intervenant" && mesCreneauxOnly ? myInterventionToday : interventionBooked)
               : (role === "intervenant" && mesCreneauxOnly && myInterventionToday);
             const fillPurple = frameVisible && myInterventionToday;
+            const whiteText = soinsMode ? (isSelected || fillPurple) : (isSelected || !!visitesFill);
 
             return (
               <TouchableOpacity
@@ -363,13 +475,22 @@ export default function VisitorCalendarScreen() {
                 style={[
                   styles.cell,
                   {
-                    backgroundColor: isSelected ? C.accent : dimmed ? "transparent" : fillPurple ? LOGO_PURPLE : C.card,
-                    borderColor: isSelected ? C.accent : frameVisible ? LOGO_PURPLE : isToday ? C.gold : C.border,
-                    borderWidth: isToday || frameVisible ? 2 : 1,
+                    backgroundColor: isSelected ? C.accent : dimmed ? "transparent" : soinsMode ? (fillPurple ? LOGO_PURPLE : C.card) : (visitesFill ?? C.card),
+                    borderColor: isSelected ? C.accent : soinsMode && frameVisible ? LOGO_PURPLE : isToday ? C.gold : C.border,
+                    borderWidth: isToday || (soinsMode && frameVisible) ? 2 : 1,
                     opacity: dimmed ? 0.3 : 1,
                   },
                 ]}
                 onPress={() => {
+                  if (isBlocked) {
+                    setBlockedDayModal(day);
+                    return;
+                  }
+                  setSelectedDay(day);
+                  setCalMonth({ year: day.getFullYear(), month: day.getMonth() });
+                  if (soinsMode) router.navigate("/(visitor)/home/slots");
+                }}
+                onLongPress={soinsMode ? undefined : () => {
                   if (isBlocked) {
                     setBlockedDayModal(day);
                     return;
@@ -381,13 +502,17 @@ export default function VisitorCalendarScreen() {
                 activeOpacity={0.7}
               >
                 <View style={styles.cellInner}>
-                  <Text style={[styles.cellDate, { color: isSelected || fillPurple ? "#fff" : isToday ? C.gold : C.text }]}>
+                  <Text style={[styles.cellDate, { color: whiteText ? "#fff" : isToday ? C.gold : C.text }]}>
                     {day.getDate()}
                   </Text>
-                  <View style={[styles.dot, { backgroundColor: dotColor }]} />
+                  {soinsMode && <View style={[styles.dot, { backgroundColor: dotColor }]} />}
                 </View>
-                {!!familyBooked && (
-                  <View pointerEvents="none" style={[styles.visitStripe, { backgroundColor: LOGO_GREEN }]} />
+                {soinsMode ? (
+                  !!familyBooked && (
+                    <View pointerEvents="none" style={[styles.visitStripe, { backgroundColor: LOGO_GREEN }]} />
+                  )
+                ) : (
+                  <DayStripes colors={dayVisiteurColors} />
                 )}
               </TouchableOpacity>
             );
@@ -395,32 +520,49 @@ export default function VisitorCalendarScreen() {
           {Array(trailingFillers).fill(null).map((_, i) => <View key={`t${i}`} style={styles.cell} />)}
         </View>
 
-        {/* Legend — les pastilles ne représentent que les visites, d'où le
-            préfixe "Visiteurs :" qui le rappelle ; la ligne reste centrée
-            sous le calendrier comme avant. */}
-        <View style={styles.legend}>
-          <Text style={[styles.legendPrefix, { color: C.muted }]}>Visiteurs :</Text>
-          {([[C.success, "Dispo"], [C.orange, "Partiel"], [C.danger, "Complet"]] as [string, string][]).map(
-            ([color, label]) => (
-              <View key={label} style={styles.legendItem}>
-                <View style={[styles.legendDot, { backgroundColor: color }]} />
-                <Text style={[styles.legendLabel, { color: C.muted }]}>{label}</Text>
-              </View>
-            ),
-          )}
-        </View>
-        <View style={[styles.legend, styles.legendRow2]}>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendStripeSwatch, { borderColor: C.border }]}>
-              <View style={[styles.legendStripeBar, { backgroundColor: LOGO_GREEN }]} />
+        {/* Legend — mode Soins : pastilles Dispo/Partiel/Complet + Mes
+            créneaux/Intervenant, inchangé. Mode Visites : le fond de case
+            remplace la pastille (voir visitesFill ci-dessus), la légende par
+            visiteur (couleurs) est désormais celle affichée sous le bloc
+            Visites/Soins (PatientColorLegend) — ici, juste Partiel/Complet. */}
+        {soinsMode ? (
+          <>
+            <View style={styles.legend}>
+              <Text style={[styles.legendPrefix, { color: C.muted }]}>Visiteurs :</Text>
+              {([[C.success, "Dispo"], [C.orange, "Partiel"], [C.danger, "Complet"]] as [string, string][]).map(
+                ([color, label]) => (
+                  <View key={label} style={styles.legendItem}>
+                    <View style={[styles.legendDot, { backgroundColor: color }]} />
+                    <Text style={[styles.legendLabel, { color: C.muted }]}>{label}</Text>
+                  </View>
+                ),
+              )}
             </View>
-            <Text style={[styles.legendLabel, { color: C.muted }]}>Mes créneaux</Text>
+            <View style={[styles.legend, styles.legendRow2]}>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendStripeSwatch, { borderColor: C.border }]}>
+                  <View style={[styles.legendStripeBar, { backgroundColor: LOGO_GREEN }]} />
+                </View>
+                <Text style={[styles.legendLabel, { color: C.muted }]}>Mes créneaux</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendFrame, { borderColor: LOGO_PURPLE }]} />
+                <Text style={[styles.legendLabel, { color: C.muted }]}>Soin</Text>
+              </View>
+            </View>
+          </>
+        ) : (
+          <View style={styles.legend}>
+            {([[C.orange, "Partiel"], [C.danger, "Complet"]] as [string, string][]).map(
+              ([color, label]) => (
+                <View key={label} style={styles.legendItem}>
+                  <View style={[styles.legendDot, { backgroundColor: color }]} />
+                  <Text style={[styles.legendLabel, { color: C.muted }]}>{label}</Text>
+                </View>
+              ),
+            )}
           </View>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendFrame, { borderColor: LOGO_PURPLE }]} />
-            <Text style={[styles.legendLabel, { color: C.muted }]}>{soinsMode ? "Soin" : "Intervenant"}</Text>
-          </View>
-        </View>
+        )}
         </>
         ) : (
         <>
@@ -441,6 +583,7 @@ export default function VisitorCalendarScreen() {
           selectedIso={selectedIso}
           onSelectDay={(iso) => setSelectedDay(new Date(iso + "T00:00:00"))}
           onDayPress={handleWeekDayPress}
+          onDayLongPress={handleWeekDayLongPress}
           soinsMode={soinsMode}
           mesCreneauxOnly={mesCreneauxOnly}
           role={role}
@@ -450,6 +593,9 @@ export default function VisitorCalendarScreen() {
           myNom={myNom}
           admissionIso={admissionIso}
           dischargeIso={dischargeIso}
+          richVisitesMode
+          visiteurColorByKey={visiteurColorByKey}
+          selectedVisiteurKey={selectedVisiteurKey}
         />
         </>
         )}
@@ -493,20 +639,73 @@ export default function VisitorCalendarScreen() {
           </View>
         </View>
 
+        {!soinsMode && (
+          <View style={{ marginTop: 16 }}>
+            <PatientColorLegend
+              C={C}
+              items={visiteurLegendItems}
+              selectedId={selectedVisiteurKey}
+              onSelect={setSelectedVisiteurKey}
+              maxVisible={4}
+            />
+          </View>
+        )}
+
         <View style={{ marginTop: 16 }}>
-          <IntervenantPlanningPanel
-            C={C}
-            reservations={panelReservations}
-            soinsMode={soinsMode}
-            myPin={myPin}
-            myPrenom={myPrenom}
-            myNom={myNom}
-            onEdit={(r) => flowRef.current?.openPinModal(r)}
-            myIntervenantProfileId={role === "intervenant" && mesCreneauxOnly ? intervenantProfileId : null}
-            periodStartIso={periodStartIso}
-            periodEndIso={periodEndIso}
-            periodLabel={planningView === "hebdo" ? "cette semaine" : "ce mois-ci"}
-          />
+          {soinsMode ? (
+            <IntervenantPlanningPanel
+              C={C}
+              reservations={panelReservations}
+              soinsMode={soinsMode}
+              myPin={myPin}
+              myPrenom={myPrenom}
+              myNom={myNom}
+              onEdit={(r) => flowRef.current?.openPinModal(r)}
+              myIntervenantProfileId={role === "intervenant" && mesCreneauxOnly ? intervenantProfileId : null}
+              periodStartIso={periodStartIso}
+              periodEndIso={periodEndIso}
+              periodLabel={planningView === "hebdo" ? "cette semaine" : "ce mois-ci"}
+            />
+          ) : (
+            <>
+              <PlanningDuJourBlock
+                C={C}
+                iso={selectedIso}
+                reservations={visitesPanelReservations.filter((r) => r.date === selectedIso)}
+                patientNameBySpaceId={{}}
+                locationBySpaceId={{}}
+                onSoinPress={openVisiteActions}
+                reservationType="Visite"
+              />
+
+              <Text style={[styles.sectionTitle, { color: C.gold }]}>
+                {planningView === "hebdo" ? "Planning hebdo" : "Planning mensuel"}
+              </Text>
+              <SoinsPeriodBlock
+                C={C}
+                reservations={visitesPanelReservations.filter((r) => r.date !== selectedIso)}
+                view={planningView}
+                weekAnchor={weekAnchor}
+                onWeekChange={setWeekAnchor}
+                monthAnchor={calMonth}
+                onMonthChange={setCalMonth}
+                onDayPress={() => {}}
+                onSoinPress={openVisiteActions}
+                reservationType="Visite"
+              />
+
+              <SoinsPlanifiesBlock
+                C={C}
+                reservations={visitesPanelReservations}
+                reservationLabel="visite"
+                title="Autres visites planifiées"
+                includePast
+                chronological
+                excludeUpToDate={periodEndIso}
+                onPressRow={(_date, r) => openVisiteActions(r)}
+              />
+            </>
+          )}
         </View>
       </ScrollView>
 
@@ -538,6 +737,27 @@ export default function VisitorCalendarScreen() {
           C={C}
         />
       )}
+
+      <SoinActionModal
+        C={C}
+        visible={!!pendingVisite}
+        reservation={pendingVisite}
+        patientNameBySpaceId={{ [space.id]: "Visite auprès de " + space.patient_firstname }}
+        locationBySpaceId={{ [space.id]: careLocationDetail(space) }}
+        onModifier={handleModifierVisitePress}
+        onYAller={handleYAllerVisitePress}
+        onClose={() => setPendingVisite(null)}
+      />
+      <VisiteEditFlow
+        ref={visiteEditFlowRef}
+        C={C}
+        space={space}
+        slotConfig={slotConfig}
+        slots={slots}
+        reservations={reservations}
+        startDate={startDate}
+        onSaved={refreshReservations}
+      />
 
       {/* ── MODAL PROCHAINE DISPONIBILITÉ ──────────────────────────────────── */}
       <Modal transparent visible={!!nextDispoModal} animationType="fade" onRequestClose={() => setNextDispoModal(null)}>
@@ -634,6 +854,7 @@ const styles = StyleSheet.create({
   legendStripeBar: { position: "absolute", left: 0, right: 0, bottom: 0, height: 3 },
   legendLabel: { fontFamily: "DM_Sans_400Regular", fontSize: 11 },
 
+  sectionTitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 10, marginTop: 20 },
   card: { borderWidth: 1, borderRadius: 14, padding: 16, gap: 6 },
   toggleRow: { flexDirection: "row", alignItems: "center", gap: 12 },
   toggleLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14, marginBottom: 4 },

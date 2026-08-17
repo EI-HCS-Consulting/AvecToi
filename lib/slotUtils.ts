@@ -180,6 +180,16 @@ export function isMyReservation(
   return true;
 }
 
+// Identité approximée d'un visiteur (prénom+nom normalisés) — un visiteur n'a
+// pas de compte/fiche stable comme un intervenant (IntervenantProfile.id),
+// donc on regroupe ses réservations par ce texte normalisé, même principe que
+// identityKey dans components/VisitorsBlock.tsx (trim + minuscule + retrait
+// des diacritiques, pour que "Émilie" et "emilie " tombent sous la même clé).
+export function visiteurIdentityKey(prenom: string, nom: string): string {
+  const norm = (s: string) => s.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  return `${norm(prenom)}|${norm(nom)}`;
+}
+
 export function getSlotOccupancy(
   reservations: Reservation[],
   iso: string,

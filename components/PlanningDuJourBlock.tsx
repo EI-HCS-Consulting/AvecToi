@@ -23,9 +23,14 @@ interface Props {
   // hors onglet Planning intervenant, s'il y en a un jour).
   showOtherIntervenants?: boolean;
   onToggleOtherIntervenants?: () => void;
+  // Libellé de repli quand r.intervention_label est vide — "Intervention" par
+  // défaut (comportement historique). Passer "Visite" pour le planning des
+  // visites (home/calendar.tsx, mode Visites), où intervention_label n'est
+  // jamais renseigné.
+  reservationType?: "Intervention" | "Visite";
 }
 
-export default function PlanningDuJourBlock({ C, iso, reservations, patientNameBySpaceId, locationBySpaceId, onSoinPress, showOtherIntervenants, onToggleOtherIntervenants }: Props) {
+export default function PlanningDuJourBlock({ C, iso, reservations, patientNameBySpaceId, locationBySpaceId, onSoinPress, showOtherIntervenants, onToggleOtherIntervenants, reservationType = "Intervention" }: Props) {
   const isToday = iso === toISO(new Date());
   const dayDate = new Date(iso + "T00:00:00");
   const sorted = [...reservations].sort((a, b) => a.creneau.localeCompare(b.creneau));
@@ -68,7 +73,7 @@ export default function PlanningDuJourBlock({ C, iso, reservations, patientNameB
                   {patientNameBySpaceId[r.space_id] ?? `${r.prenom} ${r.nom}`}
                 </Text>
                 <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>
-                  {r.intervention_label ?? "Intervention"}{r.duration_minutes ? ` (${r.duration_minutes} min)` : ""}
+                  {r.intervention_label ?? reservationType}{r.duration_minutes ? ` (${r.duration_minutes} min)` : ""}
                 </Text>
                 {!!locationBySpaceId[r.space_id] && (
                   <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>📍 {locationBySpaceId[r.space_id]}</Text>
