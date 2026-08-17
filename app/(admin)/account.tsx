@@ -17,6 +17,7 @@ import PinPad from "@/components/PinPad";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import MyChecklist from "@/components/MyChecklist";
 import MyAlertsModal from "@/components/MyAlertsModal";
+import { isRgpdAlertActive, rgpdAlertMessage, prolongSpace } from "@/lib/rgpd";
 import type { Reservation, ReservationChangeHistoryEntry, NewsEntry, SupportMessage, Task } from "@/lib/types";
 
 const CAT_ICONS: Record<Task["category"], string> = {
@@ -42,7 +43,7 @@ const SHEET_MAX_HEIGHT = Dimensions.get("window").height * 0.72;
 
 export default function AdminAccountScreen() {
   const router = useRouter();
-  const { space, loading, hasSpace, getConfigForDate } = useSpace();
+  const { space, loading, hasSpace, getConfigForDate, patchSpace } = useSpace();
   const { mode, theme: C, setMode } = useDisplayMode();
 
   const [activityLoading, setActivityLoading] = useState(false);
@@ -317,6 +318,22 @@ export default function AdminAccountScreen() {
   const myActiveAlerts = reservations
     .filter((r) => r.alert_message && !r.alert_seen)
     .sort((a, b) => (a.date === b.date ? a.creneau.localeCompare(b.creneau) : a.date.localeCompare(b.date)));
+
+  // Alerte RGPD (conservation des données proche de l'échéance) — voir
+  // lib/rgpd.ts et RgpdAlertModal.tsx pour le popup équivalent à l'ouverture
+  // de l'app. Comptée dans le badge "Mes alertes" au même titre que les
+  // recasages/annulations.
+  const [rgpdProlonging, setRgpdProlonging] = useState(false);
+  const rgpdAlertActive = !!space && isRgpdAlertActive(space);
+  const alertsBadgeCount = myActiveAlerts.length + (rgpdAlertActive ? 1 : 0);
+
+  async function handleRgpdProlong() {
+    if (!space) return;
+    setRgpdProlonging(true);
+    const patch = await prolongSpace(space);
+    setRgpdProlonging(false);
+    if (patch) patchSpace(patch);
+  }
 
   function handleAlertModify(r: Reservation) {
     if (r.type === "Nuit") {
@@ -627,12 +644,12 @@ export default function AdminAccountScreen() {
                 />
 
                 <TouchableOpacity
-                  style={[styles.saveBtn, { backgroundColor: C.accent, marginTop: 16 }, myActiveAlerts.length > 0 && { backgroundColor: "#e94560" }]}
+                  style={[styles.saveBtn, { backgroundColor: C.accent, marginTop: 16 }, alertsBadgeCount > 0 && { backgroundColor: "#e94560" }]}
                   onPress={() => setAlertsModalVisible(true)}
                   activeOpacity={0.85}
                 >
                   <Text style={styles.saveBtnText}>
-                    🔔 Mes alertes{myActiveAlerts.length > 0 ? ` (${myActiveAlerts.length})` : ""}
+                    🔔 Mes alertes{alertsBadgeCount > 0 ? ` (${alertsBadgeCount})` : ""}
                   </Text>
                 </TouchableOpacity>
 
@@ -644,6 +661,7 @@ export default function AdminAccountScreen() {
                   history={changeHistory}
                   onModify={handleAlertModify}
                   onMarkSeen={handleAlertMarkSeen}
+                  rgpdAlert={rgpdAlertActive && space ? { message: rgpdAlertMessage(space), onProlong: handleRgpdProlong, prolonging: rgpdProlonging } : null}
                 />
 
                 <TouchableOpacity
