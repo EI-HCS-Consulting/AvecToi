@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import {
-  View, Text, TouchableOpacity, Modal, StyleSheet,
+  View, Text, TextInput, TouchableOpacity, Modal, StyleSheet,
   ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Alert,
 } from "react-native";
 import * as ImagePicker from "expo-image-picker";
@@ -44,7 +44,7 @@ interface Props {
     profileId: string, prenom: string, nom: string,
     telephone: string | null, phraseTotem: string | null,
     photo: string | null, photoUpdatedAt: string | null,
-    metier: string | null,
+    metier: string | null, email: string | null,
   ) => void;
 }
 
@@ -89,6 +89,10 @@ export default function IntervenantFicheModal({
   // La seule source d'écriture du téléphone reste désormais "Mes informations"
   // (syncIntervenantContact dans account.tsx).
   const [existingTelephone, setExistingTelephone] = useState<string | null>(null);
+  // Éditable ici (contrairement au téléphone) — sert à envoyer une
+  // confirmation de créneau par email, voir AdminAddIntervention.handleSendConfirmation.
+  const [ficheEmail, setFicheEmail] = useState("");
+  const [loadedEmail, setLoadedEmail] = useState<string | null>(null);
   // Nom "source de vérité" pour la comparaison avant/après à l'enregistrement
   // du métier (voir handleSave) — prénom/nom/totem ne sont plus éditables ici
   // (affichés en lecture seule sous "Changer la photo", voir plus bas), donc
@@ -121,7 +125,7 @@ export default function IntervenantFicheModal({
         .order("created_at", { ascending: true }),
       supabase
         .from("intervenant_profiles")
-        .select("prenom, nom, photo, photo_updated_at, telephone, phrase_totem, metier, metier_secondaire")
+        .select("prenom, nom, photo, photo_updated_at, telephone, phrase_totem, metier, metier_secondaire, email")
         // telephone n'est plus édité ici (voir existingTelephone plus haut),
         // juste lu pour le répercuter tel quel dans onSaved.
         .eq("id", intervenantProfileId)
@@ -137,6 +141,8 @@ export default function IntervenantFicheModal({
       if (profileData?.prenom) setFichePrenom(profileData.prenom);
       if (profileData?.nom) setFicheNom(profileData.nom);
       setExistingTelephone(profileData?.telephone ?? null);
+      setFicheEmail(profileData?.email ?? "");
+      setLoadedEmail(profileData?.email ?? null);
       setFichePhraseTotem(profileData?.phrase_totem ?? "");
       setFicheMetier(profileData?.metier ?? null);
       setLoadedMetier(profileData?.metier ?? null);
@@ -233,9 +239,11 @@ export default function IntervenantFicheModal({
       const trimmedPrenom = ficheePrenom.trim();
       const trimmedNom = ficheNom.trim();
       const trimmedPhraseTotem = fichePhraseTotem.trim();
+      const trimmedEmail = ficheEmail.trim();
 
       const updatePayload: Record<string, string | null> = {};
       if (ficheMetier !== loadedMetier) updatePayload.metier = ficheMetier;
+      if ((trimmedEmail || null) !== loadedEmail) updatePayload.email = trimmedEmail || null;
       if (Object.keys(updatePayload).length > 0) {
         const { error } = await supabase
           .from("intervenant_profiles")
@@ -284,7 +292,7 @@ export default function IntervenantFicheModal({
       onSaved(
         intervenantProfileId, trimmedPrenom, trimmedNom,
         existingTelephone, trimmedPhraseTotem || null,
-        finalPhoto, finalPhotoUpdatedAt, ficheMetier,
+        finalPhoto, finalPhotoUpdatedAt, ficheMetier, trimmedEmail || null,
       );
     } catch (e: any) {
       Alert.alert("Erreur", e?.message ?? "Impossible d'enregistrer la fiche intervenant.");
@@ -346,6 +354,18 @@ export default function IntervenantFicheModal({
                     <Text style={styles.ficheTotem} numberOfLines={2}>{fichePhraseTotem}</Text>
                   )}
                 </View>
+
+                <Text style={[styles.metierLabel, { color: C.gold }]}>Email (optionnel)</Text>
+                <TextInput
+                  style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginBottom: 16 }]}
+                  placeholder="Adresse email"
+                  placeholderTextColor={C.muted}
+                  value={ficheEmail}
+                  onChangeText={setFicheEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
 
                 <Text style={[styles.metierLabel, { color: C.gold }]}>Métier / spécialisation (optionnel)</Text>
                 <TouchableOpacity
@@ -511,6 +531,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   metierLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 8 },
+  input: { borderWidth: 1, borderRadius: 10, padding: 12, fontFamily: "DM_Sans_400Regular", fontSize: 14, marginBottom: 8 },
   metierBtn: { flexDirection: "row", alignItems: "center", gap: 8, borderRadius: 10, padding: 12, marginBottom: 16 },
   metierBtnText: { flex: 1, fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: "#fff" },
   addSoinBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, borderRadius: 12, paddingVertical: 13, marginBottom: 20, marginTop: 4 },

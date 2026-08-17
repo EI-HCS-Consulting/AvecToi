@@ -6,8 +6,10 @@ import {
 import { supabase } from "@/lib/supabase";
 import { toFrLong, toISO, isSlotFullyPast } from "@/lib/slotUtils";
 import { addToNativeCalendar, linkCalendarEvent } from "@/lib/calendarSync";
+import { careLocationDetail } from "@/lib/address";
 import MiniCalendar from "@/components/MiniCalendar";
 import ConfirmModal from "@/components/ConfirmModal";
+import AdminNewIntervenantFlow from "@/components/AdminNewIntervenantFlow";
 import type { PatientSpace, SlotConfig, IntervenantProfile, InterventionType, Reservation } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -77,6 +79,14 @@ function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, i
   const [failedCount, setFailedCount] = useState(0);
   const [addingToCalendar, setAddingToCalendar] = useState(false);
   const [calendarAdded, setCalendarAdded] = useState(false);
+  const [newIntervenantOpen, setNewIntervenantOpen] = useState(false);
+  const [sendingConfirmation, setSendingConfirmation] = useState(false);
+  const [confirmationSent, setConfirmationSent] = useState(false);
+  const [toast, setToast] = useState("");
+  function showToast(msg: string) {
+    setToast(msg);
+    setTimeout(() => setToast(""), 3200);
+  }
 
   useImperativeHandle(ref, () => ({
     open: (initialIso) => {
@@ -95,6 +105,7 @@ function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, i
       setTypes([]);
       setSavedId(null);
       setCalendarAdded(false);
+      setConfirmationSent(false);
       if (fixedIntervenantProfileId) {
         setSelectedProfileId(fixedIntervenantProfileId);
         setProfiles([]);
@@ -196,6 +207,63 @@ function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, i
     setCalendarAdded(true);
   }
 
+  // Envoie la confirmation du créneau qui vient d'être réservé à l'intervenant
+  // sélectionné : message in-app (réutilise les colonnes alert_* existantes,
+  // repris à chaque connexion tant que non traité — voir
+  // BookingProposalAlertModal.tsx) si la fiche a un compte (pin non nul), et/ou
+  // email via l'Edge Function si une adresse est renseignée sur la fiche — les
+  // deux peuvent se déclencher ensemble (compte + email).
+  async function handleSendConfirmation() {
+    if (!selectedProfile || !savedId || !selectedIso || !selectedSlot || !selectedType || sendingConfirmation) return;
+    setSendingConfirmation(true);
+    try {
+      const hasAccount = selectedProfile.pin !== null;
+      const sentParts: string[] = [];
+
+      if (hasAccount) {
+        const message =
+          `Un créneau t'a été réservé le ${toFrLong(new Date(selectedIso + "T12:00:00"))} à ${selectedSlot} — ` +
+          `${selectedType.label} (${selectedType.duration_minutes} min) pour ${space.patient_firstname} ${space.patient_lastname}, ` +
+          `${careLocationDetail(space)}.`;
+        const { error } = await supabase
+          .from("reservations")
+          .update({ alert_type: "booking_proposal", alert_seen: false, alert_message: message })
+          .eq("id", savedId);
+        if (error) throw error;
+        sentParts.push("message affiché à la prochaine connexion");
+      }
+
+      if (selectedProfile.email) {
+        const { error } = await supabase.functions.invoke("notify-intervention-confirmation", {
+          body: {
+            space_id: space.id,
+            intervenant_email: selectedProfile.email,
+            intervenant_prenom: selectedProfile.prenom,
+            date: selectedIso,
+            creneau: selectedSlot,
+            duration_minutes: selectedType.duration_minutes,
+            intervention_label: selectedType.label,
+          },
+        });
+        if (error) throw error;
+        sentParts.push("email envoyé");
+      }
+
+      setConfirmationSent(true);
+      showToast(sentParts.length ? `${sentParts.join(" + ")} ✓` : "Rien à envoyer");
+    } catch (e: any) {
+      Alert.alert("Erreur", e?.message ?? "Impossible d'envoyer la confirmation.");
+    } finally {
+      setSendingConfirmation(false);
+    }
+  }
+
+  function handleNewIntervenantCreated(profile: IntervenantProfile) {
+    setProfiles((prev) => [...prev, profile].sort((a, b) => a.prenom.localeCompare(b.prenom)));
+    setSelectedProfileId(profile.id);
+    setNewIntervenantOpen(false);
+  }
+
   function close() {
     setVisible(false);
     setSavedId(null);
@@ -244,6 +312,30 @@ function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, i
                         </Text>
                       )}
                     </TouchableOpacity>
+
+                    {!fixedIntervenantProfileId && (
+                      <TouchableOpacity
+                        style={[
+                          styles.calendarBtn,
+                          { borderColor: confirmationSent ? C.success : C.orange, backgroundColor: confirmationSent ? `${C.success}22` : `${C.orange}22` },
+                          (sendingConfirmation || (selectedProfile?.pin === null && !selectedProfile?.email)) && { opacity: 0.6 },
+                        ]}
+                        onPress={handleSendConfirmation}
+                        disabled={sendingConfirmation || confirmationSent || (selectedProfile?.pin === null && !selectedProfile?.email)}
+                      >
+                        {sendingConfirmation ? (
+                          <ActivityIndicator color={C.orange} size="small" />
+                        ) : (
+                          <Text style={[styles.calendarBtnText, { color: confirmationSent ? C.success : C.orange }]}>
+                            {confirmationSent
+                              ? "✅ Confirmation envoyée"
+                              : selectedProfile?.pin === null && !selectedProfile?.email
+                                ? "Aucun email renseigné"
+                                : `✉️ Envoyer une confirmation à ${selectedProfile?.prenom}`}
+                          </Text>
+                        )}
+                      </TouchableOpacity>
+                    )}
 
                     <TouchableOpacity
                       style={[styles.btnSecondary, { borderColor: C.orange, width: "100%", marginTop: 12 }]}
@@ -338,13 +430,14 @@ function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, i
                     {selectedSlot && !fixedIntervenantProfileId && (
                       loadingProfiles ? (
                         <ActivityIndicator color={C.orange} style={{ marginVertical: 16 }} />
-                      ) : profiles.length === 0 ? (
-                        <Text style={[styles.sheetSub, { color: C.muted }]}>
-                          Aucun intervenant n'a encore créé de fiche pour cet espace.
-                        </Text>
                       ) : (
                         <>
                           <Text style={[styles.fieldLabel, { color: C.gold }]}>Intervenant</Text>
+                          {profiles.length === 0 && (
+                            <Text style={[styles.sheetSub, { color: C.muted }]}>
+                              Aucun intervenant n'a encore créé de fiche pour cet espace.
+                            </Text>
+                          )}
                           <View style={styles.optionGrid}>
                             {profiles.map((p) => {
                               const selected = selectedProfileId === p.id;
@@ -362,6 +455,13 @@ function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, i
                                 </TouchableOpacity>
                               );
                             })}
+                            <TouchableOpacity
+                              style={[styles.option, { backgroundColor: C.bg, borderColor: C.accent, borderStyle: "dashed" }]}
+                              onPress={() => setNewIntervenantOpen(true)}
+                              activeOpacity={0.75}
+                            >
+                              <Text style={[styles.optionLabel, { color: C.accent }]}>+ Nouvel intervenant</Text>
+                            </TouchableOpacity>
                           </View>
 
                           {selectedProfileId && (
@@ -432,6 +532,20 @@ function AdminAddIntervention({ space, slotConfig, getSlotsForDate, startDate, i
       </KeyboardAvoidingView>
     </Modal>
 
+    {!!toast && (
+      <View style={[styles.toast, { backgroundColor: C.success }]} pointerEvents="none">
+        <Text style={styles.toastText}>{toast}</Text>
+      </View>
+    )}
+
+    <AdminNewIntervenantFlow
+      visible={newIntervenantOpen}
+      spaceId={space.id}
+      theme={C}
+      onClose={() => setNewIntervenantOpen(false)}
+      onCreated={handleNewIntervenantCreated}
+    />
+
     <ConfirmModal
       visible={dayBookedAlert}
       icon="📅"
@@ -489,4 +603,7 @@ const styles = StyleSheet.create({
   btnPrimaryText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" },
   btnSecondary: { flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 13, alignItems: "center" },
   btnSecondaryText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
+
+  toast: { position: "absolute", bottom: 24, alignSelf: "center", paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10 },
+  toastText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13, color: "#fff" },
 });

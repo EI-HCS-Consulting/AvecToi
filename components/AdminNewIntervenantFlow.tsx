@@ -3,24 +3,24 @@ import {
   View, Text, TextInput, TouchableOpacity, Modal, StyleSheet,
   ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView, Alert, Animated,
 } from "react-native";
-import * as ImageManipulator from "expo-image-manipulator";
-import { File } from "expo-file-system";
 import { supabase } from "@/lib/supabase";
 import MetierPickerModal from "@/components/MetierPickerModal";
 import SoinPickerModal from "@/components/SoinPickerModal";
 import SoinDurationModal from "@/components/SoinDurationModal";
-import { normalizePhone } from "@/lib/phone";
 import { propagateSoinChange } from "@/lib/interventionTypesSync";
 import { metierLabel } from "@/lib/metiers";
 import type { Theme } from "@/lib/themes";
+import type { IntervenantProfile } from "@/lib/types";
 
-// Création de la fiche intervenant (première connexion) — suite de popups
-// enchaînées après le popup identité (prénom/nom + PIN + photo, voir
-// app/(visitor)/_layout.tsx) : téléphone, phrase totem (facultative), métier,
-// puis soins pratiqués. Le compte n'est créé en base qu'à la toute fin
-// (handleCreateAccount), une fois au moins un soin choisi — reprend la même
-// logique d'insertion que l'ancien IntervenantFicheModal en mode "create"
-// (conflit 23505, upload photo différé, propagation des soins).
+// Fiche intervenant express créée par l'admin, sans code PIN ni rien qui
+// permettrait une future connexion (voir migration
+// 20260817_intervenant_no_login_and_booking_alerts.sql, pin nullable) —
+// ouverte depuis l'étape "Intervenant" de AdminAddIntervention.tsx pour
+// créer à la volée la fiche d'un intervenant qui n'a pas et n'aura jamais
+// de compte dans l'app. Même squelette que IntervenantOnboardingFlow.tsx
+// (Modal + Animated slide entre étapes, réutilise les mêmes pickers) mais
+// réduit aux étapes utiles ici : identité, métier, soins, email optionnel —
+// pas de téléphone ni de phrase totem (réservés à l'auto-onboarding).
 interface PendingSoin {
   label: string;
   duration_minutes: number;
@@ -29,34 +29,17 @@ interface PendingSoin {
 interface Props {
   visible: boolean;
   spaceId: string;
-  prenom: string;
-  nom: string;
-  pin: string;
-  // Photo choisie sur le popup identité — uploadée seulement une fois le
-  // profil créé (a besoin de son id pour nommer le fichier), voir
-  // handleCreateAccount.
-  pickedPhotoUri: string | null;
   theme: Theme;
-  onCreated: (
-    profileId: string, prenom: string, nom: string,
-    telephone: string | null, phraseTotem: string | null,
-    photo: string | null, photoUpdatedAt: string | null,
-    metier: string | null, email: string | null,
-  ) => void;
+  onClose: () => void;
+  onCreated: (profile: IntervenantProfile) => void;
 }
 
-type Step = "telephone" | "totem" | "metier" | "soins" | "email";
+type Step = "identite" | "metier" | "soins" | "email";
 
 const SLIDE_DISTANCE = 56;
 
-export default function IntervenantOnboardingFlow({
-  visible, spaceId, prenom, nom, pin, pickedPhotoUri, theme: C, onCreated,
-}: Props) {
-  const [step, setStep] = useState<Step>("telephone");
-  // Transition "droite → gauche" entre étapes : chaque nouvelle étape glisse
-  // depuis la droite (Suivant) ou la gauche (Retour) avec un léger fondu —
-  // RN Modal n'a pas de animationType directionnel, donc un seul Modal reste
-  // monté (voir le retour du composant) et c'est ce contenu qui s'anime.
+export default function AdminNewIntervenantFlow({ visible, spaceId, theme: C, onClose, onCreated }: Props) {
+  const [step, setStep] = useState<Step>("identite");
   const slideAnim = useRef(new Animated.Value(0)).current;
   const directionRef = useRef<1 | -1>(1);
   function goToStep(next: Step, direction: 1 | -1) {
@@ -68,9 +51,9 @@ export default function IntervenantOnboardingFlow({
     Animated.timing(slideAnim, { toValue: 0, duration: 260, useNativeDriver: true }).start();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
-  const [telephone, setTelephone] = useState("");
-  const [knownElsewhere, setKnownElsewhere] = useState(false);
-  const [phraseTotem, setPhraseTotem] = useState("");
+
+  const [prenom, setPrenom] = useState("");
+  const [nom, setNom] = useState("");
   const [metier, setMetier] = useState<string | null>(null);
   const [metierPickerOpen, setMetierPickerOpen] = useState(false);
   const [soins, setSoins] = useState<PendingSoin[]>([]);
@@ -79,19 +62,18 @@ export default function IntervenantOnboardingFlow({
   const [email, setEmail] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
-  async function checkKnownElsewhere() {
-    const normalized = normalizePhone(telephone);
-    if (normalized.length < 6) {
-      setKnownElsewhere(false);
-      return;
-    }
-    const { count } = await supabase
-      .from("intervenant_profiles")
-      .select("id", { count: "exact", head: true })
-      .eq("telephone", normalized)
-      .neq("space_id", spaceId);
-    setKnownElsewhere(!!count && count > 0);
-  }
+  // Ce composant reste monté (ouvert/fermé) par AdminAddIntervention plutôt
+  // que d'être créé à chaque fois — reset explicite à chaque ouverture pour
+  // ne pas laisser traîner la fiche précédemment saisie.
+  useEffect(() => {
+    if (!visible) return;
+    setStep("identite");
+    setPrenom("");
+    setNom("");
+    setMetier(null);
+    setSoins([]);
+    setEmail("");
+  }, [visible]);
 
   function removeSoin(index: number) {
     setSoins((prev) => prev.filter((_, i) => i !== index));
@@ -111,108 +93,44 @@ export default function IntervenantOnboardingFlow({
     setPendingLabel(null);
   }
 
-  async function handleCreateAccount() {
-    if (soins.length === 0 || submitting) return;
+  async function handleCreate() {
+    if (submitting) return;
     setSubmitting(true);
     try {
       const trimmedPrenom = prenom.trim();
       const trimmedNom = nom.trim();
-      const trimmedTelephone = normalizePhone(telephone);
-      const trimmedPhraseTotem = phraseTotem.trim();
       const trimmedEmail = email.trim();
 
-      let profileId: string;
       const { data, error } = await supabase
         .from("intervenant_profiles")
         .insert({
           space_id: spaceId,
           prenom: trimmedPrenom,
           nom: trimmedNom,
-          pin,
-          telephone: trimmedTelephone || null,
-          phrase_totem: trimmedPhraseTotem || null,
-          metier,
+          pin: null,
           email: trimmedEmail || null,
+          metier,
         })
-        .select("id")
+        .select("*")
         .single();
       if (error && error.code === "23505") {
-        // Une fiche existe déjà pour ce prénom/nom dans cet espace — même
-        // logique de rattachement que _layout.tsx handleSaveIdentity : si le
-        // PIN correspond on réutilise la fiche existante, sinon on prévient
-        // plutôt que de laisser croire à une création réussie.
-        const { data: existing } = await supabase
-          .from("intervenant_profiles")
-          .select("id, pin")
-          .eq("space_id", spaceId)
-          .ilike("prenom", trimmedPrenom)
-          .ilike("nom", trimmedNom)
-          .maybeSingle();
-        if (!existing) throw error;
-        if (existing.pin !== pin) {
-          throw new Error(
-            "Une fiche existe déjà pour ce prénom et ce nom, avec un code différent. Vérifie ton code ou contacte l'organisateur.",
-          );
-        }
-        profileId = existing.id;
-      } else if (error || !data) {
-        throw error ?? new Error("Création de la fiche impossible.");
-      } else {
-        profileId = data.id;
+        throw new Error(
+          "Une fiche existe déjà pour ce prénom et ce nom dans cet espace. Retrouve-la dans Fiches Intervenants plutôt que d'en créer une nouvelle.",
+        );
       }
-
-      // Upload la photo seulement si une a été choisie sur le popup identité
-      // — best-effort, un échec ici ne doit pas bloquer la création du
-      // compte (déjà réussie) ni l'ajout des soins qui suit.
-      let finalPhoto: string | null = null;
-      let finalPhotoUpdatedAt: string | null = null;
-      if (pickedPhotoUri) {
-        try {
-          const compressed = await ImageManipulator.manipulateAsync(
-            pickedPhotoUri,
-            [{ resize: { width: 300 } }],
-            { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
-          );
-          const fileData = await new File(compressed.uri).arrayBuffer();
-          const filename = `${profileId}.jpg`;
-          const { error: storageErr } = await supabase.storage
-            .from("intervenant-photos")
-            .upload(filename, fileData, { contentType: "image/jpeg", cacheControl: "3600", upsert: true });
-          if (storageErr) {
-            console.error("[IntervenantOnboardingFlow] photo upload failed:", storageErr);
-          } else {
-            const photoUpdatedAtIso = new Date().toISOString();
-            const { error: photoErr } = await supabase
-              .from("intervenant_profiles")
-              .update({ photo: filename, photo_updated_at: photoUpdatedAtIso })
-              .eq("id", profileId);
-            if (photoErr) {
-              console.error("[IntervenantOnboardingFlow] photo column update failed:", photoErr);
-            } else {
-              finalPhoto = filename;
-              finalPhotoUpdatedAt = photoUpdatedAtIso;
-            }
-          }
-        } catch (e) {
-          console.error("[IntervenantOnboardingFlow] unexpected photo error:", e);
-        }
-      }
+      if (error || !data) throw error ?? new Error("Création de la fiche impossible.");
 
       const { error: insErr } = await supabase.from("intervention_types").insert(
-        soins.map((s) => ({ intervenant_profile_id: profileId, label: s.label, duration_minutes: s.duration_minutes })),
+        soins.map((s) => ({ intervenant_profile_id: data.id, label: s.label, duration_minutes: s.duration_minutes })),
       );
       if (insErr) throw insErr;
       for (const s of soins) {
-        await propagateSoinChange(profileId, { type: "create", label: s.label, duration_minutes: s.duration_minutes });
+        await propagateSoinChange(data.id, { type: "create", label: s.label, duration_minutes: s.duration_minutes });
       }
 
-      onCreated(
-        profileId, trimmedPrenom, trimmedNom,
-        trimmedTelephone || null, trimmedPhraseTotem || null,
-        finalPhoto, finalPhotoUpdatedAt, metier, trimmedEmail || null,
-      );
+      onCreated(data as IntervenantProfile);
     } catch (e: any) {
-      Alert.alert("Erreur", e?.message ?? "Impossible de créer ta fiche intervenant.");
+      Alert.alert("Erreur", e?.message ?? "Impossible de créer cette fiche intervenant.");
     } finally {
       setSubmitting(false);
     }
@@ -220,7 +138,7 @@ export default function IntervenantOnboardingFlow({
 
   return (
     <>
-      <Modal visible={visible} transparent animationType="fade" statusBarTranslucent>
+      <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <ScrollView
             style={{ flex: 1 }}
@@ -237,73 +155,52 @@ export default function IntervenantOnboardingFlow({
                 }) },
               ]}
             >
-              {step === "telephone" && (
+              {step === "identite" && (
                 <>
-                  <Text style={[styles.title, { color: C.text }]}>📞 Ton téléphone</Text>
+                  <Text style={[styles.title, { color: C.text }]}>🩺 Nouvel intervenant</Text>
                   <Text style={[styles.subtitle, { color: C.muted }]}>
-                    Pour être joignable par l'administrateur ou les autres intervenants si besoin.
+                    Fiche express, sans code ni connexion possible pour cette personne — juste
+                    de quoi lui réserver des créneaux.
                   </Text>
                   <TextInput
                     style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                    placeholder="Téléphone"
+                    placeholder="Prénom"
                     placeholderTextColor={C.muted}
-                    value={telephone}
-                    onChangeText={setTelephone}
-                    onBlur={checkKnownElsewhere}
-                    keyboardType="phone-pad"
+                    value={prenom}
+                    onChangeText={setPrenom}
                     autoFocus
                   />
-                  {knownElsewhere && (
-                    <Text style={[styles.subtitle, { color: C.accent, marginTop: 8, textAlign: "left" }]}>
-                      🔗 Ce numéro est déjà lié à un autre espace — tu pourras y accéder depuis Mon compte.
-                    </Text>
-                  )}
-                  <TouchableOpacity
-                    style={[styles.nextBtn, { backgroundColor: C.accent }, !telephone.trim() && { opacity: 0.5 }]}
-                    onPress={() => telephone.trim() && goToStep("totem", 1)}
-                    disabled={!telephone.trim()}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={styles.nextBtnText}>Suivant</Text>
-                  </TouchableOpacity>
-                </>
-              )}
-
-              {step === "totem" && (
-                <>
-                  <TouchableOpacity onPress={() => goToStep("telephone", -1)} style={{ marginBottom: 8 }}>
-                    <Text style={[styles.linkText, { color: C.accent }]}>‹ Retour</Text>
-                  </TouchableOpacity>
-                  <Text style={[styles.title, { color: C.text }]}>✨ Ta phrase totem</Text>
-                  <Text style={[styles.subtitle, { color: C.muted }]}>
-                    Une phrase ou une devise qui te représente, facultative — tu peux la laisser vide.
-                  </Text>
                   <TextInput
-                    style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                    placeholder="Phrase totem (optionnel)"
+                    style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 10 }]}
+                    placeholder="Nom"
                     placeholderTextColor={C.muted}
-                    value={phraseTotem}
-                    onChangeText={setPhraseTotem}
-                    autoFocus
+                    value={nom}
+                    onChangeText={setNom}
                   />
-                  <TouchableOpacity
-                    style={[styles.nextBtn, { backgroundColor: C.accent }]}
-                    onPress={() => goToStep("metier", 1)}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={styles.nextBtnText}>Suivant</Text>
-                  </TouchableOpacity>
+                  <View style={styles.rowBtns}>
+                    <TouchableOpacity onPress={onClose} style={styles.cancelBtn}>
+                      <Text style={[styles.cancelBtnText, { color: C.muted }]}>Annuler</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.nextBtn, { backgroundColor: C.accent }, (!prenom.trim() || !nom.trim()) && { opacity: 0.5 }]}
+                      onPress={() => prenom.trim() && nom.trim() && goToStep("metier", 1)}
+                      disabled={!prenom.trim() || !nom.trim()}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={styles.nextBtnText}>Suivant</Text>
+                    </TouchableOpacity>
+                  </View>
                 </>
               )}
 
               {step === "metier" && (
                 <>
-                  <TouchableOpacity onPress={() => goToStep("totem", -1)} style={{ marginBottom: 8 }}>
+                  <TouchableOpacity onPress={() => goToStep("identite", -1)} style={{ marginBottom: 8 }}>
                     <Text style={[styles.linkText, { color: C.accent }]}>‹ Retour</Text>
                   </TouchableOpacity>
-                  <Text style={[styles.title, { color: C.text }]}>🧑‍⚕️ Ton métier</Text>
+                  <Text style={[styles.title, { color: C.text }]}>🧑‍⚕️ Son métier</Text>
                   <Text style={[styles.subtitle, { color: C.muted }]}>
-                    Choisis ta spécialisation principale dans la liste, ou "Autre" pour la saisir toi-même.
+                    Choisis sa spécialisation principale dans la liste, ou "Autre" pour la saisir toi-même.
                   </Text>
                   <TouchableOpacity
                     style={[styles.metierBtn, { backgroundColor: C.orange }]}
@@ -330,9 +227,9 @@ export default function IntervenantOnboardingFlow({
                   <TouchableOpacity onPress={() => goToStep("metier", -1)} style={{ marginBottom: 8 }} disabled={submitting}>
                     <Text style={[styles.linkText, { color: C.accent }]}>‹ Retour</Text>
                   </TouchableOpacity>
-                  <Text style={[styles.title, { color: C.text }]}>🩺 Tes soins</Text>
+                  <Text style={[styles.title, { color: C.text }]}>🩺 Ses soins</Text>
                   <Text style={[styles.subtitle, { color: C.muted }]}>
-                    Ajoute les soins que tu pratiques, avec leur durée habituelle.
+                    Ajoute les soins qu'il/elle pratique, avec leur durée habituelle.
                   </Text>
                   {soins.map((s, i) => (
                     <View key={s.label} style={[styles.soinRow, { borderColor: C.border }]}>
@@ -368,9 +265,9 @@ export default function IntervenantOnboardingFlow({
                   <TouchableOpacity onPress={() => goToStep("soins", -1)} style={{ marginBottom: 8 }} disabled={submitting}>
                     <Text style={[styles.linkText, { color: C.accent }]}>‹ Retour</Text>
                   </TouchableOpacity>
-                  <Text style={[styles.title, { color: C.text }]}>✉️ Ton email</Text>
+                  <Text style={[styles.title, { color: C.text }]}>✉️ Son email</Text>
                   <Text style={[styles.subtitle, { color: C.muted }]}>
-                    Facultatif — permet à l'administrateur de te confirmer un créneau réservé par email.
+                    Facultatif — permet de lui envoyer une confirmation quand tu lui réserves un créneau.
                   </Text>
                   <TextInput
                     style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
@@ -380,16 +277,14 @@ export default function IntervenantOnboardingFlow({
                     onChangeText={setEmail}
                     keyboardType="email-address"
                     autoCapitalize="none"
-                    autoCorrect={false}
-                    autoFocus
                   />
                   <TouchableOpacity
                     style={[styles.nextBtn, { backgroundColor: C.accent }, submitting && { opacity: 0.5 }]}
-                    onPress={handleCreateAccount}
+                    onPress={handleCreate}
                     disabled={submitting}
                     activeOpacity={0.85}
                   >
-                    {submitting ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.nextBtnText}>Créer mon compte</Text>}
+                    {submitting ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.nextBtnText}>Créer la fiche</Text>}
                   </TouchableOpacity>
                 </>
               )}
@@ -439,6 +334,9 @@ const styles = StyleSheet.create({
   removeBtn: { width: 28, height: 28, alignItems: "center", justifyContent: "center" },
   addSoinBtn: { borderRadius: 12, paddingVertical: 13, alignItems: "center", marginTop: 8, marginBottom: 16 },
   addSoinBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" },
-  nextBtn: { borderRadius: 12, paddingVertical: 15, alignItems: "center", marginTop: 4 },
+  nextBtn: { borderRadius: 12, paddingVertical: 15, alignItems: "center", marginTop: 4, flex: 1 },
   nextBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 15, color: "#fff" },
+  rowBtns: { flexDirection: "row", gap: 10, marginTop: 4 },
+  cancelBtn: { alignItems: "center", justifyContent: "center", paddingHorizontal: 16 },
+  cancelBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
 });
