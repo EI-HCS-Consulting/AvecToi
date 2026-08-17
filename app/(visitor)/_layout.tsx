@@ -276,7 +276,7 @@ function VisitorTabs() {
       <Tabs.Screen
         name="home"
         options={{
-          href: role === "intervenant" ? undefined : null,
+          href: undefined,
           title: "Accueil",
           tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" size={size} color={color} />,
         }}
@@ -284,9 +284,12 @@ function VisitorTabs() {
           // Le groupe "home" est un Stack à plusieurs écrans (calendrier,
           // créneaux, nuits...) sans route "index" — un appui direct sur cet
           // onglet doit toujours ramener au calendrier plutôt que de
-          // dépendre de l'état interne du Stack.
+          // dépendre de l'état interne du Stack. Visible et actif pour les 2
+          // rôles désormais (auparavant réservé à l'intervenant) : le
+          // visiteur atteignait déjà ce même écran (mode Visites) via des
+          // boutons "← Accueil" disséminés dans les autres onglets — c'est
+          // maintenant son point d'entrée principal, en 1ère position.
           tabPress: (e) => {
-            if (role !== "intervenant") return;
             e.preventDefault();
             router.push("/(visitor)/home/calendar" as any);
           },
@@ -302,11 +305,7 @@ function VisitorTabs() {
       />
       <Tabs.Screen
         name="souvenirs"
-        options={{
-          title: "Souvenirs",
-          tabBarIcon: ({ color, size }) => <Ionicons name="images-outline" size={size} color={color} />,
-          href: role === "intervenant" ? null : undefined,
-        }}
+        options={{ href: null }}
       />
       <Tabs.Screen
         name="intervenants"
