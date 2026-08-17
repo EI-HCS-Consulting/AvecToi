@@ -51,7 +51,10 @@ function VisiteEditFlow({ C, space, slotConfig, slots, reservations, startDate, 
     const d = new Date(r.date + "T12:00:00");
     setTarget(r);
     setEditDate(r.date);
-    setEditSlot(r.creneau);
+    // Ne pré-sélectionne pas un créneau déjà passé (obligerait sinon
+    // l'utilisateur à choisir un jour/créneau valide avant de pouvoir
+    // enregistrer — voir aussi le garde-fou dans handleSave et canSave).
+    setEditSlot(isSlotFullyPast(r.date, r.creneau) ? null : r.creneau);
     setCalMonth({ year: d.getFullYear(), month: d.getMonth() });
     const existing = r.group_id
       ? reservations.filter((x) => x.group_id === r.group_id && x.id !== r.id)
@@ -88,7 +91,7 @@ function VisiteEditFlow({ C, space, slotConfig, slots, reservations, startDate, 
   }
 
   async function handleSave() {
-    if (!target || !editSlot) return;
+    if (!target || !editSlot || isSlotFullyPast(editDate, editSlot)) return;
     setSaving(true);
 
     const keptCompanions = companions.filter((c) => c.id);
@@ -155,7 +158,7 @@ function VisiteEditFlow({ C, space, slotConfig, slots, reservations, startDate, 
     onSaved();
   }
 
-  const canSave = !!editSlot && !saving;
+  const canSave = !!editSlot && !saving && !isSlotFullyPast(editDate, editSlot);
 
   return (
     <Modal visible={!!target} transparent animationType="slide" onRequestClose={() => !saving && setTarget(null)}>

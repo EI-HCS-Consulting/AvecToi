@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import type { Theme } from "@/lib/themes";
-import { LOGO_GREEN, LOGO_PURPLE } from "@/lib/themes";
+import { LOGO_GREEN, LOGO_PURPLE, LOGO_NAVY, VISITES_ORANGE_FILL, VISITES_DANGER_FILL } from "@/lib/themes";
 import { DayStripes } from "@/components/DayEdgeStripes";
 import type { Reservation, SlotConfig } from "@/lib/types";
 import { addDays, getWeekDates, toISO, getDayStatus, isMyReservation, visiteurIdentityKey } from "@/lib/slotUtils";
@@ -164,11 +164,14 @@ export default function WeekStrip({
           // parent via la prop `bookable` des listes de créneaux).
           const beforeAdmission = !!admissionIso && iso < admissionIso;
 
-          // Mode Visites : le fond de case remplace la pastille de statut
-          // (vérité globale, non filtrée par selectedVisiteurKey — voir
-          // home/calendar.tsx) ; les traits de bord par visiteur remplacent
-          // la bande verte unique "Mes créneaux" (réservée au mode Soins).
-          const visitesFill = visiteStatus === "full" ? C.danger : visiteStatus === "partial" ? C.orange : null;
+          // Mode Visites : le fond pastel de case remplace la pastille de
+          // statut (vérité globale, non filtrée par selectedVisiteurKey —
+          // voir home/calendar.tsx) ; les traits de bord par visiteur
+          // remplacent la bande verte unique "Mes créneaux" (réservée au
+          // mode Soins). Le point vert "Dispo" reste affiché (voir plus bas)
+          // pour les jours sans aucune visite.
+          const visitesFill = visiteStatus === "full" ? VISITES_DANGER_FILL : visiteStatus === "partial" ? VISITES_ORANGE_FILL : null;
+          const pastelText = rich && !!visitesFill;
           const dayVisiteurColors: string[] = [];
           if (rich) {
             const keysToday = new Set<string>();
@@ -190,7 +193,7 @@ export default function WeekStrip({
             ? (isSelected ? C.accent : isToday ? C.gold : C.border)
             : (isSelected ? C.accent : frameVisible ? LOGO_PURPLE : isToday ? C.gold : C.border);
           const borderWidth = rich ? (isToday ? 2 : 1) : (isToday || frameVisible ? 2 : 1);
-          const whiteText = rich ? (isSelected || !!visitesFill) : (isSelected || fillPurple);
+          const whiteText = rich ? isSelected : (isSelected || fillPurple);
 
           return (
             <TouchableOpacity
@@ -218,13 +221,14 @@ export default function WeekStrip({
                   <Text style={styles.badgeHouseText}>🏠</Text>
                 </View>
               )}
-              <Text style={[styles.stripDow, { color: whiteText ? "#fff" : C.muted }]}>
+              <Text style={[styles.stripDow, { color: whiteText ? "#fff" : pastelText ? LOGO_NAVY : C.muted }]}>
                 {WEEKDAY_LABELS[day.getDay() === 0 ? 6 : day.getDay() - 1]}
               </Text>
-              <Text style={[styles.stripDate, { color: whiteText ? "#fff" : isToday ? C.gold : C.text }]}>
+              <Text style={[styles.stripDate, { color: whiteText ? "#fff" : isToday ? C.gold : pastelText ? LOGO_NAVY : C.text }]}>
                 {day.getDate()}
               </Text>
               {!rich && <View style={[styles.stripDot, { backgroundColor: dotColor }]} />}
+              {rich && visiteStatus === "empty" && <View style={[styles.stripDot, { backgroundColor: C.success }]} />}
               {rich ? (
                 <DayStripes colors={dayVisiteurColors} />
               ) : (
@@ -241,11 +245,15 @@ export default function WeekStrip({
         {rich ? (
           <>
             <View style={styles.legendItem}>
-              <View style={[styles.legendStripeSwatch, { borderColor: C.border, backgroundColor: C.orange }]} />
+              <View style={[styles.legendStripeSwatch, { borderColor: C.border, backgroundColor: C.success }]} />
+              <Text style={[styles.stripLegendLabel, { color: C.muted }]}>Dispo</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendStripeSwatch, { borderColor: C.border, backgroundColor: VISITES_ORANGE_FILL }]} />
               <Text style={[styles.stripLegendLabel, { color: C.muted }]}>Partiel</Text>
             </View>
             <View style={styles.legendItem}>
-              <View style={[styles.legendStripeSwatch, { borderColor: C.border, backgroundColor: C.danger }]} />
+              <View style={[styles.legendStripeSwatch, { borderColor: C.border, backgroundColor: VISITES_DANGER_FILL }]} />
               <Text style={[styles.stripLegendLabel, { color: C.muted }]}>Complet</Text>
             </View>
           </>

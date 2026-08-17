@@ -65,6 +65,14 @@ export const LOGO_SKYBLUE = "#8FCBEA"; // cœur bleu ciel (centre)
 // cadre lui-même reste LOGO_PURPLE plein, comme sur home/calendar.tsx.
 export const LOGO_PURPLE_SOFT = "#9A76C2";
 
+// Fond pastel des cases jour "Partiel"/"Complet" du planning des visites
+// (home/calendar.tsx, WeekStrip.tsx, mode Visites) — variantes adoucies de
+// C.orange/C.danger, fixes (indépendantes du thème, comme LOGO_* ci-dessus).
+// Mêmes teintes que les 2 premières couleurs de PASTEL_COLORS ci-dessous,
+// nommées ici pour la lisibilité du code qui les utilise comme fond de case.
+export const VISITES_ORANGE_FILL = "#FFDFBA";
+export const VISITES_DANGER_FILL = "#FFB3BA";
+
 // Rose utilisé à la place de LOGO_PURPLE dans PATIENT_PALETTE ci-dessous : un
 // trait violet serait quasi invisible sur le fond violet des jours de soin.
 const PATIENT_ROSE = "#EF87B0";
