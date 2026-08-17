@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
 import { useSpace } from "@/lib/SpaceContext";
 import { supabase } from "@/lib/supabase";
 import {
-  getDayStatus, findNextAvailableSlot, getDaysInMonth, getMonday, toISO, toFrLong, isMyReservation,
+  getDayStatus, findNextAvailableSlot, getDaysInMonth, getMonday, addDays, toISO, toFrLong, isMyReservation,
 } from "@/lib/slotUtils";
 import { deleteLinkedCalendarEvent } from "@/lib/calendarSync";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
@@ -160,6 +160,16 @@ export default function AdminCalendarScreen() {
   const selectedIso = toISO(selectedDay);
   const selectedDayConfig = getConfigForDate(selectedIso) ?? slotConfig;
   const selectedDaySlots = getSlotsForDate(selectedIso);
+
+  // Période affichée par le panneau perso (IntervenantPlanningPanel) — suit
+  // le switch Mensuel/Hebdo et le mois/la semaine parcouru(e), même logique
+  // que (visitor)/home/calendar.tsx.
+  const periodStartIso = planningView === "hebdo"
+    ? toISO(weekAnchor)
+    : toISO(new Date(calMonth.year, calMonth.month, 1));
+  const periodEndIso = planningView === "hebdo"
+    ? toISO(addDays(weekAnchor, 6))
+    : toISO(new Date(calMonth.year, calMonth.month + 1, 0));
 
   // Panneau perso sous le calendrier (IntervenantPlanningPanel) — même
   // logique que le visiteur (élargi aux réservations partageant EXACTEMENT
@@ -445,6 +455,9 @@ export default function AdminCalendarScreen() {
             myPin={effectiveMyPin}
             myPrenom={myPrenom}
             myNom={myNom}
+            periodStartIso={periodStartIso}
+            periodEndIso={periodEndIso}
+            periodLabel={planningView === "hebdo" ? "cette semaine" : "ce mois-ci"}
           />
         </View>
       </ScrollView>
