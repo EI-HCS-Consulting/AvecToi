@@ -9,9 +9,9 @@ import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import { File } from "expo-file-system";
 import * as FileSystem from "expo-file-system/legacy";
-import * as Sharing from "expo-sharing";
 import { supabase } from "@/lib/supabase";
 import { blobToArrayBuffer } from "@/lib/blobToArrayBuffer";
+import { downloadAndShare, logSavedMedia } from "@/lib/mediaShare";
 import { getVisitorSession, rememberAuthorPin } from "@/lib/visitorSession";
 import PinPad from "@/components/PinPad";
 import VisitorProfileModal from "@/components/VisitorProfileModal";
@@ -115,8 +115,13 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
 
   // Lightbox photo (message ou réponse) — appui long pour télécharger, comme
   // dans SouvenirsGallery.tsx (téléchargement via le partage natif).
-  const [lightbox, setLightbox] = useState<{ url: string } | null>(null);
+  // authorPin/sourceId permettent de tracer le téléchargement dans
+  // saved_media (Mes Souvenirs) quand la photo n'est pas la mienne.
+  const [lightbox, setLightbox] = useState<{ url: string; authorPin: string; sourceId: string } | null>(null);
   const [downloadingLightbox, setDownloadingLightbox] = useState(false);
+  const [downloadingMediaLightbox, setDownloadingMediaLightbox] = useState(false);
+
+  const myPin = isAdmin ? "ADMIN" : sessionPin;
 
   // Vue "Médias" (photos seules, sans texte ni cadre de message) — même
   // pattern que components/NewsFeed.tsx. Lightbox dédié (mediaLightboxIdx)
@@ -126,19 +131,26 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
 
   async function downloadLightboxPhoto() {
     if (!lightbox) return;
-    if (!(await Sharing.isAvailableAsync())) {
-      Alert.alert("Partage non disponible", "Le partage de fichiers n'est pas disponible sur cet appareil.");
-      return;
-    }
     setDownloadingLightbox(true);
-    try {
-      const localUri = (FileSystem.cacheDirectory ?? "") + `soutien_${Date.now()}.jpg`;
-      const { uri } = await FileSystem.downloadAsync(lightbox.url, localUri);
-      await Sharing.shareAsync(uri, { mimeType: "image/jpeg" });
-    } catch {
-      showToast("Erreur lors du téléchargement");
+    const ok = await downloadAndShare(lightbox.url, `soutien_${Date.now()}.jpg`);
+    if (!ok) showToast("Erreur lors du téléchargement");
+    else if (myPin && lightbox.authorPin && lightbox.authorPin !== myPin) {
+      await logSavedMedia({ spaceId, sourceType: "support", sourceId: lightbox.sourceId, photoUrl: lightbox.url, savedByPin: myPin });
     }
     setDownloadingLightbox(false);
+  }
+
+  async function downloadMediaLightboxPhoto() {
+    if (mediaLightboxIdx === null) return;
+    const item = mediaItems[mediaLightboxIdx];
+    if (!item) return;
+    setDownloadingMediaLightbox(true);
+    const ok = await downloadAndShare(item.url, `soutien_${Date.now()}.jpg`);
+    if (!ok) showToast("Erreur lors du téléchargement");
+    else if (myPin && item.message.author_pin && item.message.author_pin !== myPin) {
+      await logSavedMedia({ spaceId, sourceType: "support", sourceId: item.message.id, photoUrl: item.url, savedByPin: myPin });
+    }
+    setDownloadingMediaLightbox(false);
   }
 
   const loadMessages = useCallback(async () => {
@@ -722,7 +734,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
               <Text style={[styles.msgText, { color: C.text }]}>{m.message}</Text>
               {m.photo && (
                 <>
-                  <TouchableOpacity onPress={() => setLightbox({ url: supportPhotoUrl(spaceId, m.photo!) })} activeOpacity={0.85}>
+                  <TouchableOpacity onPress={() => setLightbox({ url: supportPhotoUrl(spaceId, m.photo!), authorPin: m.author_pin ?? "", sourceId: m.id })} activeOpacity={0.85}>
                     <Image source={{ uri: supportPhotoUrl(spaceId, m.photo) }} style={styles.msgPhoto} resizeMode="cover" />
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -763,7 +775,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                             )}
                             <Text style={[styles.replyText, { color: C.text }]}>{r.reply_text}</Text>
                             {r.photo && (
-                              <TouchableOpacity onPress={() => setLightbox({ url: supportPhotoUrl(spaceId, r.photo!) })} activeOpacity={0.85}>
+                              <TouchableOpacity onPress={() => setLightbox({ url: supportPhotoUrl(spaceId, r.photo!), authorPin: r.author_pin ?? "", sourceId: r.id })} activeOpacity={0.85}>
                                 <Image source={{ uri: supportPhotoUrl(spaceId, r.photo) }} style={[styles.replyPhotoThumb, { borderColor: C.border }]} resizeMode="cover" />
                               </TouchableOpacity>
                             )}
@@ -1287,6 +1299,18 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                     {mediaItems[mediaLightboxIdx].message.author_prenom} {mediaItems[mediaLightboxIdx].message.author_nom}
                   </Text>
                 )}
+                <TouchableOpacity
+                  style={styles.mediaLightboxDownloadBtn}
+                  onPress={downloadMediaLightboxPhoto}
+                  disabled={downloadingMediaLightbox}
+                  activeOpacity={0.8}
+                >
+                  {downloadingMediaLightbox ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Text style={styles.mediaLightboxDownloadText}>📥 Télécharger</Text>
+                  )}
+                </TouchableOpacity>
               </View>
             </>
           )}
@@ -1411,4 +1435,9 @@ const styles = StyleSheet.create({
   mediaLightboxInfo: { position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: "rgba(0,0,0,0.72)", padding: 16, paddingBottom: 28 },
   mediaLightboxText: { fontFamily: "DM_Sans_400Regular", fontSize: 14, lineHeight: 20, color: "#fff", marginBottom: 8 },
   mediaLightboxAuthor: { fontFamily: "DM_Sans_700Bold", fontSize: 13, color: "#fff" },
+  mediaLightboxDownloadBtn: {
+    marginTop: 12, alignSelf: "flex-start", flexDirection: "row", alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.18)", borderRadius: 8, paddingVertical: 8, paddingHorizontal: 14,
+  },
+  mediaLightboxDownloadText: { fontFamily: "DM_Sans_700Bold", fontSize: 13, color: "#fff" },
 });

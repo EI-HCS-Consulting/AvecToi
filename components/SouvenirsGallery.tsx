@@ -7,11 +7,10 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import { File } from "expo-file-system";
-import * as FileSystem from "expo-file-system/legacy";
-import * as Sharing from "expo-sharing";
 import { router } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { getVisitorSession } from "@/lib/visitorSession";
+import { downloadAndShare, isShareAvailable, logSavedMedia } from "@/lib/mediaShare";
 import PinPad from "@/components/PinPad";
 import VisitorProfileModal from "@/components/VisitorProfileModal";
 import ConfirmModal from "@/components/ConfirmModal";
@@ -57,6 +56,7 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
   const [upNom, setUpNom] = useState("");
   const [upPin, setUpPin] = useState("");
   const [sessionPin, setSessionPin] = useState("");
+  const myPin = isAdmin ? "ADMIN" : sessionPin;
   const [upCaption, setUpCaption] = useState("");
   const [uploading, setUploading] = useState(false);
 
@@ -294,11 +294,21 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
     setSelected(new Set(visiblePhotos.map((p) => p.id)));
   }
 
+  // Trace le partage dans saved_media (Mes Souvenirs) uniquement pour les
+  // photos issues de Nouvelles/Soutien (source_type/source_id renseignés) et
+  // qui ne sont pas les miennes — les photos ajoutées directement à
+  // Souvenirs (source_type null) n'ont pas d'équivalent news/support à tracer.
+  async function logIfNotMine(photo: SouvenirPhoto & { url: string }) {
+    if (!myPin || !photo.source_type || !photo.source_id || photo.uploaded_by_pin === myPin) return;
+    await logSavedMedia({
+      spaceId, sourceType: photo.source_type, sourceId: photo.source_id, photoUrl: photo.url, savedByPin: myPin,
+    });
+  }
+
   async function downloadSelected() {
     const targets = visiblePhotos.filter((p) => selected.has(p.id));
     if (targets.length === 0) return;
-
-    if (!(await Sharing.isAvailableAsync())) {
+    if (!(await isShareAvailable())) {
       Alert.alert("Partage non disponible", "Le partage de fichiers n'est pas disponible sur cet appareil.");
       return;
     }
@@ -306,13 +316,10 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
     setDownloading(true);
     let ok = 0;
     for (const photo of targets) {
-      try {
-        const localUri = (FileSystem.cacheDirectory ?? "") + `souvenir_${photo.id}.jpg`;
-        const { uri } = await FileSystem.downloadAsync(photo.url, localUri);
-        await Sharing.shareAsync(uri, { mimeType: "image/jpeg", dialogTitle: `Souvenir de ${photo.uploaded_by_prenom}` });
+      const success = await downloadAndShare(photo.url, `souvenir_${photo.id}.jpg`, `Souvenir de ${photo.uploaded_by_prenom}`);
+      if (success) {
         ok++;
-      } catch {
-        /* skip failed */
+        await logIfNotMine(photo);
       }
     }
     setDownloading(false);
@@ -320,14 +327,9 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
   }
 
   async function sharePhoto(photo: SouvenirPhoto & { url: string }) {
-    if (!(await Sharing.isAvailableAsync())) return;
-    try {
-      const localUri = (FileSystem.cacheDirectory ?? "") + `souvenir_${photo.id}.jpg`;
-      const { uri } = await FileSystem.downloadAsync(photo.url, localUri);
-      await Sharing.shareAsync(uri, { mimeType: "image/jpeg" });
-    } catch {
-      showToast("Erreur lors du partage");
-    }
+    const ok = await downloadAndShare(photo.url, `souvenir_${photo.id}.jpg`);
+    if (ok) await logIfNotMine(photo);
+    else showToast("Erreur lors du partage");
   }
 
   // ── Delete ─────────────────────────────────────────────────────────────────

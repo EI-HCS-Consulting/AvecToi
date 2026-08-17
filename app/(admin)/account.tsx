@@ -627,6 +627,14 @@ export default function AdminAccountScreen() {
                   );
                 })}
 
+                <TouchableOpacity
+                  style={[styles.saveBtn, { backgroundColor: C.accent, marginTop: 16 }]}
+                  onPress={() => router.push("/(admin)/mes-souvenirs" as any)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.saveBtnText}>📷 Mes souvenirs</Text>
+                </TouchableOpacity>
+
                 <MyChecklist
                   spaceId={space.id}
                   isAdmin

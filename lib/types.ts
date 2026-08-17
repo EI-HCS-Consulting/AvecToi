@@ -464,6 +464,19 @@ export interface IntervenantChecklistTemplate {
   created_at: string;
 }
 
+// Photo qu'un utilisateur a téléchargée/partagée depuis la publication d'un
+// AUTRE (Nouvelles/Soutien) — alimente la section "Photos téléchargées" de
+// la page Mes Souvenirs (components/MesSouvenirs.tsx), voir lib/mediaShare.ts.
+export interface SavedMedia {
+  id: string;
+  space_id: string;
+  source_type: "news" | "support";
+  source_id: string;
+  photo_url: string;
+  saved_by_pin: string;
+  created_at: string;
+}
+
 export interface SupportMessage {
   id: string;
   space_id: string;

@@ -354,6 +354,10 @@ function VisitorTabs() {
           tabBarIcon: ({ color, size }) => <Ionicons name="person-circle-outline" size={size} color={color} />,
         }}
       />
+      <Tabs.Screen
+        name="mes-souvenirs"
+        options={{ href: null }}
+      />
     </Tabs>
     </>
   );

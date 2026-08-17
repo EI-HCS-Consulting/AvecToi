@@ -137,6 +137,10 @@ export default function AdminLayout() {
             name="intervenants"
             options={{ href: null }}
           />
+          <Tabs.Screen
+            name="mes-souvenirs"
+            options={{ href: null }}
+          />
         </Tabs>
       </AdminGate>
     </AdminSpaceProvider>

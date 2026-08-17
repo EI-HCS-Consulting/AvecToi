@@ -25,12 +25,7 @@ import { switchToLinkedSpace } from "@/lib/intervenantSpaceSwitch";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import MyChecklist from "@/components/MyChecklist";
 import MyAlertsModal from "@/components/MyAlertsModal";
-import type { Reservation, ReservationChangeHistoryEntry, SouvenirPhoto, NewsEntry, SupportMessage, Task } from "@/lib/types";
-
-function souvenirUrl(spaceId: string, filename: string) {
-  const { data } = supabase.storage.from("souvenirs").getPublicUrl(`${spaceId}/${filename}`);
-  return data.publicUrl;
-}
+import type { Reservation, ReservationChangeHistoryEntry, NewsEntry, SupportMessage, Task } from "@/lib/types";
 
 function visitorPhotoUrl(spaceId: string, filename: string) {
   const { data } = supabase.storage.from("visitor-photos").getPublicUrl(`${spaceId}/${filename}`);
@@ -75,20 +70,21 @@ const CAT_ICONS: Record<Task["category"], string> = {
   repas: "🍽️", affaires: "🧳", courses: "🛒", transport: "🚗", administratif: "🗂️", autre: "📌",
 };
 
-type AccountSectionKey = "info" | "patients" | "mes_soins" | "resv" | "souvenirs" | "news" | "soutien" | "besoins";
-// Ordre d'affichage de la grille = ordre des clés ci-dessous (2 tuiles par
-// ligne) : Infos/Réservations, Nouvelles/Souvenirs, Entraide/Soutien. Le PIN
-// n'a plus sa propre tuile — regroupé dans "Mes informations". "patients" et
-// "mes_soins" n'existent que pour un intervenant (voir le filter plus bas) —
-// "mes_soins" remplace "soutien" (Mur de soutien, sans objet côté
-// intervenant) et liste ses soins effectués/planifiés sur ce patient.
+type AccountSectionKey = "info" | "patients" | "mes_soins" | "resv" | "news" | "soutien" | "besoins";
+// Ordre d'affichage de la grille = ordre des clés ci-dessous : Infos/
+// Réservations, Nouvelles, Entraide/Soutien. Le PIN n'a plus sa propre tuile
+// — regroupé dans "Mes informations". "patients" et "mes_soins" n'existent
+// que pour un intervenant (voir le filter plus bas) — "mes_soins" remplace
+// "soutien" (Mur de soutien, sans objet côté intervenant) et liste ses soins
+// effectués/planifiés sur ce patient. "Mes souvenirs" n'est plus une tuile
+// de cette liste — c'est un bouton à part, juste avant <MyChecklist> plus
+// bas, qui ouvre components/MesSouvenirs.tsx.
 const SECTION_META: Record<AccountSectionKey, { icon: string; label: string }> = {
   info: { icon: "📝", label: "Mes informations" },
   patients: { icon: "👥", label: "Mes Patients" },
   mes_soins: { icon: "🩺", label: "Mes soins" },
   resv: { icon: "📅", label: "Mes réservations" },
   news: { icon: "📰", label: "Mes nouvelles" },
-  souvenirs: { icon: "📷", label: "Mes souvenirs" },
   besoins: { icon: "🤝", label: "Entraide" },
   soutien: { icon: "💛", label: "Soutien" },
 };
@@ -178,15 +174,10 @@ export default function VisitorAccountScreen() {
   // reservations, ne s'efface jamais quand la réservation est modifiée :
   // reste affiché sous chaque réservation concernée dans "Mes réservations".
   const [myChangeHistory, setMyChangeHistory] = useState<ReservationChangeHistoryEntry[]>([]);
-  const [mySouvenirs, setMySouvenirs] = useState<(SouvenirPhoto & { url: string })[]>([]);
   const [myNews, setMyNews] = useState<NewsEntry[]>([]);
   const [myMessages, setMyMessages] = useState<SupportMessage[]>([]);
   const [myTasks, setMyTasks] = useState<Task[]>([]);
   const [myPublishedTasks, setMyPublishedTasks] = useState<Task[]>([]);
-
-  // Lightbox plein écran pour "Mes souvenirs" — index dans mySouvenirs, ou
-  // null si fermé.
-  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   // Section active de la grille de tuiles (null = grille affichée)
   const [activeSection, setActiveSection] = useState<AccountSectionKey | null>(null);
@@ -208,7 +199,7 @@ export default function VisitorAccountScreen() {
   const loadActivity = useCallback(async (spaceId: string, p: string, n: string) => {
     if (!p.trim() || !n.trim()) return;
     setActivityLoading(true);
-    const [resv, resvBookedFor, souv, news, msgs, tasks, published, changeHistory] = await Promise.all([
+    const [resv, resvBookedFor, news, msgs, tasks, published, changeHistory] = await Promise.all([
       supabase.from("reservations").select("*").eq("space_id", spaceId)
         .ilike("prenom", p.trim()).ilike("nom", n.trim()).order("date", { ascending: false }),
       // Réservations faites pour quelqu'un d'autre (ex. un proche âgé) — le
@@ -217,8 +208,6 @@ export default function VisitorAccountScreen() {
       // (rempli uniquement quand on réserve sous un autre nom, cf. BookingFlow.tsx).
       supabase.from("reservations").select("*").eq("space_id", spaceId)
         .ilike("booked_by_prenom", p.trim()).ilike("booked_by_nom", n.trim()).order("date", { ascending: false }),
-      supabase.from("souvenirs").select("*").eq("space_id", spaceId)
-        .ilike("uploaded_by_prenom", p.trim()).ilike("uploaded_by_nom", n.trim()).order("created_at", { ascending: false }),
       supabase.from("news_entries").select("*").eq("space_id", spaceId)
         .ilike("author_prenom", p.trim()).ilike("author_nom", n.trim()).order("created_at", { ascending: false }),
       supabase.from("support_messages").select("*").eq("space_id", spaceId)
@@ -236,7 +225,6 @@ export default function VisitorAccountScreen() {
       ...((resvBookedFor.data || []).filter((r: Reservation) => !bookedForIds.has(r.id))),
     ].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
     setMyReservations(myResv);
-    setMySouvenirs((souv.data || []).map((s: SouvenirPhoto) => ({ ...s, url: souvenirUrl(spaceId, s.filename) })));
     setMyNews(news.data || []);
     setMyMessages(msgs.data || []);
     setMyTasks(tasks.data || []);
@@ -896,7 +884,7 @@ export default function VisitorAccountScreen() {
         {(Object.keys(SECTION_META) as AccountSectionKey[])
           .filter((k) => {
             if (k === "patients" || k === "mes_soins") return role === "intervenant";
-            return !(role === "intervenant" && (k === "souvenirs" || k === "besoins" || k === "resv" || k === "soutien"));
+            return !(role === "intervenant" && (k === "besoins" || k === "resv" || k === "soutien"));
           })
           .map((key) => {
           const isOpen = activeSection === key;
@@ -907,7 +895,6 @@ export default function VisitorAccountScreen() {
             : key === "patients" ? `${Math.max(linkedSpaces.length, 1)} patient(s)`
             : key === "mes_soins" ? `${mesSoinsPlanifies.length} planifié(s)`
             : key === "resv" ? `${myReservations.length} réservation(s)`
-            : key === "souvenirs" ? `${mySouvenirs.length} photo(s)`
             : key === "news" ? `${myNews.length} nouvelle(s)`
             : key === "soutien" ? `${myMessages.length} message(s)`
             : `${myTasks.length + myPublishedTasks.length} besoin(s)`;
@@ -1180,26 +1167,6 @@ export default function VisitorAccountScreen() {
                 )
               )}
 
-              {isOpen && key === "souvenirs" && (
-                activityLoading ? (
-                  <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
-                ) : identityMissing ? missingIdentityCard : (
-                  <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
-                    {mySouvenirs.length === 0 ? (
-                      <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucune photo envoyée pour le moment.</Text>
-                    ) : (
-                      <View style={styles.activityThumbRow}>
-                        {mySouvenirs.map((s, idx) => (
-                          <TouchableOpacity key={s.id} onPress={() => setLightboxIndex(idx)} activeOpacity={0.8}>
-                            <Image source={{ uri: s.url }} style={styles.activityThumb} resizeMode="cover" />
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    )}
-                  </View>
-                )
-              )}
-
               {isOpen && key === "news" && (
                 activityLoading ? (
                   <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
@@ -1317,6 +1284,16 @@ export default function VisitorAccountScreen() {
           );
         })}
 
+        {role !== "intervenant" && (
+          <TouchableOpacity
+            style={styles.patientProfileBtn}
+            onPress={() => router.push("/(visitor)/mes-souvenirs" as any)}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.patientProfileBtnText}>📷 Mes souvenirs</Text>
+          </TouchableOpacity>
+        )}
+
         <MyChecklist
           spaceId={space.id}
           isAdmin={false}
@@ -1380,47 +1357,6 @@ export default function VisitorAccountScreen() {
           <Text style={styles.toastText}>{toast}</Text>
         </View>
       )}
-
-      <Modal visible={lightboxIndex !== null} transparent animationType="fade" onRequestClose={() => setLightboxIndex(null)}>
-        <View style={styles.lightboxOverlay}>
-          <TouchableOpacity style={styles.lightboxClose} onPress={() => setLightboxIndex(null)}>
-            <Text style={styles.lightboxCloseText}>✕</Text>
-          </TouchableOpacity>
-
-          {lightboxIndex !== null && mySouvenirs[lightboxIndex] && (
-            <>
-              <Image source={{ uri: mySouvenirs[lightboxIndex].url }} style={styles.lightboxImg} resizeMode="contain" />
-
-              <View style={styles.lightboxNavRow}>
-                <TouchableOpacity
-                  disabled={lightboxIndex === 0}
-                  onPress={() => setLightboxIndex((i) => (i !== null ? Math.max(i - 1, 0) : i))}
-                  style={[styles.lightboxNavBtn, lightboxIndex === 0 && { opacity: 0.3 }]}
-                >
-                  <Text style={styles.lightboxNavText}>‹ Précédent</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  disabled={lightboxIndex === mySouvenirs.length - 1}
-                  onPress={() => setLightboxIndex((i) => (i !== null ? Math.min(i + 1, mySouvenirs.length - 1) : i))}
-                  style={[styles.lightboxNavBtn, lightboxIndex === mySouvenirs.length - 1 && { opacity: 0.3 }]}
-                >
-                  <Text style={styles.lightboxNavText}>Suivant ›</Text>
-                </TouchableOpacity>
-              </View>
-
-              <TouchableOpacity
-                style={[styles.lightboxLink, { backgroundColor: C.accent }]}
-                onPress={() => {
-                  setLightboxIndex(null);
-                  router.push("/(visitor)/souvenirs" as any);
-                }}
-              >
-                <Text style={styles.lightboxLinkText}>📷 Voir dans Souvenirs</Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </View>
-      </Modal>
 
       <Modal visible={pinModalVisible} transparent animationType="fade" onRequestClose={closeChangePinModal}>
         <View style={styles.pinModalOverlay}>
@@ -1642,8 +1578,6 @@ const styles = StyleSheet.create({
   activityRow: { paddingVertical: 6, flexDirection: "row", alignItems: "center", gap: 8 },
   activityRowText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 19 },
   activityRowSub: { fontFamily: "DM_Sans_400Regular", fontSize: 11.5, lineHeight: 16, marginTop: 1 },
-  activityThumbRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  activityThumb: { width: 64, height: 64, borderRadius: 8 },
   activityMsgThumb: { width: 44, height: 44, borderRadius: 8 },
   activityStatusBadge: { borderWidth: 1, borderRadius: 20, paddingHorizontal: 8, paddingVertical: 3 },
   activityStatusText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 10 },
@@ -1695,13 +1629,4 @@ const styles = StyleSheet.create({
   toast: { position: "absolute", bottom: 24, alignSelf: "center", paddingVertical: 10, paddingHorizontal: 20, borderRadius: 10 },
   toastText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13, color: "#fff" },
 
-  lightboxOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.92)", alignItems: "center", justifyContent: "center", padding: 16 },
-  lightboxClose: { position: "absolute", top: 52, right: 20, width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center", zIndex: 1 },
-  lightboxCloseText: { color: "#fff", fontSize: 16, fontFamily: "DM_Sans_700Bold" },
-  lightboxImg: { width: "100%", height: "65%" },
-  lightboxNavRow: { flexDirection: "row", gap: 16, marginTop: 16 },
-  lightboxNavBtn: { paddingVertical: 8, paddingHorizontal: 14 },
-  lightboxNavText: { color: "#fff", fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
-  lightboxLink: { borderRadius: 10, paddingVertical: 12, paddingHorizontal: 22, marginTop: 20 },
-  lightboxLinkText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" },
 });
