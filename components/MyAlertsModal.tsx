@@ -40,9 +40,14 @@ interface Props {
   history: ReservationChangeHistoryEntry[];
   onModify: (r: Reservation) => void;
   onMarkSeen: (r: Reservation) => void | Promise<void>;
+  // Alerte RGPD (conservation des données proche de l'échéance, admin
+  // uniquement) — voir lib/rgpd.ts et RgpdAlertModal.tsx pour le popup
+  // équivalent à l'ouverture de l'app. Absente/nulle si pas d'espace ou hors
+  // fenêtre d'alerte.
+  rgpdAlert?: { message: string; onProlong: () => void; prolonging: boolean } | null;
 }
 
-export default function MyAlertsModal({ visible, onClose, C, activeAlerts, history, onModify, onMarkSeen }: Props) {
+export default function MyAlertsModal({ visible, onClose, C, activeAlerts, history, onModify, onMarkSeen, rgpdAlert }: Props) {
   function handleModify(r: Reservation) {
     onClose();
     onModify(r);
@@ -55,13 +60,31 @@ export default function MyAlertsModal({ visible, onClose, C, activeAlerts, histo
           <Text style={[styles.title, { color: C.text }]}>🔔 Mes alertes</Text>
 
           <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: 4 }}>
-            {activeAlerts.length === 0 && history.length === 0 ? (
+            {!rgpdAlert && activeAlerts.length === 0 && history.length === 0 ? (
               <Text style={[styles.emptyText, { color: C.muted }]}>Aucune alerte pour l'instant.</Text>
             ) : (
               <>
+                {!!rgpdAlert && (
+                  <>
+                    <Text style={[styles.sectionLabel, { color: C.gold }]}>🗄️ Conservation des données</Text>
+                    <View
+                      style={[styles.activeCard, { borderColor: "rgba(233,69,96,0.4)", backgroundColor: "rgba(233,69,96,0.08)" }]}
+                    >
+                      <Text style={[styles.activeMessage, { color: C.text }]}>{rgpdAlert.message}</Text>
+                      <TouchableOpacity
+                        style={[styles.smallBtn, { backgroundColor: C.accent }, rgpdAlert.prolonging && { opacity: 0.6 }]}
+                        onPress={rgpdAlert.onProlong}
+                        disabled={rgpdAlert.prolonging}
+                      >
+                        <Text style={styles.smallBtnPrimaryText}>Prolonger</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                )}
+
                 {activeAlerts.length > 0 && (
                   <>
-                    <Text style={[styles.sectionLabel, { color: C.gold }]}>À traiter</Text>
+                    <Text style={[styles.sectionLabel, { color: C.gold, marginTop: rgpdAlert ? 16 : 0 }]}>À traiter</Text>
                     {activeAlerts.map((r) => (
                       <View
                         key={r.id}
@@ -83,7 +106,7 @@ export default function MyAlertsModal({ visible, onClose, C, activeAlerts, histo
 
                 {history.length > 0 && (
                   <>
-                    <Text style={[styles.sectionLabel, { color: C.gold, marginTop: activeAlerts.length > 0 ? 16 : 0 }]}>Historique</Text>
+                    <Text style={[styles.sectionLabel, { color: C.gold, marginTop: (activeAlerts.length > 0 || rgpdAlert) ? 16 : 0 }]}>Historique</Text>
                     {history.map((h) => (
                       <View key={h.id} style={[styles.historyRow, { borderLeftColor: C.danger }]}>
                         <Text style={[styles.historyType, { color: C.text }]}>

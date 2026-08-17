@@ -13,6 +13,7 @@ import { FREE_VISIT_LIMIT } from "@/lib/freemiumCap";
 import { resolvePlaceFromMapsUrl } from "@/lib/address";
 import { openAndroidTimePicker, openAndroidDatePicker } from "@/lib/androidTimePicker";
 import { formatHourMinute } from "@/lib/slotUtils";
+import { RGPD_DEFAULT_RETENTION_DAYS } from "@/lib/rgpd";
 import type { PatientSpace } from "@/lib/types";
 
 const DOSSIER_CODE_UNIQUE_VIOLATION = "23505";
@@ -37,7 +38,7 @@ const FIXED_SLOT_CONFIG = {
   max_night_visitors: 1,
 };
 
-const SPACE_DURATION_DAYS = 90; // matches the "Prolonger de 90 jours" RGPD cycle
+const SPACE_DURATION_DAYS = RGPD_DEFAULT_RETENTION_DAYS; // durée initiale de conservation RGPD (lib/rgpd.ts)
 
 type Step = "patient" | "care" | "hours" | "capacity";
 const FORM_STEPS: Step[] = ["patient", "care", "hours", "capacity"];

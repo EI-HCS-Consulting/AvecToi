@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { AdminSpaceProvider, useSpace } from "@/lib/SpaceContext";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import PatientOnboarding from "@/components/PatientOnboarding";
+import RgpdAlertModal from "@/components/RgpdAlertModal";
 
 // Sits inside AdminSpaceProvider — shows the onboarding form instead of the
 // tabs until the admin has an active patient_spaces row.
@@ -25,7 +26,12 @@ function AdminGate({ children }: { children: ReactNode }) {
     return <PatientOnboarding />;
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      <RgpdAlertModal />
+      {children}
+    </>
+  );
 }
 
 export default function AdminLayout() {
