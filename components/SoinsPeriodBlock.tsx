@@ -1,8 +1,10 @@
 import { useRef } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, PanResponder } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import type { Theme } from "@/lib/themes";
 import type { Reservation } from "@/lib/types";
 import { toISO, addDays, getWeekDates, getDaysInMonth } from "@/lib/slotUtils";
+import { soinIconName } from "@/lib/soinIcons";
 
 // Bloc "Soins" du planning des intervenants — remplace l'ancien calendrier
 // (MiniCalendar+DaySlotGrid en mensuel, WeeklyPlanningGrid en hebdo) par un
@@ -140,6 +142,7 @@ export default function SoinsPeriodBlock({
                       onPress={() => (onSoinPress ? onSoinPress(r) : onDayPress(iso))}
                     >
                       <Text style={[styles.soinTime, { color: C.orange }]}>{r.creneau}</Text>
+                      <Ionicons name={soinIconName(r.intervention_label ?? "")} size={16} color={C.gold} />
                       <View style={{ flex: 1 }}>
                         {patientName ? (
                           <>

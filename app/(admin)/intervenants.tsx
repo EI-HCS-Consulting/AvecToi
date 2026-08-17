@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useSpace } from "@/lib/SpaceContext";
 import { supabase } from "@/lib/supabase";
@@ -19,6 +20,8 @@ import IntervenantGlobalCalendar from "@/components/IntervenantGlobalCalendar";
 import PatientColorLegend from "@/components/PatientColorLegend";
 import { getPatientColor } from "@/lib/themes";
 import { metierLabel } from "@/lib/metiers";
+import { soinIconName } from "@/lib/soinIcons";
+import PatientAvatar from "@/components/PatientAvatar";
 import type { Reservation, IntervenantProfile, InterventionType } from "@/lib/types";
 
 // Écran admin dédié "Planning des intervenants" — n'affiche que les
@@ -225,14 +228,17 @@ export default function AdminIntervenantsScreen() {
                 profiles.map((p) => (
                   <View key={p.id} style={[styles.subCard, { borderColor: C.border }]}>
                     <View style={styles.profileRow}>
-                      <TouchableOpacity style={{ flex: 1 }} activeOpacity={0.7} onPress={() => setViewingProfile(p)}>
-                        <Text style={[styles.profileName, { color: C.text }]}>{p.prenom} {p.nom}</Text>
-                        {!!p.metier && (
-                          <Text style={[styles.profileMetier, { color: C.muted }]}>
-                            {metierLabel(p.metier)}
-                            {p.metier_secondaire ? ` · ${metierLabel(p.metier_secondaire)}` : ""}
-                          </Text>
-                        )}
+                      <TouchableOpacity style={styles.profileRowTap} activeOpacity={0.7} onPress={() => setViewingProfile(p)}>
+                        <PatientAvatar photoUrl={p.photo} firstname={p.prenom} lastname={p.nom} metier={p.metier} size={40} C={C} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.profileName, { color: C.text }]}>{p.prenom} {p.nom}</Text>
+                          {!!p.metier && (
+                            <Text style={[styles.profileMetier, { color: C.muted }]}>
+                              {metierLabel(p.metier)}
+                              {p.metier_secondaire ? ` · ${metierLabel(p.metier_secondaire)}` : ""}
+                            </Text>
+                          )}
+                        </View>
                       </TouchableOpacity>
                     </View>
                     {(typesByProfile[p.id] || []).length === 0 ? (
@@ -241,6 +247,7 @@ export default function AdminIntervenantsScreen() {
                       <View style={styles.typeChips}>
                         {(typesByProfile[p.id] || []).map((t) => (
                           <View key={t.id} style={[styles.typeChip, { borderColor: C.border, backgroundColor: C.bg }]}>
+                            <Ionicons name={soinIconName(t.label)} size={13} color={C.gold} />
                             <Text style={[styles.typeChipText, { color: C.text }]}>{t.label} · {t.duration_minutes} min</Text>
                           </View>
                         ))}
@@ -346,10 +353,11 @@ const styles = StyleSheet.create({
   toggleIcon: { fontSize: 14 },
   subCard: { borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 10 },
   profileRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+  profileRowTap: { flex: 1, flexDirection: "row", alignItems: "center", gap: 10 },
   profileName: { fontFamily: "DM_Sans_700Bold", fontSize: 15 },
   profileMetier: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 1 },
   typeChips: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
-  typeChip: { borderWidth: 1, borderRadius: 8, paddingVertical: 5, paddingHorizontal: 10 },
+  typeChip: { flexDirection: "row", alignItems: "center", gap: 5, borderWidth: 1, borderRadius: 8, paddingVertical: 5, paddingHorizontal: 10 },
   typeChipText: { fontFamily: "DM_Sans_400Regular", fontSize: 12 },
 
   addBtn: { borderRadius: 12, paddingVertical: 15, alignItems: "center", marginTop: 6, marginBottom: 24 },
