@@ -76,10 +76,10 @@ export default function VisitorCalendarScreen() {
     getVisitorSession().then((s) => {
       const r = s?.role ?? "visiteur";
       setRole(r);
-      // Défaut Soins pour un intervenant : c'est l'information qui le
-      // concerne au premier chef en arrivant sur son calendrier — ne
-      // s'applique qu'au chargement initial, jamais après un choix manuel.
-      if (r === "intervenant") setSoinsMode(true);
+      // Défaut Visite même pour un intervenant : cette page sert avant tout
+      // à voir les créneaux de visite des visiteurs — s'il veut voir les
+      // soins des autres intervenants, c'est une sélection active (bascule
+      // Soins + "Afficher mes créneaux"), pas le défaut à l'arrivée.
       setIntervenantProfileId(s?.intervenantProfileId ?? null);
       setMyPin(s?.pin ?? null);
       setMyPrenom(s?.prenom ?? null);
