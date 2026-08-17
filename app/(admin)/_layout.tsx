@@ -81,7 +81,21 @@ export default function AdminLayout() {
         >
           <Tabs.Screen
             name="home"
-            options={{ href: null }}
+            options={{
+              href: undefined,
+              title: "Accueil",
+              tabBarIcon: ({ color, size }) => <Ionicons name="home-outline" size={size} color={color} />,
+            }}
+            listeners={{
+              // Le groupe "home" est un Stack à plusieurs écrans (calendrier,
+              // créneaux, nuits...) sans route "index" — un appui direct sur cet
+              // onglet doit toujours ramener au calendrier plutôt que de
+              // dépendre de l'état interne du Stack.
+              tabPress: (e) => {
+                e.preventDefault();
+                router.push("/(admin)/home/calendar" as any);
+              },
+            }}
           />
           <Tabs.Screen
             name="news"
@@ -92,10 +106,7 @@ export default function AdminLayout() {
           />
           <Tabs.Screen
             name="souvenirs"
-            options={{
-              title: "Souvenirs",
-              tabBarIcon: ({ color, size }) => <Ionicons name="images-outline" size={size} color={color} />,
-            }}
+            options={{ href: null }}
           />
           <Tabs.Screen
             name="entraide"

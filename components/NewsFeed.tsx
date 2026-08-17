@@ -9,7 +9,6 @@ import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import { File } from "expo-file-system";
 import { supabase } from "@/lib/supabase";
-import { blobToArrayBuffer } from "@/lib/blobToArrayBuffer";
 import { getVisitorSession, rememberAuthorPin, sessionPinMatches } from "@/lib/visitorSession";
 import PinPad from "@/components/PinPad";
 import VisitorProfileModal from "@/components/VisitorProfileModal";
@@ -20,7 +19,6 @@ import { LOGO_PURPLE } from "@/lib/themes";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 const PHOTO_BUCKET = "news-photos";
-const SOUVENIRS_BUCKET = "souvenirs";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface NewsEntryWithUrls extends NewsEntry {
@@ -65,16 +63,6 @@ function frDateShort(iso: string) {
 
 function avatarInitial(prenom: string) {
   return prenom.trim().charAt(0).toUpperCase() || "?";
-}
-
-// Même règle de slug que SouvenirsGallery.tsx, pour des noms de fichier cohérents.
-function sanitize(str: string) {
-  return str
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/[^a-zA-Z0-9]/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
 }
 
 // ─── Composant principal ──────────────────────────────────────────────────────
@@ -178,11 +166,15 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
   // Lightbox
   const [lightbox, setLightbox] = useState<{ urls: string[]; idx: number } | null>(null);
 
+  // Vue "Médias" (photos seules, sans texte ni cadre de publication) — bascule
+  // le rendu du fil (voir mediaItems et le sous-header plus bas). Lightbox
+  // dédié (mediaLightboxIdx) car il doit afficher texte + auteur de la
+  // publication d'origine, contrairement à la lightbox du fil ci-dessus.
+  const [viewMode, setViewMode] = useState<"feed" | "media">("feed");
+  const [mediaLightboxIdx, setMediaLightboxIdx] = useState<number | null>(null);
+
   // Fiche visiteur — ouverte en cliquant le nom de l'auteur (sauf admin)
   const [profileTarget, setProfileTarget] = useState<{ prenom: string; nom: string } | null>(null);
-
-  // Ajout manuel au mur de Souvenirs (entry.id en cours de synchro)
-  const [syncingToSouvenirs, setSyncingToSouvenirs] = useState<string | null>(null);
 
   const [sessionPin, setSessionPin] = useState("");
   // ID intervenant_profiles de l'intervenant connecté — rempli à la
@@ -267,6 +259,10 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
       (effectiveRole !== "visiteur" || isNewsEntryVisibleToVisitor(e)) &&
       (!e.deleted_by_admin || (!isAdmin && e.author_pin === sessionPin)),
   );
+
+  // Liste aplatie des médias pour la vue "Médias" (bouton du sous-header) —
+  // dérivée de visibleEntries (déjà filtrée), pas de nouvelle requête.
+  const mediaItems = visibleEntries.flatMap((e) => e.photoUrls.map((url) => ({ url, entry: e })));
 
   // Arrivée depuis Souvenirs ("Voir l'original") via un lien profond
   // (?focusEntryId=...) : on scrolle jusqu'à la carte et on la surligne
@@ -417,67 +413,6 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
 
   function removeReplyPhoto() {
     setReplyPhotoUri(null);
-  }
-
-  // ── Ajout au mur de Souvenirs ──────────────────────────────────────────────
-  // Copie une photo de Nouvelle vers le bucket/table Souvenirs (ajout, pas
-  // déplacement — la photo reste aussi visible dans le fil Nouvelles).
-  // Déclenché manuellement par un bouton (pas automatique à la publication,
-  // voir addEntryPhotosToSouvenirs ci-dessous). Best-effort : un échec de
-  // sync ne doit pas bloquer le reste.
-  async function syncPhotoToSouvenirs(fileData: ArrayBuffer, authorPrenom: string, authorNom: string, authorPin: string, sourceId: string) {
-    try {
-      const ts = String(Date.now());
-      const prenomClean = sanitize(authorPrenom.trim()) || "Anonyme";
-      const rand = Math.random().toString(36).slice(2, 6);
-      const filename = `${ts}_${rand}__${prenomClean}.jpg`;
-      const storagePath = `${spaceId}/${filename}`;
-
-      const { error: storageErr } = await supabase.storage
-        .from(SOUVENIRS_BUCKET)
-        .upload(storagePath, fileData, { contentType: "image/jpeg", cacheControl: "3600" });
-      if (storageErr) return;
-
-      const { error: dbErr } = await supabase.from("souvenirs").insert({
-        space_id: spaceId,
-        filename,
-        caption: "",
-        uploaded_by_prenom: authorPrenom.trim(),
-        uploaded_by_nom: authorNom.trim(),
-        uploaded_by_pin: authorPin,
-        source_type: "news",
-        source_id: sourceId,
-      });
-      if (dbErr) await supabase.storage.from(SOUVENIRS_BUCKET).remove([storagePath]);
-    } catch {
-      /* sync vers Souvenirs en best-effort */
-    }
-  }
-
-  // Bouton "Ajouter au mur de souvenirs" sur une nouvelle déjà publiée — relit
-  // chaque photo depuis news-photos puis la copie vers souvenirs.
-  async function addEntryPhotosToSouvenirs(entry: NewsEntryWithUrls) {
-    if (!entry.photos.length) return;
-    setSyncingToSouvenirs(entry.id);
-    let failed = 0;
-    for (const filename of entry.photos) {
-      try {
-        const { data, error } = await supabase.storage
-          .from(PHOTO_BUCKET)
-          .download(`${spaceId}/${filename}`);
-        if (error || !data) { failed++; continue; }
-        const fileData = await blobToArrayBuffer(data);
-        await syncPhotoToSouvenirs(fileData, entry.author_prenom, entry.author_nom, entry.author_pin, entry.id);
-      } catch {
-        failed++;
-      }
-    }
-    setSyncingToSouvenirs(null);
-    if (failed) {
-      showToast(`${failed} photo(s) n'a/n'ont pas pu être ajoutée(s)`);
-    } else {
-      showToast("Ajouté au mur de souvenirs ✓");
-    }
   }
 
   async function uploadNewPhotos(
@@ -818,20 +753,6 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
           </ScrollView>
         )}
 
-        {entry.photoUrls.length > 0 && (
-          <TouchableOpacity
-            style={[styles.souvenirsBtn, { borderColor: C.border }]}
-            onPress={() => addEntryPhotosToSouvenirs(entry)}
-            disabled={syncingToSouvenirs === entry.id}
-            activeOpacity={0.75}
-          >
-            {syncingToSouvenirs === entry.id
-              ? <ActivityIndicator color={C.gold} size="small" />
-              : <Text style={[styles.souvenirsBtnText, { color: C.gold }]}>📸 Ajouter au mur de souvenirs</Text>
-            }
-          </TouchableOpacity>
-        )}
-
         {(() => {
           const repliesForEntry = (replies[entry.id] || []).filter((r) => !r.deleted_by_admin || (!isAdmin && isOwnReply(r)));
           if (!repliesForEntry.length) return null;
@@ -906,25 +827,63 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
         )}
       </View>
 
-      <View style={[styles.subHeader, styles.subHeaderRow, { backgroundColor: C.card, borderBottomColor: C.border }]}>
+      <View style={[styles.subHeader, { backgroundColor: C.card, borderBottomColor: C.border }]}>
+        <View style={styles.subHeaderRow}>
+          <TouchableOpacity
+            style={[styles.addBtn, { backgroundColor: C.gold }]}
+            onPress={() => router.push((isAdmin ? "/(admin)/home/calendar" : "/(visitor)/home/calendar") as any)}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.addBtnText}>← Accueil</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.addBtn, { backgroundColor: C.accent }]}
+            onPress={openPublish}
+            activeOpacity={0.85}
+          >
+            <Text style={[styles.addBtnText, { color: "#fff" }]}>+ Publier</Text>
+          </TouchableOpacity>
+        </View>
         <TouchableOpacity
-          style={[styles.addBtn, { backgroundColor: C.gold }]}
-          onPress={() => router.push((isAdmin ? "/(admin)/home/calendar" : "/(visitor)/home/calendar") as any)}
+          style={[
+            styles.mediaToggleBtn,
+            { borderColor: C.accent },
+            viewMode === "media" && { backgroundColor: C.accent },
+          ]}
+          onPress={() => setViewMode((m) => (m === "media" ? "feed" : "media"))}
           activeOpacity={0.85}
         >
-          <Text style={styles.addBtnText}>← Accueil</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.addBtn, { backgroundColor: C.accent }]}
-          onPress={openPublish}
-          activeOpacity={0.85}
-        >
-          <Text style={[styles.addBtnText, { color: "#fff" }]}>+ Publier</Text>
+          <Text style={[styles.addBtnText, { color: viewMode === "media" ? "#fff" : C.accent }]}>
+            🖼️ Médias
+          </Text>
         </TouchableOpacity>
       </View>
 
       {loading ? (
         <View style={styles.centered}><ActivityIndicator color={C.accent} size="large" /></View>
+      ) : viewMode === "media" ? (
+        mediaItems.length === 0 ? (
+          <View style={styles.centered}>
+            <Text style={{ fontSize: 40, marginBottom: 12 }}>🖼️</Text>
+            <Text style={[styles.emptyText, { color: C.muted }]}>Aucun média pour l'instant.</Text>
+          </View>
+        ) : (
+          <FlatList
+            data={mediaItems}
+            keyExtractor={(_, i) => String(i)}
+            numColumns={2}
+            contentContainerStyle={styles.mediaGrid}
+            renderItem={({ item, index }) => (
+              <TouchableOpacity
+                style={styles.mediaCell}
+                activeOpacity={0.85}
+                onPress={() => setMediaLightboxIdx(index)}
+              >
+                <Image source={{ uri: item.url }} style={styles.mediaCellImg} resizeMode="cover" />
+              </TouchableOpacity>
+            )}
+          />
+        )
       ) : visibleEntries.length === 0 ? (
         <View style={styles.centered}>
           <Text style={{ fontSize: 40, marginBottom: 12 }}>📰</Text>
@@ -1380,6 +1339,71 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
         </View>
       </Modal>
 
+      {/* ── LIGHTBOX MÉDIAS (avec texte + auteur de la publication d'origine, ─ */}
+      {/*    pas les réponses) ────────────────────────────────────────────── */}
+      <Modal visible={mediaLightboxIdx !== null} transparent animationType="fade" onRequestClose={() => setMediaLightboxIdx(null)}>
+        <View style={styles.lightboxBg}>
+          {mediaLightboxIdx !== null && mediaItems[mediaLightboxIdx] && (
+            <>
+              <Image
+                source={{ uri: mediaItems[mediaLightboxIdx].url }}
+                style={styles.lightboxImg}
+                resizeMode="contain"
+              />
+              {mediaItems.length > 1 && (
+                <View style={[styles.lightboxNav, { bottom: 170 }]}>
+                  <TouchableOpacity
+                    onPress={() => setMediaLightboxIdx((i) => Math.max(0, (i ?? 0) - 1))}
+                    style={[styles.lightboxNavBtn, mediaLightboxIdx === 0 && { opacity: 0.3 }]}
+                    disabled={mediaLightboxIdx === 0}
+                  >
+                    <Text style={styles.lightboxNavText}>‹</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.lightboxCounter}>
+                    {mediaLightboxIdx + 1} / {mediaItems.length}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => setMediaLightboxIdx((i) => Math.min(mediaItems.length - 1, (i ?? 0) + 1))}
+                    style={[styles.lightboxNavBtn, mediaLightboxIdx === mediaItems.length - 1 && { opacity: 0.3 }]}
+                    disabled={mediaLightboxIdx === mediaItems.length - 1}
+                  >
+                    <Text style={styles.lightboxNavText}>›</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              <View style={styles.mediaLightboxInfo}>
+                {!!mediaItems[mediaLightboxIdx].entry.content && (
+                  <Text style={styles.mediaLightboxText} numberOfLines={4}>
+                    {mediaItems[mediaLightboxIdx].entry.content}
+                  </Text>
+                )}
+                {mediaItems[mediaLightboxIdx].entry.author_pin !== "ADMIN" ? (
+                  <TouchableOpacity
+                    onPress={() => {
+                      const { author_prenom, author_nom } = mediaItems[mediaLightboxIdx!].entry;
+                      setMediaLightboxIdx(null);
+                      setProfileTarget({ prenom: author_prenom, nom: author_nom });
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.mediaLightboxAuthor}>
+                      {mediaItems[mediaLightboxIdx].entry.author_prenom} {mediaItems[mediaLightboxIdx].entry.author_nom}
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <Text style={styles.mediaLightboxAuthor}>
+                    {mediaItems[mediaLightboxIdx].entry.author_prenom} {mediaItems[mediaLightboxIdx].entry.author_nom}
+                  </Text>
+                )}
+              </View>
+            </>
+          )}
+          <TouchableOpacity style={styles.lightboxClose} onPress={() => setMediaLightboxIdx(null)}>
+            <Text style={styles.lightboxCloseText}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
+
       {/* Toast */}
       {!!toast && (
         <View style={[styles.toast, { backgroundColor: C.success }]}>
@@ -1418,6 +1442,7 @@ const styles = StyleSheet.create({
   subHeaderRow: { flexDirection: "row", gap: 10 },
   addBtn: { flex: 1, minWidth: 0, borderRadius: 10, paddingVertical: 12, alignItems: "center" },
   addBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#0D1B2E" },
+  mediaToggleBtn: { borderWidth: 1, borderRadius: 10, paddingVertical: 12, alignItems: "center", marginTop: 10 },
 
   list: { padding: 14, paddingBottom: 32 },
   card: { borderWidth: 1, borderRadius: 14, padding: 14 },
@@ -1433,8 +1458,13 @@ const styles = StyleSheet.create({
   deletedBanner: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, lineHeight: 17, marginBottom: 8 },
   photoStrip: { paddingTop: 10, gap: 6 },
   photoThumb: { width: 100, height: 100, borderRadius: 10, borderWidth: 1 },
-  souvenirsBtn: { borderWidth: 1, borderRadius: 8, paddingVertical: 8, alignItems: "center", marginTop: 10 },
-  souvenirsBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
+
+  mediaGrid: { padding: 6 },
+  mediaCell: { flex: 1 / 2, aspectRatio: 1, margin: 4, borderRadius: 10, overflow: "hidden" },
+  mediaCellImg: { width: "100%", height: "100%" },
+  mediaLightboxInfo: { position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: "rgba(0,0,0,0.72)", padding: 16, paddingBottom: 28 },
+  mediaLightboxText: { fontFamily: "DM_Sans_400Regular", fontSize: 14, lineHeight: 20, color: "#fff", marginBottom: 8 },
+  mediaLightboxAuthor: { fontFamily: "DM_Sans_700Bold", fontSize: 13, color: "#fff" },
 
   repliesWrap: { marginTop: 10, gap: 8 },
   replyItem: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderLeftWidth: 2, paddingLeft: 10 },
