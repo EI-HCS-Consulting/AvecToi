@@ -1,10 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
-  View, Text, TextInput, TouchableOpacity, ScrollView,
+  View, Text, TextInput, TouchableOpacity, ScrollView, FlatList,
   StyleSheet, Alert, ActivityIndicator, Image, Modal,
   KeyboardAvoidingView, Platform, Dimensions,
 } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import { File } from "expo-file-system";
@@ -48,7 +48,6 @@ interface Props {
 }
 
 export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
-  const router = useRouter();
   const { focusMessageId } = useLocalSearchParams<{ focusMessageId?: string }>();
   const scrollRef = useRef<ScrollView>(null);
   const msgOffsets = useRef<Record<string, number>>({});
@@ -118,6 +117,12 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
   // dans SouvenirsGallery.tsx (téléchargement via le partage natif).
   const [lightbox, setLightbox] = useState<{ url: string } | null>(null);
   const [downloadingLightbox, setDownloadingLightbox] = useState(false);
+
+  // Vue "Médias" (photos seules, sans texte ni cadre de message) — même
+  // pattern que components/NewsFeed.tsx. Lightbox dédié (mediaLightboxIdx)
+  // pour afficher texte + auteur du message d'origine, sans les réponses.
+  const [viewMode, setViewMode] = useState<"feed" | "media">("feed");
+  const [mediaLightboxIdx, setMediaLightboxIdx] = useState<number | null>(null);
 
   async function downloadLightboxPhoto() {
     if (!lightbox) return;
@@ -571,39 +576,78 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
   // supabase/migrations/20260811_content_deleted_by_admin.sql.
   const visibleMessages = messages.filter((m) => !m.deleted_by_admin || (!isAdmin && isOwnMessage(m)));
 
+  // Liste aplatie des médias pour la vue "Médias" (bouton du sous-header) —
+  // uniquement les photos des messages, pas des réponses (voir plan).
+  const mediaItems = visibleMessages
+    .filter((m): m is SupportMessage & { photo: string } => !!m.photo)
+    .map((m) => ({ url: supportPhotoUrl(spaceId, m.photo), message: m }));
+
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
       <View style={[styles.header, { backgroundColor: C.card, borderBottomColor: C.border }]}>
         <Text style={[styles.headerTitle, { color: C.text }]}>💛 Mur de soutien</Text>
       </View>
 
-      <View style={[styles.subHeader, styles.subHeaderRow, { backgroundColor: C.card, borderBottomColor: C.border }]}>
+      <View style={[styles.subHeader, { backgroundColor: C.card, borderBottomColor: C.border }]}>
+        <View style={styles.subHeaderRow}>
+          <TouchableOpacity
+            style={[styles.addBtn, { backgroundColor: C.accent }]}
+            onPress={() => {
+              if (capped) {
+                Alert.alert(
+                  "Limite atteinte",
+                  "Vous avez atteint la limite de votre espace. Consultez l'email envoyé à votre adresse pour en savoir plus.",
+                );
+                return;
+              }
+              setShowAddModal(true);
+            }}
+            activeOpacity={0.85}
+          >
+            <Text style={[styles.addBtnText, { color: "#fff" }]}>+ Publier</Text>
+          </TouchableOpacity>
+        </View>
         <TouchableOpacity
-          style={[styles.addBtn, { backgroundColor: C.gold }]}
-          onPress={() => router.push((isAdmin ? "/(admin)/home/calendar" : "/(visitor)/home/calendar") as any)}
+          style={[
+            styles.mediaToggleBtn,
+            { borderColor: C.accent },
+            viewMode === "media" && { backgroundColor: C.accent },
+          ]}
+          onPress={() => setViewMode((v) => (v === "media" ? "feed" : "media"))}
           activeOpacity={0.85}
         >
-          <Text style={styles.addBtnText}>← Accueil</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.addBtn, { backgroundColor: C.accent }]}
-          onPress={() => {
-            if (capped) {
-              Alert.alert(
-                "Limite atteinte",
-                "Vous avez atteint la limite de votre espace. Consultez l'email envoyé à votre adresse pour en savoir plus.",
-              );
-              return;
-            }
-            setShowAddModal(true);
-          }}
-          activeOpacity={0.85}
-        >
-          <Text style={[styles.addBtnText, { color: "#fff" }]}>+ Publier</Text>
+          <Text style={[styles.addBtnText, { color: viewMode === "media" ? "#fff" : C.accent }]}>
+            🖼️ Médias
+          </Text>
         </TouchableOpacity>
       </View>
 
-      <ScrollView ref={scrollRef} contentContainerStyle={styles.listPad} keyboardShouldPersistTaps="handled">
+      {viewMode === "media" ? (
+        mediaItems.length === 0 ? (
+          <View style={styles.centered}>
+            <Text style={{ fontSize: 40, marginBottom: 12 }}>🖼️</Text>
+            <Text style={[styles.emptyText, { color: C.muted }]}>Aucun média pour l'instant.</Text>
+          </View>
+        ) : (
+          <FlatList
+            key="media-grid"
+            data={mediaItems}
+            keyExtractor={(_, i) => String(i)}
+            numColumns={2}
+            contentContainerStyle={styles.mediaGrid}
+            renderItem={({ item, index }) => (
+              <TouchableOpacity
+                style={styles.mediaCell}
+                activeOpacity={0.85}
+                onPress={() => setMediaLightboxIdx(index)}
+              >
+                <Image source={{ uri: item.url }} style={styles.mediaCellImg} resizeMode="cover" />
+              </TouchableOpacity>
+            )}
+          />
+        )
+      ) : (
+      <ScrollView key="feed-list" ref={scrollRef} contentContainerStyle={styles.listPad} keyboardShouldPersistTaps="handled">
         {msgsLoading ? (
           <ActivityIndicator color={C.accent} style={{ marginTop: 24 }} />
         ) : visibleMessages.length === 0 ? (
@@ -748,6 +792,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
           })
         )}
       </ScrollView>
+      )}
 
       {!!toast && (
         <View style={[styles.toast, { backgroundColor: C.success }]}>
@@ -1186,6 +1231,71 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
         </View>
       </Modal>
 
+      {/* ── LIGHTBOX MÉDIAS (avec texte + auteur du message d'origine, ────── */}
+      {/*    pas les réponses) ────────────────────────────────────────────── */}
+      <Modal visible={mediaLightboxIdx !== null} transparent animationType="fade" onRequestClose={() => setMediaLightboxIdx(null)}>
+        <View style={styles.lightboxBg}>
+          {mediaLightboxIdx !== null && mediaItems[mediaLightboxIdx] && (
+            <>
+              <Image
+                source={{ uri: mediaItems[mediaLightboxIdx].url }}
+                style={styles.lightboxImg}
+                resizeMode="contain"
+              />
+              {mediaItems.length > 1 && (
+                <View style={[styles.lightboxNav, { bottom: 170 }]}>
+                  <TouchableOpacity
+                    onPress={() => setMediaLightboxIdx((i) => Math.max(0, (i ?? 0) - 1))}
+                    style={[styles.lightboxNavBtn, mediaLightboxIdx === 0 && { opacity: 0.3 }]}
+                    disabled={mediaLightboxIdx === 0}
+                  >
+                    <Text style={styles.lightboxNavText}>‹</Text>
+                  </TouchableOpacity>
+                  <Text style={styles.lightboxCounter}>
+                    {mediaLightboxIdx + 1} / {mediaItems.length}
+                  </Text>
+                  <TouchableOpacity
+                    onPress={() => setMediaLightboxIdx((i) => Math.min(mediaItems.length - 1, (i ?? 0) + 1))}
+                    style={[styles.lightboxNavBtn, mediaLightboxIdx === mediaItems.length - 1 && { opacity: 0.3 }]}
+                    disabled={mediaLightboxIdx === mediaItems.length - 1}
+                  >
+                    <Text style={styles.lightboxNavText}>›</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+              <View style={styles.mediaLightboxInfo}>
+                {!!mediaItems[mediaLightboxIdx].message.message && (
+                  <Text style={styles.mediaLightboxText} numberOfLines={4}>
+                    {mediaItems[mediaLightboxIdx].message.message}
+                  </Text>
+                )}
+                {mediaItems[mediaLightboxIdx].message.author_pin !== "ADMIN" ? (
+                  <TouchableOpacity
+                    onPress={() => {
+                      const { author_prenom, author_nom } = mediaItems[mediaLightboxIdx!].message;
+                      setMediaLightboxIdx(null);
+                      setProfileTarget({ prenom: author_prenom, nom: author_nom });
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.mediaLightboxAuthor}>
+                      {mediaItems[mediaLightboxIdx].message.author_prenom} {mediaItems[mediaLightboxIdx].message.author_nom}
+                    </Text>
+                  </TouchableOpacity>
+                ) : (
+                  <Text style={styles.mediaLightboxAuthor}>
+                    {mediaItems[mediaLightboxIdx].message.author_prenom} {mediaItems[mediaLightboxIdx].message.author_nom}
+                  </Text>
+                )}
+              </View>
+            </>
+          )}
+          <TouchableOpacity style={styles.lightboxClose} onPress={() => setMediaLightboxIdx(null)}>
+            <Text style={styles.lightboxCloseText}>✕</Text>
+          </TouchableOpacity>
+        </View>
+      </Modal>
+
       {/* ── FICHE VISITEUR ────────────────────────────────────────────────── */}
       {profileTarget && (
         <VisitorProfileModal
@@ -1288,4 +1398,17 @@ const styles = StyleSheet.create({
   lightboxHint: { color: "rgba(255,255,255,0.7)", fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 16 },
   lightboxClose: { position: "absolute", top: 52, right: 16, width: 36, height: 36, borderRadius: 18, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" },
   lightboxCloseText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  lightboxNav: { position: "absolute", bottom: 60, flexDirection: "row", alignItems: "center", gap: 24 },
+  lightboxNavBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" },
+  lightboxNavText: { color: "#fff", fontSize: 22, fontWeight: "600" },
+  lightboxCounter: { fontFamily: "DM_Sans_400Regular", fontSize: 14, color: "rgba(255,255,255,0.7)" },
+
+  // Vue "Médias"
+  mediaToggleBtn: { borderWidth: 1, borderRadius: 10, paddingVertical: 12, alignItems: "center", marginTop: 10 },
+  mediaGrid: { padding: 6 },
+  mediaCell: { flex: 1 / 2, aspectRatio: 1, margin: 4, borderRadius: 10, overflow: "hidden" },
+  mediaCellImg: { width: "100%", height: "100%" },
+  mediaLightboxInfo: { position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: "rgba(0,0,0,0.72)", padding: 16, paddingBottom: 28 },
+  mediaLightboxText: { fontFamily: "DM_Sans_400Regular", fontSize: 14, lineHeight: 20, color: "#fff", marginBottom: 8 },
+  mediaLightboxAuthor: { fontFamily: "DM_Sans_700Bold", fontSize: 13, color: "#fff" },
 });

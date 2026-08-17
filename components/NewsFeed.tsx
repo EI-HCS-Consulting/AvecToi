@@ -4,7 +4,7 @@ import {
   FlatList, Image, Modal, StyleSheet, Alert, ActivityIndicator,
   KeyboardAvoidingView, Platform, Dimensions,
 } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import { File } from "expo-file-system";
@@ -67,7 +67,6 @@ function avatarInitial(prenom: string) {
 
 // ─── Composant principal ──────────────────────────────────────────────────────
 export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "visiteur", newsIntervenantMode }: Props) {
-  const router = useRouter();
   const effectiveRole: "visiteur" | "intervenant" | "admin" = isAdmin ? "admin" : viewerRole;
 
   // IDs des intervenants autorisés à publier pour les visiteurs quand
@@ -830,13 +829,6 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
       <View style={[styles.subHeader, { backgroundColor: C.card, borderBottomColor: C.border }]}>
         <View style={styles.subHeaderRow}>
           <TouchableOpacity
-            style={[styles.addBtn, { backgroundColor: C.gold }]}
-            onPress={() => router.push((isAdmin ? "/(admin)/home/calendar" : "/(visitor)/home/calendar") as any)}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.addBtnText}>← Accueil</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
             style={[styles.addBtn, { backgroundColor: C.accent }]}
             onPress={openPublish}
             activeOpacity={0.85}
@@ -869,6 +861,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
           </View>
         ) : (
           <FlatList
+            key="media-grid"
             data={mediaItems}
             keyExtractor={(_, i) => String(i)}
             numColumns={2}
@@ -892,6 +885,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
         </View>
       ) : (
         <FlatList
+          key="feed-list"
           ref={listRef}
           data={visibleEntries}
           keyExtractor={(e) => e.id}

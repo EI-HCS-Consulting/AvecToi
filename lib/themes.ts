@@ -93,10 +93,18 @@ export const PASTEL_COLORS = [
   "#D7BAFF", "#FFBAF0", "#C9FFE5", "#FFD1DC", "#C4C4FF",
 ];
 
+// Mêmes teintes que VISITES_ORANGE_FILL/VISITES_DANGER_FILL (fond des cases
+// Partiel/Complet) exclues ici : un trait de cette couleur serait invisible
+// posé sur un fond identique — voir WeekStrip.tsx/DayEdgeStripes.tsx où les
+// traits sont dessinés par-dessus ce fond.
+const STRIPE_FALLBACK_COLORS = PASTEL_COLORS.filter(
+  (c) => c !== VISITES_ORANGE_FILL && c !== VISITES_DANGER_FILL,
+);
+
 // Couleur attribuée au (index+1)-ème patient d'un intervenant — les 5
 // premiers reprennent PATIENT_PALETTE, au-delà on bascule sur la palette
-// pastel (voir PASTEL_COLORS).
+// pastel (voir PASTEL_COLORS, filtrée en STRIPE_FALLBACK_COLORS).
 export function getPatientColor(index: number): string {
   if (index < PATIENT_PALETTE.length) return PATIENT_PALETTE[index];
-  return PASTEL_COLORS[(index - PATIENT_PALETTE.length) % PASTEL_COLORS.length];
+  return STRIPE_FALLBACK_COLORS[(index - PATIENT_PALETTE.length) % STRIPE_FALLBACK_COLORS.length];
 }
