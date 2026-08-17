@@ -1,10 +1,10 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import {
   View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, Modal, Switch,
 } from "react-native";
 import { useVisitorSpace } from "@/lib/VisitorContext";
 import {
-  getDayStatus, findNextAvailableSlot, getDaysInMonth, getMonday,
+  getDayStatus, findNextAvailableSlot, getDaysInMonth, getMonday, addDays,
   toISO, toFrLong, isMyReservation,
 } from "@/lib/slotUtils";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
@@ -16,7 +16,7 @@ import WeekStrip from "@/components/WeekStrip";
 import IntervenantPlanningPanel from "@/components/IntervenantPlanningPanel";
 import BookingFlow, { type BookingFlowHandle } from "@/components/BookingFlow";
 import InterventionBookingFlow, { type InterventionBookingFlowHandle } from "@/components/InterventionBookingFlow";
-import { useRouter, useLocalSearchParams } from "expo-router";
+import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router";
 
 const DAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
 
@@ -117,6 +117,23 @@ export default function VisitorCalendarScreen() {
     } as any);
   }, [focusIso, space]);
 
+  // Reste sur la date du jour à chaque retour sur l'accueil (onglet
+  // Calendrier) — ex. après être allé voir Infos/Partager/Nuits puis être
+  // revenu, le curseur bleu (selectedDay, partagé via VisitorContext donc
+  // pas remis à zéro par un simple remount) doit systématiquement retrouver
+  // aujourd'hui plutôt que le dernier jour tapé. Sans effet lors de
+  // l'arrivée automatique via focusIso (l'effet ci-dessus enchaîne aussitôt
+  // vers l'écran des créneaux sur le jour ciblé, jamais affiché ici).
+  useFocusEffect(
+    useCallback(() => {
+      if (focusIso) return;
+      setSelectedDay(initialDay);
+      setCalMonth({ year: initialDay.getFullYear(), month: initialDay.getMonth() });
+      setWeekAnchor(getMonday(initialDay));
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [focusIso, initialDay]),
+  );
+
   const flowRef = useRef<BookingFlowHandle>(null);
   const interventionFlowRef = useRef<InterventionBookingFlowHandle>(null);
 
@@ -188,6 +205,18 @@ export default function VisitorCalendarScreen() {
     : reservations;
 
   const selectedIso = toISO(selectedDay);
+
+  // Période affichée par le panneau perso sous le calendrier
+  // (IntervenantPlanningPanel) — suit le switch Mensuel/Hebdo (planningView)
+  // et le mois/la semaine actuellement parcouru(e), pas juste "aujourd'hui" :
+  // naviguer avec ‹ › doit aussi déplacer la période du panneau, exactement
+  // comme elle déplace déjà celle du calendrier/de la bande au-dessus.
+  const periodStartIso = planningView === "hebdo"
+    ? toISO(weekAnchor)
+    : toISO(new Date(calMonth.year, calMonth.month, 1));
+  const periodEndIso = planningView === "hebdo"
+    ? toISO(addDays(weekAnchor, 6))
+    : toISO(new Date(calMonth.year, calMonth.month + 1, 0));
 
   // Tap sur une case de la bande Hebdo — même comportement que le tap sur une
   // case de la grille Mensuel (onPress ci-dessous) : jour bloqué par l'admin
@@ -474,6 +503,9 @@ export default function VisitorCalendarScreen() {
             myNom={myNom}
             onEdit={(r) => flowRef.current?.openPinModal(r)}
             myIntervenantProfileId={role === "intervenant" && mesCreneauxOnly ? intervenantProfileId : null}
+            periodStartIso={periodStartIso}
+            periodEndIso={periodEndIso}
+            periodLabel={planningView === "hebdo" ? "cette semaine" : "ce mois-ci"}
           />
         </View>
       </ScrollView>

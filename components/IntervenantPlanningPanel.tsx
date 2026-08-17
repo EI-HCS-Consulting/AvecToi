@@ -39,6 +39,15 @@ interface Props {
   // (type Intervention) plutôt que de les exclure comme le ferait le filtre
   // normal de ce mode.
   myIntervenantProfileId?: string | null;
+  // Période actuellement parcourue au-dessus (Mensuel/Hebdo, home/
+  // calendar.tsx) au format "YYYY-MM-DD" — la section "à venir" ne liste
+  // plus que les réservations dans cette période ; celles au-delà basculent
+  // dans une sous-rubrique "Autres" distincte, voir plus bas.
+  periodStartIso: string;
+  periodEndIso: string;
+  // "cette semaine" (Hebdo) ou "ce mois-ci" (Mensuel) — utilisé dans le
+  // message affiché quand la période sélectionnée est vide.
+  periodLabel: string;
 }
 
 function PlanningCard({
@@ -114,7 +123,10 @@ function groupByDateCreneau(list: Reservation[]): Reservation[][] {
   return Array.from(map.values());
 }
 
-export default function IntervenantPlanningPanel({ C, reservations, soinsMode, myPin, myPrenom, myNom, onEdit, myIntervenantProfileId }: Props) {
+export default function IntervenantPlanningPanel({
+  C, reservations, soinsMode, myPin, myPrenom, myNom, onEdit, myIntervenantProfileId,
+  periodStartIso, periodEndIso, periodLabel,
+}: Props) {
   const [historyOpen, setHistoryOpen] = useState(false);
 
   const filtered = reservations.filter((r) =>
@@ -124,18 +136,30 @@ export default function IntervenantPlanningPanel({ C, reservations, soinsMode, m
         || (!!myIntervenantProfileId && r.type === "Intervention" && r.intervenant_profile_id === myIntervenantProfileId)
   );
 
+  const notPast = filtered.filter((r) => !isSlotFullyPast(r.date, r.creneau));
+  // "À venir" : restreinte à la période actuellement parcourue au-dessus
+  // (mois en vue Mensuel, semaine en vue Hebdo — voir periodStartIso/
+  // periodEndIso, home/calendar.tsx). "Autres" : le reste des réservations à
+  // venir, hors de cette période (typiquement les semaines/mois suivants) —
+  // repliée par défaut comme l'historique, mais seulement affichée si non
+  // vide.
+  const inPeriod = notPast.filter((r) => r.date >= periodStartIso && r.date <= periodEndIso);
+  const others = notPast.filter((r) => r.date < periodStartIso || r.date > periodEndIso);
+
   // Liste "à venir" : chronologique, la prochaine réservation en premier.
   // Historique : anté-chronologique, la plus récemment passée en premier.
   // Regroupées par date+créneau : 2 réservations sur le même créneau
   // (ex. 2 visiteurs) forment un seul bloc au lieu de deux cartes séparées.
-  const upcoming = groupByDateCreneau(
-    filtered.filter((r) => !isSlotFullyPast(r.date, r.creneau))
-  ).sort((a, b) => (a[0].date + a[0].creneau).localeCompare(b[0].date + b[0].creneau));
+  const upcoming = groupByDateCreneau(inPeriod)
+    .sort((a, b) => (a[0].date + a[0].creneau).localeCompare(b[0].date + b[0].creneau));
+  const otherUpcoming = groupByDateCreneau(others)
+    .sort((a, b) => (a[0].date + a[0].creneau).localeCompare(b[0].date + b[0].creneau));
   const past = groupByDateCreneau(
     filtered.filter((r) => isSlotFullyPast(r.date, r.creneau))
   ).sort((a, b) => (b[0].date + b[0].creneau).localeCompare(a[0].date + a[0].creneau));
 
   const upcomingTitle = soinsMode ? "Soins planifiés" : "Visites planifiées";
+  const othersTitle = soinsMode ? "Autres soins planifiés" : "Autres visites planifiées";
   const historyTitle = soinsMode ? "Historique des soins" : "Historique des visites";
 
   return (
@@ -143,7 +167,7 @@ export default function IntervenantPlanningPanel({ C, reservations, soinsMode, m
       <Text style={[styles.sectionTitle, { color: C.gold }]}>{upcomingTitle}</Text>
       {upcoming.length === 0 ? (
         <Text style={[styles.emptyText, { color: C.muted }]}>
-          {soinsMode ? "Aucun soin planifié pour l'instant." : "Aucune visite planifiée pour l'instant."}
+          {soinsMode ? `Aucun soin planifié ${periodLabel}.` : `Aucune visite planifiée ${periodLabel}.`}
         </Text>
       ) : (
         upcoming.map((g) => (
@@ -152,6 +176,18 @@ export default function IntervenantPlanningPanel({ C, reservations, soinsMode, m
             myPin={myPin} myPrenom={myPrenom} myNom={myNom} onEdit={onEdit}
           />
         ))
+      )}
+
+      {otherUpcoming.length > 0 && (
+        <>
+          <Text style={[styles.sectionTitle, styles.othersTitle, { color: C.gold }]}>{othersTitle}</Text>
+          {otherUpcoming.map((g) => (
+            <PlanningCard
+              key={g[0].id} group={g} C={C} done={false} soinsMode={soinsMode}
+              myPin={myPin} myPrenom={myPrenom} myNom={myNom} onEdit={onEdit}
+            />
+          ))}
+        </>
       )}
 
       <TouchableOpacity onPress={() => setHistoryOpen((o) => !o)} activeOpacity={0.7} style={styles.historyToggle}>
@@ -176,6 +212,7 @@ export default function IntervenantPlanningPanel({ C, reservations, soinsMode, m
 
 const styles = StyleSheet.create({
   sectionTitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 1, textTransform: "uppercase", marginBottom: 10 },
+  othersTitle: { marginTop: 20 },
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginBottom: 12 },
 
   historyToggle: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 20, marginBottom: 10 },
