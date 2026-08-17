@@ -415,13 +415,6 @@ export default function AdminAccountScreen() {
 
       <View style={[styles.subHeader, styles.subHeaderRow, { backgroundColor: C.card, borderBottomColor: C.border }]}>
         <TouchableOpacity
-          style={[styles.goldBtn, { backgroundColor: C.gold }]}
-          onPress={() => router.push("/(admin)/home/calendar" as any)}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.goldBtnText}>← Accueil</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
           style={[styles.goldBtn, { backgroundColor: C.accent }]}
           onPress={() => router.push("/(admin)/settings")}
           activeOpacity={0.85}

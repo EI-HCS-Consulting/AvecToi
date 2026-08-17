@@ -4,7 +4,7 @@ import {
   Modal, StyleSheet, Alert, ActivityIndicator, Image,
   KeyboardAvoidingView, Platform, Linking,
 } from "react-native";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as Crypto from "expo-crypto";
@@ -101,7 +101,6 @@ function slotLabel(dateIso: string, time: string): string {
 }
 
 export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, allergies }: Props) {
-  const router = useRouter();
   const { focusTaskId } = useLocalSearchParams<{ focusTaskId?: string }>();
   const scrollRef = useRef<ScrollView>(null);
   const taskOffsets = useRef<Record<string, number>>({});
@@ -1840,13 +1839,6 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       </View>
 
       <View style={[styles.subHeader, styles.subHeaderRow, { backgroundColor: C.card, borderBottomColor: C.border }]}>
-        <TouchableOpacity
-          style={[styles.addBtn, { backgroundColor: C.gold }]}
-          onPress={() => router.push((isAdmin ? "/(admin)/home/calendar" : "/(visitor)/home/calendar") as any)}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.addBtnText}>← Accueil</Text>
-        </TouchableOpacity>
         <TouchableOpacity
           style={[styles.addBtn, { backgroundColor: C.accent }]}
           onPress={openCreateTask}

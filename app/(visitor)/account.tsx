@@ -855,16 +855,6 @@ export default function VisitorAccountScreen() {
         <Text style={[styles.headerTitle, { color: C.text }]}>👤 Mon compte</Text>
       </View>
 
-      <View style={[styles.subHeader, { backgroundColor: C.card, borderBottomColor: C.border }]}>
-        <TouchableOpacity
-          style={[styles.backToGrid, { backgroundColor: C.gold, marginBottom: 0 }]}
-          onPress={() => router.push("/(visitor)/home/calendar" as any)}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.backToGridText}>← Accueil</Text>
-        </TouchableOpacity>
-      </View>
-
       <ScrollView contentContainerStyle={styles.scroll}>
         <TouchableOpacity onPress={handlePickPhoto} style={styles.photoWrap} activeOpacity={0.8}>
           {photoUri ? (
