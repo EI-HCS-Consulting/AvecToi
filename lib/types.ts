@@ -153,7 +153,7 @@ export interface Reservation {
   previous_date: string | null;
   previous_creneau: string | null;
   alert_message: string | null;
-  alert_type: "rebooked" | "night_cancelled" | "rebooking_failed" | "day_cap_suspended" | null;
+  alert_type: "rebooked" | "night_cancelled" | "rebooking_failed" | "day_cap_suspended" | "booking_proposal" | null;
   alert_seen: boolean;
   // Prénoms des personnes accompagnant le réservataire, séparés par des
   // virgules — affiché dans l'événement calendrier natif ("Avec ..."),
@@ -192,11 +192,18 @@ export interface IntervenantProfile {
   space_id: string;
   prenom: string;
   nom: string;
-  pin: string;
+  // Null pour une fiche créée par l'admin sans connexion possible (voir
+  // components/AdminNewIntervenantFlow.tsx) — sinon le PIN choisi par
+  // l'intervenant à sa propre création de fiche.
+  pin: string | null;
   photo: string | null;
   photo_updated_at: string | null;
   telephone: string | null;
   phrase_totem: string | null;
+  // Optionnel — sert à envoyer une confirmation de créneau réservé (voir
+  // notify-intervention-confirmation) et, pour une fiche avec compte, un
+  // email de secours en plus du message in-app.
+  email: string | null;
   // Clé du métier (voir lib/metiers.ts, ex. "infirmier", "kine") — saisi à la
   // création de la fiche, sert à afficher la spécialisation et à choisir
   // l'icône de repli de l'avatar (IntervenantAvatar.tsx) sans photo.

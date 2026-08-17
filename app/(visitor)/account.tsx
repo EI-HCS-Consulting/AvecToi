@@ -814,7 +814,16 @@ export default function VisitorAccountScreen() {
     .filter((r) => r.alert_message && !r.alert_seen)
     .sort((a, b) => (a.date === b.date ? a.creneau.localeCompare(b.creneau) : a.date.localeCompare(b.date)));
 
-  function handleAlertModify(r: Reservation) {
+  async function handleAlertModify(r: Reservation) {
+    // Intervention proposée par l'admin (voir BookingProposalAlertModal) :
+    // pas d'édition en place possible, on supprime la réservation puis on
+    // renvoie l'intervenant sur son planning pour en choisir une autre.
+    if (r.type === "Intervention") {
+      await supabase.from("reservations").delete().eq("id", r.id);
+      if (space) loadActivity(space.id, prenom, nom);
+      router.push("/(visitor)/home/calendar" as any);
+      return;
+    }
     setPendingEditReservationId(r.id);
     if (r.type === "Nuit") {
       router.push("/(visitor)/home/nights" as any);
@@ -1570,7 +1579,7 @@ export default function VisitorAccountScreen() {
           intervenantProfileId={intervenantProfileId}
           theme={C}
           onClose={() => setFicheModalVisible(false)}
-          onSaved={async (_profileId, savedPrenom, savedNom, savedTelephone, savedPhraseTotem, savedPhoto, savedPhotoUpdatedAt, savedMetier) => {
+          onSaved={async (_profileId, savedPrenom, savedNom, savedTelephone, savedPhraseTotem, savedPhoto, savedPhotoUpdatedAt, savedMetier, _email) => {
             // Persiste aussi la photo dans localPhotoUri : sinon la session
             // locale garde l'ancienne URI (ou reste vide), et rouvrir l'app
             // réaffiche l'ancienne photo malgré le changement fait ici — voir

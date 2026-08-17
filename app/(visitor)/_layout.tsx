@@ -13,6 +13,7 @@ import { getVisitorSession, saveVisitorSession } from "@/lib/visitorSession";
 import PinPad from "@/components/PinPad";
 import PatientAvatar from "@/components/PatientAvatar";
 import RebookingAlertModal from "@/components/RebookingAlertModal";
+import BookingProposalAlertModal from "@/components/BookingProposalAlertModal";
 import IntervenantOnboardingFlow from "@/components/IntervenantOnboardingFlow";
 
 function VisitorTabs() {
@@ -225,7 +226,7 @@ function VisitorTabs() {
           pin={identityPin}
           pickedPhotoUri={identityPhotoUri}
           theme={C}
-          onCreated={async (profileId, savedPrenom, savedNom, _telephone, _phraseTotem, _photo, _photoUpdatedAt, savedMetier) => {
+          onCreated={async (profileId, savedPrenom, savedNom, _telephone, _phraseTotem, _photo, _photoUpdatedAt, savedMetier, _email) => {
             await saveVisitorSession({
               token, spaceId: space.id, intervenantProfileId: profileId,
               prenom: savedPrenom, nom: savedNom, metier: savedMetier ?? "",
@@ -260,6 +261,8 @@ function VisitorTabs() {
       </Modal>
 
       {identityKnown === true && (role !== "intervenant" || !!intervenantProfileId) && consentGiven === true && <RebookingAlertModal />}
+
+      {identityKnown === true && role === "intervenant" && !!intervenantProfileId && consentGiven === true && <BookingProposalAlertModal />}
 
     <Tabs
       screenOptions={{
