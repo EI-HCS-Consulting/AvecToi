@@ -12,6 +12,10 @@ const FEMININE_ENDINGS = [
 const MASCULINE_ENDINGS = [
   "ment", "isme", "age", "eau", "ail", "oir", "al", "ing", "et", "ard",
 ];
+// Mots courts/abrégés dont le genre ne se déduit pas de la terminaison
+// (ex. "gym" pour "gymnastique", féminin) — ajouter ici plutôt que
+// d'élargir les terminaisons ci-dessus, qui resteraient trop larges.
+const EXPLICIT_FEMININE_WORDS = new Set(["gym"]);
 
 function firstWord(label: string): string {
   const match = label.trim().toLowerCase().match(/[a-zàâäéèêëïîôöùûüç]+/);
@@ -20,6 +24,7 @@ function firstWord(label: string): string {
 
 export function guessFrenchArticle(label: string): "un" | "une" {
   const word = firstWord(label);
+  if (EXPLICIT_FEMININE_WORDS.has(word)) return "une";
   for (const ending of FEMININE_ENDINGS) {
     if (word.endsWith(ending)) return "une";
   }

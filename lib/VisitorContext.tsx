@@ -61,7 +61,7 @@ const VisitorContext = createContext<VisitorContextValue>({
   refreshReservations: async () => {},
   getConfigForDate: () => null,
   getSlotsForDate: () => [],
-  mesCreneauxOnly: true,
+  mesCreneauxOnly: false,
   setMesCreneauxOnly: () => {},
 });
 
@@ -85,7 +85,7 @@ export function VisitorSpaceProvider({ token, children }: { token: string; child
   });
   const [pendingBookingSlot, setPendingBookingSlot] = useState<string | null>(null);
   const [pendingEditReservationId, setPendingEditReservationId] = useState<string | null>(null);
-  const [mesCreneauxOnly, setMesCreneauxOnly] = useState(true);
+  const [mesCreneauxOnly, setMesCreneauxOnly] = useState(false);
 
   const fetchSpace = useCallback(async () => {
     if (!token) { setLoading(false); return; }

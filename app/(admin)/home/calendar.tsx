@@ -38,7 +38,7 @@ export default function AdminCalendarScreen() {
   // ses propres réservations (ajoutées via AdminAddReservation, toujours au
   // PIN sentinelle "ADMIN") sont reconnues comme "siennes" au même titre
   // qu'un visiteur ordinaire — voir isMyReservation (lib/slotUtils.ts).
-  const [mesCreneauxOnly, setMesCreneauxOnly] = useState(true);
+  const [mesCreneauxOnly, setMesCreneauxOnly] = useState(false);
   // Mensuel/Hebdo — la vue Hebdo permet de réserver directement un créneau
   // du jour sélectionné (D) sans passer par l'écran dédié (home/slots.tsx),
   // qui reste accessible en Mensuel (tap sur un jour).
