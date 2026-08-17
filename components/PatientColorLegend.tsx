@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import type { Theme } from "@/lib/themes";
 
@@ -21,13 +22,21 @@ interface Props {
   items: Item[];
   selectedId: string | null;
   onSelect: (id: string | null) => void;
+  // Limite le nombre d'items affichés d'emblée (hors "Tous", toujours
+  // affiché) — au-delà, un bouton "Plus de visiteurs" déplie le reste. Sans
+  // effet si absente ou si items.length <= maxVisible (comportement soins.tsx
+  // inchangé).
+  maxVisible?: number;
 }
 
-export default function PatientColorLegend({ C, items, selectedId, onSelect }: Props) {
+export default function PatientColorLegend({ C, items, selectedId, onSelect, maxVisible }: Props) {
+  const [expanded, setExpanded] = useState(false);
   if (items.length === 0) return null;
+  const shouldCollapse = !!maxVisible && items.length > maxVisible;
+  const visibleItems = shouldCollapse && !expanded ? items.slice(0, maxVisible) : items;
   return (
     <View style={styles.grid}>
-      {items.map((item) => (
+      {visibleItems.map((item) => (
         <TouchableOpacity key={item.id} style={styles.item} onPress={() => onSelect(item.id)} activeOpacity={0.7}>
           <View style={[styles.swatch, { backgroundColor: item.color }]} />
           <Text
@@ -54,6 +63,13 @@ export default function PatientColorLegend({ C, items, selectedId, onSelect }: P
           Tous
         </Text>
       </TouchableOpacity>
+      {shouldCollapse && (
+        <TouchableOpacity style={styles.item} onPress={() => setExpanded((v) => !v)} activeOpacity={0.7}>
+          <Text style={[styles.label, styles.toggleLabel, { color: C.muted }]} numberOfLines={1}>
+            {expanded ? "Moins de visiteurs ▴" : "Plus de visiteurs ▾"}
+          </Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -65,4 +81,5 @@ const styles = StyleSheet.create({
   allSwatch: { borderWidth: 1.5, backgroundColor: "transparent" },
   label: { fontFamily: "DM_Sans_400Regular", fontSize: 12, flexShrink: 1 },
   labelActive: { fontFamily: "DM_Sans_700Bold" },
+  toggleLabel: { fontFamily: "DM_Sans_600SemiBold", textDecorationLine: "underline" },
 });

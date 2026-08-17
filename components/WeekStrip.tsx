@@ -2,8 +2,9 @@ import { useEffect } from "react";
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import type { Theme } from "@/lib/themes";
 import { LOGO_GREEN, LOGO_PURPLE } from "@/lib/themes";
+import { DayStripes } from "@/components/DayEdgeStripes";
 import type { Reservation, SlotConfig } from "@/lib/types";
-import { addDays, getWeekDates, toISO, getDayStatus, isMyReservation } from "@/lib/slotUtils";
+import { addDays, getWeekDates, toISO, getDayStatus, isMyReservation, visiteurIdentityKey } from "@/lib/slotUtils";
 
 // Bande de 7 jours pour la vue Hebdo du calendrier principal (visiteur/admin/
 // intervenant) — même code visuel que la grille mensuelle (pastille de statut
@@ -33,9 +34,15 @@ interface Props {
   // changement de semaine ‹ › via le useEffect ci-dessous) — jamais déclenché
   // par un tap utilisateur, voir onDayPress pour ça.
   onSelectDay: (iso: string) => void;
-  // Tap explicite sur une case du jour — navigue vers l'écran dédié des
-  // créneaux (home/slots.tsx), exactement comme la grille Mensuel.
+  // Tap explicite sur une case du jour. Mode Soins : navigue vers l'écran
+  // dédié des créneaux (home/slots.tsx), exactement comme la grille Mensuel.
+  // Mode Visites : sélectionne seulement le jour (voir onDayLongPress pour la
+  // navigation, home/calendar.tsx).
   onDayPress: (iso: string) => void;
+  // Appui prolongé — mode Visites uniquement (sans effet en mode Soins) :
+  // reprend l'ancien comportement de tap, navigue vers l'écran des créneaux
+  // pour ce jour. Voir home/calendar.tsx.
+  onDayLongPress?: (iso: string) => void;
   soinsMode: boolean;
   // "Afficher mes créneaux" (home/calendar.tsx) — pour un intervenant,
   // filtre aussi les cadres violets de la bande elle-même (pas seulement le
@@ -56,13 +63,32 @@ interface Props {
   // non renseigné côté fiche patient.
   admissionIso: string | null;
   dischargeIso: string | null;
+  // Active le rendu "riche" du mode Visites (fond Orange/Rouge, traits de
+  // bord par visiteur, légende Partiel/Complet) — utilisé par le calendrier
+  // visiteur (home/calendar.tsx). Absent/false : mode Visites inchangé
+  // (pastille + bande verte "Mes créneaux" historiques), utilisé par le
+  // calendrier admin ((admin)/home/calendar.tsx), qui n'a pas la notion de
+  // visiteur sélectionné/coloré. Toujours ignoré en mode Soins.
+  richVisitesMode?: boolean;
+  // Couleur par visiteur (clé = visiteurIdentityKey), dans l'ordre de la
+  // légende — voir home/calendar.tsx. Ignoré si richVisitesMode est absent.
+  visiteurColorByKey?: Record<string, string>;
+  // Filtre légende (1 visiteur ou "Tous" = null) — filtre les traits de bord
+  // (DayStripes) de la bande, jamais le fond Partiel/Complet (vérité globale
+  // d'occupation, voir home/calendar.tsx). Ignoré si richVisitesMode est absent.
+  selectedVisiteurKey?: string | null;
 }
 
 export default function WeekStrip({
   C, slotConfig, reservations, getSlotsForDate, getConfigForDate, startDate,
-  weekAnchor, onWeekChange, selectedIso, onSelectDay, onDayPress, soinsMode, mesCreneauxOnly, role,
+  weekAnchor, onWeekChange, selectedIso, onSelectDay, onDayPress, onDayLongPress, soinsMode, mesCreneauxOnly, role,
   intervenantProfileId, myPin, myPrenom, myNom, admissionIso, dischargeIso,
+  richVisitesMode = false, visiteurColorByKey = {}, selectedVisiteurKey = null,
 }: Props) {
+  // Mode Visites "riche" (nouveaux traits de bord/fond coloré) uniquement si
+  // explicitement demandé par le parent ET qu'on n'est pas en mode Soins —
+  // voir richVisitesMode ci-dessus.
+  const rich = !soinsMode && richVisitesMode;
   const weekDates = getWeekDates(weekAnchor);
   const first = weekDates[0];
   const last = weekDates[6];
@@ -138,17 +164,46 @@ export default function WeekStrip({
           // parent via la prop `bookable` des listes de créneaux).
           const beforeAdmission = !!admissionIso && iso < admissionIso;
 
+          // Mode Visites : le fond de case remplace la pastille de statut
+          // (vérité globale, non filtrée par selectedVisiteurKey — voir
+          // home/calendar.tsx) ; les traits de bord par visiteur remplacent
+          // la bande verte unique "Mes créneaux" (réservée au mode Soins).
+          const visitesFill = visiteStatus === "full" ? C.danger : visiteStatus === "partial" ? C.orange : null;
+          const dayVisiteurColors: string[] = [];
+          if (rich) {
+            const keysToday = new Set<string>();
+            for (const r of reservations) {
+              if (r.date !== iso || r.type !== "Visite") continue;
+              const key = visiteurIdentityKey(r.prenom, r.nom);
+              if (selectedVisiteurKey && key !== selectedVisiteurKey) continue;
+              keysToday.add(key);
+            }
+            for (const key of Object.keys(visiteurColorByKey)) {
+              if (keysToday.has(key)) dayVisiteurColors.push(visiteurColorByKey[key]);
+            }
+          }
+
+          const bg = rich
+            ? (isSelected ? C.accent : visitesFill ?? C.card)
+            : (isSelected ? C.accent : fillPurple ? LOGO_PURPLE : C.card);
+          const border = rich
+            ? (isSelected ? C.accent : isToday ? C.gold : C.border)
+            : (isSelected ? C.accent : frameVisible ? LOGO_PURPLE : isToday ? C.gold : C.border);
+          const borderWidth = rich ? (isToday ? 2 : 1) : (isToday || frameVisible ? 2 : 1);
+          const whiteText = rich ? (isSelected || !!visitesFill) : (isSelected || fillPurple);
+
           return (
             <TouchableOpacity
               key={iso}
               onPress={() => onDayPress(iso)}
+              onLongPress={soinsMode ? undefined : () => onDayLongPress?.(iso)}
               activeOpacity={0.7}
               style={[
                 styles.stripCell,
                 {
-                  backgroundColor: isSelected ? C.accent : fillPurple ? LOGO_PURPLE : C.card,
-                  borderColor: isSelected ? C.accent : frameVisible ? LOGO_PURPLE : isToday ? C.gold : C.border,
-                  borderWidth: isToday || frameVisible ? 2 : 1,
+                  backgroundColor: bg,
+                  borderColor: border,
+                  borderWidth,
                   opacity: beforeAdmission ? 0.4 : 1,
                 },
               ]}
@@ -163,15 +218,19 @@ export default function WeekStrip({
                   <Text style={styles.badgeHouseText}>🏠</Text>
                 </View>
               )}
-              <Text style={[styles.stripDow, { color: isSelected || fillPurple ? "#fff" : C.muted }]}>
+              <Text style={[styles.stripDow, { color: whiteText ? "#fff" : C.muted }]}>
                 {WEEKDAY_LABELS[day.getDay() === 0 ? 6 : day.getDay() - 1]}
               </Text>
-              <Text style={[styles.stripDate, { color: isSelected || fillPurple ? "#fff" : isToday ? C.gold : C.text }]}>
+              <Text style={[styles.stripDate, { color: whiteText ? "#fff" : isToday ? C.gold : C.text }]}>
                 {day.getDate()}
               </Text>
-              <View style={[styles.stripDot, { backgroundColor: dotColor }]} />
-              {!!familyBooked && (
-                <View pointerEvents="none" style={[styles.visitStripe, { backgroundColor: LOGO_GREEN }]} />
+              {!rich && <View style={[styles.stripDot, { backgroundColor: dotColor }]} />}
+              {rich ? (
+                <DayStripes colors={dayVisiteurColors} />
+              ) : (
+                !!familyBooked && (
+                  <View pointerEvents="none" style={[styles.visitStripe, { backgroundColor: LOGO_GREEN }]} />
+                )
               )}
             </TouchableOpacity>
           );
@@ -179,14 +238,29 @@ export default function WeekStrip({
       </View>
 
       <View style={styles.stripLegend}>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendStripeSwatch, { borderColor: C.border, backgroundColor: LOGO_GREEN }]} />
-          <Text style={[styles.stripLegendLabel, { color: C.muted }]}>Mes créneaux</Text>
-        </View>
-        <View style={styles.legendItem}>
-          <View style={[styles.stripLegendFrame, { borderColor: LOGO_PURPLE }]} />
-          <Text style={[styles.stripLegendLabel, { color: C.muted }]}>{soinsMode ? "Soin" : "Intervenant"}</Text>
-        </View>
+        {rich ? (
+          <>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendStripeSwatch, { borderColor: C.border, backgroundColor: C.orange }]} />
+              <Text style={[styles.stripLegendLabel, { color: C.muted }]}>Partiel</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendStripeSwatch, { borderColor: C.border, backgroundColor: C.danger }]} />
+              <Text style={[styles.stripLegendLabel, { color: C.muted }]}>Complet</Text>
+            </View>
+          </>
+        ) : (
+          <>
+            <View style={styles.legendItem}>
+              <View style={[styles.legendStripeSwatch, { borderColor: C.border, backgroundColor: LOGO_GREEN }]} />
+              <Text style={[styles.stripLegendLabel, { color: C.muted }]}>Mes créneaux</Text>
+            </View>
+            <View style={styles.legendItem}>
+              <View style={[styles.stripLegendFrame, { borderColor: LOGO_PURPLE }]} />
+              <Text style={[styles.stripLegendLabel, { color: C.muted }]}>{soinsMode ? "Soin" : "Intervenant"}</Text>
+            </View>
+          </>
+        )}
       </View>
     </View>
   );

@@ -69,6 +69,17 @@ interface Props {
   // SoinsPeriodBlock au-dessus (dernier jour de la semaine/du mois affiché).
   // Ne s'applique pas aux soins passés (includePast).
   excludeUpToDate?: string;
+  // Fournit directement la liste des réservations plutôt que de laisser le
+  // composant faire sa propre requête Supabase — utilisé par
+  // home/calendar.tsx (mode Visites), où les réservations de l'espace
+  // (unique côté visiteur) sont déjà chargées par VisitorContext. Quand
+  // fourni, spaceId/filterIntervenantProfileId(s)/type="Intervention" sont
+  // ignorés : le tri/filtre par date reste identique, appliqué sur cette
+  // liste telle quelle.
+  reservations?: Reservation[];
+  // Libellé utilisé pour le texte "Aucun ... planifié" / "Autres ...
+  // réalisés" ci-dessous — "soin" par défaut (comportement historique).
+  reservationLabel?: "soin" | "visite";
 }
 
 function SoinRow({ r, isLast, C, onPress, patientName, location }: { r: Reservation; isLast: boolean; C: Theme; onPress: () => void; patientName?: string; location?: string }) {
@@ -94,13 +105,18 @@ function SoinRow({ r, isLast, C, onPress, patientName, location }: { r: Reservat
   );
 }
 
-export default function SoinsPlanifiesBlock({ spaceId, C, filterIntervenantProfileId, filterIntervenantProfileIds, locationBySpaceId, patientNameBySpaceId, onPressRow, includePast = false, chronological = false, title = "Soins planifiés", excludeUpToDate }: Props) {
+export default function SoinsPlanifiesBlock({ spaceId, C, filterIntervenantProfileId, filterIntervenantProfileIds, locationBySpaceId, patientNameBySpaceId, onPressRow, includePast = false, chronological = false, title = "Soins planifiés", excludeUpToDate, reservations, reservationLabel = "soin" }: Props) {
   const router = useRouter();
-  const [loading, setLoading] = useState(true);
-  const [soins, setSoins] = useState<Reservation[]>([]);
+  const [loading, setLoading] = useState(!reservations);
+  const [soins, setSoins] = useState<Reservation[]>(reservations ?? []);
   const [pastOpen, setPastOpen] = useState(false);
 
   const load = useCallback(async () => {
+    if (reservations) {
+      setSoins(reservations);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     let query = supabase
       .from("reservations")
@@ -117,7 +133,7 @@ export default function SoinsPlanifiesBlock({ spaceId, C, filterIntervenantProfi
       .order("creneau", { ascending: false });
     setSoins(data || []);
     setLoading(false);
-  }, [spaceId, filterIntervenantProfileId, filterIntervenantProfileIds]);
+  }, [spaceId, filterIntervenantProfileId, filterIntervenantProfileIds, reservations]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -141,7 +157,9 @@ export default function SoinsPlanifiesBlock({ spaceId, C, filterIntervenantProfi
         {loading ? (
           <ActivityIndicator color={C.accent} style={{ marginVertical: 8 }} />
         ) : upcoming.length === 0 ? (
-          <Text style={[styles.emptyText, { color: C.muted }]}>Aucun soin planifié.</Text>
+          <Text style={[styles.emptyText, { color: C.muted }]}>
+            {reservationLabel === "visite" ? "Aucune visite planifiée." : "Aucun soin planifié."}
+          </Text>
         ) : (
           upcoming.map((r, i) => (
             <SoinRow
@@ -161,7 +179,7 @@ export default function SoinsPlanifiesBlock({ spaceId, C, filterIntervenantProfi
         <View style={{ marginBottom: 10 }}>
           <TouchableOpacity onPress={() => setPastOpen((o) => !o)} activeOpacity={0.7} style={styles.pastToggle}>
             <Text style={[styles.pastToggleText, { color: C.muted }]}>
-              Autres soins réalisés{past.length > 0 ? ` (${past.length})` : ""}
+              {reservationLabel === "visite" ? "Autres visites réalisées" : "Autres soins réalisés"}{past.length > 0 ? ` (${past.length})` : ""}
             </Text>
             <Text style={[styles.toggleIcon, { color: C.muted }]}>{pastOpen ? "▾" : "▸"}</Text>
           </TouchableOpacity>
@@ -169,7 +187,9 @@ export default function SoinsPlanifiesBlock({ spaceId, C, filterIntervenantProfi
           {pastOpen && (
             <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 8 }]}>
               {past.length === 0 ? (
-                <Text style={[styles.emptyText, { color: C.muted }]}>Aucun soin réalisé.</Text>
+                <Text style={[styles.emptyText, { color: C.muted }]}>
+                  {reservationLabel === "visite" ? "Aucune visite réalisée." : "Aucun soin réalisé."}
+                </Text>
               ) : (
                 past.map((r, i) => (
                   <SoinRow
