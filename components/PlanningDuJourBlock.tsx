@@ -28,9 +28,13 @@ interface Props {
   // visites (home/calendar.tsx, mode Visites), où intervention_label n'est
   // jamais renseigné.
   reservationType?: "Intervention" | "Visite";
+  // Accompagnants d'une réservation, indexés par son id (voir
+  // home/calendar.tsx, companionsByMainId) — affichés sous le nom du
+  // réservant principal. Absent : rien n'est affiché (usages hors visites).
+  companionsById?: Record<string, Reservation[]>;
 }
 
-export default function PlanningDuJourBlock({ C, iso, reservations, patientNameBySpaceId, locationBySpaceId, onSoinPress, showOtherIntervenants, onToggleOtherIntervenants, reservationType = "Intervention" }: Props) {
+export default function PlanningDuJourBlock({ C, iso, reservations, patientNameBySpaceId, locationBySpaceId, onSoinPress, showOtherIntervenants, onToggleOtherIntervenants, reservationType = "Intervention", companionsById }: Props) {
   const isToday = iso === toISO(new Date());
   const dayDate = new Date(iso + "T00:00:00");
   const sorted = [...reservations].sort((a, b) => a.creneau.localeCompare(b.creneau));
@@ -79,6 +83,11 @@ export default function PlanningDuJourBlock({ C, iso, reservations, patientNameB
                   <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>📍 {locationBySpaceId[r.space_id]}</Text>
                 )}
                 <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>{r.prenom} {r.nom}</Text>
+                {!!companionsById?.[r.id]?.length && (
+                  <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>
+                    + {companionsById[r.id].map((c) => `${c.prenom} ${c.nom}`).join(", ")}
+                  </Text>
+                )}
               </View>
               <Text style={[styles.chevron, { color: C.muted }]}>›</Text>
             </TouchableOpacity>

@@ -5,7 +5,7 @@ import {
 import { useVisitorSpace } from "@/lib/VisitorContext";
 import {
   getDayStatus, findNextAvailableSlot, getDaysInMonth, getMonday, addDays,
-  toISO, toFrLong, isMyReservation, visiteurIdentityKey,
+  toISO, toFrLong, isMyReservation, visiteurIdentityKey, isSlotFullyPast,
 } from "@/lib/slotUtils";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { getVisitorSession } from "@/lib/visitorSession";
@@ -266,12 +266,32 @@ export default function VisitorCalendarScreen() {
     color: visiteurColorByKey[key],
   }));
 
+  // Accompagnants d'une visite (même group_id que la ligne principale,
+  // group_id === id de la ligne principale, convention VisiteEditFlow/
+  // BookingFlow) — calculé sur la liste complète (avant filtre légende
+  // visiteur) pour qu'un accompagnant reste rattaché à sa visite même si son
+  // propre prénom/nom ne correspond pas au visiteur sélectionné dans la
+  // légende. Sert à fusionner leur affichage dans le bloc de la ligne
+  // principale (Planning du jour + Planning Mensuel/Hebdo) plutôt que de les
+  // lister comme des lignes séparées et déconnectées.
+  const visitesAll = panelReservations.filter((r) => r.type === "Visite");
+  const companionsByMainId: Record<string, Reservation[]> = {};
+  for (const r of visitesAll) {
+    if (r.group_id && r.group_id !== r.id) {
+      (companionsByMainId[r.group_id] ??= []).push(r);
+    }
+  }
+
   // Réservations Visite pour les panneaux sous le calendrier (mode Visites) —
   // reprend panelReservations (déjà filtré par "Afficher mes créneaux") et y
-  // ajoute le filtre légende visiteur.
-  const visitesPanelReservations = panelReservations
-    .filter((r) => r.type === "Visite")
+  // ajoute le filtre légende visiteur. Utilisé tel quel par
+  // SoinsPlanifiesBlock (Autres visites planifiées, comportement historique,
+  // chaque accompagnant garde sa propre ligne) ; visitesMainRows ci-dessous
+  // (lignes principales seulement + companionsByMainId) est utilisé par
+  // PlanningDuJourBlock et SoinsPeriodBlock.
+  const visitesPanelReservations = visitesAll
     .filter((r) => !selectedVisiteurKey || visiteurIdentityKey(r.prenom, r.nom) === selectedVisiteurKey);
+  const visitesMainRows = visitesPanelReservations.filter((r) => !r.group_id || r.group_id === r.id);
 
   // Aucune action si cette visite n'appartient pas à la personne qui regarde
   // (isMyReservation compare PIN + prénom/nom, et gère le cas d'une
@@ -279,8 +299,11 @@ export default function VisitorCalendarScreen() {
   // — même garde-fou que openSoinActions côté intervenant (soins.tsx) : un
   // visiteur ne doit même pas voir le popup s'ouvrir sur la visite d'un
   // autre visiteur, ni sur une réservation admin qui n'est pas la sienne.
+  // Idem pour une visite déjà passée : ni Modifier ni Y Aller n'ont de sens
+  // une fois le créneau écoulé, le popup ne doit même pas s'ouvrir au tap.
   function openVisiteActions(r: Reservation) {
     if (!isMyReservation(r, myPin, intervenantProfileId, myPrenom, myNom)) return;
+    if (isSlotFullyPast(r.date, r.creneau)) return;
     setPendingVisite(r);
   }
   function handleModifierVisitePress() {
@@ -689,11 +712,12 @@ export default function VisitorCalendarScreen() {
               <PlanningDuJourBlock
                 C={C}
                 iso={selectedIso}
-                reservations={visitesPanelReservations.filter((r) => r.date === selectedIso)}
+                reservations={visitesMainRows.filter((r) => r.date === selectedIso)}
                 patientNameBySpaceId={{}}
                 locationBySpaceId={{}}
                 onSoinPress={openVisiteActions}
                 reservationType="Visite"
+                companionsById={companionsByMainId}
               />
 
               <Text style={[styles.sectionTitle, { color: C.gold }]}>
@@ -701,7 +725,7 @@ export default function VisitorCalendarScreen() {
               </Text>
               <SoinsPeriodBlock
                 C={C}
-                reservations={visitesPanelReservations.filter((r) => r.date !== selectedIso)}
+                reservations={visitesMainRows.filter((r) => r.date !== selectedIso)}
                 view={planningView}
                 weekAnchor={weekAnchor}
                 onWeekChange={setWeekAnchor}
@@ -710,6 +734,7 @@ export default function VisitorCalendarScreen() {
                 onDayPress={() => {}}
                 onSoinPress={openVisiteActions}
                 reservationType="Visite"
+                companionsById={companionsByMainId}
               />
 
               <SoinsPlanifiesBlock
