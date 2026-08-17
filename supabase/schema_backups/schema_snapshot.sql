@@ -89,10 +89,20 @@ declare
   v_daycap_date date;
   v_winning_cohort uuid;
   v_loser record;
+
+  v_today date;
+  v_now_minutes integer;
 begin
   perform pg_advisory_xact_lock(hashtext(p_space_id::text));
 
   p_new_slots := coalesce(p_new_slots, array[]::text[]);
+
+  -- Heure murale Europe/Paris (le serveur tourne en UTC) — sert à ne
+  -- jamais recaser/suspendre une réservation "Visite" dont le créneau du
+  -- jour même est déjà passé, même si son jour est bien >= aujourd'hui.
+  v_today := (now() at time zone 'Europe/Paris')::date;
+  v_now_minutes := extract(hour from (now() at time zone 'Europe/Paris'))::integer * 60
+    + extract(minute from (now() at time zone 'Europe/Paris'))::integer;
 
   select * into v_old from slot_config where space_id = p_space_id;
   if not found then
@@ -190,7 +200,8 @@ begin
   v_night_scan_needed := v_night_became_disabled or v_weekday_blocked_changed;
   v_one_visit_activated := (not coalesce(v_old.one_visit_per_day, false)) and coalesce(v_one_visit_per_day, false);
 
-  -- 2. Recasage des réservations "Visite" futures invalidées
+  -- 2. Recasage des réservations "Visite" futures invalidées — jamais un
+  -- créneau du jour même déjà passé en heure (v_today/v_now_minutes).
   if v_structural_change then
     for v_cohort in
       select
@@ -200,7 +211,8 @@ begin
         array_agg(id order by created_at) as member_ids,
         count(*) as cohort_size
       from reservations
-      where space_id = p_space_id and type = 'Visite' and date >= current_date
+      where space_id = p_space_id and type = 'Visite'
+        and (date > v_today or (date = v_today and to_minutes(creneau) > v_now_minutes))
       group by coalesce(group_id, id)
       order by min(created_at) asc
     loop
@@ -221,11 +233,14 @@ begin
         continue; -- créneau toujours valide et non-saturé, rien à faire
       end if;
 
-      -- Recherche du créneau valide le plus proche : même jour trié par
-      -- distance, sinon jour par jour (ordre chronologique de p_new_slots).
-      select coalesce(array_agg(s order by abs(to_minutes(s) - to_minutes(v_cohort.cohort_creneau))), array[]::text[])
+      -- Créneaux du même jour STRICTEMENT postérieurs au créneau d'origine,
+      -- triés par ordre chronologique croissant (le prochain créneau libre
+      -- d'abord) — voir commentaire en tête de fichier. Repli jour par jour
+      -- (ordre chronologique de p_new_slots) si aucun ne convient.
+      select coalesce(array_agg(s order by to_minutes(s)), array[]::text[])
         into v_same_day_slots
-        from unnest(p_new_slots) s;
+        from unnest(p_new_slots) s
+        where to_minutes(s) > to_minutes(v_cohort.cohort_creneau);
 
       v_target_date := null;
       v_target_creneau := null;
@@ -318,11 +333,14 @@ begin
     end loop;
   end if;
 
-  -- 3. Nuitées invalidées : message seul, jamais de déplacement/suppression
+  -- 3. Nuitées invalidées : message seul, jamais de déplacement/suppression.
+  -- Contrairement aux visites, l'heure du jour n'entre pas en jeu pour une
+  -- "Nuit" (elle couvre toute la soirée) — seul le jour compte, comme
+  -- isReservationDatePast côté client.
   if v_night_scan_needed then
     for v_night in
       select id, date from reservations
-      where space_id = p_space_id and type = 'Nuit' and date >= current_date
+      where space_id = p_space_id and type = 'Nuit' and date >= v_today
     loop
       v_night_invalid := v_night_became_disabled
         or not (extract(dow from v_night.date)::integer = any(v_allowed_weekdays))
@@ -349,21 +367,24 @@ begin
   end if;
 
   -- 4. Activation du mode "1 visite / jour" : ne touche jamais le passé
-  -- (date >= current_date), et ne déplace ni ne supprime rien — pour chaque
-  -- jour où plusieurs réservations "Visite" existent déjà, la première
-  -- enregistrée (created_at le plus ancien) reste active, toutes les autres
-  -- sont marquées "day_cap_suspended".
+  -- (jour révolu, ou créneau du jour même déjà passé en heure), et ne
+  -- déplace ni ne supprime rien — pour chaque jour où plusieurs réservations
+  -- "Visite" à venir existent déjà, la première enregistrée (created_at le
+  -- plus ancien) reste active, toutes les autres sont marquées
+  -- "day_cap_suspended".
   if v_one_visit_activated then
     for v_daycap_date in
       select date
       from reservations
-      where space_id = p_space_id and type = 'Visite' and date >= current_date
+      where space_id = p_space_id and type = 'Visite'
+        and (date > v_today or (date = v_today and to_minutes(creneau) > v_now_minutes))
       group by date
       having count(distinct coalesce(group_id, id)) > 1
     loop
       select coalesce(group_id, id) into v_winning_cohort
       from reservations
       where space_id = p_space_id and type = 'Visite' and date = v_daycap_date
+        and (v_daycap_date > v_today or to_minutes(creneau) > v_now_minutes)
       group by coalesce(group_id, id)
       order by min(created_at) asc
       limit 1;
@@ -372,6 +393,7 @@ begin
         select id, prenom, nom, type, date, creneau
         from reservations
         where space_id = p_space_id and type = 'Visite' and date = v_daycap_date
+          and (v_daycap_date > v_today or to_minutes(creneau) > v_now_minutes)
           and coalesce(group_id, id) <> v_winning_cohort
       loop
         update reservations set
@@ -418,6 +440,7 @@ CREATE OR REPLACE FUNCTION "public"."book_intervention"("p_space_id" "uuid", "p_
 declare
   v_prenom text;
   v_nom text;
+  v_telephone text;
   v_duration_minutes integer;
   v_label text;
   v_start_min integer;
@@ -445,7 +468,7 @@ begin
 
   p_slots := coalesce(p_slots, array[]::text[]);
 
-  select prenom, nom into v_prenom, v_nom
+  select prenom, nom, telephone into v_prenom, v_nom, v_telephone
     from intervenant_profiles
     where id = p_intervenant_profile_id and space_id = p_space_id;
   if not found then
@@ -478,6 +501,25 @@ begin
       and to_minutes(creneau) + coalesce(duration_minutes, 0) > v_start_min
   ) then
     raise exception 'INTERVENTION_OVERLAP_SELF';
+  end if;
+
+  -- Même contrôle, mais à travers les AUTRES espaces patients auxquels cet
+  -- intervenant est rattaché (même téléphone) : impossible de réserver ce
+  -- créneau depuis cet espace s'il est déjà engagé dessus ailleurs.
+  if v_telephone is not null and v_telephone <> '' then
+    if exists (
+      select 1
+      from reservations r
+      join intervenant_profiles ip on ip.id = r.intervenant_profile_id
+      where r.type = 'Intervention'
+        and r.date = p_date
+        and r.space_id <> p_space_id
+        and ip.telephone = v_telephone
+        and to_minutes(r.creneau) < v_end_min
+        and to_minutes(r.creneau) + coalesce(r.duration_minutes, 0) > v_start_min
+    ) then
+      raise exception 'INTERVENTION_OVERLAP_OTHER_SPACE';
+    end if;
   end if;
 
   select * into v_config from slot_config where space_id = p_space_id;
@@ -513,9 +555,13 @@ begin
     having to_minutes((array_agg(creneau order by created_at))[1]) < v_end_min
        and to_minutes((array_agg(creneau order by created_at))[1]) + v_config.slot_duration_minutes > v_start_min
   loop
-    select coalesce(array_agg(s order by abs(to_minutes(s) - to_minutes(v_cohort.cohort_creneau))), array[]::text[])
+    -- Créneaux du même jour STRICTEMENT postérieurs au créneau d'origine,
+    -- triés par ordre chronologique croissant (le prochain créneau libre
+    -- d'abord).
+    select coalesce(array_agg(s order by to_minutes(s)), array[]::text[])
       into v_same_day_slots
-      from unnest(p_slots) s;
+      from unnest(p_slots) s
+      where to_minutes(s) > to_minutes(v_cohort.cohort_creneau);
 
     v_target_date := null;
     v_target_creneau := null;
@@ -761,6 +807,42 @@ $$;
 ALTER FUNCTION "public"."notify_cap_reached"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."sync_intervention_type_identity"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+begin
+  select prenom, nom, metier into new.prenom, new.nom, new.metier
+  from intervenant_profiles
+  where id = new.intervenant_profile_id;
+  return new;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."sync_intervention_type_identity"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."sync_intervention_types_from_profile"() RETURNS "trigger"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+begin
+  if new.prenom is distinct from old.prenom
+     or new.nom is distinct from old.nom
+     or new.metier is distinct from old.metier then
+    update intervention_types
+    set prenom = new.prenom, nom = new.nom, metier = new.metier
+    where intervenant_profile_id = new.id;
+  end if;
+  return new;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."sync_intervention_types_from_profile"() OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."to_minutes"("p_hhmm" "text") RETURNS integer
     LANGUAGE "sql" IMMUTABLE
     AS $$
@@ -882,13 +964,13 @@ ALTER FUNCTION "storage"."extension"("name" "text") OWNER TO "supabase_storage_a
 
 
 CREATE OR REPLACE FUNCTION "storage"."filename"("name" "text") RETURNS "text"
-    LANGUAGE "plpgsql"
+    LANGUAGE "plpgsql" IMMUTABLE
     AS $$
 DECLARE
-_parts text[];
+    _parts text[];
 BEGIN
-	select string_to_array(name, '/') into _parts;
-	return _parts[array_length(_parts,1)];
+    SELECT string_to_array(name, '/') INTO _parts;
+    RETURN _parts[array_length(_parts, 1)];
 END
 $$;
 
@@ -1690,7 +1772,8 @@ CREATE TABLE IF NOT EXISTS "public"."intervenant_profiles" (
     "telephone" "text",
     "phrase_totem" "text",
     "metier" "text",
-    "priority_slots" boolean DEFAULT true NOT NULL
+    "priority_slots" boolean DEFAULT true NOT NULL,
+    "metier_secondaire" "text"
 );
 
 
@@ -1703,11 +1786,25 @@ CREATE TABLE IF NOT EXISTS "public"."intervention_types" (
     "label" "text" NOT NULL,
     "duration_minutes" integer NOT NULL,
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "prenom" "text",
+    "nom" "text",
+    "metier" "text",
     CONSTRAINT "intervention_types_duration_minutes_check" CHECK (("duration_minutes" > 0))
 );
 
 
 ALTER TABLE "public"."intervention_types" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."news_authorized_intervenants" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "space_id" "uuid" NOT NULL,
+    "intervenant_profile_id" "uuid" NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."news_authorized_intervenants" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."news_entries" (
@@ -1721,11 +1818,53 @@ CREATE TABLE IF NOT EXISTS "public"."news_entries" (
     "author_pin" "text" NOT NULL,
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "author_role" "text" DEFAULT 'visiteur'::"text" NOT NULL,
+    "deleted_by_admin" boolean DEFAULT false NOT NULL,
+    "intervenant_profile_id" "uuid",
     CONSTRAINT "news_entries_author_role_check" CHECK (("author_role" = ANY (ARRAY['visiteur'::"text", 'intervenant'::"text", 'admin'::"text"])))
 );
 
 
 ALTER TABLE "public"."news_entries" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."news_entry_replies" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "entry_id" "uuid" NOT NULL,
+    "space_id" "uuid" NOT NULL,
+    "reply_text" "text" NOT NULL,
+    "author_prenom" "text" NOT NULL,
+    "author_nom" "text" NOT NULL,
+    "author_pin" "text",
+    "deleted_by_admin" boolean DEFAULT false NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "photo" "text"
+);
+
+
+ALTER TABLE "public"."news_entry_replies" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."night_authorized_intervenants" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "space_id" "uuid" NOT NULL,
+    "intervenant_profile_id" "uuid" NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."night_authorized_intervenants" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."night_authorized_visitors" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "space_id" "uuid" NOT NULL,
+    "prenom" "text" NOT NULL,
+    "nom" "text" NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."night_authorized_visitors" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."patient_spaces" (
@@ -1777,7 +1916,6 @@ CREATE TABLE IF NOT EXISTS "public"."patient_spaces" (
     "intervenants_enabled" boolean DEFAULT false NOT NULL,
     "admin_email" "text",
     "admin_pin" "text",
-    "intervenant_news_visible_to_visitors" boolean DEFAULT false NOT NULL,
     "name_change_requested_at" timestamp with time zone,
     CONSTRAINT "patient_spaces_patient_sex_check" CHECK (("patient_sex" = ANY (ARRAY['M'::"text", 'F'::"text"])))
 );
@@ -1885,9 +2023,15 @@ CREATE TABLE IF NOT EXISTS "public"."slot_config" (
     "night_end_minute" integer DEFAULT 0 NOT NULL,
     "one_visit_per_day" boolean DEFAULT false NOT NULL,
     "intervenant_priority_mode" "text" DEFAULT 'all'::"text" NOT NULL,
+    "night_intervenant_mode" "text" DEFAULT 'disabled'::"text" NOT NULL,
+    "night_visitor_mode" "text" DEFAULT 'all'::"text" NOT NULL,
+    "news_intervenant_mode" "text" DEFAULT 'disabled'::"text" NOT NULL,
     CONSTRAINT "slot_config_intervenant_priority_mode_check" CHECK (("intervenant_priority_mode" = ANY (ARRAY['all'::"text", 'selected'::"text"]))),
+    CONSTRAINT "slot_config_news_intervenant_mode_check" CHECK (("news_intervenant_mode" = ANY (ARRAY['disabled'::"text", 'some'::"text", 'all'::"text"]))),
     CONSTRAINT "slot_config_night_end_minute_check" CHECK ((("night_end_minute" >= 0) AND ("night_end_minute" <= 59))),
+    CONSTRAINT "slot_config_night_intervenant_mode_check" CHECK (("night_intervenant_mode" = ANY (ARRAY['disabled'::"text", 'some'::"text", 'all'::"text"]))),
     CONSTRAINT "slot_config_night_start_minute_check" CHECK ((("night_start_minute" >= 0) AND ("night_start_minute" <= 59))),
+    CONSTRAINT "slot_config_night_visitor_mode_check" CHECK (("night_visitor_mode" = ANY (ARRAY['all'::"text", 'some'::"text"]))),
     CONSTRAINT "slot_config_visit_end_minute_check" CHECK ((("visit_end_minute" >= 0) AND ("visit_end_minute" <= 59))),
     CONSTRAINT "slot_config_visit_start_minute_check" CHECK ((("visit_start_minute" >= 0) AND ("visit_start_minute" <= 59)))
 );
@@ -1940,6 +2084,7 @@ CREATE TABLE IF NOT EXISTS "public"."souvenirs" (
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "source_type" "text",
     "source_id" "uuid",
+    "deleted_by_admin" boolean DEFAULT false NOT NULL,
     CONSTRAINT "souvenirs_source_type_check" CHECK (("source_type" = ANY (ARRAY['news'::"text", 'support'::"text"])))
 );
 
@@ -1968,7 +2113,9 @@ CREATE TABLE IF NOT EXISTS "public"."support_message_replies" (
     "author_prenom" "text" NOT NULL,
     "author_nom" "text" NOT NULL,
     "author_pin" "text",
-    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "deleted_by_admin" boolean DEFAULT false NOT NULL,
+    "photo" "text"
 );
 
 
@@ -1983,7 +2130,8 @@ CREATE TABLE IF NOT EXISTS "public"."support_messages" (
     "author_nom" "text" NOT NULL,
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "photo" "text",
-    "author_pin" "text"
+    "author_pin" "text",
+    "deleted_by_admin" boolean DEFAULT false NOT NULL
 );
 
 
@@ -2035,6 +2183,7 @@ CREATE TABLE IF NOT EXISTS "public"."tasks" (
     "modified_at" timestamp with time zone,
     "modified_by_prenom" "text",
     "modified_by_nom" "text",
+    "deleted_by_admin" boolean DEFAULT false NOT NULL,
     CONSTRAINT "tasks_category_check" CHECK (("category" = ANY (ARRAY['repas'::"text", 'affaires'::"text", 'courses'::"text", 'transport'::"text", 'administratif'::"text", 'autre'::"text"]))),
     CONSTRAINT "tasks_status_check" CHECK (("status" = ANY (ARRAY['ouvert'::"text", 'pris_en_charge'::"text", 'fait'::"text", 'ferme'::"text"])))
 );
@@ -2226,8 +2375,43 @@ ALTER TABLE ONLY "public"."intervention_types"
 
 
 
+ALTER TABLE ONLY "public"."news_authorized_intervenants"
+    ADD CONSTRAINT "news_authorized_intervenants_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."news_authorized_intervenants"
+    ADD CONSTRAINT "news_authorized_intervenants_unique" UNIQUE ("space_id", "intervenant_profile_id");
+
+
+
 ALTER TABLE ONLY "public"."news_entries"
     ADD CONSTRAINT "news_entries_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."news_entry_replies"
+    ADD CONSTRAINT "news_entry_replies_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."night_authorized_intervenants"
+    ADD CONSTRAINT "night_authorized_intervenants_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."night_authorized_intervenants"
+    ADD CONSTRAINT "night_authorized_intervenants_unique" UNIQUE ("space_id", "intervenant_profile_id");
+
+
+
+ALTER TABLE ONLY "public"."night_authorized_visitors"
+    ADD CONSTRAINT "night_authorized_visitors_identity_key" UNIQUE ("space_id", "prenom", "nom");
+
+
+
+ALTER TABLE ONLY "public"."night_authorized_visitors"
+    ADD CONSTRAINT "night_authorized_visitors_pkey" PRIMARY KEY ("id");
 
 
 
@@ -2440,6 +2624,14 @@ CREATE OR REPLACE TRIGGER "trg_notify_cap_reached" AFTER INSERT ON "public"."res
 
 
 
+CREATE OR REPLACE TRIGGER "trg_sync_intervention_type_identity" BEFORE INSERT OR UPDATE OF "intervenant_profile_id" ON "public"."intervention_types" FOR EACH ROW EXECUTE FUNCTION "public"."sync_intervention_type_identity"();
+
+
+
+CREATE OR REPLACE TRIGGER "trg_sync_intervention_types_from_profile" AFTER UPDATE OF "prenom", "nom", "metier" ON "public"."intervenant_profiles" FOR EACH ROW EXECUTE FUNCTION "public"."sync_intervention_types_from_profile"();
+
+
+
 CREATE OR REPLACE TRIGGER "enforce_bucket_name_length_trigger" BEFORE INSERT OR UPDATE OF "name" ON "storage"."buckets" FOR EACH ROW EXECUTE FUNCTION "storage"."enforce_bucket_name_length"();
 
 
@@ -2466,8 +2658,48 @@ ALTER TABLE ONLY "public"."intervention_types"
 
 
 
+ALTER TABLE ONLY "public"."news_authorized_intervenants"
+    ADD CONSTRAINT "news_authorized_intervenants_intervenant_profile_id_fkey" FOREIGN KEY ("intervenant_profile_id") REFERENCES "public"."intervenant_profiles"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."news_authorized_intervenants"
+    ADD CONSTRAINT "news_authorized_intervenants_space_id_fkey" FOREIGN KEY ("space_id") REFERENCES "public"."patient_spaces"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."news_entries"
+    ADD CONSTRAINT "news_entries_intervenant_profile_id_fkey" FOREIGN KEY ("intervenant_profile_id") REFERENCES "public"."intervenant_profiles"("id") ON DELETE SET NULL;
+
+
+
 ALTER TABLE ONLY "public"."news_entries"
     ADD CONSTRAINT "news_entries_space_id_fkey" FOREIGN KEY ("space_id") REFERENCES "public"."patient_spaces"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."news_entry_replies"
+    ADD CONSTRAINT "news_entry_replies_entry_id_fkey" FOREIGN KEY ("entry_id") REFERENCES "public"."news_entries"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."news_entry_replies"
+    ADD CONSTRAINT "news_entry_replies_space_id_fkey" FOREIGN KEY ("space_id") REFERENCES "public"."patient_spaces"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."night_authorized_intervenants"
+    ADD CONSTRAINT "night_authorized_intervenants_intervenant_profile_id_fkey" FOREIGN KEY ("intervenant_profile_id") REFERENCES "public"."intervenant_profiles"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."night_authorized_intervenants"
+    ADD CONSTRAINT "night_authorized_intervenants_space_id_fkey" FOREIGN KEY ("space_id") REFERENCES "public"."patient_spaces"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."night_authorized_visitors"
+    ADD CONSTRAINT "night_authorized_visitors_space_id_fkey" FOREIGN KEY ("space_id") REFERENCES "public"."patient_spaces"("id") ON DELETE CASCADE;
 
 
 
@@ -2618,7 +2850,19 @@ CREATE POLICY "lecture publique" ON "public"."reservations" FOR SELECT USING (tr
 
 
 
+ALTER TABLE "public"."news_authorized_intervenants" ENABLE ROW LEVEL SECURITY;
+
+
 ALTER TABLE "public"."news_entries" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."news_entry_replies" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."night_authorized_intervenants" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."night_authorized_visitors" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."patient_spaces" ENABLE ROW LEVEL SECURITY;
@@ -2632,6 +2876,14 @@ CREATE POLICY "public can delete intervenant_profiles" ON "public"."intervenant_
 
 
 CREATE POLICY "public can delete intervention_types" ON "public"."intervention_types" FOR DELETE USING (true);
+
+
+
+CREATE POLICY "public can delete news entry replies" ON "public"."news_entry_replies" FOR DELETE USING (true);
+
+
+
+CREATE POLICY "public can delete news_entries" ON "public"."news_entries" FOR DELETE USING (true);
 
 
 
@@ -2659,11 +2911,31 @@ CREATE POLICY "public can insert intervention_types" ON "public"."intervention_t
 
 
 
+CREATE POLICY "public can insert news entry replies" ON "public"."news_entry_replies" FOR INSERT WITH CHECK (true);
+
+
+
 CREATE POLICY "public can insert support message replies" ON "public"."support_message_replies" FOR INSERT WITH CHECK (true);
 
 
 
+CREATE POLICY "public can manage news_authorized_intervenants" ON "public"."news_authorized_intervenants" USING (true) WITH CHECK (true);
+
+
+
+CREATE POLICY "public can manage night_authorized_intervenants" ON "public"."night_authorized_intervenants" USING (true) WITH CHECK (true);
+
+
+
+CREATE POLICY "public can manage night_authorized_visitors" ON "public"."night_authorized_visitors" USING (true) WITH CHECK (true);
+
+
+
 CREATE POLICY "public can manage visitor_profiles" ON "public"."visitor_profiles" USING (true) WITH CHECK (true);
+
+
+
+CREATE POLICY "public can read news entry replies" ON "public"."news_entry_replies" FOR SELECT USING (true);
 
 
 
@@ -2695,7 +2967,19 @@ CREATE POLICY "public can update intervention_types" ON "public"."intervention_t
 
 
 
+CREATE POLICY "public can update news entry replies" ON "public"."news_entry_replies" FOR UPDATE USING (true) WITH CHECK (true);
+
+
+
 CREATE POLICY "public can update reservations" ON "public"."reservations" FOR UPDATE USING (true) WITH CHECK (true);
+
+
+
+CREATE POLICY "public can update souvenirs" ON "public"."souvenirs" FOR UPDATE USING (true) WITH CHECK (true);
+
+
+
+CREATE POLICY "public can update support message replies" ON "public"."support_message_replies" FOR UPDATE USING (true) WITH CHECK (true);
 
 
 
@@ -3003,6 +3287,18 @@ GRANT ALL ON FUNCTION "public"."notify_cap_reached"() TO "service_role";
 
 
 
+GRANT ALL ON FUNCTION "public"."sync_intervention_type_identity"() TO "anon";
+GRANT ALL ON FUNCTION "public"."sync_intervention_type_identity"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."sync_intervention_type_identity"() TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."sync_intervention_types_from_profile"() TO "anon";
+GRANT ALL ON FUNCTION "public"."sync_intervention_types_from_profile"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."sync_intervention_types_from_profile"() TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."to_minutes"("p_hhmm" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."to_minutes"("p_hhmm" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."to_minutes"("p_hhmm" "text") TO "service_role";
@@ -3027,9 +3323,33 @@ GRANT ALL ON TABLE "public"."intervention_types" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."news_authorized_intervenants" TO "anon";
+GRANT ALL ON TABLE "public"."news_authorized_intervenants" TO "authenticated";
+GRANT ALL ON TABLE "public"."news_authorized_intervenants" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."news_entries" TO "anon";
 GRANT ALL ON TABLE "public"."news_entries" TO "authenticated";
 GRANT ALL ON TABLE "public"."news_entries" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."news_entry_replies" TO "anon";
+GRANT ALL ON TABLE "public"."news_entry_replies" TO "authenticated";
+GRANT ALL ON TABLE "public"."news_entry_replies" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."night_authorized_intervenants" TO "anon";
+GRANT ALL ON TABLE "public"."night_authorized_intervenants" TO "authenticated";
+GRANT ALL ON TABLE "public"."night_authorized_intervenants" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."night_authorized_visitors" TO "anon";
+GRANT ALL ON TABLE "public"."night_authorized_visitors" TO "authenticated";
+GRANT ALL ON TABLE "public"."night_authorized_visitors" TO "service_role";
 
 
 
