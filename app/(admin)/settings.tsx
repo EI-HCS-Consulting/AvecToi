@@ -31,6 +31,7 @@ import { generateSlots, formatHourMinute } from "@/lib/slotUtils";
 import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
 import { canEnableIntervenants } from "@/lib/freemiumCap";
 import { RGPD_EXTENSION_DAYS, prolongSpace, isRgpdAlertActive, rgpdEarlyProlongMessage } from "@/lib/rgpd";
+import ConfirmModal from "@/components/ConfirmModal";
 import type { Theme } from "@/lib/themes";
 import { LOGO_PURPLE } from "@/lib/themes";
 import type { NewsEntry, Task, SupportMessage, SlotConfig, ReservationChangeHistoryEntry, Reservation } from "@/lib/types";
@@ -366,6 +367,7 @@ export default function SettingsScreen() {
   const [localPhotoUrl, setLocalPhotoUrl] = useState<string | null | undefined>(undefined);
   const displayPhotoUrl = localPhotoUrl !== undefined ? localPhotoUrl : (space?.patient_photo_url ?? null);
   const [prolonging, setProlonging] = useState(false);
+  const [earlyProlongModal, setEarlyProlongModal] = useState(false);
   const [toast, setToast] = useState("");
 
   // Section active de la barre de navigation des réglages — la roue ⚙️ n'est
@@ -1537,7 +1539,7 @@ export default function SettingsScreen() {
   function handleProlong() {
     if (!space) return;
     if (!isRgpdAlertActive(space)) {
-      Alert.alert("Pas encore nécessaire", rgpdEarlyProlongMessage(space));
+      setEarlyProlongModal(true);
       return;
     }
     Alert.alert(
@@ -3371,6 +3373,19 @@ export default function SettingsScreen() {
           </TouchableOpacity>
         </TouchableOpacity>
       </Modal>
+
+      <ConfirmModal
+        visible={earlyProlongModal}
+        icon="🗄️"
+        title="Pas encore nécessaire"
+        message={space ? rgpdEarlyProlongMessage(space) : ""}
+        singleButton
+        destructive={false}
+        confirmLabel="J'ai compris"
+        onCancel={() => setEarlyProlongModal(false)}
+        onConfirm={() => setEarlyProlongModal(false)}
+        C={C}
+      />
 
       {/* ── MODAL CHANGEMENT DE NOM ──────────────────────────────────────── */}
       <Modal visible={nameChangeModal} transparent animationType="fade" onRequestClose={() => setNameChangeModal(false)}>

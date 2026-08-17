@@ -63,21 +63,38 @@ export default function DaySoinsModal({
             {dayInterventions.length === 0 ? (
               <Text style={[styles.emptyText, { color: C.muted, marginTop: 4 }]}>Aucune intervention ce jour-là.</Text>
             ) : (
-              dayInterventions.map((r) => (
-                <View key={r.id} style={[styles.interventionCard, { backgroundColor: C.bg, borderColor: C.orange }]}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.interventionTime, { color: C.orange }]}>{r.creneau} · {r.duration_minutes} min</Text>
-                    <Text style={[styles.interventionLabel, { color: C.text }]}>{r.intervention_label}</Text>
-                    <Text style={[styles.interventionBy, { color: C.muted }]}>{r.prenom} {r.nom}</Text>
+              dayInterventions.map((r) => {
+                // r.pin vaut 'ADMIN' quand la réservation a été créée par
+                // l'admin (voir AdminAddIntervention.tsx), ou le vrai PIN de
+                // l'intervenant quand il a réservé lui-même depuis sa propre
+                // session (InterventionBookingFlow.tsx) — l'admin ne peut
+                // modifier/supprimer que les soins qu'il a créés lui-même,
+                // pas ceux réservés directement par un intervenant qui a
+                // l'app (même logique déjà utilisée pour "mes créneaux" dans
+                // IntervenantPlanningPanel.tsx).
+                const editableByAdmin = r.pin === "ADMIN";
+                return (
+                  <View key={r.id} style={[styles.interventionCard, { backgroundColor: C.bg, borderColor: C.orange }]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.interventionTime, { color: C.orange }]}>{r.creneau} · {r.duration_minutes} min</Text>
+                      <Text style={[styles.interventionLabel, { color: C.text }]}>{r.intervention_label}</Text>
+                      <Text style={[styles.interventionBy, { color: C.muted }]}>{r.prenom} {r.nom}</Text>
+                    </View>
+                    {editableByAdmin ? (
+                      <>
+                        <TouchableOpacity style={[styles.editResaBtn, { borderColor: C.border }]} onPress={() => onEdit(r)}>
+                          <Text style={[styles.editResaBtnText, { color: C.muted }]}>Modifier</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={[styles.deleteResaBtn, { borderColor: "rgba(233,69,96,0.4)" }]} onPress={() => onDelete(r)}>
+                          <Text style={{ color: "#e94560", fontSize: 13 }}>✕</Text>
+                        </TouchableOpacity>
+                      </>
+                    ) : (
+                      <Text style={[styles.readOnlyBadge, { color: C.muted, borderColor: C.border }]}>Géré par l'intervenant</Text>
+                    )}
                   </View>
-                  <TouchableOpacity style={[styles.editResaBtn, { borderColor: C.border }]} onPress={() => onEdit(r)}>
-                    <Text style={[styles.editResaBtnText, { color: C.muted }]}>Modifier</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.deleteResaBtn, { borderColor: "rgba(233,69,96,0.4)" }]} onPress={() => onDelete(r)}>
-                    <Text style={{ color: "#e94560", fontSize: 13 }}>✕</Text>
-                  </TouchableOpacity>
-                </View>
-              ))
+                );
+              })
             )}
           </ScrollView>
 
@@ -110,6 +127,7 @@ const styles = StyleSheet.create({
   editResaBtn: { borderWidth: 1, borderRadius: 7, paddingVertical: 6, paddingHorizontal: 10 },
   editResaBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
   deleteResaBtn: { width: 28, height: 28, borderWidth: 1, borderRadius: 8, alignItems: "center", justifyContent: "center" },
+  readOnlyBadge: { fontFamily: "DM_Sans_400Regular", fontSize: 10.5, borderWidth: 1, borderRadius: 7, paddingVertical: 6, paddingHorizontal: 8, textAlign: "center", maxWidth: 80 },
 
   addBtn: { borderRadius: 12, paddingVertical: 14, alignItems: "center", marginTop: 14 },
   addBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" },
