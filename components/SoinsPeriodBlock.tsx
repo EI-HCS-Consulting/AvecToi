@@ -46,11 +46,15 @@ interface Props {
   // vue intervenant). Passer "Visite" pour le planning des visites
   // (home/calendar.tsx, mode Visites).
   reservationType?: "Intervention" | "Visite";
+  // Accompagnants d'une réservation, indexés par son id (voir
+  // home/calendar.tsx, companionsByMainId) — affichés sous le nom du
+  // réservant principal. Absent : rien n'est affiché (usages hors visites).
+  companionsById?: Record<string, Reservation[]>;
 }
 
 export default function SoinsPeriodBlock({
   C, reservations, view, weekAnchor, onWeekChange, monthAnchor, onMonthChange, onDayPress,
-  patientNameBySpaceId, locationBySpaceId, onSoinPress, reservationType = "Intervention",
+  patientNameBySpaceId, locationBySpaceId, onSoinPress, reservationType = "Intervention", companionsById,
 }: Props) {
   const dates = view === "hebdo" ? getWeekDates(weekAnchor) : getDaysInMonth(monthAnchor.year, monthAnchor.month);
   const isoSet = new Set(dates.map(toISO));
@@ -138,6 +142,7 @@ export default function SoinsPeriodBlock({
                 {byDay[iso].map((r) => {
                   const patientName = patientNameBySpaceId?.[r.space_id];
                   const location = locationBySpaceId?.[r.space_id];
+                  const companions = companionsById?.[r.id];
                   return (
                     <TouchableOpacity
                       key={r.id}
@@ -164,6 +169,11 @@ export default function SoinsPeriodBlock({
                             <Text style={[styles.soinLabel, { color: C.text }]} numberOfLines={1}>{r.intervention_label ?? reservationType}</Text>
                             <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>{r.prenom} {r.nom}</Text>
                           </>
+                        )}
+                        {!!companions?.length && (
+                          <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>
+                            + {companions.map((c) => `${c.prenom} ${c.nom}`).join(", ")}
+                          </Text>
                         )}
                       </View>
                       <Text style={[styles.chevron, { color: C.muted }]}>›</Text>
