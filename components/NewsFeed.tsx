@@ -10,6 +10,7 @@ import * as ImageManipulator from "expo-image-manipulator";
 import { File } from "expo-file-system";
 import { supabase } from "@/lib/supabase";
 import { getVisitorSession, rememberAuthorPin, sessionPinMatches } from "@/lib/visitorSession";
+import { downloadAndShare, logSavedMedia } from "@/lib/mediaShare";
 import PinPad from "@/components/PinPad";
 import VisitorProfileModal from "@/components/VisitorProfileModal";
 import ConfirmModal from "@/components/ConfirmModal";
@@ -171,11 +172,13 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
   // publication d'origine, contrairement à la lightbox du fil ci-dessus.
   const [viewMode, setViewMode] = useState<"feed" | "media">("feed");
   const [mediaLightboxIdx, setMediaLightboxIdx] = useState<number | null>(null);
+  const [downloadingMediaLightbox, setDownloadingMediaLightbox] = useState(false);
 
   // Fiche visiteur — ouverte en cliquant le nom de l'auteur (sauf admin)
   const [profileTarget, setProfileTarget] = useState<{ prenom: string; nom: string } | null>(null);
 
   const [sessionPin, setSessionPin] = useState("");
+  const myPin = isAdmin ? "ADMIN" : sessionPin;
   // ID intervenant_profiles de l'intervenant connecté — rempli à la
   // publication d'une nouvelle en author_role "intervenant" (voir
   // handleSave), sert à vérifier son autorisation dans
@@ -262,6 +265,18 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
   // Liste aplatie des médias pour la vue "Médias" (bouton du sous-header) —
   // dérivée de visibleEntries (déjà filtrée), pas de nouvelle requête.
   const mediaItems = visibleEntries.flatMap((e) => e.photoUrls.map((url) => ({ url, entry: e })));
+
+  async function downloadMediaLightboxPhoto() {
+    if (mediaLightboxIdx === null) return;
+    const item = mediaItems[mediaLightboxIdx];
+    if (!item) return;
+    setDownloadingMediaLightbox(true);
+    const ok = await downloadAndShare(item.url, `nouvelles_${Date.now()}.jpg`);
+    if (ok && myPin && item.entry.author_pin && item.entry.author_pin !== myPin) {
+      await logSavedMedia({ spaceId, sourceType: "news", sourceId: item.entry.id, photoUrl: item.url, savedByPin: myPin });
+    }
+    setDownloadingMediaLightbox(false);
+  }
 
   // Arrivée depuis Souvenirs ("Voir l'original") via un lien profond
   // (?focusEntryId=...) : on scrolle jusqu'à la carte et on la surligne
@@ -1389,6 +1404,18 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
                     {mediaItems[mediaLightboxIdx].entry.author_prenom} {mediaItems[mediaLightboxIdx].entry.author_nom}
                   </Text>
                 )}
+                <TouchableOpacity
+                  style={styles.mediaLightboxDownloadBtn}
+                  onPress={downloadMediaLightboxPhoto}
+                  disabled={downloadingMediaLightbox}
+                  activeOpacity={0.8}
+                >
+                  {downloadingMediaLightbox ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <Text style={styles.mediaLightboxDownloadText}>📥 Télécharger</Text>
+                  )}
+                </TouchableOpacity>
               </View>
             </>
           )}
@@ -1459,6 +1486,11 @@ const styles = StyleSheet.create({
   mediaLightboxInfo: { position: "absolute", bottom: 0, left: 0, right: 0, backgroundColor: "rgba(0,0,0,0.72)", padding: 16, paddingBottom: 28 },
   mediaLightboxText: { fontFamily: "DM_Sans_400Regular", fontSize: 14, lineHeight: 20, color: "#fff", marginBottom: 8 },
   mediaLightboxAuthor: { fontFamily: "DM_Sans_700Bold", fontSize: 13, color: "#fff" },
+  mediaLightboxDownloadBtn: {
+    marginTop: 12, alignSelf: "flex-start", flexDirection: "row", alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.18)", borderRadius: 8, paddingVertical: 8, paddingHorizontal: 14,
+  },
+  mediaLightboxDownloadText: { fontFamily: "DM_Sans_700Bold", fontSize: 13, color: "#fff" },
 
   repliesWrap: { marginTop: 10, gap: 8 },
   replyItem: { flexDirection: "row", alignItems: "flex-start", gap: 8, borderLeftWidth: 2, paddingLeft: 10 },

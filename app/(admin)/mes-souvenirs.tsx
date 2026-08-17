@@ -1,0 +1,32 @@
+import { View, Text, ActivityIndicator, StyleSheet } from "react-native";
+import { useSpace } from "@/lib/SpaceContext";
+import { useDisplayMode } from "@/lib/DisplayModeContext";
+import MesSouvenirs from "@/components/MesSouvenirs";
+
+export default function AdminMesSouvenirsScreen() {
+  const { space, loading, hasSpace } = useSpace();
+  const { theme: C } = useDisplayMode();
+
+  if (loading) {
+    return (
+      <View style={[styles.center, { backgroundColor: C.bg }]}>
+        <ActivityIndicator color={C.accent} size="large" />
+      </View>
+    );
+  }
+
+  if (!hasSpace || !space) {
+    return (
+      <View style={[styles.center, { backgroundColor: C.bg }]}>
+        <Text style={[styles.msg, { color: C.muted }]}>Aucun espace patient actif.</Text>
+      </View>
+    );
+  }
+
+  return <MesSouvenirs spaceId={space.id} C={C} isAdmin={true} />;
+}
+
+const styles = StyleSheet.create({
+  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32 },
+  msg: { fontFamily: "DM_Sans_400Regular", fontSize: 15, textAlign: "center" },
+});
