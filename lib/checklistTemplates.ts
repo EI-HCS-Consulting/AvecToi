@@ -208,14 +208,14 @@ export const CHECKLIST_TEMPLATES: Record<ChecklistContext, ChecklistTemplate> = 
             description: "Aide à domicile, portage de repas, téléassistance.",
             category: "administratif",
             sharedWithVisitors: false,
-            lienExterne: { label: "Service-Public — Aides à domicile", url: "https://www.service-public.fr/particuliers/vosdroits/F759" },
+            lienExterne: { label: "Service-Public — Aides à domicile", url: "https://www.service-public.gouv.fr/particuliers/vosdroits/F245" },
           },
           {
             title: "Vérifier les aides mobilisables pour le retour à domicile",
             description: "Selon la situation, plusieurs dispositifs peuvent s'appliquer — à vérifier au cas par cas.",
             category: "administratif",
             sharedWithVisitors: false,
-            lienExterne: { label: "Service-Public — Aides aux personnes âgées", url: "https://www.service-public.fr/particuliers/vosdroits/N360" },
+            lienExterne: { label: "Service-Public — Aides aux personnes âgées", url: "https://www.service-public.gouv.fr/particuliers/vosdroits/N392" },
           },
         ],
       },
@@ -267,21 +267,21 @@ export const CHECKLIST_TEMPLATES: Record<ChecklistContext, ChecklistTemplate> = 
             description: "",
             category: "administratif",
             sharedWithVisitors: false,
-            lienExterne: { label: "Service-Public — Accueil de jour et hébergement temporaire", url: "https://www.service-public.fr/particuliers/vosdroits/F33220" },
+            lienExterne: { label: "CNSA — Solutions d'accueil de jour et hébergement temporaire", url: "https://www.pour-les-personnes-agees.gouv.fr/vivre-a-domicile/solutions-d-accueil-temporaire" },
           },
           {
             title: "Vérifier si mon proche bénéficie de l'APA",
             description: "L'APA peut, selon la situation, comporter une part dédiée au répit de l'aidant.",
             category: "administratif",
             sharedWithVisitors: false,
-            lienExterne: { label: "Service-Public — APA", url: "https://www.service-public.fr/particuliers/vosdroits/F10009" },
+            lienExterne: { label: "Service-Public — APA", url: "https://www.service-public.gouv.fr/particuliers/vosdroits/F10009" },
           },
           {
             title: "Vérifier si le droit au répit peut être mobilisé",
             description: "",
             category: "administratif",
             sharedWithVisitors: false,
-            lienExterne: { label: "CNSA — Droit au répit", url: "https://www.pour-les-personnes-agees.gouv.fr" },
+            lienExterne: { label: "CNSA — Aide au répit dans le cadre de l'APA", url: "https://www.pour-les-personnes-agees.gouv.fr/solutions-pour-les-aidants/soutien-financier/l-aide-au-repit-dans-le-cadre-de-l-apa" },
           },
           { title: "Noter la démarche à effectuer et me fixer un rappel", description: "", category: "administratif", sharedWithVisitors: false },
         ],
@@ -304,7 +304,7 @@ export const CHECKLIST_TEMPLATES: Record<ChecklistContext, ChecklistTemplate> = 
             urgent: true,
             category: "administratif",
             sharedWithVisitors: false,
-            lienExterne: { label: "Service-Public — Congé de proche aidant", url: "https://www.service-public.fr/particuliers/vosdroits/F15060" },
+            lienExterne: { label: "Service-Public — Congé de proche aidant", url: "https://www.service-public.gouv.fr/particuliers/vosdroits/F16920" },
           },
           {
             title: "Vérifier mon ancienneté si je suis salarié",
@@ -353,7 +353,7 @@ export const CHECKLIST_TEMPLATES: Record<ChecklistContext, ChecklistTemplate> = 
             category: "administratif",
             sharedWithVisitors: false,
             piecesRequises: ["Justificatif de perte d'autonomie du proche", "Attestation de l'employeur si salarié", "RIB"],
-            lienExterne: { label: "Service-Public — Demande AJPA", url: "https://www.service-public.fr/particuliers/vosdroits/F34848" },
+            lienExterne: { label: "Service-Public — Demande AJPA", url: "https://www.service-public.gouv.fr/particuliers/vosdroits/R57305" },
           },
         ],
       },
@@ -366,7 +366,7 @@ export const CHECKLIST_TEMPLATES: Record<ChecklistContext, ChecklistTemplate> = 
             category: "administratif",
             sharedWithVisitors: false,
             recurrent: "mensuel",
-            lienExterne: { label: "CAF — Espace personnel", url: "https://www.caf.fr" },
+            lienExterne: { label: "CAF — Espace personnel", url: "https://www.caf.fr/allocataires/mon-compte" },
           },
           { title: "Suivre le nombre de jours AJPA déjà utilisés", description: "", category: "administratif", sharedWithVisitors: false },
           { title: "Préparer mon retour à l'emploi", description: "", category: "administratif", sharedWithVisitors: false },
@@ -397,21 +397,21 @@ export const CHECKLIST_TEMPLATES: Record<ChecklistContext, ChecklistTemplate> = 
             description: "",
             category: "administratif",
             sharedWithVisitors: false,
-            lienExterne: { label: "Service-Public — APA", url: "https://www.service-public.fr/particuliers/vosdroits/F10009" },
+            lienExterne: { label: "Service-Public — APA", url: "https://www.service-public.gouv.fr/particuliers/vosdroits/F10009" },
           },
           {
             title: "Vérifier les aides à l'adaptation du logement",
             description: "",
             category: "administratif",
             sharedWithVisitors: false,
-            lienExterne: { label: "ANAH — MaPrimeAdapt'", url: "https://www.anah.fr" },
+            lienExterne: { label: "France Rénov' — MaPrimeAdapt'", url: "https://france-renov.gouv.fr/aides/maprimeadapt" },
           },
           {
             title: "Vérifier le crédit d'impôt pour les services à la personne",
             description: "",
             category: "administratif",
             sharedWithVisitors: false,
-            lienExterne: { label: "impots.gouv.fr — Services à la personne", url: "https://www.impots.gouv.fr" },
+            lienExterne: { label: "impots.gouv.fr — Emploi à domicile", url: "https://www.impots.gouv.fr/particulier/emploi-domicile" },
           },
           { title: "Vérifier les aides de la caisse de retraite du proche", description: "", category: "administratif", sharedWithVisitors: false },
         ],
@@ -433,7 +433,7 @@ export const CHECKLIST_TEMPLATES: Record<ChecklistContext, ChecklistTemplate> = 
             description: "",
             category: "administratif",
             sharedWithVisitors: false,
-            lienExterne: { label: "Service-Public — Demande MDPH", url: "https://www.service-public.fr/particuliers/vosdroits/F14953" },
+            lienExterne: { label: "Mon Parcours Handicap — Dépôt du dossier MDPH", url: "https://www.monparcourshandicap.gouv.fr/aides/le-depot-du-dossier-et-le-traitement-de-la-demande-par-la-maison-departementale-des-personnes" },
           },
           {
             title: "Rassembler les justificatifs pour le dossier MDPH",
@@ -452,21 +452,21 @@ export const CHECKLIST_TEMPLATES: Record<ChecklistContext, ChecklistTemplate> = 
             description: "",
             category: "administratif",
             sharedWithVisitors: false,
-            lienExterne: { label: "Service-Public — PCH", url: "https://www.service-public.fr/particuliers/vosdroits/F14202" },
+            lienExterne: { label: "Service-Public — PCH", url: "https://www.service-public.gouv.fr/particuliers/vosdroits/F14202" },
           },
           {
             title: "Vérifier l'éligibilité à l'AAH si majeur",
             description: "",
             category: "administratif",
             sharedWithVisitors: false,
-            lienExterne: { label: "Service-Public — AAH", url: "https://www.service-public.fr/particuliers/vosdroits/F12242" },
+            lienExterne: { label: "Service-Public — AAH", url: "https://www.service-public.gouv.fr/particuliers/vosdroits/F12242" },
           },
           {
             title: "Vérifier les aides à l'adaptation du logement ou du véhicule",
             description: "",
             category: "administratif",
             sharedWithVisitors: false,
-            lienExterne: { label: "ANAH — MaPrimeAdapt'", url: "https://www.anah.fr" },
+            lienExterne: { label: "France Rénov' — MaPrimeAdapt'", url: "https://france-renov.gouv.fr/aides/maprimeadapt" },
           },
           { title: "Identifier les associations locales spécialisées", description: "", category: "administratif", sharedWithVisitors: false },
         ],
@@ -496,7 +496,7 @@ export const CHECKLIST_TEMPLATES: Record<ChecklistContext, ChecklistTemplate> = 
             description: "",
             category: "administratif",
             sharedWithVisitors: false,
-            lienExterne: { label: "Service-Public — Soins palliatifs", url: "https://www.service-public.fr/particuliers/vosdroits/F32471" },
+            lienExterne: { label: "sante.fr — Vos droits en soins palliatifs", url: "https://www.sante.fr/vos-droits-en-sante-les-soins-palliatifs" },
           },
           {
             title: "Vérifier le congé de solidarité familiale si je suis salarié",
@@ -504,7 +504,7 @@ export const CHECKLIST_TEMPLATES: Record<ChecklistContext, ChecklistTemplate> = 
             urgent: true,
             category: "administratif",
             sharedWithVisitors: false,
-            lienExterne: { label: "Service-Public — Congé de solidarité familiale", url: "https://www.service-public.fr/particuliers/vosdroits/F15170" },
+            lienExterne: { label: "code.travail.gouv.fr — Congé de solidarité familiale", url: "https://code.travail.gouv.fr/fiche-service-public/conge-de-solidarite-familiale-dun-salarie" },
           },
           { title: "Identifier un contact pour un accompagnement psychologique de la famille", description: "", category: "administratif", sharedWithVisitors: false },
         ],
@@ -542,6 +542,24 @@ export function findTemplateContextForTitle(title: string): ChecklistContext | n
   for (const ctx of Object.keys(CHECKLIST_TEMPLATES) as ChecklistContext[]) {
     if (CHECKLIST_TEMPLATES[ctx].groups.some((g) => g.items.some((it) => it.title.trim().toLowerCase() === norm))) {
       return ctx;
+    }
+  }
+  return null;
+}
+
+// Retrouve l'item de checklist d'origine (avec son lien officiel, ses pièces
+// à réunir…) à partir d'un titre déjà publié/importé — permet de réafficher
+// ces infos après coup (tasks / personal_checklist_items n'ont pas de
+// colonne dédiée) sans dupliquer la donnée. Le titre stocké peut porter un
+// suffixe " — précision" (voir MyChecklist.tsx publishImportWizard) : on ne
+// compare que la partie avant ce séparateur.
+export function findTemplateItemByTitle(title: string): ChecklistItem | null {
+  const base = title.split(" — ")[0].trim().toLowerCase();
+  if (!base) return null;
+  for (const ctx of Object.keys(CHECKLIST_TEMPLATES) as ChecklistContext[]) {
+    for (const g of CHECKLIST_TEMPLATES[ctx].groups) {
+      const found = g.items.find((it) => it.title.trim().toLowerCase() === base);
+      if (found) return found;
     }
   }
   return null;

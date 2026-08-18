@@ -8,7 +8,9 @@ import { supabase } from "@/lib/supabase";
 import ConfirmModal from "@/components/ConfirmModal";
 import MiniCalendar from "@/components/MiniCalendar";
 import { normalizePhone } from "@/lib/phone";
-import { CHECKLIST_TEMPLATES, addDaysIso, checklistItemDescription, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
+import { CHECKLIST_TEMPLATES, addDaysIso, checklistItemDescription, findTemplateItemByTitle, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
+import { findLetterTemplateForChecklistItem, type LetterTemplate } from "@/lib/letterTemplates";
+import { saveAndShareText } from "@/lib/mediaShare";
 import type { PersonalChecklistItem, IntervenantChecklistTemplate, Task } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -133,6 +135,13 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
   // n'a pas besoin de la liste complète des besoins hors de ce flux d'import.
   const [existingTasks, setExistingTasks] = useState<Task[]>([]);
 
+  // Modèle de courrier (voir lib/letterTemplates.ts) — popup de remplissage
+  // puis aperçu, ouvert depuis le bouton "✉️" d'un item de checklist précis.
+  const [letterModal, setLetterModal] = useState<LetterTemplate | null>(null);
+  const [letterValues, setLetterValues] = useState<Record<string, string>>({});
+  const [letterPreview, setLetterPreview] = useState(false);
+  const [letterSaving, setLetterSaving] = useState(false);
+
   const canLoad = !!(spaceId && ownerPrenom.trim() && ownerNom.trim() && ownerPin.trim());
 
   const loadItems = useCallback(async () => {
@@ -171,6 +180,15 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     return items.find((it) => it.title.trim().toLowerCase() === norm);
   }
 
+  // Anti-doublon pour les checklists suggérées (Entraide) : un item peut
+  // déjà exister soit comme besoin public (findDuplicateTask), soit déjà
+  // importé dans "Ma Checklist" sans avoir été publié (findExistingChecklistItem,
+  // jusqu'ici seulement branché sur le flux "Mes modèles" — un item importé
+  // en privé pouvait donc être réimporté indéfiniment et s'empiler).
+  function isDuplicateImportTitle(title: string): boolean {
+    return !!findDuplicateTask(title) || !!findExistingChecklistItem(title);
+  }
+
   async function toggleItem(item: PersonalChecklistItem) {
     const nextStatus: PersonalChecklistItem["status"] = item.status === "fait" ? "a_faire" : "fait";
     setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, status: nextStatus } : it)));
@@ -178,6 +196,32 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     if (item.task_id) {
       await supabase.from("tasks").update({ status: nextStatus === "fait" ? "fait" : "ouvert" }).eq("id", item.task_id);
     }
+  }
+
+  function openLetterModal(tpl: LetterTemplate) {
+    setLetterModal(tpl);
+    const initial: Record<string, string> = {};
+    tpl.fields.forEach((f) => { initial[f.key] = f.key === "salarie" && ownerPrenom ? `${ownerPrenom} ${ownerNom}`.trim() : ""; });
+    setLetterValues(initial);
+    setLetterPreview(false);
+  }
+
+  function closeLetterModal() {
+    setLetterModal(null);
+    setLetterValues({});
+    setLetterPreview(false);
+  }
+
+  function updateLetterField(key: string, value: string) {
+    setLetterValues((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function downloadLetter() {
+    if (!letterModal) return;
+    setLetterSaving(true);
+    const content = letterModal.body(letterValues);
+    await saveAndShareText(content, `${letterModal.id}.txt`, letterModal.label);
+    setLetterSaving(false);
   }
 
   function addDraftToNewChecklist() {
@@ -435,9 +479,9 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     const all: ImportWizardEntry[] = [
       ...templateItems
         .map((item, i) => ({ key: String(i), item }))
-        .filter(({ key, item }) => importChecked[Number(key)] && !findDuplicateTask(item.title)),
+        .filter(({ key, item }) => importChecked[Number(key)] && !isDuplicateImportTitle(item.title)),
       ...importCustomItems
-        .filter((title) => !findDuplicateTask(title))
+        .filter((title) => !isDuplicateImportTitle(title))
         .map((title, idx) => ({ key: `custom-${idx}`, item: { title, description: "", sharedWithVisitors: true } as ChecklistItem })),
     ];
     if (!all.length) return;
@@ -545,9 +589,10 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
       };
     });
     // Pièces à réunir → sous-items cochables : pas de vraie hiérarchie en
-    // base, mais les regrouper sous custom_checklist_name = titre du parent
-    // les affiche ensemble comme leur propre mini-checklist (voir
-    // groupItems), chacune cochable indépendamment.
+    // base, mais checklist_context = importCtx (même checklist que leur
+    // parent) + custom_checklist_name = titre du parent permet à groupItems
+    // de les rattacher et de les afficher nichées sous leur item, chacune
+    // cochable indépendamment (voir renderGroupCard, nestPieces).
     const pieceRows = selected.flatMap(({ item }) =>
       (item.piecesRequises ?? []).map((piece) => ({
         space_id: spaceId,
@@ -557,7 +602,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
         title: piece,
         status: "a_faire" as const,
         task_id: null,
-        checklist_context: null,
+        checklist_context: importCtx,
         custom_checklist_name: item.title,
       })),
     );
@@ -577,63 +622,115 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
 
   if (!canLoad) return null;
 
+  // checklist_context prime sur custom_checklist_name : une pièce à réunir
+  // (voir publishImportWizard, pieceRows) porte les deux à la fois pour
+  // rester rattachée à sa checklist toute prête d'origine plutôt que de
+  // retomber dans le seau générique des checklists perso nommées.
   const groupItems = (key: string) =>
     items.filter((it) => {
       if (key === "perso") return !it.checklist_context && !it.custom_checklist_name;
-      if (it.custom_checklist_name) return it.custom_checklist_name === key;
-      return it.checklist_context === key;
+      if (it.checklist_context) return it.checklist_context === key;
+      return it.custom_checklist_name === key;
     });
 
-  // Une checklist perso créée via "+ Créer une checklist" n'existe que si
-  // elle a au moins un item (pas de ligne "coquille vide" en base).
+  // Une checklist perso créée via "+ Créer une checklist" (ou importée comme
+  // modèle intervenant) n'existe que si elle a au moins un item — et exclut
+  // les pièces à réunir des checklists toute prêtes, qui portent aussi
+  // custom_checklist_name mais ont un checklist_context (voir groupItems).
   const customNames = Array.from(
-    new Set(items.map((it) => it.custom_checklist_name).filter((n): n is string => !!n)),
+    new Set(
+      items
+        .filter((it) => !it.checklist_context && it.custom_checklist_name)
+        .map((it) => it.custom_checklist_name as string),
+    ),
   );
+
+  // Une ligne d'item cochable — extrait de renderGroupCard pour être réutilisé
+  // à la fois pour un item de premier niveau et pour une pièce à réunir
+  // nichée dessous (indent). Le lien officiel est retrouvé à la volée dans
+  // le template d'origine (findTemplateItemByTitle) : ni tasks ni
+  // personal_checklist_items n'ont de colonne dédiée pour le conserver après
+  // l'import, donc on le re-dérive du titre à chaque affichage plutôt que de
+  // le perdre une fois l'écran de sélection refermé.
+  function renderItemRow(item: PersonalChecklistItem, opts?: { indent?: boolean }) {
+    const isSel = selectedIds.has(item.id);
+    const tplItem = findTemplateItemByTitle(item.title);
+    const letterTpl = findLetterTemplateForChecklistItem(item.title);
+    return (
+      <View style={opts?.indent && styles.pieceWrap}>
+        <TouchableOpacity
+          style={[styles.row, { borderBottomColor: C.border }, isSel && { backgroundColor: `${C.accent}18` }]}
+          onPress={() => { if (selectionMode) toggleSelected(item.id); }}
+          onLongPress={() => { if (!selectionMode) enterSelection(item.id); }}
+          activeOpacity={selectionMode ? 0.6 : 1}
+        >
+          {selectionMode && (
+            <View style={[styles.selectDot, { borderColor: C.accent, backgroundColor: isSel ? C.accent : "transparent" }]}>
+              {isSel && <Text style={styles.selectDotCheck}>✓</Text>}
+            </View>
+          )}
+          <Text
+            style={[
+              styles.rowText,
+              { flex: 1, color: item.status === "fait" ? C.muted : C.text },
+              item.status === "fait" && styles.rowTextDone,
+            ]}
+          >
+            {opts?.indent ? "· " : ""}{item.title}
+          </Text>
+          {!selectionMode && (
+            <Switch
+              value={item.status === "fait"}
+              onValueChange={() => toggleItem(item)}
+              trackColor={{ false: C.border, true: C.accent }}
+              thumbColor="#fff"
+            />
+          )}
+        </TouchableOpacity>
+        {!!tplItem?.lienExterne && (
+          <TouchableOpacity
+            style={styles.itemLinkWrap}
+            onPress={() => Linking.openURL(tplItem.lienExterne!.url).catch(() => {})}
+            hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+          >
+            <Text style={[styles.itemLink, { color: C.gold }]}>🔗 {tplItem.lienExterne.label}</Text>
+          </TouchableOpacity>
+        )}
+        {!!letterTpl && (
+          <TouchableOpacity
+            style={styles.itemLinkWrap}
+            onPress={() => openLetterModal(letterTpl)}
+            hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+          >
+            <Text style={[styles.itemLink, { color: C.accent }]}>✉️ Préparer le courrier</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+  }
 
   // addTarget : identifie le groupe (checklist perso nommée ou checklist
   // toute prête importée) pour y ajouter de nouveaux items directement (voir
   // groupAddText). Absent pour "Mes items personnels" (legacy, sans
-  // checklist parente).
-  function renderGroupCard(groupItemsList: PersonalChecklistItem[], addTarget?: { key: string; isCustom: boolean }) {
+  // checklist parente). nestPieces : les pièces à réunir (custom_checklist_name
+  // = titre d'un item du même groupe, voir publishImportWizard) s'affichent
+  // nichées sous leur item plutôt qu'à plat — seul le cas des checklists
+  // toute prêtes en a besoin, les checklists perso/legacy n'ont pas de pièces.
+  function renderGroupCard(groupItemsList: PersonalChecklistItem[], addTarget?: { key: string; isCustom: boolean }, nestPieces?: boolean) {
+    const topLevel = nestPieces ? groupItemsList.filter((it) => !it.custom_checklist_name) : groupItemsList;
+    const piecesOf = (title: string) => groupItemsList.filter((it) => it.custom_checklist_name === title);
     return (
       <View style={[styles.card, styles.groupCard, { backgroundColor: C.card, borderColor: C.border }]}>
-        {groupItemsList.length === 0 ? (
+        {topLevel.length === 0 ? (
           <Text style={[styles.empty, { color: C.muted }]}>Aucun item pour le moment.</Text>
-        ) : groupItemsList.map((item) => {
-          const isSel = selectedIds.has(item.id);
-          return (
-            <TouchableOpacity
-              key={item.id}
-              style={[styles.row, { borderBottomColor: C.border }, isSel && { backgroundColor: `${C.accent}18` }]}
-              onPress={() => { if (selectionMode) toggleSelected(item.id); }}
-              onLongPress={() => { if (!selectionMode) enterSelection(item.id); }}
-              activeOpacity={selectionMode ? 0.6 : 1}
-            >
-              {selectionMode && (
-                <View style={[styles.selectDot, { borderColor: C.accent, backgroundColor: isSel ? C.accent : "transparent" }]}>
-                  {isSel && <Text style={styles.selectDotCheck}>✓</Text>}
-                </View>
-              )}
-              <Text
-                style={[
-                  styles.rowText,
-                  { flex: 1, color: item.status === "fait" ? C.muted : C.text },
-                  item.status === "fait" && styles.rowTextDone,
-                ]}
-              >
-                {item.title}
-              </Text>
-              {!selectionMode && (
-                <Switch
-                  value={item.status === "fait"}
-                  onValueChange={() => toggleItem(item)}
-                  trackColor={{ false: C.border, true: C.accent }}
-                  thumbColor="#fff"
-                />
-              )}
-            </TouchableOpacity>
-          );
-        })}
+        ) : topLevel.map((item) => (
+          <View key={item.id}>
+            {renderItemRow(item)}
+            {nestPieces && piecesOf(item.title).map((piece) => (
+              <View key={piece.id}>{renderItemRow(piece, { indent: true })}</View>
+            ))}
+          </View>
+        ))}
         {addTarget && (
           <View style={styles.groupAddRow}>
             <TextInput
@@ -709,7 +806,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                     </Text>
                     <Text style={[styles.groupChevron, { color: C.muted }]}>{isOpen ? "▲" : "▼"}</Text>
                   </TouchableOpacity>
-                  {isOpen && renderGroupCard(groupList, { key: ctx, isCustom: false })}
+                  {isOpen && renderGroupCard(groupList, { key: ctx, isCustom: false }, true)}
                 </View>
               );
             })}
@@ -1122,14 +1219,14 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
               // importés, non interactifs — voir dup plus bas) empêchait le
               // compte de jamais atteindre le total dès qu'un item était déjà
               // publié, figeant le bouton sur "Tout cocher" sans effet.
-              const selectableCount = templateItems.filter((item) => !findDuplicateTask(item.title)).length;
-              const customCount = importCustomItems.filter((t) => !findDuplicateTask(t)).length;
-              const checkedCount = templateItems.filter((item, i) => importChecked[i] && !findDuplicateTask(item.title)).length + customCount;
+              const selectableCount = templateItems.filter((item) => !isDuplicateImportTitle(item.title)).length;
+              const customCount = importCustomItems.filter((t) => !isDuplicateImportTitle(t)).length;
+              const checkedCount = templateItems.filter((item, i) => importChecked[i] && !isDuplicateImportTitle(item.title)).length + customCount;
               const checkedTemplateCount = checkedCount - customCount;
               // N'annonce "Suivant" (assistant par item) que s'il y aura
               // vraiment au moins un écran à montrer — voir startImportWizard.
               const hasInteractiveItem = importPublic || templateItems.some(
-                (item, i) => importChecked[i] && !findDuplicateTask(item.title) && item.needsDetail,
+                (item, i) => importChecked[i] && !isDuplicateImportTitle(item.title) && item.needsDetail,
               );
               return (
                 <>
@@ -1143,7 +1240,8 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                   <ScrollView style={styles.scroll} showsVerticalScrollIndicator nestedScrollEnabled>
                     {templateItems.map((item, i) => {
                       const checked = !!importChecked[i];
-                      const dup = findDuplicateTask(item.title);
+                      const dupTask = findDuplicateTask(item.title);
+                      const dup = dupTask || findExistingChecklistItem(item.title);
                       return (
                         <View key={i} style={!!dup && { opacity: 0.55 }}>
                           <TouchableOpacity
@@ -1161,7 +1259,11 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                             </View>
                             <View style={{ flex: 1 }}>
                               <Text style={[styles.itemTitle, { color: checked && !dup ? C.text : C.muted }]}>{item.title}</Text>
-                              {!!dup && <Text style={[styles.dupHint, { color: C.muted }]}>déjà dans le Mur d'Entraide</Text>}
+                              {!!dup && (
+                                <Text style={[styles.dupHint, { color: C.muted }]}>
+                                  {dupTask ? "déjà dans le Mur d'Entraide" : "déjà dans Ma Checklist"}
+                                </Text>
+                              )}
                               {!!item.description && !dup && (
                                 <Text style={[styles.itemDesc, { color: C.muted }]}>{item.description}</Text>
                               )}
@@ -1370,6 +1472,80 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
           })()}
         </View>
       </Modal>
+
+      {/* ── MODAL : préparer un modèle de courrier ──────────────────────── */}
+      <Modal visible={!!letterModal} transparent animationType="fade" onRequestClose={() => !letterSaving && closeLetterModal()}>
+        <View style={styles.overlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !letterSaving && closeLetterModal()} />
+          {letterModal && (() => {
+            const missingRequired = letterModal.fields.some((f) => f.required && !letterValues[f.key]?.trim());
+            return (
+              <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
+                <Text style={[styles.sheetTitle, { color: C.text }]}>{letterModal.icon} {letterModal.label}</Text>
+                <Text style={[styles.intro, { color: C.muted }]}>{letterModal.intro}</Text>
+
+                {!letterPreview ? (
+                  <ScrollView style={styles.scroll} showsVerticalScrollIndicator keyboardShouldPersistTaps="handled">
+                    {letterModal.fields.map((f) => (
+                      <View key={f.key}>
+                        <Text style={[styles.fieldLabel, { color: C.gold }]}>
+                          {f.label}{f.required ? " *" : ""}
+                        </Text>
+                        <TextInput
+                          style={[
+                            styles.input,
+                            f.multiline && styles.wizardDetailInput,
+                            { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 0 },
+                          ]}
+                          placeholder={f.placeholder}
+                          placeholderTextColor={C.muted}
+                          value={letterValues[f.key] ?? ""}
+                          onChangeText={(t) => updateLetterField(f.key, t)}
+                          multiline={f.multiline}
+                        />
+                      </View>
+                    ))}
+                  </ScrollView>
+                ) : (
+                  <ScrollView style={styles.scroll} showsVerticalScrollIndicator>
+                    <Text style={[styles.letterPreview, { color: C.text, borderColor: C.border, backgroundColor: C.bg }]}>
+                      {letterModal.body(letterValues)}
+                    </Text>
+                    {!!letterModal.piecesJointes.length && (
+                      <View style={[styles.letterPieces, { borderColor: C.gold, backgroundColor: `${C.gold}14` }]}>
+                        <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 0 }]}>📎 Pièces jointes à envoyer avec ce courrier</Text>
+                        {letterModal.piecesJointes.map((p, i) => (
+                          <Text key={i} style={[styles.itemDesc, { color: C.text }]}>• {p}</Text>
+                        ))}
+                      </View>
+                    )}
+                  </ScrollView>
+                )}
+
+                <View style={styles.sheetBtns}>
+                  <TouchableOpacity
+                    style={[styles.btnSecondary, { borderColor: C.border }]}
+                    onPress={() => (letterPreview ? setLetterPreview(false) : closeLetterModal())}
+                    disabled={letterSaving}
+                  >
+                    <Text style={[styles.btnSecondaryText, { color: C.muted }]}>{letterPreview ? "Modifier" : "Annuler"}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.btnPrimary, { backgroundColor: C.accent, opacity: missingRequired || letterSaving ? 0.5 : 1 }]}
+                    onPress={() => (letterPreview ? downloadLetter() : setLetterPreview(true))}
+                    disabled={missingRequired || letterSaving}
+                  >
+                    {letterSaving
+                      ? <ActivityIndicator color="#fff" />
+                      : <Text style={styles.btnPrimaryText}>{letterPreview ? "💾 Enregistrer / Télécharger" : "Aperçu →"}</Text>
+                    }
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          })()}
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1402,6 +1578,8 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 8, borderBottomWidth: 1 },
   rowText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
   rowTextDone: { textDecorationLine: "line-through" },
+  pieceWrap: { marginLeft: 26 },
+  itemLinkWrap: { paddingHorizontal: 8, paddingBottom: 8, marginTop: -4 },
   input: { borderWidth: 1, borderRadius: 10, padding: 12, fontFamily: "DM_Sans_400Regular", fontSize: 14, marginTop: 12 },
   groupAddRow: { padding: 6, paddingTop: 2 },
   groupAddInput: { borderWidth: 1, borderRadius: 10, padding: 10, fontFamily: "DM_Sans_400Regular", fontSize: 13, marginTop: 6 },
@@ -1452,4 +1630,9 @@ const styles = StyleSheet.create({
   wizardProgress: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11.5, letterSpacing: 0.3, marginBottom: 8 },
   fieldLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, marginTop: 10, marginBottom: 4 },
   wizardDetailInput: { minHeight: 70, marginTop: 0 },
+  letterPreview: {
+    fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 20,
+    borderWidth: 1, borderRadius: 10, padding: 12,
+  },
+  letterPieces: { borderWidth: 1, borderRadius: 10, padding: 12, marginTop: 12 },
 });
