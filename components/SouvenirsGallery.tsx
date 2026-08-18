@@ -10,7 +10,7 @@ import { File } from "expo-file-system";
 import { router } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { getVisitorSession } from "@/lib/visitorSession";
-import { downloadAndShare, isShareAvailable, logSavedMedia } from "@/lib/mediaShare";
+import { downloadAndShare, downloadAndShareMultiple, isShareAvailable, logSavedMedia } from "@/lib/mediaShare";
 import PinPad from "@/components/PinPad";
 import VisitorProfileModal from "@/components/VisitorProfileModal";
 import ConfirmModal from "@/components/ConfirmModal";
@@ -330,16 +330,16 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
     }
 
     setDownloading(true);
-    let ok = 0;
-    for (const photo of targets) {
-      const success = await downloadAndShare(photo.url, `souvenir_${photo.id}.jpg`, `Souvenir de ${photo.uploaded_by_prenom}`);
-      if (success) {
-        ok++;
-        await logIfNotMine(photo);
-      }
+    const success = await downloadAndShareMultiple(
+      targets.map((photo) => ({ url: photo.url, filename: `souvenir_${photo.id}.jpg` })),
+    );
+    if (success) {
+      for (const photo of targets) await logIfNotMine(photo);
     }
     setDownloading(false);
-    showToast(`${ok}/${targets.length} photo${targets.length > 1 ? "s" : ""} partagée${targets.length > 1 ? "s" : ""}`);
+    showToast(success
+      ? `${targets.length} photo${targets.length > 1 ? "s" : ""} partagée${targets.length > 1 ? "s" : ""}`
+      : "Erreur lors du partage");
   }
 
   async function sharePhoto(photo: SouvenirPhoto & { url: string }) {

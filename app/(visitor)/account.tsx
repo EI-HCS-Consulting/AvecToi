@@ -37,6 +37,11 @@ function supportPhotoUrl(spaceId: string, filename: string) {
   return data.publicUrl;
 }
 
+function newsPhotoUrl(spaceId: string, filename: string) {
+  const { data } = supabase.storage.from("news-photos").getPublicUrl(`${spaceId}/${filename}`);
+  return data.publicUrl;
+}
+
 // updatedAt bust le cache CDN/<Image> — voir IntervenantFicheModal.tsx pour
 // le détail (nom de fichier fixe + upsert, sans ça un ré-upload continuerait
 // d'afficher l'ancienne photo). Même bucket/convention de nom de fichier
@@ -1177,10 +1182,13 @@ export default function VisitorAccountScreen() {
                     ) : myNews.map((entry) => (
                       <TouchableOpacity
                         key={entry.id}
-                        style={styles.activityRow}
+                        style={[styles.activityRow, { alignItems: "flex-start" }]}
                         onPress={() => router.push(`/(visitor)/news?focusEntryId=${entry.id}` as any)}
                         activeOpacity={0.7}
                       >
+                        {entry.photos?.[0] && (
+                          <Image source={{ uri: newsPhotoUrl(space.id, entry.photos[0]) }} style={styles.activityMsgThumb} resizeMode="cover" />
+                        )}
                         <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
                           {new Date(entry.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} — {entry.content}
                         </Text>
