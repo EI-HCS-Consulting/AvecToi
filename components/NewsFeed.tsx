@@ -10,7 +10,7 @@ import * as ImageManipulator from "expo-image-manipulator";
 import { File } from "expo-file-system";
 import { supabase } from "@/lib/supabase";
 import { getVisitorSession, rememberAuthorPin, sessionPinMatches } from "@/lib/visitorSession";
-import { downloadAndShare, logSavedMedia, isShareAvailable } from "@/lib/mediaShare";
+import { downloadAndShare, downloadAndShareMultiple, logSavedMedia, isShareAvailable } from "@/lib/mediaShare";
 import PinPad from "@/components/PinPad";
 import VisitorProfileModal from "@/components/VisitorProfileModal";
 import ConfirmModal from "@/components/ConfirmModal";
@@ -326,19 +326,18 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
       return;
     }
     setBulkDownloadingMedia(true);
-    let ok = 0;
-    for (let i = 0; i < targets.length; i++) {
-      const item = targets[i];
-      const success = await downloadAndShare(item.url, `nouvelles_${item.entry.id}_${i}.jpg`);
-      if (success) {
-        ok++;
-        await logDownloadIfNotMine(item.entry, item.url);
-      }
+    const success = await downloadAndShareMultiple(
+      targets.map((item, i) => ({ url: item.url, filename: `nouvelles_${item.entry.id}_${i}.jpg` })),
+    );
+    if (success) {
+      for (const item of targets) await logDownloadIfNotMine(item.entry, item.url);
     }
     setBulkDownloadingMedia(false);
     setMediaSelectMode(false);
     setMediaSelected(new Set());
-    showToast(`${ok}/${targets.length} photo${targets.length > 1 ? "s" : ""} partagée${targets.length > 1 ? "s" : ""}`);
+    showToast(success
+      ? `${targets.length} photo${targets.length > 1 ? "s" : ""} partagée${targets.length > 1 ? "s" : ""}`
+      : "Erreur lors du partage");
   }
 
   // Arrivée depuis Souvenirs ("Voir l'original") via un lien profond

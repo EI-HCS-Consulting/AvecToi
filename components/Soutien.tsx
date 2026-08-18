@@ -11,7 +11,7 @@ import { File } from "expo-file-system";
 import * as FileSystem from "expo-file-system/legacy";
 import { supabase } from "@/lib/supabase";
 import { blobToArrayBuffer } from "@/lib/blobToArrayBuffer";
-import { downloadAndShare, logSavedMedia, isShareAvailable } from "@/lib/mediaShare";
+import { downloadAndShare, downloadAndShareMultiple, logSavedMedia, isShareAvailable } from "@/lib/mediaShare";
 import { getVisitorSession, rememberAuthorPin } from "@/lib/visitorSession";
 import PinPad from "@/components/PinPad";
 import VisitorProfileModal from "@/components/VisitorProfileModal";
@@ -202,19 +202,20 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
       return;
     }
     setBulkDownloadingMedia(true);
-    let ok = 0;
-    for (let i = 0; i < targets.length; i++) {
-      const item = targets[i];
-      const success = await downloadAndShare(item.url, `soutien_${item.message.id}_${i}.jpg`);
-      if (success) {
-        ok++;
+    const success = await downloadAndShareMultiple(
+      targets.map((item, i) => ({ url: item.url, filename: `soutien_${item.message.id}_${i}.jpg` })),
+    );
+    if (success) {
+      for (const item of targets) {
         await logDownloadIfNotMine({ pin: item.message.author_pin, prenom: item.message.author_prenom, nom: item.message.author_nom }, item.message.id, item.url);
       }
     }
     setBulkDownloadingMedia(false);
     setMediaSelectMode(false);
     setMediaSelected(new Set());
-    showToast(`${ok}/${targets.length} photo${targets.length > 1 ? "s" : ""} partagée${targets.length > 1 ? "s" : ""}`);
+    showToast(success
+      ? `${targets.length} photo${targets.length > 1 ? "s" : ""} partagée${targets.length > 1 ? "s" : ""}`
+      : "Erreur lors du partage");
   }
 
   const loadMessages = useCallback(async () => {

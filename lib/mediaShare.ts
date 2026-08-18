@@ -1,5 +1,6 @@
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
+import Share from "react-native-share";
 import { Alert } from "react-native";
 import { supabase } from "@/lib/supabase";
 
@@ -20,6 +21,36 @@ export async function downloadAndShare(url: string, filename: string, dialogTitl
     const localUri = (FileSystem.cacheDirectory ?? "") + filename;
     const { uri } = await FileSystem.downloadAsync(url, localUri);
     await Sharing.shareAsync(uri, { mimeType: "image/jpeg", dialogTitle });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Version groupée de downloadAndShare : télécharge plusieurs photos dans le
+// cache local puis ouvre une SEULE feuille de partage native pour toutes à
+// la fois (react-native-share, via Share.open({ urls })) — expo-sharing ne
+// permet pas de partager plusieurs fichiers en un seul appel, d'où le
+// passage par cette lib pour la sélection multiple (Nouvelles/Soutien/
+// Souvenirs). Le partage d'un seul média continue d'utiliser downloadAndShare.
+export async function downloadAndShareMultiple(
+  items: { url: string; filename: string }[],
+  dialogTitle?: string,
+): Promise<boolean> {
+  if (items.length === 0) return false;
+  if (!(await Sharing.isAvailableAsync())) {
+    Alert.alert("Partage non disponible", "Le partage de fichiers n'est pas disponible sur cet appareil.");
+    return false;
+  }
+  try {
+    const localUris = await Promise.all(
+      items.map(async (item) => {
+        const localUri = (FileSystem.cacheDirectory ?? "") + item.filename;
+        const { uri } = await FileSystem.downloadAsync(item.url, localUri);
+        return uri;
+      }),
+    );
+    await Share.open({ urls: localUris, failOnCancel: false, title: dialogTitle });
     return true;
   } catch {
     return false;
