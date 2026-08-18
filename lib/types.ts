@@ -443,7 +443,21 @@ export interface PersonalChecklistItem {
   // regrouper l'affichage en sous-blocs comme "Mes contributions" — null pour
   // un item purement personnel ou un item rejoint dont le titre ne
   // correspond à aucune checklist suggérée connue.
-  checklist_context: "adulte" | "enfant" | "domicile" | null;
+  // Doit rester synchronisé avec ChecklistContext dans lib/checklistTemplates.ts
+  // (dupliqué ici plutôt qu'importé pour éviter un cycle d'imports avec Task).
+  checklist_context:
+    | "adulte"
+    | "enfant"
+    | "domicile"
+    | "situations_besoins"
+    | "retour_domicile"
+    | "relais_familial"
+    | "repit_aidant"
+    | "conge_proche_aidant"
+    | "maintien_domicile"
+    | "handicap"
+    | "fin_de_vie"
+    | null;
   // Nom d'une checklist personnelle créée via "+ Créer une checklist" (voir
   // components/MyChecklist.tsx) — regroupe ces items sous ce nom, en plus des
   // 3 checklists suggérées et de "Mes items personnels" (items sans nom).
