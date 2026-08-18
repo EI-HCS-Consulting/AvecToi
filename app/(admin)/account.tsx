@@ -469,6 +469,27 @@ export default function AdminAccountScreen() {
           )}
         </View>
 
+        <TouchableOpacity
+          style={[styles.saveBtn, { backgroundColor: C.accent, marginTop: 16 }, alertsBadgeCount > 0 && { backgroundColor: "#e94560" }]}
+          onPress={() => setAlertsModalVisible(true)}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.saveBtnText}>
+            🔔 Mes alertes{alertsBadgeCount > 0 ? ` (${alertsBadgeCount})` : ""}
+          </Text>
+        </TouchableOpacity>
+
+        <MyAlertsModal
+          visible={alertsModalVisible}
+          onClose={() => setAlertsModalVisible(false)}
+          C={C}
+          activeAlerts={myActiveAlerts}
+          history={changeHistory}
+          onModify={handleAlertModify}
+          onMarkSeen={handleAlertMarkSeen}
+          rgpdAlert={rgpdAlertActive && space ? { message: rgpdAlertMessage(space), onProlong: handleRgpdProlong, prolonging: rgpdProlonging } : null}
+        />
+
         {/* Section Mon affichage */}
         <Text style={[styles.sectionTitle, { color: C.gold }]}>Mon affichage</Text>
         <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
@@ -642,27 +663,6 @@ export default function AdminAccountScreen() {
                   ownerNom={adminLastname}
                   ownerPin="ADMIN"
                   C={C}
-                />
-
-                <TouchableOpacity
-                  style={[styles.saveBtn, { backgroundColor: C.accent, marginTop: 16 }, alertsBadgeCount > 0 && { backgroundColor: "#e94560" }]}
-                  onPress={() => setAlertsModalVisible(true)}
-                  activeOpacity={0.85}
-                >
-                  <Text style={styles.saveBtnText}>
-                    🔔 Mes alertes{alertsBadgeCount > 0 ? ` (${alertsBadgeCount})` : ""}
-                  </Text>
-                </TouchableOpacity>
-
-                <MyAlertsModal
-                  visible={alertsModalVisible}
-                  onClose={() => setAlertsModalVisible(false)}
-                  C={C}
-                  activeAlerts={myActiveAlerts}
-                  history={changeHistory}
-                  onModify={handleAlertModify}
-                  onMarkSeen={handleAlertMarkSeen}
-                  rgpdAlert={rgpdAlertActive && space ? { message: rgpdAlertMessage(space), onProlong: handleRgpdProlong, prolonging: rgpdProlonging } : null}
                 />
 
                 <TouchableOpacity
