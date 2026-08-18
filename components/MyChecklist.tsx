@@ -37,6 +37,12 @@ function linesToTitles(text: string): string[] {
   return text.split("\n").map((l) => l.trim()).filter(Boolean);
 }
 
+// Assistant de publication de checklist (voir startImportWizard) — un item
+// à la fois (échéance → urgent → précision), pas de photo ici (aucune
+// infra ImagePicker dans ce fichier, et non demandé pour ce flux).
+type ImportWizardEntry = { key: string; item: ChecklistItem };
+type ImportWizardFields = { dateLimite: string; urgent: boolean; detail: string };
+
 // Bloc "Ma Checklist" (Mon Compte, admin + visiteur) : liste personnelle où
 // chacun peut cocher "Fait" directement, ajouter ses propres items en texte
 // libre, ou importer une des checklists suggérées d'Entraide. Par défaut un
@@ -112,11 +118,17 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
   // les deux à la fois, d'où l'item visible à double (Mon Compte + Entraide)
   // signalé par un visiteur.
   const [importPublic, setImportPublic] = useState(false);
-  const [importItemUrgent, setImportItemUrgent] = useState<Record<number, boolean>>({});
-  const [importItemDetail, setImportItemDetail] = useState<Record<number, string>>({});
-  const [importDateLimite, setImportDateLimite] = useState("");
-  const [importDLPickerOpen, setImportDLPickerOpen] = useState(false);
-  const [importDLCalMonth, setImportDLCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
+  // Assistant séquentiel (voir startImportWizard) : importSelected fige la
+  // sélection entière (pour la publication finale), importWizardList n'en
+  // garde que le sous-ensemble interactif (échéance/urgent utiles seulement
+  // si importPublic — sans ça aucune ligne tasks n'existe pour les porter —
+  // ou item.needsDetail) pour ne pas faire défiler des écrans vides.
+  const [importSelected, setImportSelected] = useState<ImportWizardEntry[]>([]);
+  const [importWizardList, setImportWizardList] = useState<ImportWizardEntry[]>([]);
+  const [importWizardStep, setImportWizardStep] = useState(0);
+  const [importWizardData, setImportWizardData] = useState<Record<string, ImportWizardFields>>({});
+  const [importWizardDLOpen, setImportWizardDLOpen] = useState(false);
+  const [importWizardDLCalMonth, setImportWizardDLCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
   // Requêté à l'ouverture du picker plutôt que tenu en permanence — MyChecklist
   // n'a pas besoin de la liste complète des besoins hors de ce flux d'import.
   const [existingTasks, setExistingTasks] = useState<Task[]>([]);
@@ -365,10 +377,14 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     // Toutes catégories confondues (pas seulement "administratif") : les
     // checklists suggérées couvrent désormais courses, repas, transport…, et
     // le dédoublonnage (findDuplicateTask) doit les repérer partout.
+    // deleted_by_admin exclu : un besoin supprimé "en douceur" reste en base
+    // (son auteur garde le bandeau rouge) et ne doit plus bloquer le
+    // ré-import du même item.
     const { data } = await supabase
       .from("tasks")
       .select("*")
       .eq("space_id", spaceId)
+      .eq("deleted_by_admin", false)
       .neq("status", "fait");
     setExistingTasks((data ?? []) as Task[]);
   }
@@ -379,15 +395,12 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     setImportCustomItems([]);
     setImportItemDraft("");
     setImportPublic(false);
-    setImportItemUrgent({});
-    setImportItemDetail({});
-    setImportDateLimite("");
-    setImportDLPickerOpen(false);
+    setImportSelected([]);
+    setImportWizardList([]);
+    setImportWizardStep(0);
+    setImportWizardData({});
+    setImportWizardDLOpen(false);
     setPicker(false);
-  }
-
-  function toggleImportItemUrgent(i: number, defaultUrgent: boolean) {
-    setImportItemUrgent((prev) => ({ ...prev, [i]: !(prev[i] ?? defaultUrgent) }));
   }
 
   function toggleImportItem(i: number) {
@@ -411,23 +424,70 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     setImportCustomItems((prev) => prev.filter((_, i) => i !== index));
   }
 
-  async function confirmImport() {
+  // Fige la sélection en cours et bascule le popup en mode assistant "un
+  // item à la fois" — voir ImportWizardEntry. Les items sans rien à
+  // configurer (privé + pas besoin de précision) sont publiés directement
+  // avec leurs valeurs par défaut, sans écran dédié.
+  function startImportWizard() {
     if (!importCtx) return;
     const tpl = CHECKLIST_TEMPLATES[importCtx];
     const templateItems = tpl.groups.flatMap((g) => g.items).filter((it) => isAdmin || it.sharedWithVisitors);
-    // On garde l'index d'origine (utile pour retrouver urgence/précision
-    // saisies par item) uniquement pour les items du modèle — les items
-    // perso ajoutés ici (importCustomItems) n'ont pas ces réglages.
-    const selected = [
+    const all: ImportWizardEntry[] = [
       ...templateItems
-        .map((item, i) => ({ item, i }))
-        .filter(({ item, i }) => importChecked[i] && !findDuplicateTask(item.title)),
+        .map((item, i) => ({ key: String(i), item }))
+        .filter(({ key, item }) => importChecked[Number(key)] && !findDuplicateTask(item.title)),
       ...importCustomItems
-        .map((title): ChecklistItem => ({ title, description: "", sharedWithVisitors: true }))
-        .filter((item) => !findDuplicateTask(item.title))
-        .map((item) => ({ item, i: -1 })),
+        .filter((title) => !findDuplicateTask(title))
+        .map((title, idx) => ({ key: `custom-${idx}`, item: { title, description: "", sharedWithVisitors: true } as ChecklistItem })),
     ];
-    if (!selected.length) return;
+    if (!all.length) return;
+    const interactive = all.filter(({ item }) => importPublic || item.needsDetail);
+    const data: Record<string, ImportWizardFields> = {};
+    interactive.forEach(({ key, item }) => {
+      data[key] = {
+        dateLimite: item.dateOffsetDays ? addDaysIso(item.dateOffsetDays) : "",
+        urgent: !!item.urgent,
+        detail: "",
+      };
+    });
+    setImportSelected(all);
+    setImportWizardList(interactive);
+    setImportWizardData(data);
+    setImportWizardStep(0);
+    setImportWizardDLOpen(false);
+    if (!interactive.length) publishImportWizard(all, {});
+  }
+
+  function updateImportWizardField(step: number, patch: Partial<ImportWizardFields>) {
+    const key = importWizardList[step]?.key;
+    if (!key) return;
+    setImportWizardData((prev) => ({
+      ...prev,
+      [key]: { ...(prev[key] ?? { dateLimite: "", urgent: false, detail: "" }), ...patch },
+    }));
+  }
+
+  function importWizardNext() {
+    if (importWizardStep < importWizardList.length - 1) {
+      setImportWizardStep((s) => s + 1);
+      setImportWizardDLOpen(false);
+      return;
+    }
+    publishImportWizard(importSelected, importWizardData);
+  }
+
+  function importWizardBack() {
+    if (importWizardStep === 0) {
+      setImportWizardList([]);
+      setImportSelected([]);
+      return;
+    }
+    setImportWizardStep((s) => s - 1);
+    setImportWizardDLOpen(false);
+  }
+
+  async function publishImportWizard(selected: ImportWizardEntry[], data: Record<string, ImportWizardFields>) {
+    if (!importCtx || !selected.length) return;
     setImportSaving(true);
 
     // task_id par item importé — reste à null pour tous si l'import est
@@ -436,9 +496,9 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     let taskIds: (string | null)[] = selected.map(() => null);
     if (importPublic) {
       const batchId = Crypto.randomUUID();
-      const taskRows = selected.map(({ item, i }) => {
-        const detail = i >= 0 ? importItemDetail[i]?.trim() : "";
-        const urgent = i >= 0 ? importItemUrgent[i] ?? !!item.urgent : !!item.urgent;
+      const taskRows = selected.map(({ key, item }) => {
+        const fields = data[key] ?? { dateLimite: "", urgent: !!item.urgent, detail: "" };
+        const detail = fields.detail.trim();
         const description = [detail ? `Précision : ${detail}` : "", checklistItemDescription(item)]
           .filter(Boolean)
           .join("\n\n");
@@ -452,8 +512,8 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
           author_prenom: ownerPrenom || null,
           author_nom: ownerNom || null,
           author_pin: ownerPin || null,
-          date_limite: importDateLimite || (item.dateOffsetDays ? addDaysIso(item.dateOffsetDays) : null),
-          urgent,
+          date_limite: fields.dateLimite || (item.dateOffsetDays ? addDaysIso(item.dateOffsetDays) : null),
+          urgent: fields.urgent,
           checklist_batch_id: batchId,
         };
       });
@@ -466,12 +526,12 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
       taskIds = insertedTasks.map((row: { id: string }) => row.id);
     }
 
-    const personalRows = selected.map(({ item, i }, idx) => {
+    const personalRows = selected.map(({ key, item }, idx) => {
       // personal_checklist_items n'a pas de colonne description : pour un
-      // import privé, la précision saisie (i >= 0 seulement, pas les items
-      // perso ajoutés ici) n'aurait nulle part où vivre si on ne l'ajoutait
-      // pas au titre — côté public, elle va dans la description de tasks.
-      const detail = !importPublic && i >= 0 ? importItemDetail[i]?.trim() : "";
+      // import privé, la précision saisie n'aurait nulle part où vivre si on
+      // ne l'ajoutait pas au titre — côté public, elle va dans la
+      // description de tasks.
+      const detail = !importPublic ? data[key]?.detail.trim() : "";
       return {
         space_id: spaceId,
         owner_prenom: ownerPrenom,
@@ -508,6 +568,10 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
       return;
     }
     setImportCtx(null);
+    setImportSelected([]);
+    setImportWizardList([]);
+    setImportWizardStep(0);
+    setImportWizardData({});
     loadItems();
   }
 
@@ -1046,7 +1110,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
       </Modal>
 
       {/* ── MODAL : sélection des items d'un contexte à importer ────────── */}
-      <Modal visible={!!importCtx} transparent animationType="fade" onRequestClose={() => !importSaving && setImportCtx(null)}>
+      <Modal visible={!!importCtx && !importWizardList.length} transparent animationType="fade" onRequestClose={() => !importSaving && setImportCtx(null)}>
         <View style={styles.overlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !importSaving && setImportCtx(null)} />
           <View style={[styles.sheet, { backgroundColor: C.card, borderColor: importCtx ? C[CHECKLIST_TEMPLATES[importCtx].colorKey] : C.accent }]}>
@@ -1062,6 +1126,11 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
               const customCount = importCustomItems.filter((t) => !findDuplicateTask(t)).length;
               const checkedCount = templateItems.filter((item, i) => importChecked[i] && !findDuplicateTask(item.title)).length + customCount;
               const checkedTemplateCount = checkedCount - customCount;
+              // N'annonce "Suivant" (assistant par item) que s'il y aura
+              // vraiment au moins un écran à montrer — voir startImportWizard.
+              const hasInteractiveItem = importPublic || templateItems.some(
+                (item, i) => importChecked[i] && !findDuplicateTask(item.title) && item.needsDetail,
+              );
               return (
                 <>
                   <Text style={[styles.sheetTitle, { color: C.text }]}>{tpl.icon} {tpl.label}</Text>
@@ -1075,7 +1144,6 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                     {templateItems.map((item, i) => {
                       const checked = !!importChecked[i];
                       const dup = findDuplicateTask(item.title);
-                      const itemUrgent = importItemUrgent[i] ?? !!item.urgent;
                       return (
                         <View key={i} style={!!dup && { opacity: 0.55 }}>
                           <TouchableOpacity
@@ -1092,21 +1160,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                               {checked && !dup && <Text style={styles.boxMark}>✓</Text>}
                             </View>
                             <View style={{ flex: 1 }}>
-                              <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
-                                <Text style={[styles.itemTitle, { color: checked && !dup ? C.text : C.muted }]}>{item.title}</Text>
-                                {checked && !dup && importPublic && (
-                                  <TouchableOpacity
-                                    onPress={() => toggleImportItemUrgent(i, !!item.urgent)}
-                                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                                  >
-                                    <View style={[styles.urgentChip, { backgroundColor: itemUrgent ? C.danger + "22" : C.border + "55" }]}>
-                                      <Text style={[styles.urgentChipText, { color: itemUrgent ? C.danger : C.muted }]}>
-                                        {itemUrgent ? "urgent" : "marquer urgent"}
-                                      </Text>
-                                    </View>
-                                  </TouchableOpacity>
-                                )}
-                              </View>
+                              <Text style={[styles.itemTitle, { color: checked && !dup ? C.text : C.muted }]}>{item.title}</Text>
                               {!!dup && <Text style={[styles.dupHint, { color: C.muted }]}>déjà dans le Mur d'Entraide</Text>}
                               {!!item.description && !dup && (
                                 <Text style={[styles.itemDesc, { color: C.muted }]}>{item.description}</Text>
@@ -1129,15 +1183,6 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                               )}
                             </View>
                           </TouchableOpacity>
-                          {checked && !dup && (
-                            <TextInput
-                              style={[styles.detailInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                              placeholder="Préciser (optionnel) : chez qui, laquelle, pour qui…"
-                              placeholderTextColor={C.muted}
-                              value={importItemDetail[i] ?? ""}
-                              onChangeText={(t) => setImportItemDetail((prev) => ({ ...prev, [i]: t }))}
-                            />
-                          )}
                         </View>
                       );
                     })}
@@ -1184,41 +1229,6 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                     <Switch value={importPublic} onValueChange={setImportPublic} trackColor={{ true: color }} />
                   </View>
 
-                  {importPublic && (
-                    <>
-                      <TouchableOpacity
-                        style={[
-                          styles.dateBtn,
-                          { backgroundColor: importDLPickerOpen ? `${color}22` : C.bg, borderColor: importDLPickerOpen ? color : C.border },
-                        ]}
-                        onPress={() => {
-                          if (importDLPickerOpen) setImportDateLimite("");
-                          setImportDLPickerOpen((v) => !v);
-                        }}
-                        activeOpacity={0.8}
-                      >
-                        <Text style={[styles.dateBtnText, { color: importDLPickerOpen ? color : C.text }]}>
-                          {importDLPickerOpen
-                            ? "📅 Retirer l'échéance"
-                            : importDateLimite
-                              ? `📅 Échéance : ${importDateLimite}`
-                              : "📅 Ajouter une échéance à tous les items cochés (optionnel)"}
-                        </Text>
-                      </TouchableOpacity>
-                      {importDLPickerOpen && (
-                        <MiniCalendar
-                          selDate={importDateLimite}
-                          onSelect={setImportDateLimite}
-                          calMonth={importDLCalMonth}
-                          onMonthChange={setImportDLCalMonth}
-                          startDate={new Date()}
-                          C={C}
-                          size="lg"
-                        />
-                      )}
-                    </>
-                  )}
-
                   <View style={styles.sheetBtns}>
                     <TouchableOpacity
                       style={[styles.btnSecondary, { borderColor: C.border }]}
@@ -1229,12 +1239,12 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[styles.btnPrimary, { backgroundColor: color, opacity: checkedCount === 0 || importSaving ? 0.5 : 1 }]}
-                      onPress={confirmImport}
+                      onPress={startImportWizard}
                       disabled={checkedCount === 0 || importSaving}
                     >
                       {importSaving
                         ? <ActivityIndicator color="#fff" />
-                        : <Text style={styles.btnPrimaryText}>Importer {checkedCount > 0 ? `(${checkedCount})` : ""}</Text>
+                        : <Text style={styles.btnPrimaryText}>{hasInteractiveItem ? "Suivant" : "Importer"} {checkedCount > 0 ? `(${checkedCount})` : ""}</Text>
                       }
                     </TouchableOpacity>
                   </View>
@@ -1242,6 +1252,122 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
               );
             })()}
           </View>
+        </View>
+      </Modal>
+
+      {/* ── MODAL : assistant d'import "un item à la fois" (échéance /
+          urgent — utiles seulement si importPublic, pas de ligne tasks sinon
+          — puis précision si item.needsDetail) — voir startImportWizard.
+          Overlay séparé plutôt qu'un pas de plus dans le sheet précédent :
+          évite d'empiler deux <Modal> visibles sur Android. */}
+      <Modal visible={importWizardList.length > 0} transparent animationType="fade" onRequestClose={() => !importSaving && importWizardBack()}>
+        <View style={styles.overlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !importSaving && importWizardBack()} />
+          {importWizardList.length > 0 && importCtx && (() => {
+            const color = C[CHECKLIST_TEMPLATES[importCtx].colorKey];
+            const entry = importWizardList[importWizardStep];
+            const fields = importWizardData[entry.key] ?? { dateLimite: "", urgent: !!entry.item.urgent, detail: "" };
+            const isLast = importWizardStep === importWizardList.length - 1;
+            return (
+              <View style={[styles.sheet, { backgroundColor: C.card, borderColor: color }]}>
+                <Text style={[styles.wizardProgress, { color: C.muted }]}>
+                  Item {importWizardStep + 1} / {importWizardList.length}
+                </Text>
+                <ScrollView style={styles.scroll} showsVerticalScrollIndicator keyboardShouldPersistTaps="handled">
+                  <Text style={[styles.sheetTitle, { color: C.text }]}>{entry.item.title}</Text>
+                  {!!entry.item.description && (
+                    <Text style={[styles.itemDesc, { color: C.muted, marginBottom: 10 }]}>{entry.item.description}</Text>
+                  )}
+
+                  {entry.item.needsDetail && (
+                    <>
+                      <Text style={[styles.fieldLabel, { color: C.gold }]}>Précision (optionnel)</Text>
+                      <TextInput
+                        style={[styles.input, styles.wizardDetailInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                        placeholder="Ex. chez qui, laquelle, pour qui, avec qui…"
+                        placeholderTextColor={C.muted}
+                        value={fields.detail}
+                        onChangeText={(t) => updateImportWizardField(importWizardStep, { detail: t })}
+                        multiline
+                        numberOfLines={3}
+                        textAlignVertical="top"
+                      />
+                    </>
+                  )}
+
+                  {importPublic && (
+                    <>
+                      <Text style={[styles.fieldLabel, { color: C.gold }]}>Échéance (optionnel)</Text>
+                      <TouchableOpacity
+                        style={[
+                          styles.dateBtn,
+                          { backgroundColor: importWizardDLOpen ? `${color}22` : C.bg, borderColor: importWizardDLOpen ? color : C.border, marginTop: 0 },
+                        ]}
+                        onPress={() => {
+                          if (importWizardDLOpen) updateImportWizardField(importWizardStep, { dateLimite: "" });
+                          setImportWizardDLOpen((v) => !v);
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.dateBtnText, { color: importWizardDLOpen ? color : C.text }]}>
+                          {importWizardDLOpen
+                            ? "📅 Retirer l'échéance"
+                            : fields.dateLimite
+                              ? `📅 Échéance : ${fields.dateLimite}`
+                              : "📅 Fixer une échéance"}
+                        </Text>
+                      </TouchableOpacity>
+                      {importWizardDLOpen && (
+                        <MiniCalendar
+                          selDate={fields.dateLimite}
+                          onSelect={(d) => updateImportWizardField(importWizardStep, { dateLimite: d })}
+                          calMonth={importWizardDLCalMonth}
+                          onMonthChange={setImportWizardDLCalMonth}
+                          startDate={new Date()}
+                          C={C}
+                          size="lg"
+                        />
+                      )}
+
+                      <TouchableOpacity
+                        onPress={() => updateImportWizardField(importWizardStep, { urgent: !fields.urgent })}
+                        activeOpacity={0.8}
+                        style={[
+                          styles.dateBtn,
+                          { backgroundColor: fields.urgent ? C.danger + "22" : C.bg, borderColor: fields.urgent ? C.danger : C.border },
+                        ]}
+                      >
+                        <Text style={[styles.dateBtnText, { color: fields.urgent ? C.danger : C.text }]}>
+                          {fields.urgent ? "🔴 Marqué urgent" : "⚪ Marquer urgent"}
+                        </Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
+                </ScrollView>
+
+                <View style={styles.sheetBtns}>
+                  <TouchableOpacity
+                    style={[styles.btnSecondary, { borderColor: C.border }]}
+                    onPress={importWizardBack}
+                    disabled={importSaving}
+                  >
+                    <Text style={[styles.btnSecondaryText, { color: C.muted }]}>
+                      {importWizardStep === 0 ? "Retour" : "Précédent"}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.btnPrimary, { backgroundColor: color, opacity: importSaving ? 0.5 : 1 }]}
+                    onPress={importWizardNext}
+                    disabled={importSaving}
+                  >
+                    {importSaving
+                      ? <ActivityIndicator color="#fff" />
+                      : <Text style={styles.btnPrimaryText}>{isLast ? "✅ Publier" : "Suivant →"}</Text>}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          })()}
         </View>
       </Modal>
     </View>
@@ -1323,4 +1449,7 @@ const styles = StyleSheet.create({
   visibilityLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13, flex: 1, marginRight: 10 },
   dateBtn: { borderWidth: 1, borderRadius: 10, paddingVertical: 12, alignItems: "center", marginTop: 10 },
   dateBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
+  wizardProgress: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11.5, letterSpacing: 0.3, marginBottom: 8 },
+  fieldLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, marginTop: 10, marginBottom: 4 },
+  wizardDetailInput: { minHeight: 70, marginTop: 0 },
 });
