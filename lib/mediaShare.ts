@@ -1,7 +1,7 @@
 import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import Share from "react-native-share";
-import { Alert } from "react-native";
+import { Alert, Platform } from "react-native";
 import { supabase } from "@/lib/supabase";
 
 export async function isShareAvailable(): Promise<boolean> {
@@ -51,6 +51,40 @@ export async function downloadAndShareMultiple(
       }),
     );
     await Share.open({ urls: localUris, failOnCancel: false, title: dialogTitle });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// Enregistre un texte généré localement (courrier, voir lib/letterTemplates.ts)
+// puis propose de le sauvegarder/partager — pas de téléchargement réseau ici,
+// à la différence de downloadAndShare, le contenu est déjà en mémoire. Sur
+// web, expo-sharing n'est pas disponible : on déclenche un téléchargement
+// navigateur classique (Blob + <a download>) plutôt que d'échouer.
+export async function saveAndShareText(content: string, filename: string, dialogTitle?: string): Promise<boolean> {
+  if (Platform.OS === "web") {
+    try {
+      const blob = new Blob([content], { type: "text/plain;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  if (!(await Sharing.isAvailableAsync())) {
+    Alert.alert("Partage non disponible", "Le partage de fichiers n'est pas disponible sur cet appareil.");
+    return false;
+  }
+  try {
+    const localUri = (FileSystem.cacheDirectory ?? "") + filename;
+    await FileSystem.writeAsStringAsync(localUri, content, { encoding: FileSystem.EncodingType.UTF8 });
+    await Sharing.shareAsync(localUri, { mimeType: "text/plain", dialogTitle });
     return true;
   } catch {
     return false;

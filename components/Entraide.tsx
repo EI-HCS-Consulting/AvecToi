@@ -21,7 +21,7 @@ import { googleMapsSearchUrl, joinAddress } from "@/lib/address";
 import { addGenericEventToNativeCalendar } from "@/lib/calendarSync";
 import type { Task, TransportProposal } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
-import { CHECKLIST_TEMPLATES, addDaysIso, checklistItemDescription, findTemplateContextForTitle, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
+import { CHECKLIST_TEMPLATES, addDaysIso, checklistItemDescription, findTemplateContextForTitle, findTemplateItemByTitle, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
 
 const PHOTO_BUCKET = "entraide-photos";
 
@@ -1758,6 +1758,20 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         {t.description ? (
           <Text style={[styles.taskDesc, { color: C.muted }]}>{t.description}</Text>
         ) : null}
+        {(() => {
+          // Lien officiel re-dérivé du template d'origine (tasks n'a pas de
+          // colonne dédiée) — reste affiché après publication, pas seulement
+          // pendant la sélection de la checklist. Voir findTemplateItemByTitle.
+          const tplLink = findTemplateItemByTitle(t.title)?.lienExterne;
+          return tplLink ? (
+            <TouchableOpacity
+              onPress={() => Linking.openURL(tplLink.url).catch(() => {})}
+              hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+            >
+              <Text style={[styles.checklistItemLink, { color: C.accent }]}>🔗 {tplLink.label}</Text>
+            </TouchableOpacity>
+          ) : null;
+        })()}
         {t.category !== "transport" && t.date_limite && (
           <Text style={[styles.taskDesc, { color: C.muted }]}>
             📅 Échéance : {toFrShort(new Date(t.date_limite + "T12:00:00"))}
