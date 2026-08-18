@@ -45,6 +45,13 @@ export interface ChecklistItem {
   // Marque un item dont le rappel peut être proposé en version récurrente
   // mensuelle au moment du "Je m'en occupe" (ex. déclaration AJPA).
   recurrent?: "mensuel";
+  // Item volontairement générique ("Accompagner à un rendez-vous", "Faire
+  // une démarche administrative"…) dont le titre seul ne dit pas grand
+  // chose une fois publié — propose un popup dédié de précision au moment
+  // de l'ajout. Absent/false pour les items déjà assez explicites par
+  // eux-mêmes (ex. "Faire le linge") : leur imposer un champ de précision
+  // n'apporterait rien et alourdirait inutilement le parcours.
+  needsDetail?: boolean;
 }
 
 export interface ChecklistTemplate {
@@ -52,6 +59,11 @@ export interface ChecklistTemplate {
   label: string;
   colorKey: "accent" | "orange" | "gold";
   groups: { phase: string; items: ChecklistItem[] }[];
+  // Checklist tournée vers les démarches personnelles de l'aidant (congé,
+  // répit…) plutôt que vers des besoins concrets du patient — n'a pas sa
+  // place dans le sélecteur Entraide (qui publie des besoins pour le
+  // patient) et reste uniquement proposée dans "Ma Checklist" / Mon Compte.
+  personalOnly?: boolean;
 }
 
 export const CHECKLIST_TEMPLATES: Record<ChecklistContext, ChecklistTemplate> = {
@@ -148,16 +160,15 @@ export const CHECKLIST_TEMPLATES: Record<ChecklistContext, ChecklistTemplate> = 
           { title: "Préparer des repas pour plusieurs jours", description: "", category: "repas", sharedWithVisitors: true },
           { title: "Aider pour le ménage", description: "", category: "affaires", sharedWithVisitors: true },
           { title: "Faire le linge", description: "", category: "affaires", sharedWithVisitors: true },
-          { title: "Aller chercher ou déposer quelque chose", description: "", category: "transport", sharedWithVisitors: true },
         ],
       },
       {
         phase: "Organisation",
         items: [
-          { title: "Prendre ou confirmer un rendez-vous", description: "", category: "administratif", sharedWithVisitors: true },
-          { title: "Accompagner à un rendez-vous", description: "", category: "transport", sharedWithVisitors: true },
-          { title: "Faire une démarche administrative", description: "", category: "administratif", sharedWithVisitors: true },
-          { title: "Passer un appel pour le compte du proche", description: "", category: "administratif", sharedWithVisitors: true },
+          { title: "Prendre ou confirmer un rendez-vous", description: "", category: "administratif", sharedWithVisitors: true, needsDetail: true },
+          { title: "Accompagner à un rendez-vous", description: "", category: "transport", sharedWithVisitors: true, needsDetail: true },
+          { title: "Faire une démarche administrative", description: "", category: "administratif", sharedWithVisitors: true, needsDetail: true },
+          { title: "Passer un appel pour le compte du proche", description: "", category: "administratif", sharedWithVisitors: true, needsDetail: true },
           { title: "Organiser une présence pendant une période d'indisponibilité", description: "Quand l'aidant habituel ne peut pas être là.", category: "autre", sharedWithVisitors: true },
         ],
       },
@@ -239,6 +250,7 @@ export const CHECKLIST_TEMPLATES: Record<ChecklistContext, ChecklistTemplate> = 
     icon: "😮‍💨",
     label: "Organiser du répit pour l'aidant",
     colorKey: "accent",
+    personalOnly: true,
     groups: [
       {
         phase: "Identifier le besoin",
@@ -281,6 +293,7 @@ export const CHECKLIST_TEMPLATES: Record<ChecklistContext, ChecklistTemplate> = 
     icon: "💼",
     label: "Activer mon congé proche aidant + AJPA",
     colorKey: "orange",
+    personalOnly: true,
     groups: [
       {
         phase: "Vérifier mon éligibilité",

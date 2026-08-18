@@ -25,6 +25,12 @@ import { CHECKLIST_TEMPLATES, addDaysIso, checklistItemDescription, findTemplate
 
 const PHOTO_BUCKET = "entraide-photos";
 
+// Assistant de publication de checklist (voir checklistWizardList) — un item
+// gabarit (key = index dans le modèle) ou un item libre ajouté à la volée
+// (key = "custom-N"), avec ses réglages saisis un par un dans le popup dédié.
+type ChecklistWizardEntry = { key: string; item: ChecklistItem };
+type ChecklistWizardFields = { dateLimite: string; urgent: boolean; detail: string; photoUri: string | null };
+
 function taskPhotoUrl(spaceId: string, filename: string) {
   const { data } = supabase.storage.from(PHOTO_BUCKET).getPublicUrl(`${spaceId}/${filename}`);
   return data.publicUrl;
@@ -186,7 +192,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // les 3 flux photo du mur d'entraide — pickerTarget route le choix vers le
   // bon état (formulaire besoin / preuve "fait" / prise en charge).
   const [pickerVisible, setPickerVisible] = useState(false);
-  const [pickerTarget, setPickerTarget] = useState<"task" | "claim" | "done">("task");
+  const [pickerTarget, setPickerTarget] = useState<"task" | "claim" | "done" | "checklistWizard">("task");
   // Échéance optionnelle + urgent — catégories hors Transport (qui a déjà
   // ses propres champs date/heure, voir fTDate plus bas).
   const [fDateLimite, setFDateLimite] = useState("");
@@ -208,19 +214,18 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // qu'un textarea multi-lignes.
   const [checklistCustomItems, setChecklistCustomItems] = useState<string[]>([]);
   const [checklistItemDraft, setChecklistItemDraft] = useState("");
-  // Ajustements par item avant publication : urgence (part de item.urgent,
-  // modifiable), et précision libre (ex. "chez qui", "laquelle") pour les
-  // items génériques comme "Prendre ou confirmer un rendez-vous" — ajoutée à
-  // la description finale via checklistItemDescription.
-  const [checklistItemUrgent, setChecklistItemUrgent] = useState<Record<number, boolean>>({});
-  const [checklistItemDetail, setChecklistItemDetail] = useState<Record<number, string>>({});
-  // Échéance de lot : s'applique à tous les items sélectionnés au moment de
-  // la publication (remplace leur dateOffsetDays éventuel) — pas de
-  // calendrier par item pour ne pas alourdir une liste qui peut compter
-  // plusieurs dizaines d'items.
-  const [checklistDateLimite, setChecklistDateLimite] = useState("");
-  const [checklistDLPickerOpen, setChecklistDLPickerOpen] = useState(false);
-  const [checklistDLCalMonth, setChecklistDLCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
+  // Assistant séquentiel (un item à la fois) affiché après la sélection —
+  // remplace l'ancien réglage "en lot" (échéance commune à tous les items,
+  // urgence/précision en ligne dans la liste) jugé peu lisible et peu "App".
+  // La liste est figée au moment où on quitte l'écran de sélection
+  // (checklistWizardList) ; les réglages par item vivent dans
+  // checklistWizardData, clé = ChecklistWizardEntry.key.
+  const [checklistWizardList, setChecklistWizardList] = useState<ChecklistWizardEntry[]>([]);
+  const [checklistWizardStep, setChecklistWizardStep] = useState(0);
+  const [checklistWizardData, setChecklistWizardData] = useState<Record<string, ChecklistWizardFields>>({});
+  const [checklistWizardDLOpen, setChecklistWizardDLOpen] = useState(false);
+  const [checklistWizardDLCalMonth, setChecklistWizardDLCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
+  const [checklistWizardPickingPhoto, setChecklistWizardPickingPhoto] = useState(false);
 
   // Popup "Créer une nouvelle checklist" (perso, hors templates) — ouvert
   // depuis le popup de choix ci-dessus (voir openCustomChecklistModal),
@@ -579,19 +584,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setChecklistChecked(initial);
     setChecklistCustomItems([]);
     setChecklistItemDraft("");
-    setChecklistItemUrgent({});
-    setChecklistItemDetail({});
-    setChecklistDateLimite("");
-    setChecklistDLPickerOpen(false);
+    setChecklistWizardList([]);
+    setChecklistWizardStep(0);
+    setChecklistWizardData({});
     setChecklistContext(ctx);
   }
 
   function toggleChecklistItem(i: number) {
     setChecklistChecked((prev) => ({ ...prev, [i]: !prev[i] }));
-  }
-
-  function toggleChecklistItemUrgent(i: number, defaultUrgent: boolean) {
-    setChecklistItemUrgent((prev) => ({ ...prev, [i]: !(prev[i] ?? defaultUrgent) }));
   }
 
   function toggleAllChecklist(on: boolean) {
@@ -628,32 +628,94 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     return { prenom: "", nom: "", pin: "" };
   }
 
-  async function addChecklistItems() {
+  // Fige la sélection en cours en liste d'assistant séquentiel et fait
+  // passer le popup en mode "un item à la fois" (échéance → urgent →
+  // précision → photo) — voir ChecklistWizardEntry.
+  function startChecklistWizard() {
     if (!checklistContext) return;
     const items = CHECKLIST_TEMPLATES[checklistContext].groups.flatMap((g) => g.items);
-    const customItems: ChecklistItem[] = checklistCustomItems
-      .filter((title) => !findDuplicateAdminTask(title))
-      .map((title) => ({ title, description: "", sharedWithVisitors: true }));
-    // On garde l'index d'origine des items du modèle pour retrouver leurs
-    // ajustements (urgence, précision) saisis dans le popup — perdus si on se
-    // contentait de filtrer le tableau.
-    const selected = [
+    const list: ChecklistWizardEntry[] = [
       ...items
-        .map((item, i) => ({ item, i }))
-        .filter(({ item, i }) => checklistChecked[i] && !findDuplicateAdminTask(item.title)),
-      ...customItems.map((item) => ({ item, i: -1 })),
+        .map((item, i) => ({ key: String(i), item }))
+        .filter(({ key, item }) => checklistChecked[Number(key)] && !findDuplicateAdminTask(item.title)),
+      ...checklistCustomItems
+        .filter((title) => !findDuplicateAdminTask(title))
+        .map((title, idx) => ({ key: `custom-${idx}`, item: { title, description: "", sharedWithVisitors: true } as ChecklistItem })),
     ];
-    if (!selected.length) return;
+    if (!list.length) return;
+    const data: Record<string, ChecklistWizardFields> = {};
+    list.forEach(({ key, item }) => {
+      data[key] = {
+        dateLimite: item.dateOffsetDays ? addDaysIso(item.dateOffsetDays) : "",
+        urgent: !!item.urgent,
+        detail: "",
+        photoUri: null,
+      };
+    });
+    setChecklistWizardList(list);
+    setChecklistWizardData(data);
+    setChecklistWizardStep(0);
+    setChecklistWizardDLOpen(false);
+  }
+
+  function updateChecklistWizardField(step: number, patch: Partial<ChecklistWizardFields>) {
+    const key = checklistWizardList[step]?.key;
+    if (!key) return;
+    setChecklistWizardData((prev) => ({
+      ...prev,
+      [key]: { ...(prev[key] ?? { dateLimite: "", urgent: false, detail: "", photoUri: null }), ...patch },
+    }));
+  }
+
+  function checklistWizardNext() {
+    if (checklistWizardStep < checklistWizardList.length - 1) {
+      setChecklistWizardStep((s) => s + 1);
+      setChecklistWizardDLOpen(false);
+      return;
+    }
+    publishChecklistWizard();
+  }
+
+  function checklistWizardBack() {
+    if (checklistWizardStep === 0) {
+      setChecklistWizardList([]);
+      return;
+    }
+    setChecklistWizardStep((s) => s - 1);
+    setChecklistWizardDLOpen(false);
+  }
+
+  async function publishChecklistWizard() {
+    if (!checklistWizardList.length) return;
     setChecklistSaving(true);
     const author = await currentAuthor();
     const batchId = Crypto.randomUUID();
-    const rows = selected.map(({ item, i }) => {
-      const detail = i >= 0 ? checklistItemDetail[i]?.trim() : "";
-      const urgent = i >= 0 ? checklistItemUrgent[i] ?? !!item.urgent : !!item.urgent;
+    const rows = [];
+    for (const { key, item } of checklistWizardList) {
+      const fields = checklistWizardData[key] ?? { dateLimite: "", urgent: !!item.urgent, detail: "", photoUri: null };
+      let photoFilename: string | null = null;
+      if (fields.photoUri) {
+        try {
+          const compressed = await ImageManipulator.manipulateAsync(
+            fields.photoUri,
+            [{ resize: { width: 1080 } }],
+            { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
+          );
+          const fileData = await new File(compressed.uri).arrayBuffer();
+          const fname = `${Date.now()}_${Math.random().toString(36).slice(2, 6)}.jpg`;
+          const { error: uploadError } = await supabase.storage
+            .from(PHOTO_BUCKET)
+            .upload(`${spaceId}/${fname}`, fileData, { contentType: "image/jpeg", cacheControl: "3600" });
+          if (!uploadError) photoFilename = fname;
+        } catch {
+          // Publication de l'item sans photo plutôt que de bloquer tout le lot.
+        }
+      }
+      const detail = fields.detail.trim();
       const description = [detail ? `Précision : ${detail}` : "", checklistItemDescription(item)]
         .filter(Boolean)
         .join("\n\n");
-      return {
+      rows.push({
         space_id: spaceId,
         title: item.title,
         description,
@@ -663,11 +725,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         author_prenom: author.prenom || null,
         author_nom: author.nom || null,
         author_pin: author.pin || null,
-        date_limite: checklistDateLimite || (item.dateOffsetDays ? addDaysIso(item.dateOffsetDays) : null),
-        urgent,
+        date_limite: fields.dateLimite || null,
+        urgent: fields.urgent,
         checklist_batch_id: batchId,
-      };
-    });
+        photo: photoFilename,
+      });
+    }
     const { data: inserted, error } = await supabase.from("tasks").insert(rows).select("id");
     setChecklistSaving(false);
     if (error) {
@@ -678,16 +741,15 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setChecklistPicker(false);
     setChecklistCustomItems([]);
     setChecklistItemDraft("");
-    setChecklistItemUrgent({});
-    setChecklistItemDetail({});
-    setChecklistDateLimite("");
-    setChecklistDLPickerOpen(false);
+    setChecklistWizardList([]);
+    setChecklistWizardStep(0);
+    setChecklistWizardData({});
     // Un lot de checklist peut désormais couvrir plusieurs catégories — on ne
     // bascule l'onglet actif que si tous les items publiés partagent la même,
     // sinon on retombe sur "Tous" pour que le lot entier reste visible.
-    const batchCategories = new Set(selected.map(({ item }) => item.category ?? "administratif"));
+    const batchCategories = new Set(checklistWizardList.map(({ item }) => item.category ?? "administratif"));
     setActiveCat(batchCategories.size === 1 ? [...batchCategories][0] : null);
-    triggerBatchUndo(inserted?.map((r) => r.id) ?? [], selected.length);
+    triggerBatchUndo(inserted?.map((r) => r.id) ?? [], checklistWizardList.length);
     loadTasks();
   }
 
@@ -749,7 +811,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
   // Publie la checklist perso créée comme autant de besoins "administratif"
   // distincts du même lot (checklist_batch_id) — même logique d'auteur et de
-  // dédoublonnage que addChecklistItems ; le nom donné à la checklist ne sert
+  // dédoublonnage que publishChecklistWizard ; le nom donné à la checklist ne sert
   // qu'à la saisie, il n'existe pas de colonne dédiée sur "tasks" (regroupées
   // uniquement par checklist_batch_id, comme les checklists suggérées).
   async function confirmCreateCustomChecklist() {
@@ -819,13 +881,20 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   function applyPickedPhoto(uri: string) {
     if (pickerTarget === "task") { setFPhotoUri(uri); setFExistingPhoto(null); }
     else if (pickerTarget === "claim") setClaimPhotoUri(uri);
-    else setDonePhotoUri(uri);
+    else if (pickerTarget === "done") setDonePhotoUri(uri);
+    else updateChecklistWizardField(checklistWizardStep, { photoUri: uri });
   }
 
   function setPickerPickingState(v: boolean) {
     if (pickerTarget === "task") setPickingPhoto(v);
     else if (pickerTarget === "claim") setClaimPickingPhoto(v);
-    else setDonePickingPhoto(v);
+    else if (pickerTarget === "done") setDonePickingPhoto(v);
+    else setChecklistWizardPickingPhoto(v);
+  }
+
+  function openChecklistWizardPhotoPicker() {
+    setPickerTarget("checklistWizard");
+    setPickerVisible(true);
   }
 
   async function pickPhotoFromGallery() {
@@ -878,8 +947,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   function findDuplicateAdminTask(title: string, excludeId?: string): Task | undefined {
     const norm = title.trim().toLowerCase();
     if (!norm) return undefined;
+    // deleted_by_admin exclu : un besoin supprimé "en douceur" (voir
+    // deleteOrSoftDeleteTasks) reste en base avec status inchangé pour que
+    // son auteur garde le bandeau rouge — sans ce filtre, son titre restait
+    // marqué "déjà ajouté" à vie dans les checklists suggérées.
     return tasks.find(
-      (t) => t.status !== "fait" && t.id !== excludeId
+      (t) => t.status !== "fait" && !t.deleted_by_admin && t.id !== excludeId
         && t.title.trim().toLowerCase() === norm,
     );
   }
@@ -2053,6 +2126,16 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                     textAlignVertical="top"
                   />
 
+                  {!editTask && (
+                    <TouchableOpacity
+                      onPress={openChecklistFromForm}
+                      activeOpacity={0.8}
+                      style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.gold, alignItems: "center", justifyContent: "center", marginBottom: 14 }}
+                    >
+                      <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.gold }}>🗂️ Créer une checklist</Text>
+                    </TouchableOpacity>
+                  )}
+
                   <Text style={[styles.fieldLabel, { color: C.gold }]}>Catégorie</Text>
                   <View style={styles.catGrid}>
                     {(Object.keys(CATEGORY_ICONS) as TaskCategory[]).map((cat) => (
@@ -2075,16 +2158,6 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                       </TouchableOpacity>
                     ))}
                   </View>
-
-                  {fCat === "administratif" && !editTask && (
-                    <TouchableOpacity
-                      onPress={openChecklistFromForm}
-                      activeOpacity={0.8}
-                      style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.gold, alignItems: "center", justifyContent: "center", marginBottom: 14 }}
-                    >
-                      <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.gold }}>🗂️ Créer une checklist</Text>
-                    </TouchableOpacity>
-                  )}
 
                   {fCat === "repas" && !!allergies && (
                     <View style={[styles.allergyBanner, { backgroundColor: "rgba(233,69,96,0.1)", borderColor: "rgba(233,69,96,0.35)" }]}>
@@ -2415,7 +2488,9 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.gold }}>+ Créer une nouvelle checklist</Text>
             </TouchableOpacity>
             <ScrollView style={styles.checklistPickerScroll} showsVerticalScrollIndicator nestedScrollEnabled>
-              {(Object.keys(CHECKLIST_TEMPLATES) as ChecklistContext[]).map((ctx) => {
+              {(Object.keys(CHECKLIST_TEMPLATES) as ChecklistContext[])
+                .filter((ctx) => !CHECKLIST_TEMPLATES[ctx].personalOnly)
+                .map((ctx) => {
                 const tpl = CHECKLIST_TEMPLATES[ctx];
                 const count = tpl.groups.reduce((n, g) => n + g.items.length, 0);
                 const color = C[tpl.colorKey];
@@ -2447,7 +2522,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       </Modal>
 
       {/* ── MODAL CHECKLIST : sélection des besoins d'un contexte ──────────── */}
-      <Modal visible={!!checklistContext} transparent animationType="fade" onRequestClose={() => setChecklistContext(null)}>
+      <Modal visible={!!checklistContext && !checklistWizardList.length} transparent animationType="fade" onRequestClose={() => setChecklistContext(null)}>
         <View style={styles.centeredOverlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !checklistSaving && setChecklistContext(null)} />
           <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: checklistContext ? C[CHECKLIST_TEMPLATES[checklistContext].colorKey] : C.accent, maxHeight: "82%" }]}>
@@ -2484,7 +2559,6 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                           const i = runningIndex;
                           const checked = !!checklistChecked[i];
                           const dup = findDuplicateAdminTask(item.title);
-                          const itemUrgent = checklistItemUrgent[i] ?? !!item.urgent;
                           return (
                             <View key={i} style={[!!dup && { opacity: 0.55 }]}>
                               <TouchableOpacity
@@ -2503,18 +2577,6 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                                 <View style={{ flex: 1 }}>
                                   <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
                                     <Text style={[styles.checklistItemTitle, { color: checked && !dup ? C.text : C.muted }]}>{item.title}</Text>
-                                    {checked && !dup && (
-                                      <TouchableOpacity
-                                        onPress={() => toggleChecklistItemUrgent(i, !!item.urgent)}
-                                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                                      >
-                                        <View style={[styles.checklistUrgentChip, { backgroundColor: itemUrgent ? C.danger + "22" : C.border + "55" }]}>
-                                          <Text style={[styles.checklistUrgentChipText, { color: itemUrgent ? C.danger : C.muted }]}>
-                                            {itemUrgent ? "urgent" : "marquer urgent"}
-                                          </Text>
-                                        </View>
-                                      </TouchableOpacity>
-                                    )}
                                     {!!dup && (
                                       <View style={[styles.checklistUrgentChip, { backgroundColor: C.muted + "22" }]}>
                                         <Text style={[styles.checklistUrgentChipText, { color: C.muted }]}>déjà ajouté</Text>
@@ -2542,15 +2604,6 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                                   )}
                                 </View>
                               </TouchableOpacity>
-                              {checked && !dup && (
-                                <TextInput
-                                  style={[styles.checklistDetailInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                                  placeholder="Préciser (optionnel) : chez qui, laquelle, pour qui…"
-                                  placeholderTextColor={C.muted}
-                                  value={checklistItemDetail[i] ?? ""}
-                                  onChangeText={(t) => setChecklistItemDetail((prev) => ({ ...prev, [i]: t }))}
-                                />
-                              )}
                             </View>
                           );
                         })}
@@ -2590,63 +2643,162 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                     </TouchableOpacity>
                   </View>
 
-                  <TouchableOpacity
-                    style={[
-                      styles.claimOnCreateBtn,
-                      { backgroundColor: checklistDLPickerOpen ? `${color}22` : C.bg, borderColor: checklistDLPickerOpen ? color : C.border },
-                    ]}
-                    onPress={() => {
-                      if (checklistDLPickerOpen) setChecklistDateLimite("");
-                      setChecklistDLPickerOpen((v) => !v);
-                    }}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={[styles.claimOnCreateText, { color: checklistDLPickerOpen ? color : C.text }]}>
-                      {checklistDLPickerOpen
-                        ? "📅 Retirer l'échéance"
-                        : checklistDateLimite
-                          ? `📅 Échéance : ${checklistDateLimite}`
-                          : "📅 Ajouter une échéance à tous les items cochés (optionnel)"}
-                    </Text>
-                  </TouchableOpacity>
-                  {checklistDLPickerOpen && (
-                    <MiniCalendar
-                      selDate={checklistDateLimite}
-                      onSelect={setChecklistDateLimite}
-                      calMonth={checklistDLCalMonth}
-                      onMonthChange={setChecklistDLCalMonth}
-                      startDate={new Date()}
-                      C={C}
-                      size="lg"
-                    />
-                  )}
-
                   <Text style={[styles.publicNoticeText, { color: C.muted }]}>
-                    ℹ️ Cette checklist sera publiée dans le Mur d'Entraide et visible par tous les visiteurs de l'espace.
+                    ℹ️ Cette checklist sera publiée dans le Mur d'Entraide et visible par tous les visiteurs de l'espace. L'échéance et l'urgence se règlent item par item à l'étape suivante.
                   </Text>
 
                   <View style={styles.sheetBtns}>
                     <TouchableOpacity
                       style={[styles.btnSecondary, { borderColor: C.border }]}
                       onPress={() => setChecklistContext(null)}
-                      disabled={checklistSaving}
                     >
                       <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Retour</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={[styles.btnPrimary, { backgroundColor: color, opacity: checkedCount === 0 || checklistSaving ? 0.5 : 1 }]}
-                      onPress={addChecklistItems}
-                      disabled={checkedCount === 0 || checklistSaving}
+                      style={[styles.btnPrimary, { backgroundColor: color, opacity: checkedCount === 0 ? 0.5 : 1 }]}
+                      onPress={startChecklistWizard}
+                      disabled={checkedCount === 0}
                     >
-                      {checklistSaving
-                        ? <ActivityIndicator color="#fff" />
-                        : <Text style={styles.btnPrimaryText}>Ajouter {checkedCount > 0 ? `(${checkedCount})` : ""}</Text>}
+                      <Text style={styles.btnPrimaryText}>Suivant {checkedCount > 0 ? `(${checkedCount})` : ""} →</Text>
                     </TouchableOpacity>
                   </View>
                 </>
               );
             })()}
           </View>
+        </View>
+      </Modal>
+
+      {/* ── MODAL CHECKLIST : assistant séquentiel (échéance / urgent /
+          précision / photo) un item à la fois — voir startChecklistWizard.
+          Overlay séparé plutôt qu'un pas de plus dans le sheet précédent :
+          évite d'empiler deux <Modal> visibles sur Android (même contrainte
+          que openChecklistFromForm). */}
+      <Modal visible={checklistWizardList.length > 0} transparent animationType="fade" onRequestClose={() => !checklistSaving && checklistWizardBack()}>
+        <View style={styles.centeredOverlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !checklistSaving && checklistWizardBack()} />
+          {checklistWizardList.length > 0 && checklistContext && (() => {
+            const color = C[CHECKLIST_TEMPLATES[checklistContext].colorKey];
+            const entry = checklistWizardList[checklistWizardStep];
+            const fields = checklistWizardData[entry.key] ?? { dateLimite: "", urgent: !!entry.item.urgent, detail: "", photoUri: null };
+            const isLast = checklistWizardStep === checklistWizardList.length - 1;
+            return (
+              <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: color, maxHeight: "82%" }]}>
+                <Text style={[styles.checklistWizardProgress, { color: C.muted }]}>
+                  Item {checklistWizardStep + 1} / {checklistWizardList.length}
+                </Text>
+                <ScrollView style={styles.checklistScroll} showsVerticalScrollIndicator keyboardShouldPersistTaps="handled">
+                  <Text style={[styles.sheetTitle, { color: C.text }]}>{entry.item.title}</Text>
+                  {!!entry.item.description && (
+                    <Text style={[styles.checklistItemDesc, { color: C.muted, marginBottom: 10 }]}>{entry.item.description}</Text>
+                  )}
+
+                  {entry.item.needsDetail && (
+                    <>
+                      <Text style={[styles.fieldLabel, { color: C.gold }]}>Précision (optionnel)</Text>
+                      <TextInput
+                        style={[styles.input, styles.checklistWizardDetailInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                        placeholder="Ex. chez qui, laquelle, pour qui, avec qui…"
+                        placeholderTextColor={C.muted}
+                        value={fields.detail}
+                        onChangeText={(t) => updateChecklistWizardField(checklistWizardStep, { detail: t })}
+                        multiline
+                        numberOfLines={3}
+                        textAlignVertical="top"
+                      />
+                    </>
+                  )}
+
+                  <Text style={[styles.fieldLabel, { color: C.gold }]}>Échéance (optionnel)</Text>
+                  <TouchableOpacity
+                    style={[
+                      styles.claimOnCreateBtn,
+                      { backgroundColor: checklistWizardDLOpen ? `${color}22` : C.bg, borderColor: checklistWizardDLOpen ? color : C.border },
+                    ]}
+                    onPress={() => {
+                      if (checklistWizardDLOpen) updateChecklistWizardField(checklistWizardStep, { dateLimite: "" });
+                      setChecklistWizardDLOpen((v) => !v);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.claimOnCreateText, { color: checklistWizardDLOpen ? color : C.text }]}>
+                      {checklistWizardDLOpen
+                        ? "📅 Retirer l'échéance"
+                        : fields.dateLimite
+                          ? `📅 Échéance : ${fields.dateLimite}`
+                          : "📅 Fixer une échéance"}
+                    </Text>
+                  </TouchableOpacity>
+                  {checklistWizardDLOpen && (
+                    <MiniCalendar
+                      selDate={fields.dateLimite}
+                      onSelect={(d) => updateChecklistWizardField(checklistWizardStep, { dateLimite: d })}
+                      calMonth={checklistWizardDLCalMonth}
+                      onMonthChange={setChecklistWizardDLCalMonth}
+                      startDate={new Date()}
+                      C={C}
+                      size="lg"
+                    />
+                  )}
+
+                  <TouchableOpacity
+                    onPress={() => updateChecklistWizardField(checklistWizardStep, { urgent: !fields.urgent })}
+                    activeOpacity={0.8}
+                    style={[
+                      styles.claimOnCreateBtn,
+                      { backgroundColor: fields.urgent ? C.danger + "22" : C.bg, borderColor: fields.urgent ? C.danger : C.border, marginTop: 10 },
+                    ]}
+                  >
+                    <Text style={[styles.claimOnCreateText, { color: fields.urgent ? C.danger : C.text }]}>
+                      {fields.urgent ? "🔴 Marqué urgent" : "⚪ Marquer urgent"}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 10 }]}>Photo (optionnel)</Text>
+                  {fields.photoUri ? (
+                    <View style={{ marginBottom: 10 }}>
+                      <Image source={{ uri: fields.photoUri }} style={styles.checklistWizardPhoto} />
+                      <TouchableOpacity onPress={() => updateChecklistWizardField(checklistWizardStep, { photoUri: null })} style={{ marginTop: 6 }}>
+                        <Text style={{ color: C.danger, fontSize: 13 }}>✕ Retirer la photo</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      onPress={openChecklistWizardPhotoPicker}
+                      activeOpacity={0.8}
+                      style={[styles.claimOnCreateBtn, { backgroundColor: C.bg, borderColor: C.border }]}
+                      disabled={checklistWizardPickingPhoto}
+                    >
+                      {checklistWizardPickingPhoto
+                        ? <ActivityIndicator color={color} />
+                        : <Text style={[styles.claimOnCreateText, { color: C.text }]}>📷 Ajouter une photo</Text>}
+                    </TouchableOpacity>
+                  )}
+                </ScrollView>
+
+                <View style={styles.sheetBtns}>
+                  <TouchableOpacity
+                    style={[styles.btnSecondary, { borderColor: C.border }]}
+                    onPress={checklistWizardBack}
+                    disabled={checklistSaving}
+                  >
+                    <Text style={[styles.btnSecondaryText, { color: C.muted }]}>
+                      {checklistWizardStep === 0 ? "Retour" : "Précédent"}
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.btnPrimary, { backgroundColor: color, opacity: checklistSaving ? 0.5 : 1 }]}
+                    onPress={checklistWizardNext}
+                    disabled={checklistSaving}
+                  >
+                    {checklistSaving
+                      ? <ActivityIndicator color="#fff" />
+                      : <Text style={styles.btnPrimaryText}>{isLast ? "✅ Publier" : "Suivant →"}</Text>}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          })()}
         </View>
       </Modal>
 
@@ -3573,10 +3725,13 @@ const styles = StyleSheet.create({
   checklistItemDesc: { fontFamily: "DM_Sans_400Regular", fontSize: 12.5, lineHeight: 17, marginTop: 2 },
   checklistUrgentChip: { borderRadius: 5, paddingHorizontal: 6, paddingVertical: 1, marginLeft: 8 },
   checklistUrgentChipText: { fontFamily: "DM_Sans_700Bold", fontSize: 9.5, letterSpacing: 0.4, textTransform: "uppercase" },
-  checklistDetailInput: {
-    marginLeft: 32, marginBottom: 8, marginTop: -4, height: 36, borderRadius: 8, borderWidth: 1,
-    paddingHorizontal: 10, fontFamily: "DM_Sans_400Regular", fontSize: 12.5,
-  },
+  // Assistant séquentiel (un item à la fois) : progression + champ de
+  // précision et photo en taille normale (styles.input), contrairement à
+  // l'ancien champ inline serré sous chaque case à cocher — trop petit et
+  // au texte gris rogné (retour visiteur).
+  checklistWizardProgress: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 0.6, textTransform: "uppercase", textAlign: "center", marginBottom: 6 },
+  checklistWizardDetailInput: { minHeight: 70 },
+  checklistWizardPhoto: { width: "100%", height: 160, borderRadius: 10 },
 
   // Ligne d'ajout d'item perso "brouillon" (checklist suggérée ou perso) —
   // même gabarit que components/MyChecklist.tsx (groupAddRow et alentours),
