@@ -871,6 +871,16 @@ export default function VisitorAccountScreen() {
           <Text style={styles.identityMotto} numberOfLines={2}>{motto.trim()}</Text>
         )}
 
+        <TouchableOpacity
+          style={[styles.patientProfileBtn, myActiveAlerts.length > 0 && { backgroundColor: "#e94560" }]}
+          onPress={() => setAlertsModalVisible(true)}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.patientProfileBtnText}>
+            🔔 Mes alertes{myActiveAlerts.length > 0 ? ` (${myActiveAlerts.length})` : ""}
+          </Text>
+        </TouchableOpacity>
+
         <Text style={[styles.sectionTitle, { color: C.gold, marginTop: 0 }]}>Mon affichage</Text>
         <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
           <Text style={[styles.displayModeLabel, { color: C.text }]}>
@@ -1312,16 +1322,6 @@ export default function VisitorAccountScreen() {
           hideImportBanner={role === "intervenant"}
           intervenantTelephone={role === "intervenant" ? telephone : undefined}
         />
-
-        <TouchableOpacity
-          style={[styles.patientProfileBtn, myActiveAlerts.length > 0 && { backgroundColor: "#e94560" }]}
-          onPress={() => setAlertsModalVisible(true)}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.patientProfileBtnText}>
-            🔔 Mes alertes{myActiveAlerts.length > 0 ? ` (${myActiveAlerts.length})` : ""}
-          </Text>
-        </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.patientProfileBtn, { marginTop: 10 }]}

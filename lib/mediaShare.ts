@@ -91,6 +91,63 @@ export async function saveAndShareText(content: string, filename: string, dialog
   }
 }
 
+// RTF minimal (pas de vraie lib docx) : Word/LibreOffice l'ouvrent nativement
+// sous l'extension .doc. \uNNNN? échappe tout caractère non-ASCII (accents),
+// ? servant de repli pour les lecteurs RTF qui ignorent \u.
+function escapeRtf(text: string): string {
+  let out = "";
+  for (const ch of text) {
+    const code = ch.codePointAt(0) ?? 0;
+    if (ch === "\\" || ch === "{" || ch === "}") {
+      out += "\\" + ch;
+    } else if (ch === "\n") {
+      out += "\\par\n";
+    } else if (code > 127) {
+      out += `\\u${code}?`;
+    } else {
+      out += ch;
+    }
+  }
+  return out;
+}
+
+function textToRtf(content: string): string {
+  return `{\\rtf1\\ansi\\ansicpg1252\\deff0{\\fonttbl{\\f0 Calibri;}}\\f0\\fs22 ${escapeRtf(content)}}`;
+}
+
+// Même usage que saveAndShareText (courrier généré, voir lib/letterTemplates.ts)
+// mais enregistré au format .doc (RTF) plutôt qu'en .txt brut, pour que le
+// document soit directement modifiable dans Word/LibreOffice.
+export async function saveAndShareDoc(content: string, filename: string, dialogTitle?: string): Promise<boolean> {
+  const rtf = textToRtf(content);
+  if (Platform.OS === "web") {
+    try {
+      const blob = new Blob([rtf], { type: "application/msword;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  if (!(await Sharing.isAvailableAsync())) {
+    Alert.alert("Partage non disponible", "Le partage de fichiers n'est pas disponible sur cet appareil.");
+    return false;
+  }
+  try {
+    const localUri = (FileSystem.cacheDirectory ?? "") + filename;
+    await FileSystem.writeAsStringAsync(localUri, rtf, { encoding: FileSystem.EncodingType.UTF8 });
+    await Sharing.shareAsync(localUri, { mimeType: "application/msword", dialogTitle });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // Trace qu'un utilisateur a téléchargé/partagé la photo d'un AUTRE
 // (Nouvelles/Soutien) — alimente la section "Photos téléchargées" de la
 // page Mes Souvenirs (components/MesSouvenirs.tsx). Les photos qu'on a

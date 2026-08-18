@@ -9,9 +9,10 @@ import ConfirmModal from "@/components/ConfirmModal";
 import MiniCalendar from "@/components/MiniCalendar";
 import { normalizePhone } from "@/lib/phone";
 import { CHECKLIST_TEMPLATES, addDaysIso, checklistItemDescription, findTemplateItemByTitle, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
-import { findLetterTemplateForChecklistItem, type LetterTemplate } from "@/lib/letterTemplates";
-import { saveAndShareText } from "@/lib/mediaShare";
-import type { PersonalChecklistItem, IntervenantChecklistTemplate, Task } from "@/lib/types";
+import { findLetterTemplateForChecklistItem, LETTER_TEMPLATES, type LetterTemplate } from "@/lib/letterTemplates";
+import { saveAndShareDoc } from "@/lib/mediaShare";
+import MesDocumentsModal from "@/components/MesDocumentsModal";
+import type { PersonalChecklistItem, IntervenantChecklistTemplate, PersonalDocument, Task } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
 interface Props {
@@ -120,16 +121,15 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
   // les deux à la fois, d'où l'item visible à double (Mon Compte + Entraide)
   // signalé par un visiteur.
   const [importPublic, setImportPublic] = useState(false);
-  // Assistant séquentiel (voir startImportWizard) : importSelected fige la
-  // sélection entière (pour la publication finale), importWizardList n'en
-  // garde que le sous-ensemble interactif (échéance/urgent utiles seulement
-  // si importPublic — sans ça aucune ligne tasks n'existe pour les porter —
-  // ou item.needsDetail) pour ne pas faire défiler des écrans vides.
+  // Assistant séquentiel (voir startImportWizard) : un écran par item
+  // sélectionné (échéance → urgent → précision si item.needsDetail),
+  // échéance/urgent étant désormais persistés même pour un import privé
+  // (voir personal_checklist_items.date_limite/urgent) — plus besoin de
+  // filtrer les items "sans rien à configurer".
   const [importSelected, setImportSelected] = useState<ImportWizardEntry[]>([]);
   const [importWizardList, setImportWizardList] = useState<ImportWizardEntry[]>([]);
   const [importWizardStep, setImportWizardStep] = useState(0);
   const [importWizardData, setImportWizardData] = useState<Record<string, ImportWizardFields>>({});
-  const [importWizardDLOpen, setImportWizardDLOpen] = useState(false);
   const [importWizardDLCalMonth, setImportWizardDLCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
   // Requêté à l'ouverture du picker plutôt que tenu en permanence — MyChecklist
   // n'a pas besoin de la liste complète des besoins hors de ce flux d'import.
@@ -141,6 +141,15 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
   const [letterValues, setLetterValues] = useState<Record<string, string>>({});
   const [letterPreview, setLetterPreview] = useState(false);
   const [letterSaving, setLetterSaving] = useState(false);
+
+  // "Mes documents" (voir MesDocumentsModal) — trace des courriers déjà
+  // générés (downloadLetter), pour les re-télécharger sans ressaisir le
+  // formulaire. Requêté à l'ouverture du modal plutôt que tenu en
+  // permanence, comme existingTasks.
+  const [documentsModal, setDocumentsModal] = useState(false);
+  const [documents, setDocuments] = useState<PersonalDocument[]>([]);
+  const [loadingDocuments, setLoadingDocuments] = useState(false);
+  const [redownloadingDocId, setRedownloadingDocId] = useState<string | null>(null);
 
   const canLoad = !!(spaceId && ownerPrenom.trim() && ownerNom.trim() && ownerPin.trim());
 
@@ -220,8 +229,47 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     if (!letterModal) return;
     setLetterSaving(true);
     const content = letterModal.body(letterValues);
-    await saveAndShareText(content, `${letterModal.id}.txt`, letterModal.label);
+    const ok = await saveAndShareDoc(content, `${letterModal.id}.doc`, letterModal.label);
+    if (ok) {
+      await supabase.from("personal_documents").insert({
+        space_id: spaceId,
+        owner_prenom: ownerPrenom,
+        owner_nom: ownerNom,
+        owner_pin: ownerPin,
+        letter_id: letterModal.id,
+        label: letterModal.label,
+        values: letterValues,
+      });
+    }
     setLetterSaving(false);
+  }
+
+  async function openDocumentsModal() {
+    setDocumentsModal(true);
+    setLoadingDocuments(true);
+    const { data } = await supabase
+      .from("personal_documents")
+      .select("*")
+      .eq("space_id", spaceId)
+      .eq("owner_pin", ownerPin)
+      .order("created_at", { ascending: false });
+    const mine = ((data ?? []) as PersonalDocument[]).filter(
+      (d) => d.owner_prenom.trim().toLowerCase() === ownerPrenom.trim().toLowerCase()
+        && d.owner_nom.trim().toLowerCase() === ownerNom.trim().toLowerCase(),
+    );
+    setDocuments(mine);
+    setLoadingDocuments(false);
+  }
+
+  async function redownloadDocument(doc: PersonalDocument) {
+    const tpl = LETTER_TEMPLATES.find((lt) => lt.id === doc.letter_id);
+    if (!tpl) {
+      Alert.alert("Modèle indisponible", "Ce type de courrier n'existe plus.");
+      return;
+    }
+    setRedownloadingDocId(doc.id);
+    await saveAndShareDoc(tpl.body(doc.values), `${doc.letter_id}.doc`, doc.label);
+    setRedownloadingDocId(null);
   }
 
   function addDraftToNewChecklist() {
@@ -443,7 +491,6 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     setImportWizardList([]);
     setImportWizardStep(0);
     setImportWizardData({});
-    setImportWizardDLOpen(false);
     setPicker(false);
   }
 
@@ -469,9 +516,9 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
   }
 
   // Fige la sélection en cours et bascule le popup en mode assistant "un
-  // item à la fois" — voir ImportWizardEntry. Les items sans rien à
-  // configurer (privé + pas besoin de précision) sont publiés directement
-  // avec leurs valeurs par défaut, sans écran dédié.
+  // item à la fois" — voir ImportWizardEntry. Chaque item sélectionné a
+  // désormais un écran (échéance/urgent persistés même en privé, voir
+  // personal_checklist_items.date_limite/urgent).
   function startImportWizard() {
     if (!importCtx) return;
     const tpl = CHECKLIST_TEMPLATES[importCtx];
@@ -485,9 +532,8 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
         .map((title, idx) => ({ key: `custom-${idx}`, item: { title, description: "", sharedWithVisitors: true } as ChecklistItem })),
     ];
     if (!all.length) return;
-    const interactive = all.filter(({ item }) => importPublic || item.needsDetail);
     const data: Record<string, ImportWizardFields> = {};
-    interactive.forEach(({ key, item }) => {
+    all.forEach(({ key, item }) => {
       data[key] = {
         dateLimite: item.dateOffsetDays ? addDaysIso(item.dateOffsetDays) : "",
         urgent: !!item.urgent,
@@ -495,11 +541,9 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
       };
     });
     setImportSelected(all);
-    setImportWizardList(interactive);
+    setImportWizardList(all);
     setImportWizardData(data);
     setImportWizardStep(0);
-    setImportWizardDLOpen(false);
-    if (!interactive.length) publishImportWizard(all, {});
   }
 
   function updateImportWizardField(step: number, patch: Partial<ImportWizardFields>) {
@@ -514,7 +558,6 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
   function importWizardNext() {
     if (importWizardStep < importWizardList.length - 1) {
       setImportWizardStep((s) => s + 1);
-      setImportWizardDLOpen(false);
       return;
     }
     publishImportWizard(importSelected, importWizardData);
@@ -527,7 +570,26 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
       return;
     }
     setImportWizardStep((s) => s - 1);
-    setImportWizardDLOpen(false);
+  }
+
+  // Clic sur "Marquer urgent" (écran chaîné après le choix de l'échéance,
+  // voir la modale assistant) : l'item est considéré validé — on marque et
+  // on avance dans le même geste, plutôt que de laisser l'utilisateur
+  // rebasculer le champ puis appuyer sur "Suivant" séparément. Calcule
+  // explicitement l'objet fusionné (nextData) et le transmet directement à
+  // publishImportWizard sur le dernier item, pour éviter de publier avec une
+  // valeur d'état pas encore à jour (setImportWizardData est asynchrone).
+  function importWizardMarkUrgentAndNext() {
+    const entry = importWizardList[importWizardStep];
+    if (!entry) return;
+    const current = importWizardData[entry.key] ?? { dateLimite: "", urgent: false, detail: "" };
+    const nextData = { ...importWizardData, [entry.key]: { ...current, urgent: true } };
+    setImportWizardData(nextData);
+    if (importWizardStep < importWizardList.length - 1) {
+      setImportWizardStep((s) => s + 1);
+    } else {
+      publishImportWizard(importSelected, nextData);
+    }
   }
 
   async function publishImportWizard(selected: ImportWizardEntry[], data: Record<string, ImportWizardFields>) {
@@ -576,6 +638,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
       // ne l'ajoutait pas au titre — côté public, elle va dans la
       // description de tasks.
       const detail = !importPublic ? data[key]?.detail.trim() : "";
+      const fields = data[key] ?? { dateLimite: "", urgent: !!item.urgent, detail: "" };
       return {
         space_id: spaceId,
         owner_prenom: ownerPrenom,
@@ -586,6 +649,8 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
         task_id: taskIds[idx],
         checklist_context: importCtx,
         custom_checklist_name: null,
+        date_limite: fields.dateLimite || null,
+        urgent: fields.urgent,
       };
     });
     // Pièces à réunir → sous-items cochables : pas de vraie hiérarchie en
@@ -645,6 +710,18 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     ),
   );
 
+  // Ordre d'apparition des checklists toute prêtes importées — items déjà
+  // triés par created_at ascendant (voir loadItems), donc Array.from(new
+  // Set(...)) conserve l'ordre chronologique du premier import de chaque
+  // contexte plutôt que l'ordre fixe de CHECKLIST_TEMPLATES.
+  const importedCtxOrder = Array.from(
+    new Set(
+      items
+        .filter((it) => it.checklist_context)
+        .map((it) => it.checklist_context as ChecklistContext),
+    ),
+  );
+
   // Une ligne d'item cochable — extrait de renderGroupCard pour être réutilisé
   // à la fois pour un item de premier niveau et pour une pièce à réunir
   // nichée dessous (indent). Le lien officiel est retrouvé à la volée dans
@@ -659,7 +736,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     return (
       <View style={opts?.indent && styles.pieceWrap}>
         <TouchableOpacity
-          style={[styles.row, { borderBottomColor: C.border }, isSel && { backgroundColor: `${C.accent}18` }]}
+          style={[styles.row, isSel && { backgroundColor: `${C.accent}18` }]}
           onPress={() => { if (selectionMode) toggleSelected(item.id); }}
           onLongPress={() => { if (!selectionMode) enterSelection(item.id); }}
           activeOpacity={selectionMode ? 0.6 : 1}
@@ -678,6 +755,11 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
           >
             {opts?.indent ? "· " : ""}{item.title}
           </Text>
+          {!!item.urgent && (
+            <View style={[styles.urgentChip, { backgroundColor: `${C.danger}22` }]}>
+              <Text style={[styles.urgentChipText, { color: C.danger }]}>Urgent</Text>
+            </View>
+          )}
           {!selectionMode && (
             <Switch
               value={item.status === "fait"}
@@ -687,6 +769,11 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
             />
           )}
         </TouchableOpacity>
+        {!!item.date_limite && (
+          <View style={styles.itemLinkWrap}>
+            <Text style={[styles.itemDesc, { color: C.muted, marginTop: 0 }]}>📅 Échéance : {item.date_limite}</Text>
+          </View>
+        )}
         {!!tplItem?.lienExterne && (
           <TouchableOpacity
             style={styles.itemLinkWrap}
@@ -705,6 +792,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
             <Text style={[styles.itemLink, { color: C.accent }]}>✉️ Préparer le courrier</Text>
           </TouchableOpacity>
         )}
+        <View style={[styles.rowDivider, { backgroundColor: C.border }]} />
       </View>
     );
   }
@@ -716,11 +804,14 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
   // = titre d'un item du même groupe, voir publishImportWizard) s'affichent
   // nichées sous leur item plutôt qu'à plat — seul le cas des checklists
   // toute prêtes en a besoin, les checklists perso/legacy n'ont pas de pièces.
-  function renderGroupCard(groupItemsList: PersonalChecklistItem[], addTarget?: { key: string; isCustom: boolean }, nestPieces?: boolean) {
+  // cardBg : fourni pour les checklists toute prêtes, dont le fond pastel
+  // est porté par le wrapper englobant (voir groupTintWrap) — la carte reste
+  // transparente et sans bordure pour ne pas dupliquer le cadre.
+  function renderGroupCard(groupItemsList: PersonalChecklistItem[], addTarget?: { key: string; isCustom: boolean }, nestPieces?: boolean, cardBg?: string) {
     const topLevel = nestPieces ? groupItemsList.filter((it) => !it.custom_checklist_name) : groupItemsList;
     const piecesOf = (title: string) => groupItemsList.filter((it) => it.custom_checklist_name === title);
     return (
-      <View style={[styles.card, styles.groupCard, { backgroundColor: C.card, borderColor: C.border }]}>
+      <View style={[styles.card, styles.groupCard, cardBg ? { backgroundColor: "transparent", borderWidth: 0 } : { backgroundColor: C.card, borderColor: C.border }]}>
         {topLevel.length === 0 ? (
           <Text style={[styles.empty, { color: C.muted }]}>Aucun item pour le moment.</Text>
         ) : topLevel.map((item) => (
@@ -782,20 +873,18 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                   <TouchableOpacity onPress={() => setBulkDeleteConfirm(true)} style={[styles.selectBarBtn, { borderColor: C.danger }]}>
                     <Text style={[styles.selectBarBtnText, { color: C.danger }]}>🗑️ Supprimer</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={exitSelection} style={[styles.selectBarBtn, { borderColor: C.border }]}>
-                    <Text style={[styles.selectBarBtnText, { color: C.muted }]}>Annuler</Text>
-                  </TouchableOpacity>
                 </View>
               </View>
             )}
 
-            {(Object.keys(CHECKLIST_TEMPLATES) as ChecklistContext[]).map((ctx) => {
+            {importedCtxOrder.map((ctx) => {
               const tpl = CHECKLIST_TEMPLATES[ctx];
               const groupList = groupItems(ctx);
               if (groupList.length === 0) return null;
               const isOpen = openGroup === ctx;
+              const tint = `${C[tpl.colorKey]}14`;
               return (
-                <View key={ctx}>
+                <View key={ctx} style={[styles.groupTintWrap, { backgroundColor: tint }]}>
                   <TouchableOpacity
                     style={[styles.groupHeader, { borderBottomColor: C.border }]}
                     onPress={() => { exitSelection(); setOpenGroup(isOpen ? null : ctx); }}
@@ -806,7 +895,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                     </Text>
                     <Text style={[styles.groupChevron, { color: C.muted }]}>{isOpen ? "▲" : "▼"}</Text>
                   </TouchableOpacity>
-                  {isOpen && renderGroupCard(groupList, { key: ctx, isCustom: false }, true)}
+                  {isOpen && renderGroupCard(groupList, { key: ctx, isCustom: false }, true, tint)}
                 </View>
               );
             })}
@@ -896,7 +985,27 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
             <Text style={[styles.importBannerText, { color: C.gold }]}>✨ Checklists suggérées</Text>
           </TouchableOpacity>
         )}
+
+        {!hideImportBanner && (
+          <TouchableOpacity
+            style={[styles.documentsBtn, { backgroundColor: C.orange }]}
+            onPress={openDocumentsModal}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.documentsBtnText}>📄 Mes documents</Text>
+          </TouchableOpacity>
+        )}
       </View>
+
+      <MesDocumentsModal
+        visible={documentsModal}
+        onClose={() => setDocumentsModal(false)}
+        C={C}
+        documents={documents}
+        loading={loadingDocuments}
+        onRedownload={redownloadDocument}
+        redownloadingId={redownloadingDocId}
+      />
 
       <ConfirmModal
         visible={bulkDeleteConfirm}
@@ -1357,11 +1466,14 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
         </View>
       </Modal>
 
-      {/* ── MODAL : assistant d'import "un item à la fois" (échéance /
-          urgent — utiles seulement si importPublic, pas de ligne tasks sinon
-          — puis précision si item.needsDetail) — voir startImportWizard.
-          Overlay séparé plutôt qu'un pas de plus dans le sheet précédent :
-          évite d'empiler deux <Modal> visibles sur Android. */}
+      {/* ── MODAL : assistant d'import "un item à la fois" (échéance →
+          urgent, persistés même en privé — puis précision si
+          item.needsDetail) — voir startImportWizard. Le calendrier
+          s'affiche directement (pas de bouton à ouvrir) ; une fois une date
+          choisie, l'écran enchaîne sur "Marquer Urgent" (dérivé de
+          fields.dateLimite, pas d'état séparé). Overlay séparé plutôt qu'un
+          pas de plus dans le sheet précédent : évite d'empiler deux <Modal>
+          visibles sur Android. */}
       <Modal visible={importWizardList.length > 0} transparent animationType="fade" onRequestClose={() => !importSaving && importWizardBack()}>
         <View style={styles.overlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !importSaving && importWizardBack()} />
@@ -1397,42 +1509,40 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                     </>
                   )}
 
-                  {importPublic && (
+                  {!fields.dateLimite ? (
                     <>
                       <Text style={[styles.fieldLabel, { color: C.gold }]}>Échéance (optionnel)</Text>
-                      <TouchableOpacity
+                      <MiniCalendar
+                        selDate={fields.dateLimite}
+                        onSelect={(d) => updateImportWizardField(importWizardStep, { dateLimite: d })}
+                        calMonth={importWizardDLCalMonth}
+                        onMonthChange={setImportWizardDLCalMonth}
+                        startDate={new Date()}
+                        C={C}
+                        size="lg"
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <Text style={[styles.fieldLabel, { color: C.gold }]}>Échéance</Text>
+                      <View
                         style={[
                           styles.dateBtn,
-                          { backgroundColor: importWizardDLOpen ? `${color}22` : C.bg, borderColor: importWizardDLOpen ? color : C.border, marginTop: 0 },
+                          { backgroundColor: C.bg, borderColor: C.border, marginTop: 0, flexDirection: "row", justifyContent: "space-between", paddingHorizontal: 14 },
                         ]}
-                        onPress={() => {
-                          if (importWizardDLOpen) updateImportWizardField(importWizardStep, { dateLimite: "" });
-                          setImportWizardDLOpen((v) => !v);
-                        }}
-                        activeOpacity={0.8}
                       >
-                        <Text style={[styles.dateBtnText, { color: importWizardDLOpen ? color : C.text }]}>
-                          {importWizardDLOpen
-                            ? "📅 Retirer l'échéance"
-                            : fields.dateLimite
-                              ? `📅 Échéance : ${fields.dateLimite}`
-                              : "📅 Fixer une échéance"}
-                        </Text>
-                      </TouchableOpacity>
-                      {importWizardDLOpen && (
-                        <MiniCalendar
-                          selDate={fields.dateLimite}
-                          onSelect={(d) => updateImportWizardField(importWizardStep, { dateLimite: d })}
-                          calMonth={importWizardDLCalMonth}
-                          onMonthChange={setImportWizardDLCalMonth}
-                          startDate={new Date()}
-                          C={C}
-                          size="lg"
-                        />
-                      )}
+                        <Text style={[styles.dateBtnText, { color: C.text }]}>📅 {fields.dateLimite}</Text>
+                        <TouchableOpacity
+                          onPress={() => updateImportWizardField(importWizardStep, { dateLimite: "" })}
+                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        >
+                          <Text style={[styles.itemLink, { color, marginTop: 0 }]}>✎ Modifier la date</Text>
+                        </TouchableOpacity>
+                      </View>
 
+                      <Text style={[styles.fieldLabel, { color: C.gold }]}>Marquer Urgent</Text>
                       <TouchableOpacity
-                        onPress={() => updateImportWizardField(importWizardStep, { urgent: !fields.urgent })}
+                        onPress={importWizardMarkUrgentAndNext}
                         activeOpacity={0.8}
                         style={[
                           styles.dateBtn,
@@ -1440,7 +1550,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                         ]}
                       >
                         <Text style={[styles.dateBtnText, { color: fields.urgent ? C.danger : C.text }]}>
-                          {fields.urgent ? "🔴 Marqué urgent" : "⚪ Marquer urgent"}
+                          {fields.urgent ? "🔴 Urgent — validé" : "⚪ Marquer urgent"}
                         </Text>
                       </TouchableOpacity>
                     </>
@@ -1566,6 +1676,7 @@ const styles = StyleSheet.create({
   groupHeaderText: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },
   groupChevron: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },
   groupCard: { marginTop: 10, marginBottom: 4 },
+  groupTintWrap: { borderRadius: 14, marginTop: 4, marginBottom: 6, paddingHorizontal: 10, overflow: "hidden" },
   selectBar: {
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     borderWidth: 1, borderRadius: 10, paddingVertical: 8, paddingHorizontal: 10, marginBottom: 10,
@@ -1575,11 +1686,12 @@ const styles = StyleSheet.create({
   selectBarBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 12 },
   selectDot: { width: 20, height: 20, borderRadius: 10, borderWidth: 2, alignItems: "center", justifyContent: "center" },
   selectDotCheck: { color: "#fff", fontSize: 11, fontFamily: "DM_Sans_700Bold" },
-  row: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 8, borderBottomWidth: 1 },
+  row: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 10, paddingHorizontal: 8 },
   rowText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
   rowTextDone: { textDecorationLine: "line-through" },
   pieceWrap: { marginLeft: 26 },
   itemLinkWrap: { paddingHorizontal: 8, paddingBottom: 8, marginTop: -4 },
+  rowDivider: { height: 1, marginHorizontal: 8, marginTop: 8, marginBottom: 2 },
   input: { borderWidth: 1, borderRadius: 10, padding: 12, fontFamily: "DM_Sans_400Regular", fontSize: 14, marginTop: 12 },
   groupAddRow: { padding: 6, paddingTop: 2 },
   groupAddInput: { borderWidth: 1, borderRadius: 10, padding: 10, fontFamily: "DM_Sans_400Regular", fontSize: 13, marginTop: 6 },
@@ -1591,6 +1703,8 @@ const styles = StyleSheet.create({
   btnPrimaryText: { fontFamily: "DM_Sans_700Bold", fontSize: 15, color: "#fff" },
   importBanner: { flexDirection: "row", alignItems: "center", justifyContent: "center", borderWidth: 1, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 14, marginTop: 14 },
   importBannerText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13.5 },
+  documentsBtn: { borderRadius: 12, paddingVertical: 15, alignItems: "center", marginTop: 10 },
+  documentsBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 15, color: "#fff" },
 
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center" },
   sheet: { width: "88%", borderRadius: 20, borderWidth: 1, padding: 20, maxHeight: "82%" },

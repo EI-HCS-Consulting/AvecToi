@@ -462,6 +462,30 @@ export interface PersonalChecklistItem {
   // components/MyChecklist.tsx) — regroupe ces items sous ce nom, en plus des
   // 3 checklists suggérées et de "Mes items personnels" (items sans nom).
   custom_checklist_name: string | null;
+  // Échéance/urgence par item (assistant d'import, voir MyChecklist.tsx et
+  // Entraide.tsx) — persistées ici même pour un import privé (task_id null),
+  // à la différence de tasks.date_limite/urgent qui ne portent que les items
+  // publiés sur le Mur d'Entraide.
+  date_limite: string | null;
+  urgent: boolean;
+  created_at: string;
+}
+
+// Trace d'un courrier généré via "✉️ Préparer le courrier" (voir
+// components/MyChecklist.tsx, downloadLetter, et "Mes documents"). Le
+// fichier .doc n'est jamais stocké côté serveur (généré à la volée en RTF,
+// voir lib/mediaShare.ts) — values permet de reconstituer le même contenu
+// pour un re-téléchargement ultérieur, sans ressaisir le formulaire.
+export interface PersonalDocument {
+  id: string;
+  space_id: string;
+  owner_prenom: string;
+  owner_nom: string;
+  owner_pin: string;
+  // LetterTemplate.id (voir lib/letterTemplates.ts).
+  letter_id: string;
+  label: string;
+  values: Record<string, string>;
   created_at: string;
 }
 
