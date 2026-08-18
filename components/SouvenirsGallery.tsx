@@ -56,7 +56,6 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
   const [upNom, setUpNom] = useState("");
   const [upPin, setUpPin] = useState("");
   const [sessionPin, setSessionPin] = useState("");
-  const myPin = isAdmin ? "ADMIN" : sessionPin;
   const [upCaption, setUpCaption] = useState("");
   const [uploading, setUploading] = useState(false);
 
@@ -299,9 +298,26 @@ export default function SouvenirsGallery({ spaceId, C, isAdmin, capped }: Props)
   // qui ne sont pas les miennes — les photos ajoutées directement à
   // Souvenirs (source_type null) n'ont pas d'équivalent news/support à tracer.
   async function logIfNotMine(photo: SouvenirPhoto & { url: string }) {
-    if (!myPin || !photo.source_type || !photo.source_id || photo.uploaded_by_pin === myPin) return;
+    if (!photo.source_type || !photo.source_id) return;
+    if (isAdmin) {
+      if (photo.uploaded_by_pin !== "ADMIN") {
+        await logSavedMedia({
+          spaceId, sourceType: photo.source_type, sourceId: photo.source_id, photoUrl: photo.url,
+          savedByPin: "ADMIN", savedByPrenom: "", savedByNom: "",
+        });
+      }
+      return;
+    }
+    const session = await getVisitorSession();
+    const prenom = (session?.prenom ?? "").trim();
+    const nom = (session?.nom ?? "").trim();
+    if (!prenom || !nom) return;
+    const isMine = photo.uploaded_by_prenom?.trim().toLowerCase() === prenom.toLowerCase()
+      && photo.uploaded_by_nom?.trim().toLowerCase() === nom.toLowerCase();
+    if (isMine) return;
     await logSavedMedia({
-      spaceId, sourceType: photo.source_type, sourceId: photo.source_id, photoUrl: photo.url, savedByPin: myPin,
+      spaceId, sourceType: photo.source_type, sourceId: photo.source_id, photoUrl: photo.url,
+      savedByPin: session?.pin ?? "", savedByPrenom: prenom, savedByNom: nom,
     });
   }
 

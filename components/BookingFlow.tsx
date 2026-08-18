@@ -167,7 +167,7 @@ function BookingFlow(
     setPinCalendarAdded(false);
     getLinkedCalendarEvent(r.id).then((eventId) => setPinCalendarAdded(!!eventId));
 
-    if (await sessionPinMatches(r.pin)) {
+    if (await sessionPinMatches(r.pin, { prenom: r.prenom, nom: r.nom })) {
       setPinEntry(r.pin); setPinError(false); setPinStep("actions");
     } else {
       setPinEntry(""); setPinError(false); setPinStep("enter");

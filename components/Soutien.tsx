@@ -117,11 +117,9 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
   // dans SouvenirsGallery.tsx (téléchargement via le partage natif).
   // authorPin/sourceId permettent de tracer le téléchargement dans
   // saved_media (Mes Souvenirs) quand la photo n'est pas la mienne.
-  const [lightbox, setLightbox] = useState<{ url: string; authorPin: string; sourceId: string } | null>(null);
+  const [lightbox, setLightbox] = useState<{ url: string; authorPin: string; authorPrenom: string; authorNom: string; sourceId: string } | null>(null);
   const [downloadingLightbox, setDownloadingLightbox] = useState(false);
   const [downloadingMediaLightbox, setDownloadingMediaLightbox] = useState(false);
-
-  const myPin = isAdmin ? "ADMIN" : sessionPin;
 
   // Vue "Médias" (photos seules, sans texte ni cadre de message) — même
   // pattern que components/NewsFeed.tsx. Lightbox dédié (mediaLightboxIdx)
@@ -136,14 +134,39 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
   const [mediaSelected, setMediaSelected] = useState<Set<number>>(new Set());
   const [bulkDownloadingMedia, setBulkDownloadingMedia] = useState(false);
 
+  // Trace le téléchargement dans saved_media (Mes Souvenirs) si la photo
+  // n'est pas la mienne. Identifie le visiteur par prénom/nom (pas par pin,
+  // pas toujours choisi) — voir lib/mediaShare.ts et MesSouvenirs.tsx.
+  async function logDownloadIfNotMine(
+    author: { pin: string | null; prenom: string; nom: string },
+    sourceId: string,
+    url: string,
+  ) {
+    if (isAdmin) {
+      if (author.pin !== "ADMIN") {
+        await logSavedMedia({ spaceId, sourceType: "support", sourceId, photoUrl: url, savedByPin: "ADMIN", savedByPrenom: "", savedByNom: "" });
+      }
+      return;
+    }
+    const session = await getVisitorSession();
+    const prenom = (session?.prenom ?? "").trim();
+    const nom = (session?.nom ?? "").trim();
+    if (!prenom || !nom) return;
+    const isMine = author.prenom?.trim().toLowerCase() === prenom.toLowerCase()
+      && author.nom?.trim().toLowerCase() === nom.toLowerCase();
+    if (isMine) return;
+    await logSavedMedia({
+      spaceId, sourceType: "support", sourceId, photoUrl: url,
+      savedByPin: session?.pin ?? "", savedByPrenom: prenom, savedByNom: nom,
+    });
+  }
+
   async function downloadLightboxPhoto() {
     if (!lightbox) return;
     setDownloadingLightbox(true);
     const ok = await downloadAndShare(lightbox.url, `soutien_${Date.now()}.jpg`);
     if (!ok) showToast("Erreur lors du téléchargement");
-    else if (myPin && lightbox.authorPin && lightbox.authorPin !== myPin) {
-      await logSavedMedia({ spaceId, sourceType: "support", sourceId: lightbox.sourceId, photoUrl: lightbox.url, savedByPin: myPin });
-    }
+    else await logDownloadIfNotMine({ pin: lightbox.authorPin, prenom: lightbox.authorPrenom, nom: lightbox.authorNom }, lightbox.sourceId, lightbox.url);
     setDownloadingLightbox(false);
   }
 
@@ -154,9 +177,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
     setDownloadingMediaLightbox(true);
     const ok = await downloadAndShare(item.url, `soutien_${Date.now()}.jpg`);
     if (!ok) showToast("Erreur lors du téléchargement");
-    else if (myPin && item.message.author_pin && item.message.author_pin !== myPin) {
-      await logSavedMedia({ spaceId, sourceType: "support", sourceId: item.message.id, photoUrl: item.url, savedByPin: myPin });
-    }
+    else await logDownloadIfNotMine({ pin: item.message.author_pin, prenom: item.message.author_prenom, nom: item.message.author_nom }, item.message.id, item.url);
     setDownloadingMediaLightbox(false);
   }
 
@@ -187,9 +208,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
       const success = await downloadAndShare(item.url, `soutien_${item.message.id}_${i}.jpg`);
       if (success) {
         ok++;
-        if (myPin && item.message.author_pin && item.message.author_pin !== myPin) {
-          await logSavedMedia({ spaceId, sourceType: "support", sourceId: item.message.id, photoUrl: item.url, savedByPin: myPin });
-        }
+        await logDownloadIfNotMine({ pin: item.message.author_pin, prenom: item.message.author_prenom, nom: item.message.author_nom }, item.message.id, item.url);
       }
     }
     setBulkDownloadingMedia(false);
@@ -832,7 +851,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
               <Text style={[styles.msgText, { color: C.text }]}>{m.message}</Text>
               {m.photo && (
                 <>
-                  <TouchableOpacity onPress={() => setLightbox({ url: supportPhotoUrl(spaceId, m.photo!), authorPin: m.author_pin ?? "", sourceId: m.id })} activeOpacity={0.85}>
+                  <TouchableOpacity onPress={() => setLightbox({ url: supportPhotoUrl(spaceId, m.photo!), authorPin: m.author_pin ?? "", authorPrenom: m.author_prenom, authorNom: m.author_nom, sourceId: m.id })} activeOpacity={0.85}>
                     <Image source={{ uri: supportPhotoUrl(spaceId, m.photo) }} style={styles.msgPhoto} resizeMode="cover" />
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -873,7 +892,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                             )}
                             <Text style={[styles.replyText, { color: C.text }]}>{r.reply_text}</Text>
                             {r.photo && (
-                              <TouchableOpacity onPress={() => setLightbox({ url: supportPhotoUrl(spaceId, r.photo!), authorPin: r.author_pin ?? "", sourceId: r.id })} activeOpacity={0.85}>
+                              <TouchableOpacity onPress={() => setLightbox({ url: supportPhotoUrl(spaceId, r.photo!), authorPin: r.author_pin ?? "", authorPrenom: r.author_prenom, authorNom: r.author_nom, sourceId: r.id })} activeOpacity={0.85}>
                                 <Image source={{ uri: supportPhotoUrl(spaceId, r.photo) }} style={[styles.replyPhotoThumb, { borderColor: C.border }]} resizeMode="cover" />
                               </TouchableOpacity>
                             )}

@@ -1157,7 +1157,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setDonePin("");
     setDonePinError(false);
     setDonePinVerified(
-      !isAdmin && ((await sessionPinMatches(task.claimed_by_pin)) || (await sessionPinMatches(task.transport_return_claimed_by_pin))),
+      !isAdmin && ((await sessionPinMatches(task.claimed_by_pin, { prenom: task.claimed_by_prenom, nom: task.claimed_by_nom }))
+        || (await sessionPinMatches(task.transport_return_claimed_by_pin, { prenom: task.transport_return_claimed_by_prenom, nom: task.transport_return_claimed_by_nom }))),
     );
   }
 
@@ -1357,7 +1358,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
   async function openPinModal(task: Task, action: "unclaim", leg: "out" | "return" = "out") {
     const legPin = leg === "return" ? task.transport_return_claimed_by_pin : task.claimed_by_pin;
-    if (!isAdmin && (await sessionPinMatches(legPin))) {
+    const legAuthor = leg === "return"
+      ? { prenom: task.transport_return_claimed_by_prenom, nom: task.transport_return_claimed_by_nom }
+      : { prenom: task.claimed_by_prenom, nom: task.claimed_by_nom };
+    if (!isAdmin && (await sessionPinMatches(legPin, legAuthor))) {
       setUnclaimConfirm({ task, leg });
       return;
     }
