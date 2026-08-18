@@ -31,12 +31,20 @@ export async function downloadAndShare(url: string, filename: string, dialogTitl
 // page Mes Souvenirs (components/MesSouvenirs.tsx). Les photos qu'on a
 // soi-même publiées ne passent jamais par ici (voir MesSouvenirs.tsx, qui
 // les dérive directement de news_entries/support_messages).
+//
+// L'identité s'appuie sur prénom/nom (savedByPrenom/Nom), pas seulement sur
+// le pin de session : un visiteur qui n'a jamais publié n'a pas encore de
+// pin, sinon ses téléchargements ne seraient jamais tracés. Passer "" pour
+// savedByPin côté visiteur sans pin est valide ; l'admin passe toujours
+// savedByPin="ADMIN" et peut laisser prénom/nom vides.
 export async function logSavedMedia(params: {
   spaceId: string;
   sourceType: "news" | "support";
   sourceId: string;
   photoUrl: string;
   savedByPin: string;
+  savedByPrenom: string;
+  savedByNom: string;
 }): Promise<void> {
   await supabase.from("saved_media").upsert(
     {
@@ -45,7 +53,9 @@ export async function logSavedMedia(params: {
       source_id: params.sourceId,
       photo_url: params.photoUrl,
       saved_by_pin: params.savedByPin,
+      saved_by_prenom: params.savedByPrenom,
+      saved_by_nom: params.savedByNom,
     },
-    { onConflict: "space_id,source_type,source_id,photo_url,saved_by_pin", ignoreDuplicates: true },
+    { onConflict: "space_id,source_type,source_id,photo_url,saved_by_pin,saved_by_prenom,saved_by_nom", ignoreDuplicates: true },
   );
 }

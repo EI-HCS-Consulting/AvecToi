@@ -91,10 +91,23 @@ export async function clearVisitorSession(): Promise<void> {
 // Si aucune session n'est enregistrée, ou si le PIN ne correspond pas
 // (élément créé par quelqu'un d'autre sur le même appareil), on retombe
 // sur la saisie manuelle du PIN.
-export async function sessionPinMatches(pin: string | null | undefined): Promise<boolean> {
+//
+// Le PIN seul ne suffit pas : il ne fait que 4 chiffres (10 000
+// combinaisons), deux visiteurs différents peuvent donc en avoir un
+// identique par hasard. On exige en plus que le prénom/nom de l'auteur de
+// l'élément corresponde à celui de la session, sans quoi une collision de
+// PIN permettrait de modifier/supprimer le contenu de quelqu'un d'autre.
+export async function sessionPinMatches(
+  pin: string | null | undefined,
+  author: { prenom: string | null | undefined; nom: string | null | undefined },
+): Promise<boolean> {
   if (!pin) return false;
   const session = await getVisitorSession();
-  return !!session && session.pin === pin;
+  if (!session || session.pin !== pin) return false;
+  return (
+    session.prenom.trim().toLowerCase() === (author.prenom ?? "").trim().toLowerCase()
+    && session.nom.trim().toLowerCase() === (author.nom ?? "").trim().toLowerCase()
+  );
 }
 
 // À appeler juste après la création d'un élément protégé par PIN

@@ -185,7 +185,6 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
   const [profileTarget, setProfileTarget] = useState<{ prenom: string; nom: string } | null>(null);
 
   const [sessionPin, setSessionPin] = useState("");
-  const myPin = isAdmin ? "ADMIN" : sessionPin;
   // ID intervenant_profiles de l'intervenant connecté — rempli à la
   // publication d'une nouvelle en author_role "intervenant" (voir
   // handleSave), sert à vérifier son autorisation dans
@@ -273,15 +272,36 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
   // dérivée de visibleEntries (déjà filtrée), pas de nouvelle requête.
   const mediaItems = visibleEntries.flatMap((e) => e.photoUrls.map((url) => ({ url, entry: e })));
 
+  // Trace le téléchargement dans saved_media (Mes Souvenirs) si la photo
+  // n'est pas la mienne. Identifie le visiteur par prénom/nom (pas par pin,
+  // pas toujours choisi) — voir lib/mediaShare.ts et MesSouvenirs.tsx.
+  async function logDownloadIfNotMine(entry: NewsEntryWithUrls, url: string) {
+    if (isAdmin) {
+      if (entry.author_pin !== "ADMIN") {
+        await logSavedMedia({ spaceId, sourceType: "news", sourceId: entry.id, photoUrl: url, savedByPin: "ADMIN", savedByPrenom: "", savedByNom: "" });
+      }
+      return;
+    }
+    const session = await getVisitorSession();
+    const prenom = (session?.prenom ?? "").trim();
+    const nom = (session?.nom ?? "").trim();
+    if (!prenom || !nom) return;
+    const isMine = entry.author_prenom?.trim().toLowerCase() === prenom.toLowerCase()
+      && entry.author_nom?.trim().toLowerCase() === nom.toLowerCase();
+    if (isMine) return;
+    await logSavedMedia({
+      spaceId, sourceType: "news", sourceId: entry.id, photoUrl: url,
+      savedByPin: session?.pin ?? "", savedByPrenom: prenom, savedByNom: nom,
+    });
+  }
+
   async function downloadMediaLightboxPhoto() {
     if (mediaLightboxIdx === null) return;
     const item = mediaItems[mediaLightboxIdx];
     if (!item) return;
     setDownloadingMediaLightbox(true);
     const ok = await downloadAndShare(item.url, `nouvelles_${Date.now()}.jpg`);
-    if (ok && myPin && item.entry.author_pin && item.entry.author_pin !== myPin) {
-      await logSavedMedia({ spaceId, sourceType: "news", sourceId: item.entry.id, photoUrl: item.url, savedByPin: myPin });
-    }
+    if (ok) await logDownloadIfNotMine(item.entry, item.url);
     setDownloadingMediaLightbox(false);
   }
 
@@ -312,9 +332,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
       const success = await downloadAndShare(item.url, `nouvelles_${item.entry.id}_${i}.jpg`);
       if (success) {
         ok++;
-        if (myPin && item.entry.author_pin && item.entry.author_pin !== myPin) {
-          await logSavedMedia({ spaceId, sourceType: "news", sourceId: item.entry.id, photoUrl: item.url, savedByPin: myPin });
-        }
+        await logDownloadIfNotMine(item.entry, item.url);
       }
     }
     setBulkDownloadingMedia(false);
@@ -617,7 +635,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
   async function requestDelete(entry: NewsEntryWithUrls) {
     // Le PIN enregistré dans "Mon compte" (ou choisi à la publication) fait
     // foi : s'il correspond (ou si admin), on évite de le redemander.
-    if (isAdmin || (await sessionPinMatches(entry.author_pin))) {
+    if (isAdmin || (await sessionPinMatches(entry.author_pin, { prenom: entry.author_prenom, nom: entry.author_nom }))) {
       setDeleteConfirmTarget(entry);
       return;
     }
@@ -626,7 +644,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
   }
 
   async function requestEdit(entry: NewsEntryWithUrls) {
-    if (isAdmin || (await sessionPinMatches(entry.author_pin))) {
+    if (isAdmin || (await sessionPinMatches(entry.author_pin, { prenom: entry.author_prenom, nom: entry.author_nom }))) {
       openEdit(entry);
       return;
     }

@@ -474,6 +474,8 @@ export interface SavedMedia {
   source_id: string;
   photo_url: string;
   saved_by_pin: string;
+  saved_by_prenom: string;
+  saved_by_nom: string;
   created_at: string;
 }
 

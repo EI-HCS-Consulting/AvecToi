@@ -57,12 +57,10 @@ export default function MesSouvenirs({ spaceId, C, isAdmin }: Props) {
 
     let prenom = "";
     let nom = "";
-    let pin = "";
     if (!isAdmin) {
       const s = await getVisitorSession();
-      if (s) { prenom = s.prenom; nom = s.nom; pin = s.pin; }
+      if (s) { prenom = s.prenom; nom = s.nom; }
     }
-    const myPin = isAdmin ? "ADMIN" : pin;
 
     if (!isAdmin && (!prenom.trim() || !nom.trim())) {
       setIdentityMissing(true);
@@ -87,7 +85,13 @@ export default function MesSouvenirs({ spaceId, C, isAdmin }: Props) {
       ? supabase.from("support_messages").select("*").eq("space_id", spaceId).eq("author_pin", "ADMIN")
       : supabase.from("support_messages").select("*").eq("space_id", spaceId)
           .ilike("author_prenom", prenom.trim()).ilike("author_nom", nom.trim());
-    const savedQuery = supabase.from("saved_media").select("*").eq("space_id", spaceId).eq("saved_by_pin", myPin);
+    // Même raisonnement que pour "publiées" : identifier par prénom/nom,
+    // pas par pin (voir lib/mediaShare.ts). L'admin reste identifié par le
+    // sentinel fixe "ADMIN".
+    const savedQuery = isAdmin
+      ? supabase.from("saved_media").select("*").eq("space_id", spaceId).eq("saved_by_pin", "ADMIN")
+      : supabase.from("saved_media").select("*").eq("space_id", spaceId)
+          .ilike("saved_by_prenom", prenom.trim()).ilike("saved_by_nom", nom.trim());
 
     const [newsRes, supportRes, savedRes] = await Promise.all([newsQuery, supportQuery, savedQuery]);
 
