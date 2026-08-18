@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
-import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Modal, Image, ActivityIndicator, Dimensions } from "react-native";
+import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Modal, Image, ActivityIndicator, Dimensions, Alert } from "react-native";
 import { router } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { getVisitorSession } from "@/lib/visitorSession";
-import { downloadAndShare } from "@/lib/mediaShare";
+import { downloadAndShare, downloadAndShareMultiple, isShareAvailable } from "@/lib/mediaShare";
 import type { NewsEntry, SupportMessage, SavedMedia } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -46,6 +46,14 @@ export default function MesSouvenirs({ spaceId, C, isAdmin }: Props) {
   const [slideshowOn, setSlideshowOn] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [toast, setToast] = useState("");
+
+  // Sélection multiple — scopée à une seule section à la fois (les listes
+  // "publiées"/"téléchargées" ont chacune leurs propres ids, mais mélanger
+  // les deux dans un même partage groupé n'aurait pas de sens ici).
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectSection, setSelectSection] = useState<"published" | "downloaded" | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [downloading, setDownloading] = useState(false);
 
   function showToast(msg: string) {
     setToast(msg);
@@ -153,6 +161,54 @@ export default function MesSouvenirs({ spaceId, C, isAdmin }: Props) {
     setSharing(false);
   }
 
+  function toggleSelect(section: "published" | "downloaded", id: string) {
+    if (selectMode && selectSection !== section) return;
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      if (next.size === 0) { setSelectMode(false); setSelectSection(null); }
+      return next;
+    });
+  }
+
+  function startSelect(section: "published" | "downloaded", id: string) {
+    if (selectMode) return;
+    setSelectMode(true);
+    setSelectSection(section);
+    setSelected(new Set([id]));
+  }
+
+  function selectAllInSection(section: "published" | "downloaded", items: MediaItem[]) {
+    setSelectSection(section);
+    setSelected(new Set(items.map((i) => i.id)));
+  }
+
+  function cancelSelect() {
+    setSelectMode(false);
+    setSelectSection(null);
+    setSelected(new Set());
+  }
+
+  async function downloadSelected() {
+    const list = selectSection === "published" ? published : downloaded;
+    const targets = list.filter((i) => selected.has(i.id));
+    if (targets.length === 0) return;
+    if (!(await isShareAvailable())) {
+      Alert.alert("Partage non disponible", "Le partage de fichiers n'est pas disponible sur cet appareil.");
+      return;
+    }
+
+    setDownloading(true);
+    const success = await downloadAndShareMultiple(
+      targets.map((item) => ({ url: item.url, filename: `souvenir_${item.id}.jpg` })),
+    );
+    setDownloading(false);
+    showToast(success
+      ? `${targets.length} photo${targets.length > 1 ? "s" : ""} partagée${targets.length > 1 ? "s" : ""}`
+      : "Erreur lors du partage");
+    if (success) cancelSelect();
+  }
+
   function renderSection(
     title: string,
     key: "published" | "downloaded",
@@ -171,21 +227,64 @@ export default function MesSouvenirs({ spaceId, C, isAdmin }: Props) {
           <Text style={[styles.sectionHeaderText, { color: C.text }]}>{title} ({items.length})</Text>
           <Text style={[styles.chevron, { color: C.muted }]}>{isOpen ? "▲" : "▼"}</Text>
         </TouchableOpacity>
+        {isOpen && selectMode && selectSection === key && (
+          <View style={[styles.selectBar, { backgroundColor: C.card, borderBottomColor: C.border }]}>
+            <View style={styles.selectBarRow}>
+              <Text style={[styles.selectCount, { color: C.muted }]}>
+                {selected.size} sélectionné{selected.size > 1 ? "s" : ""}
+              </Text>
+              <TouchableOpacity onPress={() => selectAllInSection(key, items)} style={[styles.selectBarBtn, { borderColor: C.border }]}>
+                <Text style={[styles.selectBarBtnText, { color: C.text }]}>Tout sélect. ({items.length})</Text>
+              </TouchableOpacity>
+            </View>
+            <View style={styles.selectBarRow}>
+              <TouchableOpacity
+                onPress={downloadSelected}
+                disabled={selected.size === 0 || downloading}
+                style={[
+                  styles.selectBarBtn,
+                  { flex: 1, borderColor: C.accent, backgroundColor: "rgba(46,117,182,0.15)" },
+                  selected.size === 0 && { opacity: 0.4 },
+                ]}
+              >
+                {downloading
+                  ? <ActivityIndicator color={C.accent} size="small" />
+                  : <Text style={[styles.selectBarBtnText, { color: C.accent, textAlign: "center" }]}>↗️ Partager</Text>
+                }
+              </TouchableOpacity>
+              <TouchableOpacity onPress={cancelSelect} style={[styles.selectBarBtn, { borderColor: C.border }]}>
+                <Text style={[styles.selectBarBtnText, { color: C.muted }]}>Annuler</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
         {isOpen && (
           items.length === 0 ? (
             <Text style={[styles.emptyText, { color: C.muted }]}>{emptyLabel}</Text>
           ) : (
             <View style={styles.grid}>
-              {items.map((item, idx) => (
-                <TouchableOpacity
-                  key={item.id}
-                  onPress={() => setLightbox({ section: key, index: idx })}
-                  activeOpacity={0.85}
-                  style={[styles.cell, { width: CELL_SIZE, height: CELL_SIZE }]}
-                >
-                  <Image source={{ uri: item.url }} style={styles.cellImg} resizeMode="cover" />
-                </TouchableOpacity>
-              ))}
+              {items.map((item, idx) => {
+                const isSel = selectMode && selectSection === key && selected.has(item.id);
+                return (
+                  <TouchableOpacity
+                    key={item.id}
+                    onPress={() => {
+                      if (selectMode) toggleSelect(key, item.id);
+                      else setLightbox({ section: key, index: idx });
+                    }}
+                    onLongPress={() => startSelect(key, item.id)}
+                    activeOpacity={0.85}
+                    style={[styles.cell, { width: CELL_SIZE, height: CELL_SIZE, borderColor: isSel ? C.gold : "transparent" }]}
+                  >
+                    <Image source={{ uri: item.url }} style={styles.cellImg} resizeMode="cover" />
+                    {isSel && (
+                      <View style={[styles.checkBadge, { backgroundColor: C.gold }]}>
+                        <Text style={styles.checkBadgeText}>✓</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
             </View>
           )
         )}
@@ -293,8 +392,16 @@ const styles = StyleSheet.create({
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, paddingVertical: 16 },
 
   grid: { flexDirection: "row", flexWrap: "wrap", gap: COL_GAP, paddingTop: 12 },
-  cell: { borderRadius: 10, overflow: "hidden" },
+  cell: { borderRadius: 10, overflow: "hidden", borderWidth: 2 },
   cellImg: { width: "100%", height: "100%" },
+
+  selectBar: { paddingHorizontal: 4, paddingVertical: 10, borderBottomWidth: 1, gap: 8, marginTop: 8 },
+  selectBarRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  selectBarBtn: { borderWidth: 1, borderRadius: 8, paddingVertical: 8, paddingHorizontal: 12 },
+  selectBarBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
+  selectCount: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
+  checkBadge: { position: "absolute", top: 6, right: 6, width: 24, height: 24, borderRadius: 12, alignItems: "center", justifyContent: "center" },
+  checkBadgeText: { fontFamily: "DM_Sans_700Bold", fontSize: 13, color: "#0D1B2E" },
 
   lightboxBg: { flex: 1, justifyContent: "center", alignItems: "center" },
   lightboxImgWrap: { width: "100%", height: "72%" },
