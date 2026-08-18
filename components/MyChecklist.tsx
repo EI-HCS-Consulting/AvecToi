@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, ActivityIndicator, Alert, Modal, Switch,
+  StyleSheet, ActivityIndicator, Alert, Modal, Switch, Linking,
 } from "react-native";
 import * as Crypto from "expo-crypto";
 import { supabase } from "@/lib/supabase";
 import ConfirmModal from "@/components/ConfirmModal";
 import { normalizePhone } from "@/lib/phone";
-import { CHECKLIST_TEMPLATES, addDaysIso, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
+import { CHECKLIST_TEMPLATES, addDaysIso, checklistItemDescription, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
 import type { PersonalChecklistItem, IntervenantChecklistTemplate, Task } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -347,11 +347,13 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
 
   async function openImportPicker() {
     setPicker(true);
+    // Toutes catégories confondues (pas seulement "administratif") : les
+    // checklists suggérées couvrent désormais courses, repas, transport…, et
+    // le dédoublonnage (findDuplicateTask) doit les repérer partout.
     const { data } = await supabase
       .from("tasks")
       .select("*")
       .eq("space_id", spaceId)
-      .eq("category", "administratif")
       .neq("status", "fait");
     setExistingTasks((data ?? []) as Task[]);
   }
@@ -401,8 +403,8 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     const taskRows = selected.map((item) => ({
       space_id: spaceId,
       title: item.title,
-      description: item.description,
-      category: "administratif" as const,
+      description: checklistItemDescription(item),
+      category: item.category ?? "administratif",
       status: "ouvert" as const,
       created_by: isAdmin ? "admin" : "visiteur",
       author_prenom: ownerPrenom || null,
@@ -932,26 +934,28 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
             <Text style={[styles.intro, { color: C.muted }]}>
               Choisis la situation qui correspond — les items importés rejoignent ta checklist privée, visible de toi seul. Tu pourras décocher ce qui ne s'applique pas avant d'importer.
             </Text>
-            {(Object.keys(CHECKLIST_TEMPLATES) as ChecklistContext[]).map((ctx) => {
-              const tpl = CHECKLIST_TEMPLATES[ctx];
-              const count = tpl.groups.flatMap((g) => g.items).filter((it) => isAdmin || it.sharedWithVisitors).length;
-              const color = C[tpl.colorKey];
-              return (
-                <TouchableOpacity
-                  key={ctx}
-                  style={[styles.checklistCard, { borderColor: color, backgroundColor: color + "14" }]}
-                  onPress={() => openImportContext(ctx)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.checklistCardIcon}>{tpl.icon}</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.checklistCardTitle, { color: C.text }]}>{tpl.label}</Text>
-                    <Text style={[styles.checklistCardCount, { color: C.muted }]}>{count} items suggérés</Text>
-                  </View>
-                  <Text style={[styles.checklistCardArrow, { color }]}>→</Text>
-                </TouchableOpacity>
-              );
-            })}
+            <ScrollView style={styles.scroll} showsVerticalScrollIndicator nestedScrollEnabled>
+              {(Object.keys(CHECKLIST_TEMPLATES) as ChecklistContext[]).map((ctx) => {
+                const tpl = CHECKLIST_TEMPLATES[ctx];
+                const count = tpl.groups.flatMap((g) => g.items).filter((it) => isAdmin || it.sharedWithVisitors).length;
+                const color = C[tpl.colorKey];
+                return (
+                  <TouchableOpacity
+                    key={ctx}
+                    style={[styles.checklistCard, { borderColor: color, backgroundColor: color + "14" }]}
+                    onPress={() => openImportContext(ctx)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.checklistCardIcon}>{tpl.icon}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.checklistCardTitle, { color: C.text }]}>{tpl.label}</Text>
+                      <Text style={[styles.checklistCardCount, { color: C.muted }]}>{count} items suggérés</Text>
+                    </View>
+                    <Text style={[styles.checklistCardArrow, { color }]}>→</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
             <TouchableOpacity
               onPress={() => setPicker(false)}
               style={{
@@ -1019,6 +1023,23 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                           <View style={{ flex: 1 }}>
                             <Text style={[styles.itemTitle, { color: checked && !dup ? C.text : C.muted }]}>{item.title}</Text>
                             {!!dup && <Text style={[styles.dupHint, { color: C.muted }]}>déjà dans le Mur d'Entraide</Text>}
+                            {!!item.description && !dup && (
+                              <Text style={[styles.itemDesc, { color: C.muted }]}>{item.description}</Text>
+                            )}
+                            {!!item.piecesRequises?.length && !dup && (
+                              <Text style={[styles.itemDesc, { color: C.muted }]}>📎 Pièces à réunir : {item.piecesRequises.join(", ")}</Text>
+                            )}
+                            {!!item.lienExterne && !dup && (
+                              <TouchableOpacity
+                                onPress={() => Linking.openURL(item.lienExterne!.url).catch(() => {})}
+                                hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                              >
+                                <Text style={[styles.itemLink, { color }]}>🔗 {item.lienExterne.label}</Text>
+                              </TouchableOpacity>
+                            )}
+                            {item.recurrent === "mensuel" && !dup && (
+                              <Text style={[styles.itemDesc, { color: C.muted }]}>🔁 Rappel à renouveler chaque mois</Text>
+                            )}
                           </View>
                         </TouchableOpacity>
                       );
@@ -1146,4 +1167,6 @@ const styles = StyleSheet.create({
   boxMark: { color: "#fff", fontSize: 13, fontFamily: "DM_Sans_700Bold" },
   itemTitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14, flexShrink: 1 },
   dupHint: { fontFamily: "DM_Sans_400Regular", fontSize: 11.5, marginTop: 2 },
+  itemDesc: { fontFamily: "DM_Sans_400Regular", fontSize: 12.5, lineHeight: 17, marginTop: 2 },
+  itemLink: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12.5, lineHeight: 17, marginTop: 2, textDecorationLine: "underline" },
 });

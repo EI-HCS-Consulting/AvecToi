@@ -21,7 +21,7 @@ import { googleMapsSearchUrl, joinAddress } from "@/lib/address";
 import { addGenericEventToNativeCalendar } from "@/lib/calendarSync";
 import type { Task, TransportProposal } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
-import { CHECKLIST_TEMPLATES, addDaysIso, findTemplateContextForTitle, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
+import { CHECKLIST_TEMPLATES, addDaysIso, checklistItemDescription, findTemplateContextForTitle, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
 
 const PHOTO_BUCKET = "entraide-photos";
 
@@ -624,8 +624,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     const rows = selected.map((item) => ({
       space_id: spaceId,
       title: item.title,
-      description: item.description,
-      category: "administratif" as const,
+      description: checklistItemDescription(item),
+      category: item.category ?? "administratif",
       status: "ouvert" as const,
       created_by: isAdmin ? "admin" : "visiteur",
       author_prenom: author.prenom || null,
@@ -645,7 +645,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setChecklistPicker(false);
     setChecklistCustomItems([]);
     setChecklistItemDraft("");
-    setActiveCat("administratif");
+    // Un lot de checklist peut désormais couvrir plusieurs catégories — on ne
+    // bascule l'onglet actif que si tous les items publiés partagent la même,
+    // sinon on retombe sur "Tous" pour que le lot entier reste visible.
+    const batchCategories = new Set(selected.map((item) => item.category ?? "administratif"));
+    setActiveCat(batchCategories.size === 1 ? [...batchCategories][0] : null);
     triggerBatchUndo(inserted?.map((r) => r.id) ?? [], selected.length);
     loadTasks();
   }
@@ -828,15 +832,17 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const claimOnCreateReady = !claimOnCreate
     || (claimPrenom.trim() && claimNom.trim() && (isAdmin || claimPin.length >= 4));
 
-  // Un besoin administratif ne doit jamais être publié en double (titre
-  // identique, encore ouvert) — que ce soit via le formulaire classique ou
-  // une checklist suggérée. "fait" est exclu du champ, même règle que la
-  // suppression (voir deleteTask).
+  // Un besoin ne doit jamais être publié en double (titre identique, encore
+  // ouvert) — que ce soit via le formulaire classique ou une checklist
+  // suggérée. Les checklists suggérées couvrant désormais plusieurs
+  // catégories (courses, repas, transport…), le dédoublonnage porte sur
+  // toutes les catégories et non plus seulement "administratif". "fait" est
+  // exclu du champ, même règle que la suppression (voir deleteTask).
   function findDuplicateAdminTask(title: string, excludeId?: string): Task | undefined {
     const norm = title.trim().toLowerCase();
     if (!norm) return undefined;
     return tasks.find(
-      (t) => t.category === "administratif" && t.status !== "fait" && t.id !== excludeId
+      (t) => t.status !== "fait" && t.id !== excludeId
         && t.title.trim().toLowerCase() === norm,
     );
   }
@@ -1266,9 +1272,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         transport_confirmed_return_time: claimTarget.transport_return_time,
       } : {}),
     }).eq("id", claimTarget.id);
-    // "Je m'en occupe" sur un besoin administratif l'ajoute aussi à "Ma
-    // Checklist" du preneur — même objet, visible des deux côtés.
-    if (claimTarget.category === "administratif") {
+    // "Je m'en occupe" sur un besoin issu d'une checklist l'ajoute aussi à
+    // "Ma Checklist" du preneur — même objet, visible des deux côtés. Basé
+    // sur checklist_batch_id (posé sur tout item publié via une checklist,
+    // suggérée ou perso) plutôt que sur category, qui ne vaut plus toujours
+    // "administratif" depuis que les checklists suggérées couvrent aussi
+    // courses/repas/transport/affaires/autre.
+    if (claimTarget.checklist_batch_id) {
       await supabase.from("personal_checklist_items").insert({
         space_id: spaceId,
         owner_prenom: claimPrenom.trim(),
@@ -1343,8 +1353,9 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       }).eq("id", task.id);
       // Se désinscrire retire aussi le besoin de "Ma Checklist" du preneur —
       // il n'est plus le sien, un autre item (créé par un autre propriétaire)
-      // reste intact si jamais il en existe un pour ce même task_id.
-      if (task.category === "administratif" && task.claimed_by_pin) {
+      // reste intact si jamais il en existe un pour ce même task_id. Même
+      // signal checklist_batch_id qu'à la prise en charge (voir performClaim).
+      if (task.checklist_batch_id && task.claimed_by_pin) {
         await supabase.from("personal_checklist_items").delete()
           .eq("task_id", task.id)
           .eq("owner_pin", task.claimed_by_pin)
@@ -2343,7 +2354,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       <Modal visible={checklistPicker} transparent animationType="fade" onRequestClose={() => setChecklistPicker(false)}>
         <View style={styles.centeredOverlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setChecklistPicker(false)} />
-          <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.gold }]}>
+          <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.gold, maxHeight: "82%" }]}>
             <Text style={[styles.sheetTitle, { color: C.text }]}>✨ Checklists suggérées</Text>
             <Text style={[styles.checklistIntro, { color: C.muted }]}>
               Choisis la situation qui correspond — tu pourras décocher ce qui ne s'applique pas avant d'ajouter.
@@ -2355,26 +2366,28 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             >
               <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.gold }}>+ Créer une nouvelle checklist</Text>
             </TouchableOpacity>
-            {(Object.keys(CHECKLIST_TEMPLATES) as ChecklistContext[]).map((ctx) => {
-              const tpl = CHECKLIST_TEMPLATES[ctx];
-              const count = tpl.groups.reduce((n, g) => n + g.items.length, 0);
-              const color = C[tpl.colorKey];
-              return (
-                <TouchableOpacity
-                  key={ctx}
-                  style={[styles.checklistCard, { borderColor: color, backgroundColor: color + "14" }]}
-                  onPress={() => openChecklistContext(ctx)}
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.checklistCardIcon}>{tpl.icon}</Text>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.checklistCardTitle, { color: C.text }]}>{tpl.label}</Text>
-                    <Text style={[styles.checklistCardCount, { color: C.muted }]}>{count} besoins suggérés</Text>
-                  </View>
-                  <Text style={[styles.checklistCardArrow, { color }]}>→</Text>
-                </TouchableOpacity>
-              );
-            })}
+            <ScrollView style={styles.checklistPickerScroll} showsVerticalScrollIndicator nestedScrollEnabled>
+              {(Object.keys(CHECKLIST_TEMPLATES) as ChecklistContext[]).map((ctx) => {
+                const tpl = CHECKLIST_TEMPLATES[ctx];
+                const count = tpl.groups.reduce((n, g) => n + g.items.length, 0);
+                const color = C[tpl.colorKey];
+                return (
+                  <TouchableOpacity
+                    key={ctx}
+                    style={[styles.checklistCard, { borderColor: color, backgroundColor: color + "14" }]}
+                    onPress={() => openChecklistContext(ctx)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.checklistCardIcon}>{tpl.icon}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.checklistCardTitle, { color: C.text }]}>{tpl.label}</Text>
+                      <Text style={[styles.checklistCardCount, { color: C.muted }]}>{count} besoins suggérés</Text>
+                    </View>
+                    <Text style={[styles.checklistCardArrow, { color }]}>→</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
             <TouchableOpacity
               onPress={() => setChecklistPicker(false)}
               style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", marginTop: 10 }}
@@ -2454,6 +2467,22 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                                 </View>
                                 {!!item.description && (
                                   <Text style={[styles.checklistItemDesc, { color: C.muted }]}>{item.description}</Text>
+                                )}
+                                {!!item.piecesRequises?.length && (
+                                  <Text style={[styles.checklistItemDesc, { color: C.muted }]}>
+                                    📎 Pièces à réunir : {item.piecesRequises.join(", ")}
+                                  </Text>
+                                )}
+                                {!!item.lienExterne && (
+                                  <TouchableOpacity
+                                    onPress={() => Linking.openURL(item.lienExterne!.url).catch(() => {})}
+                                    hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                                  >
+                                    <Text style={[styles.checklistItemLink, { color }]}>🔗 {item.lienExterne.label}</Text>
+                                  </TouchableOpacity>
+                                )}
+                                {item.recurrent === "mensuel" && (
+                                  <Text style={[styles.checklistItemDesc, { color: C.muted }]}>🔁 Rappel à renouveler chaque mois</Text>
                                 )}
                               </View>
                             </TouchableOpacity>
@@ -3437,6 +3466,8 @@ const styles = StyleSheet.create({
   checklistCardArrow: { fontFamily: "DM_Sans_700Bold", fontSize: 18 },
   checklistToggleAll: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12.5, marginBottom: 10 },
   checklistScroll: { height: 340 },
+  checklistPickerScroll: { maxHeight: 340 },
+  checklistItemLink: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12.5, lineHeight: 17, marginTop: 2, textDecorationLine: "underline" },
   checklistPhase: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", marginTop: 10, marginBottom: 6 },
   checklistItemRow: { flexDirection: "row", gap: 10, paddingVertical: 8, alignItems: "flex-start" },
   checklistBox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, alignItems: "center", justifyContent: "center", marginTop: 1 },
