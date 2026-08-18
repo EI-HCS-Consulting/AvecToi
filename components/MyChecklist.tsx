@@ -6,6 +6,7 @@ import {
 import * as Crypto from "expo-crypto";
 import { supabase } from "@/lib/supabase";
 import ConfirmModal from "@/components/ConfirmModal";
+import MiniCalendar from "@/components/MiniCalendar";
 import { normalizePhone } from "@/lib/phone";
 import { CHECKLIST_TEMPLATES, addDaysIso, checklistItemDescription, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
 import type { PersonalChecklistItem, IntervenantChecklistTemplate, Task } from "@/lib/types";
@@ -38,10 +39,12 @@ function linesToTitles(text: string): string[] {
 
 // Bloc "Ma Checklist" (Mon Compte, admin + visiteur) : liste personnelle où
 // chacun peut cocher "Fait" directement, ajouter ses propres items en texte
-// libre, ou importer une des 3 checklists suggérées d'Entraide. Un item
-// importé reste lié à un vrai besoin `tasks` (visible du Mur d'Entraide) :
-// basculer son statut ici met aussi à jour tasks.status, qui se propage
-// partout via l'abonnement realtime déjà en place dans Entraide.tsx.
+// libre, ou importer une des checklists suggérées d'Entraide. Par défaut un
+// import reste privé (aucune ligne tasks créée) — bascule "Publier aussi sur
+// le Mur d'Entraide" dans confirmImport pour lier l'item à un vrai besoin
+// `tasks` public ; dans ce cas, basculer son statut ici met aussi à jour
+// tasks.status, qui se propage partout via l'abonnement realtime déjà en
+// place dans Entraide.tsx.
 export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, ownerPin, C, hideImportBanner, intervenantTelephone }: Props) {
   const normalizedTelephone = intervenantTelephone ? normalizePhone(intervenantTelephone) : "";
   const canUseTemplates = normalizedTelephone.length >= 6;
@@ -102,6 +105,18 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
   const [importCustomItems, setImportCustomItems] = useState<string[]>([]);
   const [importItemDraft, setImportItemDraft] = useState("");
   const [importSaving, setImportSaving] = useState(false);
+  // Par défaut, un import reste privé (checklist perso, task_id null) —
+  // conforme au texte affiché sur le picker ("visible de toi seul"). Bascule
+  // explicite pour publier aussi sur le Mur d'Entraide (crée en plus une
+  // ligne tasks liée). Avant ce correctif, confirmImport publiait toujours
+  // les deux à la fois, d'où l'item visible à double (Mon Compte + Entraide)
+  // signalé par un visiteur.
+  const [importPublic, setImportPublic] = useState(false);
+  const [importItemUrgent, setImportItemUrgent] = useState<Record<number, boolean>>({});
+  const [importItemDetail, setImportItemDetail] = useState<Record<number, string>>({});
+  const [importDateLimite, setImportDateLimite] = useState("");
+  const [importDLPickerOpen, setImportDLPickerOpen] = useState(false);
+  const [importDLCalMonth, setImportDLCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
   // Requêté à l'ouverture du picker plutôt que tenu en permanence — MyChecklist
   // n'a pas besoin de la liste complète des besoins hors de ce flux d'import.
   const [existingTasks, setExistingTasks] = useState<Task[]>([]);
@@ -363,7 +378,16 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     setImportChecked({});
     setImportCustomItems([]);
     setImportItemDraft("");
+    setImportPublic(false);
+    setImportItemUrgent({});
+    setImportItemDetail({});
+    setImportDateLimite("");
+    setImportDLPickerOpen(false);
     setPicker(false);
+  }
+
+  function toggleImportItemUrgent(i: number, defaultUrgent: boolean) {
+    setImportItemUrgent((prev) => ({ ...prev, [i]: !(prev[i] ?? defaultUrgent) }));
   }
 
   function toggleImportItem(i: number) {
@@ -391,47 +415,93 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     if (!importCtx) return;
     const tpl = CHECKLIST_TEMPLATES[importCtx];
     const templateItems = tpl.groups.flatMap((g) => g.items).filter((it) => isAdmin || it.sharedWithVisitors);
+    // On garde l'index d'origine (utile pour retrouver urgence/précision
+    // saisies par item) uniquement pour les items du modèle — les items
+    // perso ajoutés ici (importCustomItems) n'ont pas ces réglages.
     const selected = [
-      ...templateItems.filter((item, i) => importChecked[i] && !findDuplicateTask(item.title)),
+      ...templateItems
+        .map((item, i) => ({ item, i }))
+        .filter(({ item, i }) => importChecked[i] && !findDuplicateTask(item.title)),
       ...importCustomItems
         .map((title): ChecklistItem => ({ title, description: "", sharedWithVisitors: true }))
-        .filter((item) => !findDuplicateTask(item.title)),
+        .filter((item) => !findDuplicateTask(item.title))
+        .map((item) => ({ item, i: -1 })),
     ];
     if (!selected.length) return;
     setImportSaving(true);
-    const batchId = Crypto.randomUUID();
-    const taskRows = selected.map((item) => ({
-      space_id: spaceId,
-      title: item.title,
-      description: checklistItemDescription(item),
-      category: item.category ?? "administratif",
-      status: "ouvert" as const,
-      created_by: isAdmin ? "admin" : "visiteur",
-      author_prenom: ownerPrenom || null,
-      author_nom: ownerNom || null,
-      author_pin: ownerPin || null,
-      date_limite: item.dateOffsetDays ? addDaysIso(item.dateOffsetDays) : null,
-      urgent: !!item.urgent,
-      checklist_batch_id: batchId,
-    }));
-    const { data: insertedTasks, error } = await supabase.from("tasks").insert(taskRows).select("id");
-    if (error || !insertedTasks) {
-      setImportSaving(false);
-      Alert.alert("Erreur", "Impossible d'importer la checklist : " + (error?.message ?? ""));
-      return;
+
+    // task_id par item importé — reste à null pour tous si l'import est
+    // privé (importPublic === false, réglage par défaut) : aucune ligne
+    // tasks n'est créée, donc rien ne remonte sur le Mur d'Entraide.
+    let taskIds: (string | null)[] = selected.map(() => null);
+    if (importPublic) {
+      const batchId = Crypto.randomUUID();
+      const taskRows = selected.map(({ item, i }) => {
+        const detail = i >= 0 ? importItemDetail[i]?.trim() : "";
+        const urgent = i >= 0 ? importItemUrgent[i] ?? !!item.urgent : !!item.urgent;
+        const description = [detail ? `Précision : ${detail}` : "", checklistItemDescription(item)]
+          .filter(Boolean)
+          .join("\n\n");
+        return {
+          space_id: spaceId,
+          title: item.title,
+          description,
+          category: item.category ?? "administratif",
+          status: "ouvert" as const,
+          created_by: isAdmin ? "admin" : "visiteur",
+          author_prenom: ownerPrenom || null,
+          author_nom: ownerNom || null,
+          author_pin: ownerPin || null,
+          date_limite: importDateLimite || (item.dateOffsetDays ? addDaysIso(item.dateOffsetDays) : null),
+          urgent,
+          checklist_batch_id: batchId,
+        };
+      });
+      const { data: insertedTasks, error } = await supabase.from("tasks").insert(taskRows).select("id");
+      if (error || !insertedTasks) {
+        setImportSaving(false);
+        Alert.alert("Erreur", "Impossible d'importer la checklist : " + (error?.message ?? ""));
+        return;
+      }
+      taskIds = insertedTasks.map((row: { id: string }) => row.id);
     }
-    const personalRows = insertedTasks.map((row: { id: string }, i: number) => ({
-      space_id: spaceId,
-      owner_prenom: ownerPrenom,
-      owner_nom: ownerNom,
-      owner_pin: ownerPin,
-      title: selected[i].title,
-      status: "a_faire" as const,
-      task_id: row.id,
-      checklist_context: importCtx,
-      custom_checklist_name: null,
-    }));
-    const { error: personalError } = await supabase.from("personal_checklist_items").insert(personalRows);
+
+    const personalRows = selected.map(({ item, i }, idx) => {
+      // personal_checklist_items n'a pas de colonne description : pour un
+      // import privé, la précision saisie (i >= 0 seulement, pas les items
+      // perso ajoutés ici) n'aurait nulle part où vivre si on ne l'ajoutait
+      // pas au titre — côté public, elle va dans la description de tasks.
+      const detail = !importPublic && i >= 0 ? importItemDetail[i]?.trim() : "";
+      return {
+        space_id: spaceId,
+        owner_prenom: ownerPrenom,
+        owner_nom: ownerNom,
+        owner_pin: ownerPin,
+        title: detail ? `${item.title} — ${detail}` : item.title,
+        status: "a_faire" as const,
+        task_id: taskIds[idx],
+        checklist_context: importCtx,
+        custom_checklist_name: null,
+      };
+    });
+    // Pièces à réunir → sous-items cochables : pas de vraie hiérarchie en
+    // base, mais les regrouper sous custom_checklist_name = titre du parent
+    // les affiche ensemble comme leur propre mini-checklist (voir
+    // groupItems), chacune cochable indépendamment.
+    const pieceRows = selected.flatMap(({ item }) =>
+      (item.piecesRequises ?? []).map((piece) => ({
+        space_id: spaceId,
+        owner_prenom: ownerPrenom,
+        owner_nom: ownerNom,
+        owner_pin: ownerPin,
+        title: piece,
+        status: "a_faire" as const,
+        task_id: null,
+        checklist_context: null,
+        custom_checklist_name: item.title,
+      })),
+    );
+    const { error: personalError } = await supabase.from("personal_checklist_items").insert([...personalRows, ...pieceRows]);
     setImportSaving(false);
     if (personalError) {
       Alert.alert("Erreur", "Impossible d'importer la checklist : " + personalError.message);
@@ -1005,43 +1075,70 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                     {templateItems.map((item, i) => {
                       const checked = !!importChecked[i];
                       const dup = findDuplicateTask(item.title);
+                      const itemUrgent = importItemUrgent[i] ?? !!item.urgent;
                       return (
-                        <TouchableOpacity
-                          key={i}
-                          style={[styles.itemRow, !!dup && { opacity: 0.55 }]}
-                          onPress={() => !dup && toggleImportItem(i)}
-                          activeOpacity={0.7}
-                        >
-                          <View
-                            style={[
-                              styles.box,
-                              { borderColor: checked && !dup ? color : C.border, backgroundColor: checked && !dup ? color : "transparent" },
-                            ]}
+                        <View key={i} style={!!dup && { opacity: 0.55 }}>
+                          <TouchableOpacity
+                            style={styles.itemRow}
+                            onPress={() => !dup && toggleImportItem(i)}
+                            activeOpacity={0.7}
                           >
-                            {checked && !dup && <Text style={styles.boxMark}>✓</Text>}
-                          </View>
-                          <View style={{ flex: 1 }}>
-                            <Text style={[styles.itemTitle, { color: checked && !dup ? C.text : C.muted }]}>{item.title}</Text>
-                            {!!dup && <Text style={[styles.dupHint, { color: C.muted }]}>déjà dans le Mur d'Entraide</Text>}
-                            {!!item.description && !dup && (
-                              <Text style={[styles.itemDesc, { color: C.muted }]}>{item.description}</Text>
-                            )}
-                            {!!item.piecesRequises?.length && !dup && (
-                              <Text style={[styles.itemDesc, { color: C.muted }]}>📎 Pièces à réunir : {item.piecesRequises.join(", ")}</Text>
-                            )}
-                            {!!item.lienExterne && !dup && (
-                              <TouchableOpacity
-                                onPress={() => Linking.openURL(item.lienExterne!.url).catch(() => {})}
-                                hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-                              >
-                                <Text style={[styles.itemLink, { color }]}>🔗 {item.lienExterne.label}</Text>
-                              </TouchableOpacity>
-                            )}
-                            {item.recurrent === "mensuel" && !dup && (
-                              <Text style={[styles.itemDesc, { color: C.muted }]}>🔁 Rappel à renouveler chaque mois</Text>
-                            )}
-                          </View>
-                        </TouchableOpacity>
+                            <View
+                              style={[
+                                styles.box,
+                                { borderColor: checked && !dup ? color : C.border, backgroundColor: checked && !dup ? color : "transparent" },
+                              ]}
+                            >
+                              {checked && !dup && <Text style={styles.boxMark}>✓</Text>}
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
+                                <Text style={[styles.itemTitle, { color: checked && !dup ? C.text : C.muted }]}>{item.title}</Text>
+                                {checked && !dup && importPublic && (
+                                  <TouchableOpacity
+                                    onPress={() => toggleImportItemUrgent(i, !!item.urgent)}
+                                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                  >
+                                    <View style={[styles.urgentChip, { backgroundColor: itemUrgent ? C.danger + "22" : C.border + "55" }]}>
+                                      <Text style={[styles.urgentChipText, { color: itemUrgent ? C.danger : C.muted }]}>
+                                        {itemUrgent ? "urgent" : "marquer urgent"}
+                                      </Text>
+                                    </View>
+                                  </TouchableOpacity>
+                                )}
+                              </View>
+                              {!!dup && <Text style={[styles.dupHint, { color: C.muted }]}>déjà dans le Mur d'Entraide</Text>}
+                              {!!item.description && !dup && (
+                                <Text style={[styles.itemDesc, { color: C.muted }]}>{item.description}</Text>
+                              )}
+                              {!!item.piecesRequises?.length && !dup && (
+                                <Text style={[styles.itemDesc, { color: C.muted }]}>
+                                  📎 Pièces à réunir (deviendront des sous-items à cocher) : {item.piecesRequises.join(", ")}
+                                </Text>
+                              )}
+                              {!!item.lienExterne && !dup && (
+                                <TouchableOpacity
+                                  onPress={() => Linking.openURL(item.lienExterne!.url).catch(() => {})}
+                                  hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                                >
+                                  <Text style={[styles.itemLink, { color }]}>🔗 {item.lienExterne.label}</Text>
+                                </TouchableOpacity>
+                              )}
+                              {item.recurrent === "mensuel" && !dup && (
+                                <Text style={[styles.itemDesc, { color: C.muted }]}>🔁 Rappel à renouveler chaque mois</Text>
+                              )}
+                            </View>
+                          </TouchableOpacity>
+                          {checked && !dup && (
+                            <TextInput
+                              style={[styles.detailInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                              placeholder="Préciser (optionnel) : chez qui, laquelle, pour qui…"
+                              placeholderTextColor={C.muted}
+                              value={importItemDetail[i] ?? ""}
+                              onChangeText={(t) => setImportItemDetail((prev) => ({ ...prev, [i]: t }))}
+                            />
+                          )}
+                        </View>
                       );
                     })}
                     {importCustomItems.map((title, i) => (
@@ -1077,6 +1174,50 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                       <Text style={[styles.groupAddBtnText, { color }]}>+ Ajouter un item</Text>
                     </TouchableOpacity>
                   </View>
+
+                  <View style={[styles.divider, { backgroundColor: color }]} />
+
+                  <View style={styles.visibilityRow}>
+                    <Text style={[styles.visibilityLabel, { color: C.text }]}>
+                      {importPublic ? "📢 Publier aussi sur le Mur d'Entraide" : "🔒 Rester privé (visible de toi seul)"}
+                    </Text>
+                    <Switch value={importPublic} onValueChange={setImportPublic} trackColor={{ true: color }} />
+                  </View>
+
+                  {importPublic && (
+                    <>
+                      <TouchableOpacity
+                        style={[
+                          styles.dateBtn,
+                          { backgroundColor: importDLPickerOpen ? `${color}22` : C.bg, borderColor: importDLPickerOpen ? color : C.border },
+                        ]}
+                        onPress={() => {
+                          if (importDLPickerOpen) setImportDateLimite("");
+                          setImportDLPickerOpen((v) => !v);
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.dateBtnText, { color: importDLPickerOpen ? color : C.text }]}>
+                          {importDLPickerOpen
+                            ? "📅 Retirer l'échéance"
+                            : importDateLimite
+                              ? `📅 Échéance : ${importDateLimite}`
+                              : "📅 Ajouter une échéance à tous les items cochés (optionnel)"}
+                        </Text>
+                      </TouchableOpacity>
+                      {importDLPickerOpen && (
+                        <MiniCalendar
+                          selDate={importDateLimite}
+                          onSelect={setImportDateLimite}
+                          calMonth={importDLCalMonth}
+                          onMonthChange={setImportDLCalMonth}
+                          startDate={new Date()}
+                          C={C}
+                          size="lg"
+                        />
+                      )}
+                    </>
+                  )}
 
                   <View style={styles.sheetBtns}>
                     <TouchableOpacity
@@ -1169,4 +1310,17 @@ const styles = StyleSheet.create({
   dupHint: { fontFamily: "DM_Sans_400Regular", fontSize: 11.5, marginTop: 2 },
   itemDesc: { fontFamily: "DM_Sans_400Regular", fontSize: 12.5, lineHeight: 17, marginTop: 2 },
   itemLink: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12.5, lineHeight: 17, marginTop: 2, textDecorationLine: "underline" },
+  urgentChip: { borderRadius: 5, paddingHorizontal: 6, paddingVertical: 1, marginLeft: 8 },
+  urgentChipText: { fontFamily: "DM_Sans_700Bold", fontSize: 9.5, letterSpacing: 0.4, textTransform: "uppercase" },
+  detailInput: {
+    marginLeft: 32, marginBottom: 8, marginTop: -4, height: 36, borderRadius: 8, borderWidth: 1,
+    paddingHorizontal: 10, fontFamily: "DM_Sans_400Regular", fontSize: 12.5,
+  },
+  visibilityRow: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    paddingVertical: 10, paddingHorizontal: 2,
+  },
+  visibilityLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13, flex: 1, marginRight: 10 },
+  dateBtn: { borderWidth: 1, borderRadius: 10, paddingVertical: 12, alignItems: "center", marginTop: 10 },
+  dateBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
 });

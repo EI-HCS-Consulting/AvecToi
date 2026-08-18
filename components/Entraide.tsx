@@ -208,6 +208,19 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // qu'un textarea multi-lignes.
   const [checklistCustomItems, setChecklistCustomItems] = useState<string[]>([]);
   const [checklistItemDraft, setChecklistItemDraft] = useState("");
+  // Ajustements par item avant publication : urgence (part de item.urgent,
+  // modifiable), et précision libre (ex. "chez qui", "laquelle") pour les
+  // items génériques comme "Prendre ou confirmer un rendez-vous" — ajoutée à
+  // la description finale via checklistItemDescription.
+  const [checklistItemUrgent, setChecklistItemUrgent] = useState<Record<number, boolean>>({});
+  const [checklistItemDetail, setChecklistItemDetail] = useState<Record<number, string>>({});
+  // Échéance de lot : s'applique à tous les items sélectionnés au moment de
+  // la publication (remplace leur dateOffsetDays éventuel) — pas de
+  // calendrier par item pour ne pas alourdir une liste qui peut compter
+  // plusieurs dizaines d'items.
+  const [checklistDateLimite, setChecklistDateLimite] = useState("");
+  const [checklistDLPickerOpen, setChecklistDLPickerOpen] = useState(false);
+  const [checklistDLCalMonth, setChecklistDLCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
 
   // Popup "Créer une nouvelle checklist" (perso, hors templates) — ouvert
   // depuis le popup de choix ci-dessus (voir openCustomChecklistModal),
@@ -566,11 +579,19 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setChecklistChecked(initial);
     setChecklistCustomItems([]);
     setChecklistItemDraft("");
+    setChecklistItemUrgent({});
+    setChecklistItemDetail({});
+    setChecklistDateLimite("");
+    setChecklistDLPickerOpen(false);
     setChecklistContext(ctx);
   }
 
   function toggleChecklistItem(i: number) {
     setChecklistChecked((prev) => ({ ...prev, [i]: !prev[i] }));
+  }
+
+  function toggleChecklistItemUrgent(i: number, defaultUrgent: boolean) {
+    setChecklistItemUrgent((prev) => ({ ...prev, [i]: !(prev[i] ?? defaultUrgent) }));
   }
 
   function toggleAllChecklist(on: boolean) {
@@ -613,28 +634,40 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     const customItems: ChecklistItem[] = checklistCustomItems
       .filter((title) => !findDuplicateAdminTask(title))
       .map((title) => ({ title, description: "", sharedWithVisitors: true }));
+    // On garde l'index d'origine des items du modèle pour retrouver leurs
+    // ajustements (urgence, précision) saisis dans le popup — perdus si on se
+    // contentait de filtrer le tableau.
     const selected = [
-      ...items.filter((item, i) => checklistChecked[i] && !findDuplicateAdminTask(item.title)),
-      ...customItems,
+      ...items
+        .map((item, i) => ({ item, i }))
+        .filter(({ item, i }) => checklistChecked[i] && !findDuplicateAdminTask(item.title)),
+      ...customItems.map((item) => ({ item, i: -1 })),
     ];
     if (!selected.length) return;
     setChecklistSaving(true);
     const author = await currentAuthor();
     const batchId = Crypto.randomUUID();
-    const rows = selected.map((item) => ({
-      space_id: spaceId,
-      title: item.title,
-      description: checklistItemDescription(item),
-      category: item.category ?? "administratif",
-      status: "ouvert" as const,
-      created_by: isAdmin ? "admin" : "visiteur",
-      author_prenom: author.prenom || null,
-      author_nom: author.nom || null,
-      author_pin: author.pin || null,
-      date_limite: item.dateOffsetDays ? addDaysIso(item.dateOffsetDays) : null,
-      urgent: !!item.urgent,
-      checklist_batch_id: batchId,
-    }));
+    const rows = selected.map(({ item, i }) => {
+      const detail = i >= 0 ? checklistItemDetail[i]?.trim() : "";
+      const urgent = i >= 0 ? checklistItemUrgent[i] ?? !!item.urgent : !!item.urgent;
+      const description = [detail ? `Précision : ${detail}` : "", checklistItemDescription(item)]
+        .filter(Boolean)
+        .join("\n\n");
+      return {
+        space_id: spaceId,
+        title: item.title,
+        description,
+        category: item.category ?? "administratif",
+        status: "ouvert" as const,
+        created_by: isAdmin ? "admin" : "visiteur",
+        author_prenom: author.prenom || null,
+        author_nom: author.nom || null,
+        author_pin: author.pin || null,
+        date_limite: checklistDateLimite || (item.dateOffsetDays ? addDaysIso(item.dateOffsetDays) : null),
+        urgent,
+        checklist_batch_id: batchId,
+      };
+    });
     const { data: inserted, error } = await supabase.from("tasks").insert(rows).select("id");
     setChecklistSaving(false);
     if (error) {
@@ -645,10 +678,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setChecklistPicker(false);
     setChecklistCustomItems([]);
     setChecklistItemDraft("");
+    setChecklistItemUrgent({});
+    setChecklistItemDetail({});
+    setChecklistDateLimite("");
+    setChecklistDLPickerOpen(false);
     // Un lot de checklist peut désormais couvrir plusieurs catégories — on ne
     // bascule l'onglet actif que si tous les items publiés partagent la même,
     // sinon on retombe sur "Tous" pour que le lot entier reste visible.
-    const batchCategories = new Set(selected.map((item) => item.category ?? "administratif"));
+    const batchCategories = new Set(selected.map(({ item }) => item.category ?? "administratif"));
     setActiveCat(batchCategories.size === 1 ? [...batchCategories][0] : null);
     triggerBatchUndo(inserted?.map((r) => r.id) ?? [], selected.length);
     loadTasks();
@@ -1279,16 +1316,27 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     // "administratif" depuis que les checklists suggérées couvrent aussi
     // courses/repas/transport/affaires/autre.
     if (claimTarget.checklist_batch_id) {
-      await supabase.from("personal_checklist_items").insert({
-        space_id: spaceId,
-        owner_prenom: claimPrenom.trim(),
-        owner_nom: claimNom.trim(),
-        owner_pin: claimPin,
-        title: claimTarget.title,
-        status: "a_faire",
-        task_id: claimTarget.id,
-        checklist_context: findTemplateContextForTitle(claimTarget.title),
-      });
+      // Un item importé depuis "Ma Checklist" (checklist privée publiée sur
+      // le Mur) crée déjà sa propre ligne personal_checklist_items côté
+      // importateur — si c'est aussi lui qui prend en charge ici (même PIN),
+      // éviter un doublon visuel dans sa checklist personnelle.
+      const { data: existing } = await supabase.from("personal_checklist_items")
+        .select("id")
+        .eq("task_id", claimTarget.id)
+        .eq("owner_pin", claimPin)
+        .maybeSingle();
+      if (!existing) {
+        await supabase.from("personal_checklist_items").insert({
+          space_id: spaceId,
+          owner_prenom: claimPrenom.trim(),
+          owner_nom: claimNom.trim(),
+          owner_pin: claimPin,
+          title: claimTarget.title,
+          status: "a_faire",
+          task_id: claimTarget.id,
+          checklist_context: findTemplateContextForTitle(claimTarget.title),
+        });
+      }
     }
     setClaimSaving(false);
     if (!isAdmin) {
@@ -2436,56 +2484,74 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                           const i = runningIndex;
                           const checked = !!checklistChecked[i];
                           const dup = findDuplicateAdminTask(item.title);
+                          const itemUrgent = checklistItemUrgent[i] ?? !!item.urgent;
                           return (
-                            <TouchableOpacity
-                              key={i}
-                              style={[styles.checklistItemRow, !!dup && { opacity: 0.55 }]}
-                              onPress={() => { if (dup) { setDuplicateTarget(dup); return; } toggleChecklistItem(i); }}
-                              activeOpacity={0.7}
-                            >
-                              <View
-                                style={[
-                                  styles.checklistBox,
-                                  { borderColor: checked && !dup ? color : C.border, backgroundColor: checked && !dup ? color : "transparent" },
-                                ]}
+                            <View key={i} style={[!!dup && { opacity: 0.55 }]}>
+                              <TouchableOpacity
+                                style={styles.checklistItemRow}
+                                onPress={() => { if (dup) { setDuplicateTarget(dup); return; } toggleChecklistItem(i); }}
+                                activeOpacity={0.7}
                               >
-                                {checked && !dup && <Text style={styles.checklistBoxMark}>✓</Text>}
-                              </View>
-                              <View style={{ flex: 1 }}>
-                                <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
-                                  <Text style={[styles.checklistItemTitle, { color: checked && !dup ? C.text : C.muted }]}>{item.title}</Text>
-                                  {item.urgent && !dup && (
-                                    <View style={[styles.checklistUrgentChip, { backgroundColor: C.danger + "22" }]}>
-                                      <Text style={[styles.checklistUrgentChipText, { color: C.danger }]}>urgent</Text>
-                                    </View>
+                                <View
+                                  style={[
+                                    styles.checklistBox,
+                                    { borderColor: checked && !dup ? color : C.border, backgroundColor: checked && !dup ? color : "transparent" },
+                                  ]}
+                                >
+                                  {checked && !dup && <Text style={styles.checklistBoxMark}>✓</Text>}
+                                </View>
+                                <View style={{ flex: 1 }}>
+                                  <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
+                                    <Text style={[styles.checklistItemTitle, { color: checked && !dup ? C.text : C.muted }]}>{item.title}</Text>
+                                    {checked && !dup && (
+                                      <TouchableOpacity
+                                        onPress={() => toggleChecklistItemUrgent(i, !!item.urgent)}
+                                        hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                      >
+                                        <View style={[styles.checklistUrgentChip, { backgroundColor: itemUrgent ? C.danger + "22" : C.border + "55" }]}>
+                                          <Text style={[styles.checklistUrgentChipText, { color: itemUrgent ? C.danger : C.muted }]}>
+                                            {itemUrgent ? "urgent" : "marquer urgent"}
+                                          </Text>
+                                        </View>
+                                      </TouchableOpacity>
+                                    )}
+                                    {!!dup && (
+                                      <View style={[styles.checklistUrgentChip, { backgroundColor: C.muted + "22" }]}>
+                                        <Text style={[styles.checklistUrgentChipText, { color: C.muted }]}>déjà ajouté</Text>
+                                      </View>
+                                    )}
+                                  </View>
+                                  {!!item.description && (
+                                    <Text style={[styles.checklistItemDesc, { color: C.muted }]}>{item.description}</Text>
                                   )}
-                                  {!!dup && (
-                                    <View style={[styles.checklistUrgentChip, { backgroundColor: C.muted + "22" }]}>
-                                      <Text style={[styles.checklistUrgentChipText, { color: C.muted }]}>déjà ajouté</Text>
-                                    </View>
+                                  {!!item.piecesRequises?.length && (
+                                    <Text style={[styles.checklistItemDesc, { color: C.muted }]}>
+                                      📎 Pièces à réunir : {item.piecesRequises.join(", ")}
+                                    </Text>
+                                  )}
+                                  {!!item.lienExterne && (
+                                    <TouchableOpacity
+                                      onPress={() => Linking.openURL(item.lienExterne!.url).catch(() => {})}
+                                      hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                                    >
+                                      <Text style={[styles.checklistItemLink, { color }]}>🔗 {item.lienExterne.label}</Text>
+                                    </TouchableOpacity>
+                                  )}
+                                  {item.recurrent === "mensuel" && (
+                                    <Text style={[styles.checklistItemDesc, { color: C.muted }]}>🔁 Rappel à renouveler chaque mois</Text>
                                   )}
                                 </View>
-                                {!!item.description && (
-                                  <Text style={[styles.checklistItemDesc, { color: C.muted }]}>{item.description}</Text>
-                                )}
-                                {!!item.piecesRequises?.length && (
-                                  <Text style={[styles.checklistItemDesc, { color: C.muted }]}>
-                                    📎 Pièces à réunir : {item.piecesRequises.join(", ")}
-                                  </Text>
-                                )}
-                                {!!item.lienExterne && (
-                                  <TouchableOpacity
-                                    onPress={() => Linking.openURL(item.lienExterne!.url).catch(() => {})}
-                                    hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-                                  >
-                                    <Text style={[styles.checklistItemLink, { color }]}>🔗 {item.lienExterne.label}</Text>
-                                  </TouchableOpacity>
-                                )}
-                                {item.recurrent === "mensuel" && (
-                                  <Text style={[styles.checklistItemDesc, { color: C.muted }]}>🔁 Rappel à renouveler chaque mois</Text>
-                                )}
-                              </View>
-                            </TouchableOpacity>
+                              </TouchableOpacity>
+                              {checked && !dup && (
+                                <TextInput
+                                  style={[styles.checklistDetailInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                                  placeholder="Préciser (optionnel) : chez qui, laquelle, pour qui…"
+                                  placeholderTextColor={C.muted}
+                                  value={checklistItemDetail[i] ?? ""}
+                                  onChangeText={(t) => setChecklistItemDetail((prev) => ({ ...prev, [i]: t }))}
+                                />
+                              )}
+                            </View>
                           );
                         })}
                       </View>
@@ -2523,6 +2589,37 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                       <Text style={[styles.groupAddBtnText, { color }]}>+ Ajouter un item</Text>
                     </TouchableOpacity>
                   </View>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.claimOnCreateBtn,
+                      { backgroundColor: checklistDLPickerOpen ? `${color}22` : C.bg, borderColor: checklistDLPickerOpen ? color : C.border },
+                    ]}
+                    onPress={() => {
+                      if (checklistDLPickerOpen) setChecklistDateLimite("");
+                      setChecklistDLPickerOpen((v) => !v);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.claimOnCreateText, { color: checklistDLPickerOpen ? color : C.text }]}>
+                      {checklistDLPickerOpen
+                        ? "📅 Retirer l'échéance"
+                        : checklistDateLimite
+                          ? `📅 Échéance : ${checklistDateLimite}`
+                          : "📅 Ajouter une échéance à tous les items cochés (optionnel)"}
+                    </Text>
+                  </TouchableOpacity>
+                  {checklistDLPickerOpen && (
+                    <MiniCalendar
+                      selDate={checklistDateLimite}
+                      onSelect={setChecklistDateLimite}
+                      calMonth={checklistDLCalMonth}
+                      onMonthChange={setChecklistDLCalMonth}
+                      startDate={new Date()}
+                      C={C}
+                      size="lg"
+                    />
+                  )}
 
                   <Text style={[styles.publicNoticeText, { color: C.muted }]}>
                     ℹ️ Cette checklist sera publiée dans le Mur d'Entraide et visible par tous les visiteurs de l'espace.
@@ -3476,6 +3573,10 @@ const styles = StyleSheet.create({
   checklistItemDesc: { fontFamily: "DM_Sans_400Regular", fontSize: 12.5, lineHeight: 17, marginTop: 2 },
   checklistUrgentChip: { borderRadius: 5, paddingHorizontal: 6, paddingVertical: 1, marginLeft: 8 },
   checklistUrgentChipText: { fontFamily: "DM_Sans_700Bold", fontSize: 9.5, letterSpacing: 0.4, textTransform: "uppercase" },
+  checklistDetailInput: {
+    marginLeft: 32, marginBottom: 8, marginTop: -4, height: 36, borderRadius: 8, borderWidth: 1,
+    paddingHorizontal: 10, fontFamily: "DM_Sans_400Regular", fontSize: 12.5,
+  },
 
   // Ligne d'ajout d'item perso "brouillon" (checklist suggérée ou perso) —
   // même gabarit que components/MyChecklist.tsx (groupAddRow et alentours),
