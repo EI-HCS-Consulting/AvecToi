@@ -1696,7 +1696,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       <Pressable
         key={t.id}
         onLayout={(e) => { taskOffsets.current[t.id] = e.nativeEvent.layout.y; }}
-        onLongPress={() => { if (selectable && !selectionMode) enterSelection(t.id); }}
+        onLongPress={() => {
+          if (selectable && !selectionMode) enterSelection(t.id);
+          // Sur un besoin "fait", la sélection multiple est désactivée (voir
+          // `selectable`) — ce clic prolongé libéré ouvre directement
+          // "Modifier le besoin" pour l'admin (accès au bouton "Je m'en
+          // occupe", voir plus bas).
+          else if (isAdmin && !selectable) openEditTask(t);
+        }}
         onPress={() => { if (selectable && selectionMode) toggleTaskSelected(t.id); }}
         pointerEvents={selectable && selectionMode ? "box-only" : "auto"}
         style={[
@@ -2398,6 +2405,34 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                       {fUrgent ? "🔴 Besoin urgent" : "⚪ Marquer comme urgent"}
                     </Text>
                   </TouchableOpacity>
+
+                  {!!editTask?.claimed_by_prenom && (
+                    <TouchableOpacity
+                      style={[styles.claimOnCreateBtn, { backgroundColor: C.bg, borderColor: C.border, marginTop: 10 }]}
+                      onPress={() => {
+                        const target = editTask;
+                        if (!target) return;
+                        Alert.alert(
+                          "Je m'en occupe",
+                          `Retirer ${target.claimed_by_prenom} ${target.claimed_by_nom} de ce besoin et le rouvrir pour tout le monde ?`,
+                          [
+                            { text: "Annuler", style: "cancel" },
+                            {
+                              text: "Confirmer",
+                              style: "destructive",
+                              onPress: async () => {
+                                await performUnclaim(target);
+                                setTaskForm(false);
+                              },
+                            },
+                          ]
+                        );
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.claimOnCreateText, { color: C.text }]}>↩️ Je m'en occupe</Text>
+                    </TouchableOpacity>
+                  )}
 
                   {!editTask && (
                     <>

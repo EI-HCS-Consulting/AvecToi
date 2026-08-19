@@ -54,6 +54,12 @@ export default function ShoppingListModal({ visible, onClose, C, task }: Props) 
     if (nextBought && task && task.status !== "fait" && nextItems.length > 0 && nextItems.every((it) => it.bought)) {
       await supabase.from("tasks").update({ status: "fait" }).eq("id", task.id);
     }
+    // Redécocher un article après coup annule ce constat : le besoin repasse
+    // à l'état où il était avant d'être marqué "fait" tout seul.
+    if (!nextBought && task && task.status === "fait") {
+      const revertStatus = task.claimed_by_prenom ? "pris_en_charge" : "ouvert";
+      await supabase.from("tasks").update({ status: revertStatus }).eq("id", task.id);
+    }
   }
 
   async function removeItem(item: ShoppingListItem) {
