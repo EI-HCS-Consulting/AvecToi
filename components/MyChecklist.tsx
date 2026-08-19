@@ -572,26 +572,6 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     setImportWizardStep((s) => s - 1);
   }
 
-  // Clic sur "Marquer urgent" (écran chaîné après le choix de l'échéance,
-  // voir la modale assistant) : l'item est considéré validé — on marque et
-  // on avance dans le même geste, plutôt que de laisser l'utilisateur
-  // rebasculer le champ puis appuyer sur "Suivant" séparément. Calcule
-  // explicitement l'objet fusionné (nextData) et le transmet directement à
-  // publishImportWizard sur le dernier item, pour éviter de publier avec une
-  // valeur d'état pas encore à jour (setImportWizardData est asynchrone).
-  function importWizardMarkUrgentAndNext() {
-    const entry = importWizardList[importWizardStep];
-    if (!entry) return;
-    const current = importWizardData[entry.key] ?? { dateLimite: "", urgent: false, detail: "" };
-    const nextData = { ...importWizardData, [entry.key]: { ...current, urgent: true } };
-    setImportWizardData(nextData);
-    if (importWizardStep < importWizardList.length - 1) {
-      setImportWizardStep((s) => s + 1);
-    } else {
-      publishImportWizard(importSelected, nextData);
-    }
-  }
-
   async function publishImportWizard(selected: ImportWizardEntry[], data: Record<string, ImportWizardFields>) {
     if (!importCtx || !selected.length) return;
     setImportSaving(true);
@@ -669,6 +649,8 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
         task_id: null,
         checklist_context: importCtx,
         custom_checklist_name: item.title,
+        date_limite: null,
+        urgent: false,
       })),
     );
     const { error: personalError } = await supabase.from("personal_checklist_items").insert([...personalRows, ...pieceRows]);
@@ -1542,7 +1524,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
 
                       <Text style={[styles.fieldLabel, { color: C.gold }]}>Marquer Urgent</Text>
                       <TouchableOpacity
-                        onPress={importWizardMarkUrgentAndNext}
+                        onPress={() => updateImportWizardField(importWizardStep, { urgent: !fields.urgent })}
                         activeOpacity={0.8}
                         style={[
                           styles.dateBtn,
@@ -1550,7 +1532,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                         ]}
                       >
                         <Text style={[styles.dateBtnText, { color: fields.urgent ? C.danger : C.text }]}>
-                          {fields.urgent ? "🔴 Urgent — validé" : "⚪ Marquer urgent"}
+                          {fields.urgent ? "🔴 Urgent" : "⚪ Marquer urgent"}
                         </Text>
                       </TouchableOpacity>
                     </>
