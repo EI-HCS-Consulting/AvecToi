@@ -18,6 +18,7 @@ import SegmentedSwitch from "@/components/SegmentedSwitch";
 import MyChecklist from "@/components/MyChecklist";
 import MyAlertsModal from "@/components/MyAlertsModal";
 import { isRgpdAlertActive, rgpdAlertMessage, prolongSpace } from "@/lib/rgpd";
+import { confirmDisengageTask } from "@/lib/taskDisengage";
 import type { Reservation, ReservationChangeHistoryEntry, NewsEntry, SupportMessage, Task } from "@/lib/types";
 
 const CAT_ICONS: Record<Task["category"], string> = {
@@ -53,6 +54,9 @@ export default function AdminAccountScreen() {
   const [news, setNews] = useState<NewsEntry[]>([]);
   const [messages, setMessages] = useState<SupportMessage[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  // Besoins pris en charge personnellement par l'admin (agissant comme un
+  // visiteur) — même liste/geste que myTasks côté visiteur, voir disengageTask.
+  const [myClaimedTasks, setMyClaimedTasks] = useState<Task[]>([]);
 
   // ── Profil admin (distinct du patient — auth.users + user_metadata) ────────
   const [profileLoading, setProfileLoading] = useState(true);
@@ -281,7 +285,7 @@ export default function AdminAccountScreen() {
   async function loadActivity(spaceId: string, p: string, n: string) {
     setActivityLoading(true);
     const hasIdentity = !!p.trim() && !!n.trim();
-    const [resv, resvBookedFor, newsData, msgs, tasksData, changeHistoryData] = await Promise.all([
+    const [resv, resvBookedFor, newsData, msgs, tasksData, claimedTasksData, changeHistoryData] = await Promise.all([
       hasIdentity
         ? supabase.from("reservations").select("*").eq("space_id", spaceId)
             .ilike("prenom", p.trim()).ilike("nom", n.trim()).order("date", { ascending: false })
@@ -293,6 +297,10 @@ export default function AdminAccountScreen() {
       supabase.from("news_entries").select("*").eq("space_id", spaceId).eq("author_pin", "ADMIN").order("created_at", { ascending: false }),
       supabase.from("support_messages").select("*").eq("space_id", spaceId).eq("author_pin", "ADMIN").order("created_at", { ascending: false }),
       supabase.from("tasks").select("*").eq("space_id", spaceId).eq("created_by", "admin").order("created_at", { ascending: false }),
+      hasIdentity
+        ? supabase.from("tasks").select("*").eq("space_id", spaceId)
+            .ilike("claimed_by_prenom", p.trim()).ilike("claimed_by_nom", n.trim()).order("created_at", { ascending: false })
+        : Promise.resolve({ data: [] as Task[] }),
       hasIdentity
         ? supabase.from("reservation_change_history").select("*").eq("space_id", spaceId)
             .ilike("prenom", p.trim()).ilike("nom", n.trim()).order("changed_at", { ascending: false })
@@ -307,6 +315,7 @@ export default function AdminAccountScreen() {
     setNews(newsData.data || []);
     setMessages(msgs.data || []);
     setTasks(tasksData.data || []);
+    setMyClaimedTasks(claimedTasksData.data || []);
     setChangeHistory(changeHistoryData.data || []);
     setActivityLoading(false);
   }
@@ -602,47 +611,76 @@ export default function AdminAccountScreen() {
                       )}
 
                       {isOpen && key === "besoins" && (
-                        <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
-                          {tasks.length === 0 ? (
-                            <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucun besoin publié pour le moment.</Text>
-                          ) : tasks.map((t) => (
-                            <TouchableOpacity
-                              key={t.id}
-                              style={styles.activityRow}
-                              onPress={() => router.push("/(admin)/entraide" as any)}
-                              activeOpacity={0.7}
-                            >
-                              <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={1}>
-                                {CAT_ICONS[t.category]} {t.title}
-                              </Text>
-                              <View style={[
-                                styles.activityStatusBadge,
-                                {
-                                  borderColor: t.status === "fait" ? C.success
-                                    : t.status === "pris_en_charge" ? C.accent
-                                    : t.status === "ferme" ? C.danger
-                                    : C.orange,
-                                },
-                              ]}>
-                                <Text style={[
-                                  styles.activityStatusText,
+                        <>
+                          <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
+                            {myClaimedTasks.length === 0 ? (
+                              <Text style={[styles.activityEmpty, { color: C.muted }]}>Tu n'as pris en charge aucun besoin pour le moment.</Text>
+                            ) : myClaimedTasks.map((t) => (
+                              <TouchableOpacity
+                                key={t.id}
+                                style={styles.activityRow}
+                                onPress={() => router.push("/(admin)/entraide" as any)}
+                                onLongPress={() => confirmDisengageTask(t, () => {
+                                  showToast("Tu t'es désengagé ✓");
+                                  if (space) loadActivity(space.id, adminFirstname, adminLastname);
+                                })}
+                                activeOpacity={0.7}
+                              >
+                                <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
+                                  {CAT_ICONS[t.category]} {t.title}
+                                </Text>
+                                <View style={[styles.activityStatusBadge, { borderColor: t.status === "fait" ? C.success : C.orange }]}>
+                                  <Text style={[styles.activityStatusText, { color: t.status === "fait" ? C.success : C.orange }]}>
+                                    {t.status === "fait" ? "✓ Fait" : "⏳ En attente"}
+                                  </Text>
+                                </View>
+                                <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+
+                          <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
+                            {tasks.length === 0 ? (
+                              <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucun besoin publié pour le moment.</Text>
+                            ) : tasks.map((t) => (
+                              <TouchableOpacity
+                                key={t.id}
+                                style={styles.activityRow}
+                                onPress={() => router.push("/(admin)/entraide" as any)}
+                                activeOpacity={0.7}
+                              >
+                                <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={1}>
+                                  {CAT_ICONS[t.category]} {t.title}
+                                </Text>
+                                <View style={[
+                                  styles.activityStatusBadge,
                                   {
-                                    color: t.status === "fait" ? C.success
+                                    borderColor: t.status === "fait" ? C.success
                                       : t.status === "pris_en_charge" ? C.accent
                                       : t.status === "ferme" ? C.danger
                                       : C.orange,
                                   },
                                 ]}>
-                                  {t.status === "fait" ? "✓ Fait"
-                                    : t.status === "pris_en_charge" ? "⏳ Pris en charge"
-                                    : t.status === "ferme" ? "🔒 Fermé"
-                                    : "🔓 Ouvert"}
-                                </Text>
-                              </View>
-                              <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
-                            </TouchableOpacity>
-                          ))}
-                        </View>
+                                  <Text style={[
+                                    styles.activityStatusText,
+                                    {
+                                      color: t.status === "fait" ? C.success
+                                        : t.status === "pris_en_charge" ? C.accent
+                                        : t.status === "ferme" ? C.danger
+                                        : C.orange,
+                                    },
+                                  ]}>
+                                    {t.status === "fait" ? "✓ Fait"
+                                      : t.status === "pris_en_charge" ? "⏳ Pris en charge"
+                                      : t.status === "ferme" ? "🔒 Fermé"
+                                      : "🔓 Ouvert"}
+                                  </Text>
+                                </View>
+                                <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        </>
                       )}
                     </View>
                   );
