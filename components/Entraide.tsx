@@ -16,6 +16,7 @@ import MiniCalendar from "@/components/MiniCalendar";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import TimeClockPicker from "@/components/TimeClockPicker";
 import ConfirmModal from "@/components/ConfirmModal";
+import ShoppingListModal from "@/components/ShoppingListModal";
 import { toFrShort } from "@/lib/slotUtils";
 import { googleMapsSearchUrl, joinAddress } from "@/lib/address";
 import { addGenericEventToNativeCalendar } from "@/lib/calendarSync";
@@ -199,6 +200,17 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [fDLPickerOpen, setFDLPickerOpen] = useState(false);
   const [fDLCalMonth, setFDLCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
   const [fUrgent, setFUrgent] = useState(false);
+
+  // Liste de courses en bullet points (catégorie "courses", création
+  // uniquement — voir ShoppingListModal.tsx pour l'édition/coché "acheté"
+  // une fois le besoin publié, qui repart des vraies lignes shopping_list_items
+  // plutôt que de ce brouillon pour ne jamais écraser un article déjà coché).
+  const [fCourseItems, setFCourseItems] = useState<string[]>([]);
+  const [fCourseItemDraft, setFCourseItemDraft] = useState("");
+  // Besoin "courses" dont on affiche la liste (bouton "👁️ Aperçu" sur la
+  // carte) — même ShoppingListModal que "📄 Mes documents" (MyChecklist.tsx),
+  // donc toute modification se répercute des deux côtés sans synchronisation.
+  const [shoppingListTask, setShoppingListTask] = useState<Task | null>(null);
 
   // ── Checklists administratives suggérées (MVP) — voir CHECKLIST_TEMPLATES.
   // Popup accessible à l'admin comme aux visiteurs, depuis le bouton
@@ -561,6 +573,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setFTCalMonth(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
     setFDateLimite(""); setFDLPickerOpen(false); setFUrgent(false);
     setFDLCalMonth(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
+    setFCourseItems([]); setFCourseItemDraft("");
     setTaskForm(true);
   }
 
@@ -778,6 +791,17 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     if (!title) return;
     setCustomChecklistItems((prev) => [...prev, title]);
     setCustomChecklistItemDraft("");
+  }
+
+  function addFCourseItem() {
+    const label = fCourseItemDraft.trim();
+    if (!label) return;
+    setFCourseItems((prev) => [...prev, label]);
+    setFCourseItemDraft("");
+  }
+
+  function removeFCourseItem(i: number) {
+    setFCourseItems((prev) => prev.filter((_, idx) => idx !== i));
   }
 
   function removeCustomChecklistItem(i: number) {
@@ -1068,7 +1092,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           transport_for_nom: fTForSomeoneElse ? fTForNom.trim() : null,
         };
       }
-      const { error: insertError } = await supabase.from("tasks").insert({
+      const { data: insertedTask, error: insertError } = await supabase.from("tasks").insert({
         space_id: spaceId,
         title: fTitle.trim(),
         description: fDesc.trim(),
@@ -1092,11 +1116,16 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             transport_confirmed_return_time: fTRoundTrip ? fTReturnTime : null,
           } : {}),
         } : {}),
-      });
+      }).select("id").single();
       if (insertError) {
         Alert.alert("Erreur", "Impossible de créer le besoin : " + insertError.message);
         setTaskSaving(false);
         return;
+      }
+      if (fCat === "courses" && fCourseItems.length && insertedTask) {
+        await supabase.from("shopping_list_items").insert(
+          fCourseItems.map((label, position) => ({ task_id: insertedTask.id, label, position })),
+        );
       }
       if (claimOnCreate && !isAdmin) await rememberAuthorPin(claimPrenom.trim(), claimNom.trim(), claimPin);
       showToast(claimOnCreate ? "Besoin créé — tu t'en occupes déjà ✓" : "Besoin créé ✓");
@@ -1754,6 +1783,16 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           <Image source={{ uri: taskPhotoUrl(spaceId, t.photo) }} style={styles.taskPhoto} resizeMode="cover" />
         )}
 
+        {t.category === "courses" && (
+          <TouchableOpacity
+            style={[styles.claimBtn, { backgroundColor: C.accent, marginTop: 8 }]}
+            onPress={() => setShoppingListTask(t)}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.claimBtnText}>👁️ Aperçu de la liste</Text>
+          </TouchableOpacity>
+        )}
+
         {t.category === "transport" && (
           <View style={[styles.transportInfo, { borderColor: C.border, backgroundColor: `${C.gold}11` }]}>
             {(t.author_prenom || t.author_nom) && (
@@ -2146,6 +2185,41 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                       <Text style={[styles.allergyBannerText, { color: C.danger }]}>
                         ⚠️ Allergies du patient : {allergies}
                       </Text>
+                    </View>
+                  )}
+
+                  {!editTask && fCat === "courses" && (
+                    <View style={{ marginBottom: 14 }}>
+                      <Text style={[styles.fieldLabel, { color: C.gold }]}>Liste de courses (optionnelle)</Text>
+                      {fCourseItems.map((label, i) => (
+                        <View key={i} style={styles.checklistItemRow}>
+                          <View style={[styles.checklistBox, { borderColor: C.gold, backgroundColor: C.gold }]}>
+                            <Text style={styles.checklistBoxMark}>✓</Text>
+                          </View>
+                          <Text style={[styles.checklistItemTitle, { color: C.text, flex: 1 }]}>{label}</Text>
+                          <TouchableOpacity onPress={() => removeFCourseItem(i)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                            <Text style={{ color: C.muted, fontSize: 16, marginLeft: 8 }}>✕</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                      <View style={styles.groupAddRow}>
+                        <TextInput
+                          style={[styles.groupAddInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 0 }]}
+                          placeholder="Nom de l'article"
+                          placeholderTextColor={C.muted}
+                          value={fCourseItemDraft}
+                          onChangeText={setFCourseItemDraft}
+                          onSubmitEditing={addFCourseItem}
+                        />
+                        <TouchableOpacity
+                          style={[styles.groupAddBtn, { borderColor: C.gold, opacity: fCourseItemDraft.trim() ? 1 : 0.5 }]}
+                          onPress={addFCourseItem}
+                          disabled={!fCourseItemDraft.trim()}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={[styles.groupAddBtnText, { color: C.gold }]}>+ Ajouter un article</Text>
+                        </TouchableOpacity>
+                      </View>
                     </View>
                   )}
 
@@ -3407,6 +3481,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         onCancel={() => setBulkDeleteConfirm(false)}
         onConfirm={confirmBulkDelete}
         C={C}
+      />
+
+      <ShoppingListModal
+        visible={!!shoppingListTask}
+        onClose={() => setShoppingListTask(null)}
+        C={C}
+        task={shoppingListTask}
       />
 
       {/* ── MODAL DOUBLON (besoin administratif déjà publié) ─────────────── */}

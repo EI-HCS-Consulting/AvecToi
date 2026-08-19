@@ -12,6 +12,7 @@ import { CHECKLIST_TEMPLATES, addDaysIso, checklistItemDescription, findTemplate
 import { findLetterTemplateForChecklistItem, LETTER_TEMPLATES, type LetterTemplate } from "@/lib/letterTemplates";
 import { saveAndShareDoc, splitAlignedLines } from "@/lib/mediaShare";
 import MesDocumentsModal from "@/components/MesDocumentsModal";
+import ShoppingListModal from "@/components/ShoppingListModal";
 import type { PersonalChecklistItem, IntervenantChecklistTemplate, PersonalDocument, PatientSpace, Task } from "@/lib/types";
 import { CHECKLIST_COLORS, type Theme } from "@/lib/themes";
 
@@ -161,6 +162,13 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
   const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
   const [deleteDocumentConfirm, setDeleteDocumentConfirm] = useState<PersonalDocument | null>(null);
   const [deleteDocumentSaving, setDeleteDocumentSaving] = useState(false);
+  // Besoins "courses" avec liste de courses, affichés dans le même modal
+  // "Mes documents" que les courriers ci-dessus — chargés en même temps
+  // (voir openDocumentsModal). shoppingListTask ouvre le ShoppingListModal
+  // partagé avec Entraide.tsx (même task, mêmes lignes shopping_list_items :
+  // toute modification ici se voit aussi sur le Mur d'Entraide).
+  const [shoppingLists, setShoppingLists] = useState<Task[]>([]);
+  const [shoppingListTask, setShoppingListTask] = useState<Task | null>(null);
 
   const canLoad = !!(spaceId && ownerPrenom.trim() && ownerNom.trim() && ownerPin.trim());
 
@@ -287,18 +295,37 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
   async function openDocumentsModal() {
     setDocumentsModal(true);
     setLoadingDocuments(true);
-    const { data } = await supabase
-      .from("personal_documents")
-      .select("*")
-      .eq("space_id", spaceId)
-      .eq("owner_pin", ownerPin)
-      .order("created_at", { ascending: false });
+    const [{ data }, { data: courseTasks }] = await Promise.all([
+      supabase
+        .from("personal_documents")
+        .select("*")
+        .eq("space_id", spaceId)
+        .eq("owner_pin", ownerPin)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("tasks")
+        .select("*")
+        .eq("space_id", spaceId)
+        .eq("category", "courses")
+        .eq("author_pin", ownerPin)
+        .order("created_at", { ascending: false }),
+    ]);
     const mine = ((data ?? []) as PersonalDocument[]).filter(
       (d) => d.owner_prenom.trim().toLowerCase() === ownerPrenom.trim().toLowerCase()
         && d.owner_nom.trim().toLowerCase() === ownerNom.trim().toLowerCase(),
     );
+    const mineLists = ((courseTasks ?? []) as Task[]).filter(
+      (t) => (t.author_prenom ?? "").trim().toLowerCase() === ownerPrenom.trim().toLowerCase()
+        && (t.author_nom ?? "").trim().toLowerCase() === ownerNom.trim().toLowerCase(),
+    );
     setDocuments(mine);
+    setShoppingLists(mineLists);
     setLoadingDocuments(false);
+  }
+
+  function openShoppingListFromDocuments(t: Task) {
+    setDocumentsModal(false);
+    setShoppingListTask(t);
   }
 
   async function redownloadDocument(doc: PersonalDocument) {
@@ -1038,6 +1065,15 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
         downloadingId={redownloadingDocId}
         onEdit={openLetterModalForEdit}
         onDelete={setDeleteDocumentConfirm}
+        shoppingLists={shoppingLists}
+        onOpenShoppingList={openShoppingListFromDocuments}
+      />
+
+      <ShoppingListModal
+        visible={!!shoppingListTask}
+        onClose={() => setShoppingListTask(null)}
+        C={C}
+        task={shoppingListTask}
       />
 
       <ConfirmModal
