@@ -13,7 +13,7 @@ import { findLetterTemplateForChecklistItem, LETTER_TEMPLATES, type LetterTempla
 import { saveAndShareDoc } from "@/lib/mediaShare";
 import MesDocumentsModal from "@/components/MesDocumentsModal";
 import type { PersonalChecklistItem, IntervenantChecklistTemplate, PersonalDocument, Task } from "@/lib/types";
-import type { Theme } from "@/lib/themes";
+import { CHECKLIST_COLORS, type Theme } from "@/lib/themes";
 
 interface Props {
   spaceId: string;
@@ -790,7 +790,12 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
   // est porté par le wrapper englobant (voir groupTintWrap) — la carte reste
   // transparente et sans bordure pour ne pas dupliquer le cadre.
   function renderGroupCard(groupItemsList: PersonalChecklistItem[], addTarget?: { key: string; isCustom: boolean }, nestPieces?: boolean, cardBg?: string) {
-    const topLevel = nestPieces ? groupItemsList.filter((it) => !it.custom_checklist_name) : groupItemsList;
+    // Items déjà cochés (status "fait") relégués après les items encore à
+    // faire — tri stable, l'ordre de création (voir loadItems) est conservé
+    // au sein de chaque groupe.
+    const topLevel = (nestPieces ? groupItemsList.filter((it) => !it.custom_checklist_name) : groupItemsList)
+      .slice()
+      .sort((a, b) => Number(a.status === "fait") - Number(b.status === "fait"));
     const piecesOf = (title: string) => groupItemsList.filter((it) => it.custom_checklist_name === title);
     return (
       <View style={[styles.card, styles.groupCard, cardBg ? { backgroundColor: "transparent", borderWidth: 0 } : { backgroundColor: C.card, borderColor: C.border }]}>
@@ -864,7 +869,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
               const groupList = groupItems(ctx);
               if (groupList.length === 0) return null;
               const isOpen = openGroup === ctx;
-              const tint = `${C[tpl.colorKey]}14`;
+              const tint = `${CHECKLIST_COLORS[tpl.colorKey]}14`;
               return (
                 <View key={ctx} style={[styles.groupTintWrap, { backgroundColor: tint }]}>
                   <TouchableOpacity
@@ -1260,7 +1265,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
               {(Object.keys(CHECKLIST_TEMPLATES) as ChecklistContext[]).map((ctx) => {
                 const tpl = CHECKLIST_TEMPLATES[ctx];
                 const count = tpl.groups.flatMap((g) => g.items).filter((it) => isAdmin || it.sharedWithVisitors).length;
-                const color = C[tpl.colorKey];
+                const color = CHECKLIST_COLORS[tpl.colorKey];
                 return (
                   <TouchableOpacity
                     key={ctx}
@@ -1301,10 +1306,10 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
       <Modal visible={!!importCtx && !importWizardList.length} transparent animationType="fade" onRequestClose={() => !importSaving && setImportCtx(null)}>
         <View style={styles.overlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !importSaving && setImportCtx(null)} />
-          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: importCtx ? C[CHECKLIST_TEMPLATES[importCtx].colorKey] : C.accent }]}>
+          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: importCtx ? CHECKLIST_COLORS[CHECKLIST_TEMPLATES[importCtx].colorKey] : C.accent }]}>
             {importCtx && (() => {
               const tpl = CHECKLIST_TEMPLATES[importCtx];
-              const color = C[tpl.colorKey];
+              const color = CHECKLIST_COLORS[tpl.colorKey];
               const templateItems = tpl.groups.flatMap((g) => g.items).filter((it) => isAdmin || it.sharedWithVisitors);
               // Comparer à templateItems.length (qui inclut les items déjà
               // importés, non interactifs — voir dup plus bas) empêchait le
@@ -1460,7 +1465,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
         <View style={styles.overlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !importSaving && importWizardBack()} />
           {importWizardList.length > 0 && importCtx && (() => {
-            const color = C[CHECKLIST_TEMPLATES[importCtx].colorKey];
+            const color = CHECKLIST_COLORS[CHECKLIST_TEMPLATES[importCtx].colorKey];
             const entry = importWizardList[importWizardStep];
             const fields = importWizardData[entry.key] ?? { dateLimite: "", urgent: !!entry.item.urgent, detail: "" };
             const isLast = importWizardStep === importWizardList.length - 1;

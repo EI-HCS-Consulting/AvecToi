@@ -51,6 +51,16 @@ export const themeLabels: Record<ThemeKey, string> = {
   light: "Clair",
 };
 
+// Couleurs des checklists (Mes Checklists, Entraide) — verrouillées sur la
+// palette Light plutôt que de suivre le thème actif : en Dark, accent/gold
+// sont plus clairs et perdent tout contraste une fois posés en fond
+// translucide sur une carte déjà sombre (voir groupTintWrap/checklistCard).
+export const CHECKLIST_COLORS: Record<"accent" | "orange" | "gold", string> = {
+  accent: themes.light.accent,
+  gold: themes.light.gold,
+  orange: themes.light.orange,
+};
+
 // Couleurs des bonhommes du logo — fixes, identiques dans les deux thèmes
 // (contrairement à `accent`/`success`/etc. qui varient dark/light).
 export const LOGO_GREEN = "#0DABB6"; // bonhomme turquoise (haut-droite)
