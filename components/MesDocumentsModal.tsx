@@ -1,4 +1,4 @@
-import { View, Text, TouchableOpacity, Modal, ScrollView, StyleSheet, ActivityIndicator } from "react-native";
+import { View, Text, TouchableOpacity, Modal, ScrollView, StyleSheet, ActivityIndicator, Alert } from "react-native";
 import type { PersonalDocument } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -21,9 +21,18 @@ interface Props {
   loading: boolean;
   onRedownload: (doc: PersonalDocument) => void;
   redownloadingId: string | null;
+  onEdit: (doc: PersonalDocument) => void;
+  onDelete: (doc: PersonalDocument) => void;
 }
 
-export default function MesDocumentsModal({ visible, onClose, C, documents, loading, onRedownload, redownloadingId }: Props) {
+export default function MesDocumentsModal({ visible, onClose, C, documents, loading, onRedownload, redownloadingId, onEdit, onDelete }: Props) {
+  function handleLongPress(doc: PersonalDocument) {
+    Alert.alert(doc.label, "Que veux-tu faire avec ce document ?", [
+      { text: "Modifier", onPress: () => onEdit(doc) },
+      { text: "Supprimer", style: "destructive", onPress: () => onDelete(doc) },
+      { text: "Annuler", style: "cancel" },
+    ]);
+  }
   return (
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
       <View style={styles.overlay}>
@@ -39,7 +48,12 @@ export default function MesDocumentsModal({ visible, onClose, C, documents, load
               </Text>
             ) : (
               documents.map((doc) => (
-                <View key={doc.id} style={[styles.docCard, { borderColor: C.border, backgroundColor: `${C.orange}0d` }]}>
+                <TouchableOpacity
+                  key={doc.id}
+                  activeOpacity={0.85}
+                  onLongPress={() => handleLongPress(doc)}
+                  style={[styles.docCard, { borderColor: C.border, backgroundColor: `${C.orange}0d` }]}
+                >
                   <Text style={[styles.docLabel, { color: C.text }]}>{doc.label}</Text>
                   <Text style={[styles.docDate, { color: C.muted }]}>Généré le {frDateTime(doc.created_at)}</Text>
                   <TouchableOpacity
@@ -51,7 +65,7 @@ export default function MesDocumentsModal({ visible, onClose, C, documents, load
                       ? <ActivityIndicator color="#fff" size="small" />
                       : <Text style={styles.smallBtnText}>⬇️ Retélécharger</Text>}
                   </TouchableOpacity>
-                </View>
+                </TouchableOpacity>
               ))
             )}
           </ScrollView>

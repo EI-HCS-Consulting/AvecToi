@@ -102,6 +102,8 @@ function escapeRtf(text: string): string {
       out += "\\" + ch;
     } else if (ch === "\n") {
       out += "\\par\n";
+    } else if (ch === "\t") {
+      out += "\\tab ";
     } else if (code > 127) {
       out += `\\u${code}?`;
     } else {
@@ -111,14 +113,24 @@ function escapeRtf(text: string): string {
   return out;
 }
 
+// A4, marges 2,5cm (repère standard courrier FR) : donne une largeur de
+// page connue pour que \deftab (voir lettre_employeur_conge_proche_aidant,
+// lib/letterTemplates.ts) place le bloc destinataire assez à droite pour
+// se distinguer de l'expéditeur, tout en laissant assez de place jusqu'à la
+// marge droite pour qu'une ligne d'adresse ordinaire ne soit jamais coupée
+// ni ne revienne à la ligne.
 function textToRtf(content: string): string {
-  return `{\\rtf1\\ansi\\ansicpg1252\\deff0{\\fonttbl{\\f0 Calibri;}}\\f0\\fs22 ${escapeRtf(content)}}`;
+  return `{\\rtf1\\ansi\\ansicpg1252\\deff0{\\fonttbl{\\f0 Calibri;}}\\paperw11906\\paperh16838\\margl1417\\margr1417\\margt1417\\margb1417\\deftab4800\\f0\\fs22 ${escapeRtf(content)}}`;
 }
 
 // Même usage que saveAndShareText (courrier généré, voir lib/letterTemplates.ts)
 // mais enregistré au format .doc (RTF) plutôt qu'en .txt brut, pour que le
 // document soit directement modifiable dans Word/LibreOffice.
-export async function saveAndShareDoc(content: string, filename: string, dialogTitle?: string): Promise<boolean> {
+// `subject` préremplit l'objet de l'email quand l'appli choisie dans la
+// feuille de partage est un client mail (voir LetterTemplate.objet dans
+// lib/letterTemplates.ts) — expo-sharing n'expose pas ce champ, d'où le
+// passage par react-native-share (Share.open) plutôt que Sharing.shareAsync.
+export async function saveAndShareDoc(content: string, filename: string, dialogTitle?: string, subject?: string): Promise<boolean> {
   const rtf = textToRtf(content);
   if (Platform.OS === "web") {
     try {
@@ -141,7 +153,7 @@ export async function saveAndShareDoc(content: string, filename: string, dialogT
   try {
     const localUri = (FileSystem.cacheDirectory ?? "") + filename;
     await FileSystem.writeAsStringAsync(localUri, rtf, { encoding: FileSystem.EncodingType.UTF8 });
-    await Sharing.shareAsync(localUri, { mimeType: "application/msword", dialogTitle });
+    await Share.open({ url: localUri, type: "application/msword", title: dialogTitle, subject, failOnCancel: false });
     return true;
   } catch {
     return false;

@@ -22,6 +22,10 @@ export interface LetterTemplate {
   // courrier est rattaché — comparé sans la précision éventuelle (" — …",
   // voir findTemplateItemByTitle) pour matcher un item importé.
   checklistItemTitle: string;
+  // Objet du courrier — réutilisé tel quel comme ligne "Objet :" dans body()
+  // ET comme sujet de l'email quand le .doc est envoyé en pièce jointe (voir
+  // downloadLetter/redownloadDocument dans MyChecklist.tsx, saveAndShareDoc).
+  objet: string;
   fields: LetterField[];
   // Rappel des pièces à joindre à l'ENVOI du courrier (pas les pièces de
   // l'item de checklist lui-même, qui peuvent différer).
@@ -33,6 +37,23 @@ function todayFr(): string {
   return new Date().toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
 }
 
+// Préfixe chaque ligne d'un bloc par une tabulation (plutôt qu'un
+// alignement à droite) pour décaler le destinataire vers la partie droite
+// de la page, comme le veut l'usage du courrier administratif — voir
+// escapeRtf/textToRtf dans lib/mediaShare.ts, qui traduit ce caractère tab
+// en \tab RTF avec un taquet de tabulation dédié (\deftab). Les lignes
+// saisies restent alignées entre elles depuis ce taquet, à gauche, et
+// wrappent naturellement dans la largeur restante plutôt que d'être
+// coupées : aucun \qr (alignement à droite) n'est utilisé ici.
+function indentBlock(text: string): string {
+  return text
+    .split("\n")
+    .map((line) => `\t${line}`)
+    .join("\n");
+}
+
+const CONGE_PROCHE_AIDANT_OBJET = "Demande de congé de proche aidant";
+
 export const LETTER_TEMPLATES: LetterTemplate[] = [
   {
     id: "lettre_employeur_conge_proche_aidant",
@@ -40,6 +61,7 @@ export const LETTER_TEMPLATES: LetterTemplate[] = [
     label: "Lettre à l'employeur — Congé de proche aidant",
     intro: "Modèle à adapter avant envoi. Vérifie le délai de prévenance à respecter (convention collective ou accord d'entreprise) sur le lien officiel de cet item.",
     checklistItemTitle: "Préparer ma demande à l'employeur",
+    objet: CONGE_PROCHE_AIDANT_OBJET,
     fields: [
       { key: "salarie", label: "Ton nom complet", required: true },
       { key: "adresse", label: "Ton adresse", required: true, multiline: true },
@@ -60,12 +82,12 @@ export const LETTER_TEMPLATES: LetterTemplate[] = [
       v.salarie,
       v.adresse,
       "",
-      v.employeur,
-      v.adresseEmployeur,
+      indentBlock(v.employeur),
+      indentBlock(v.adresseEmployeur),
       "",
       `${v.ville}, le ${todayFr()}`,
       "",
-      "Objet : Demande de congé de proche aidant",
+      `Objet : ${CONGE_PROCHE_AIDANT_OBJET}`,
       "",
       "Madame, Monsieur,",
       "",
