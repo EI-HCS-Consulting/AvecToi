@@ -10,7 +10,7 @@ import { splitAlignedLines } from "@/lib/mediaShare";
 // "✉️ Préparer le courrier" (downloadLetter dans MyChecklist.tsx). "Aperçu"
 // affiche le document déjà rempli/mis en forme (même rendu WYSIWYG que la
 // prévisualisation de MyChecklist, via splitAlignedLines) sans ressaisir le
-// formulaire ; depuis cet aperçu on peut Modifier, Télécharger ou Envoyer.
+// formulaire ; depuis cet aperçu on peut Modifier ou Télécharger.
 // Le fichier .doc lui-même n'est jamais stocké côté serveur, seules les
 // valeurs de champs le sont (personal_documents.values) : le contenu est
 // reconstitué à la volée depuis LETTER_TEMPLATES à chaque aperçu/téléchargement.
@@ -92,10 +92,10 @@ export default function MesDocumentsModal({ visible, onClose, C, documents, load
 
                 <View style={styles.previewBtns}>
                   <TouchableOpacity
-                    style={[styles.previewBtn, { borderColor: C.border }]}
+                    style={[styles.previewBtn, { backgroundColor: C.accent, borderColor: C.accent }]}
                     onPress={() => onEdit(previewDoc)}
                   >
-                    <Text style={[styles.previewBtnText, { color: C.text }]}>✏️ Modifier</Text>
+                    <Text style={[styles.previewBtnText, { color: "#fff" }]}>Modifier</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.previewBtn, { backgroundColor: C.orange, borderColor: C.orange }]}
@@ -104,16 +104,7 @@ export default function MesDocumentsModal({ visible, onClose, C, documents, load
                   >
                     {downloadingId === previewDoc.id
                       ? <ActivityIndicator color="#fff" size="small" />
-                      : <Text style={[styles.previewBtnText, { color: "#fff" }]}>⬇️ Télécharger</Text>}
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.previewBtn, { backgroundColor: C.gold, borderColor: C.gold }]}
-                    onPress={() => onDownload(previewDoc)}
-                    disabled={downloadingId === previewDoc.id}
-                  >
-                    {downloadingId === previewDoc.id
-                      ? <ActivityIndicator color="#fff" size="small" />
-                      : <Text style={[styles.previewBtnText, { color: "#fff" }]}>📤 Envoyer</Text>}
+                      : <Text style={[styles.previewBtnText, { color: "#fff" }]}>Télécharger</Text>}
                   </TouchableOpacity>
                 </View>
               </>
