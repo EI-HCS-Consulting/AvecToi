@@ -1318,6 +1318,7 @@ export default function VisitorAccountScreen() {
           ownerPrenom={prenom}
           ownerNom={nom}
           ownerPin={pin}
+          space={space}
           C={C}
           hideImportBanner={role === "intervenant"}
           intervenantTelephone={role === "intervenant" ? telephone : undefined}

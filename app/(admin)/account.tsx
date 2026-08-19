@@ -662,6 +662,7 @@ export default function AdminAccountScreen() {
                   ownerPrenom={adminFirstname}
                   ownerNom={adminLastname}
                   ownerPin="ADMIN"
+                  space={space}
                   C={C}
                 />
 
