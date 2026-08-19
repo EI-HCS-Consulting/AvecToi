@@ -10,7 +10,7 @@ import MiniCalendar from "@/components/MiniCalendar";
 import { normalizePhone } from "@/lib/phone";
 import { CHECKLIST_TEMPLATES, addDaysIso, checklistItemDescription, findTemplateItemByTitle, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
 import { findLetterTemplateForChecklistItem, LETTER_TEMPLATES, type LetterTemplate } from "@/lib/letterTemplates";
-import { saveAndShareDoc, stripAlignMarkers } from "@/lib/mediaShare";
+import { saveAndShareDoc, splitAlignedLines } from "@/lib/mediaShare";
 import MesDocumentsModal from "@/components/MesDocumentsModal";
 import type { PersonalChecklistItem, IntervenantChecklistTemplate, PersonalDocument, Task } from "@/lib/types";
 import { CHECKLIST_COLORS, type Theme } from "@/lib/themes";
@@ -1657,9 +1657,16 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                   </ScrollView>
                 ) : (
                   <ScrollView style={styles.scroll} showsVerticalScrollIndicator>
-                    <Text style={[styles.letterPreview, { color: C.text, borderColor: C.border, backgroundColor: C.bg }]}>
-                      {stripAlignMarkers(letterModal.body(letterValues))}
-                    </Text>
+                    <View style={[styles.letterPreview, { borderColor: C.border, backgroundColor: C.bg }]}>
+                      {splitAlignedLines(letterModal.body(letterValues)).map((line, i) => (
+                        <Text
+                          key={i}
+                          style={[styles.letterPreviewLine, { color: C.text, textAlign: line.rightAlign ? "right" : "left" }]}
+                        >
+                          {line.text || " "}
+                        </Text>
+                      ))}
+                    </View>
                     {!!letterModal.piecesJointes.length && (
                       <View style={[styles.letterPieces, { borderColor: C.gold, backgroundColor: `${C.gold}14` }]}>
                         <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 0 }]}>📎 Pièces jointes à envoyer avec ce courrier</Text>
@@ -1784,8 +1791,10 @@ const styles = StyleSheet.create({
   fieldLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, marginTop: 10, marginBottom: 4 },
   wizardDetailInput: { minHeight: 70, marginTop: 0 },
   letterPreview: {
-    fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 20,
     borderWidth: 1, borderRadius: 10, padding: 12,
+  },
+  letterPreviewLine: {
+    fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 20,
   },
   letterPieces: { borderWidth: 1, borderRadius: 10, padding: 12, marginTop: 12 },
 });
