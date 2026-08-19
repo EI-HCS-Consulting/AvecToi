@@ -1028,8 +1028,8 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
         C={C}
         documents={documents}
         loading={loadingDocuments}
-        onRedownload={redownloadDocument}
-        redownloadingId={redownloadingDocId}
+        onDownload={redownloadDocument}
+        downloadingId={redownloadingDocId}
         onEdit={openLetterModalForEdit}
         onDelete={setDeleteDocumentConfirm}
       />
