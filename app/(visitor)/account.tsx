@@ -17,7 +17,8 @@ import { enterByDossierCode } from "@/lib/visitorEntry";
 import { normalizePhone } from "@/lib/phone";
 import { metierLabel } from "@/lib/metiers";
 import { isSlotFullyPast } from "@/lib/slotUtils";
-import { confirmDisengageTask } from "@/lib/taskDisengage";
+import { disengageTask as performDisengage } from "@/lib/taskDisengage";
+import ConfirmModal from "@/components/ConfirmModal";
 import PinPad from "@/components/PinPad";
 import PatientProfileModal from "@/components/PatientProfileModal";
 import IntervenantFicheModal from "@/components/IntervenantFicheModal";
@@ -260,14 +261,23 @@ export default function VisitorAccountScreen() {
   // clic prolongé sur la ligne du besoin dans "Mon compte / Entraide". Même
   // fonction propagée côté admin (app/(admin)/account.tsx), l'admin étant
   // aussi un visiteur qui peut prendre en charge des besoins — voir
-  // lib/taskDisengage.ts pour la logique partagée (et performUnclaim dans
-  // Entraide.tsx pour la variante avec nettoyage de photo, bouton "↩️ Me
-  // désengager" dans "Modifier le besoin").
+  // lib/taskDisengage.ts pour l'écriture Supabase partagée (et performUnclaim
+  // dans Entraide.tsx pour la variante avec nettoyage de photo, bouton "↩️ Me
+  // désengager" dans "Modifier le besoin"). La confirmation passe par
+  // ConfirmModal (cohérent avec le reste de l'app), pas un Alert.alert natif.
+  const [desengageTarget, setDesengageTarget] = useState<Task | null>(null);
+  const [desengageSaving, setDesengageSaving] = useState(false);
   function disengageTask(t: Task) {
-    confirmDisengageTask(t, () => {
-      showToast("Tu t'es désengagé ✓");
-      if (space) loadActivity(space.id, prenom, nom);
-    });
+    setDesengageTarget(t);
+  }
+  async function confirmDesengage() {
+    if (!desengageTarget) return;
+    setDesengageSaving(true);
+    await performDisengage(desengageTarget);
+    setDesengageSaving(false);
+    setDesengageTarget(null);
+    showToast("Tu t'es désengagé ✓");
+    if (space) loadActivity(space.id, prenom, nom);
   }
 
   useEffect(() => {
@@ -1452,6 +1462,18 @@ export default function VisitorAccountScreen() {
           </View>
         </View>
       </Modal>
+
+      <ConfirmModal
+        visible={!!desengageTarget}
+        icon="↩️"
+        title="Te désengager de ce besoin ?"
+        message="Il sera rouvert et visible par tous."
+        confirmLabel="Me désengager"
+        saving={desengageSaving}
+        onCancel={() => setDesengageTarget(null)}
+        onConfirm={confirmDesengage}
+        C={C}
+      />
 
       <Modal visible={joinModalVisible} transparent animationType="fade" onRequestClose={() => setJoinModalVisible(false)}>
         <View style={styles.pinModalOverlay}>

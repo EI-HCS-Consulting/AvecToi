@@ -18,7 +18,8 @@ import SegmentedSwitch from "@/components/SegmentedSwitch";
 import MyChecklist from "@/components/MyChecklist";
 import MyAlertsModal from "@/components/MyAlertsModal";
 import { isRgpdAlertActive, rgpdAlertMessage, prolongSpace } from "@/lib/rgpd";
-import { confirmDisengageTask } from "@/lib/taskDisengage";
+import { disengageTask as performDisengage } from "@/lib/taskDisengage";
+import ConfirmModal from "@/components/ConfirmModal";
 import type { Reservation, ReservationChangeHistoryEntry, NewsEntry, SupportMessage, Task } from "@/lib/types";
 
 const CAT_ICONS: Record<Task["category"], string> = {
@@ -57,6 +58,17 @@ export default function AdminAccountScreen() {
   // Besoins pris en charge personnellement par l'admin (agissant comme un
   // visiteur) — même liste/geste que myTasks côté visiteur, voir disengageTask.
   const [myClaimedTasks, setMyClaimedTasks] = useState<Task[]>([]);
+  const [desengageTarget, setDesengageTarget] = useState<Task | null>(null);
+  const [desengageSaving, setDesengageSaving] = useState(false);
+  async function confirmDesengage() {
+    if (!desengageTarget) return;
+    setDesengageSaving(true);
+    await performDisengage(desengageTarget);
+    setDesengageSaving(false);
+    setDesengageTarget(null);
+    showToast("Tu t'es désengagé ✓");
+    if (space) loadActivity(space.id, adminFirstname, adminLastname);
+  }
 
   // ── Profil admin (distinct du patient — auth.users + user_metadata) ────────
   const [profileLoading, setProfileLoading] = useState(true);
@@ -620,10 +632,7 @@ export default function AdminAccountScreen() {
                                 key={t.id}
                                 style={styles.activityRow}
                                 onPress={() => router.push("/(admin)/entraide" as any)}
-                                onLongPress={() => confirmDisengageTask(t, () => {
-                                  showToast("Tu t'es désengagé ✓");
-                                  if (space) loadActivity(space.id, adminFirstname, adminLastname);
-                                })}
+                                onLongPress={() => setDesengageTarget(t)}
                                 activeOpacity={0.7}
                               >
                                 <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
@@ -914,6 +923,18 @@ export default function AdminAccountScreen() {
           </TouchableOpacity>
         </KeyboardAvoidingView>
       </Modal>
+
+      <ConfirmModal
+        visible={!!desengageTarget}
+        icon="↩️"
+        title="Te désengager de ce besoin ?"
+        message="Il sera rouvert et visible par tous."
+        confirmLabel="Me désengager"
+        saving={desengageSaving}
+        onCancel={() => setDesengageTarget(null)}
+        onConfirm={confirmDesengage}
+        C={C}
+      />
 
       <Modal visible={!!confirmModal} transparent animationType="fade" onRequestClose={() => setConfirmModal(null)}>
         <View style={styles.logoutModalOverlay}>

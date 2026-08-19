@@ -1,4 +1,3 @@
-import { Alert } from "react-native";
 import { supabase } from "@/lib/supabase";
 import type { Task } from "@/lib/types";
 
@@ -8,6 +7,10 @@ import type { Task } from "@/lib/types";
 // besoins). Le bouton "↩️ Me désengager" dans "Modifier le besoin"
 // (Entraide.tsx) passe par performUnclaim, une variante propre à ce fichier
 // qui gère en plus le nettoyage de la photo stockée — non dupliquée ici.
+// La confirmation elle-même (ConfirmModal, pas Alert.alert natif — voir
+// CLAUDE.md "Conventions UI") est gérée par chaque écran appelant, pas ici :
+// ConfirmModal a besoin d'un état/JSX monté dans l'écran, contrairement à
+// Alert.alert qui pouvait être déclenché de façon purement impérative.
 export async function disengageTask(t: Task): Promise<void> {
   const splitLegs = t.transport_round_trip && !!t.transport_return_claimed_by_prenom;
   await supabase.from("tasks").update({
@@ -30,18 +33,4 @@ export async function disengageTask(t: Task): Promise<void> {
       .eq("owner_prenom", t.claimed_by_prenom ?? "")
       .eq("owner_nom", t.claimed_by_nom ?? "");
   }
-}
-
-export function confirmDisengageTask(t: Task, onDone: () => void) {
-  Alert.alert("Te désengager de ce besoin ?", "Il sera rouvert et visible par tous.", [
-    { text: "Annuler", style: "cancel" },
-    {
-      text: "Me désengager",
-      style: "destructive",
-      onPress: async () => {
-        await disengageTask(t);
-        onDone();
-      },
-    },
-  ]);
 }

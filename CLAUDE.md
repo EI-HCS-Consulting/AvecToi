@@ -35,6 +35,12 @@ Ce modèle est explicitement autorisé par Google Play et évite toute commissio
 - **Chaque modification (même un correctif suite à un test) part sur une branche neuve et se termine par une PR poussée sur GitHub** — jamais de nouveau commit ajouté à une branche dont la PR est déjà mergée. L'utilisateur teste sur son téléphone (development build) avant de merger lui-même ; sans PR ouverte, il n'a aucun moyen de récupérer les changements dans ses updates. Ne jamais merger une PR sans confirmation explicite que le test téléphone est passé.
 - **Autorisation permanente : commit + push + PR sans redemander.** Dès qu'une tâche de code (fonctionnalité, correctif, ajustement) est terminée et vérifiée (typecheck / relecture), committer, pousser sur une branche neuve et ouvrir la PR automatiquement — ne pas attendre que l'utilisateur le demande explicitement à chaque fois. Ne jamais terminer une tâche de code en se contentant de présenter le diff et de demander "veux-tu que je committe ?" : committer et pousser directement, puis annoncer le lien de la PR une fois faite — l'utilisateur en a besoin immédiatement pour tester sur son development build. Avant de committer : vérifier que la branche courante n'a pas déjà sa PR mergée dans `main` (sinon en créer une nouvelle depuis `origin/main`, voir règle ci-dessus) et ne stager que les fichiers réellement modifiés pour la tâche en cours (ignorer les fichiers non liés qui traînent, ex. docs modifiées par ailleurs). Cette autorisation ne couvre pas le merge de la PR ni le push sur `main` : ça reste toujours à l'utilisateur, après son test téléphone.
 
+## Conventions UI
+- **Chaque nouveau popup de confirmation ou nouveau bouton doit être harmonisé avec le reste de l'app** — pas de composant natif OS générique quand un équivalent maison existe déjà.
+- Confirmations : toujours `components/ConfirmModal.tsx`, jamais `Alert.alert` natif. `ConfirmModal` remplace `Alert.alert` par une modale au design cohérent avec le reste de l'app (thème via `C`, boutons stylés). Pattern d'usage : état local `xxxTarget` (la cible ou `null`) + `xxxSaving` (booléen) dans l'écran appelant, plus une instance `<ConfirmModal visible={!!xxxTarget} ... onCancel={() => setXxxTarget(null)} onConfirm={confirmXxx} C={C} />` montée dans le JSX — `ConfirmModal` a besoin d'un état/JSX monté dans l'écran, contrairement à `Alert.alert` qui pouvait être déclenché de façon purement impérative depuis un helper partagé.
+- Boutons : respecter les styles déjà en place dans l'écran (ex. `claimOnCreateBtn`/`claimOnCreateText`), couleurs du thème via `C` (jamais de couleur en dur), et préfixer le libellé d'un emoji cohérent avec les autres boutons de la même zone.
+- Toasts : réutiliser le pattern `showToast`/`toast` déjà présent dans chaque écran (état local + `setTimeout` 3s), ne pas introduire un autre mécanisme de notification.
+
 ## Structure de dossiers cible
 ```
 /app
@@ -85,6 +91,8 @@ App.jsx            → MVP web de référence (logique à porter en RN)
 
 ## Commande handoff
 Fichier unique : `Handoff/handoff.md`.
+
+Rappel permanent (voir `## Conventions UI` ci-dessus) : tout nouveau popup ou bouton livré doit être harmonisé avec le reste de l'app (ConfirmModal, jamais Alert.alert natif ; styles/couleurs du thème existant). À vérifier avant de déclarer une fonctionnalité "terminée" dans un handoff.
 
 Quand je dis "génère un handoff" :
 1. Vérifier si `Handoff/handoff.md` existe.
