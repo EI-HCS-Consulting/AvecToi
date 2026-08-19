@@ -10,7 +10,7 @@ import MiniCalendar from "@/components/MiniCalendar";
 import { normalizePhone } from "@/lib/phone";
 import { CHECKLIST_TEMPLATES, addDaysIso, checklistItemDescription, findTemplateItemByTitle, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
 import { findLetterTemplateForChecklistItem, LETTER_TEMPLATES, type LetterTemplate } from "@/lib/letterTemplates";
-import { saveAndShareDoc } from "@/lib/mediaShare";
+import { saveAndShareDoc, stripAlignMarkers } from "@/lib/mediaShare";
 import MesDocumentsModal from "@/components/MesDocumentsModal";
 import type { PersonalChecklistItem, IntervenantChecklistTemplate, PersonalDocument, Task } from "@/lib/types";
 import { CHECKLIST_COLORS, type Theme } from "@/lib/themes";
@@ -1658,7 +1658,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                 ) : (
                   <ScrollView style={styles.scroll} showsVerticalScrollIndicator>
                     <Text style={[styles.letterPreview, { color: C.text, borderColor: C.border, backgroundColor: C.bg }]}>
-                      {letterModal.body(letterValues)}
+                      {stripAlignMarkers(letterModal.body(letterValues))}
                     </Text>
                     {!!letterModal.piecesJointes.length && (
                       <View style={[styles.letterPieces, { borderColor: C.gold, backgroundColor: `${C.gold}14` }]}>
