@@ -255,6 +255,45 @@ export default function VisitorAccountScreen() {
     setActivityLoading(false);
   }, []);
 
+  // Permet de se désengager d'un besoin pris en charge en cas d'imprévu —
+  // clic prolongé sur la ligne du besoin dans "Mon compte / Entraide" (voir
+  // aussi le bouton "Je m'en occupe" dans Entraide.tsx pour l'admin, même
+  // logique dupliquée volontairement, cf. performUnclaim).
+  function disengageTask(t: Task) {
+    Alert.alert("Te désinscrire de ce besoin ?", "Il sera rouvert et visible par tous.", [
+      { text: "Annuler", style: "cancel" },
+      {
+        text: "Me désinscrire",
+        style: "destructive",
+        onPress: async () => {
+          const splitLegs = t.transport_round_trip && !!t.transport_return_claimed_by_prenom;
+          await supabase.from("tasks").update({
+            status: "ouvert",
+            claimed_by_prenom: null,
+            claimed_by_nom: null,
+            claimed_by_pin: null,
+            claimed_photo: null,
+            claimed_text: null,
+            ...(splitLegs
+              ? { transport_confirmed_out_time: null }
+              : t.category === "transport"
+              ? { transport_confirmed_date: null, transport_confirmed_out_time: null, transport_confirmed_return_time: null }
+              : {}),
+          }).eq("id", t.id);
+          if (t.checklist_batch_id && t.claimed_by_pin) {
+            await supabase.from("personal_checklist_items").delete()
+              .eq("task_id", t.id)
+              .eq("owner_pin", t.claimed_by_pin)
+              .eq("owner_prenom", t.claimed_by_prenom ?? "")
+              .eq("owner_nom", t.claimed_by_nom ?? "");
+          }
+          showToast("Tu t'es désinscrit ✓");
+          if (space) loadActivity(space.id, prenom, nom);
+        },
+      },
+    ]);
+  }
+
   useEffect(() => {
     getVisitorSession().then(async (s) => {
       if (s) {
@@ -1249,6 +1288,7 @@ export default function VisitorAccountScreen() {
                           key={t.id}
                           style={styles.activityRow}
                           onPress={() => router.push(`/(visitor)/entraide?focusTaskId=${t.id}` as any)}
+                          onLongPress={() => disengageTask(t)}
                           activeOpacity={0.7}
                         >
                           <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
