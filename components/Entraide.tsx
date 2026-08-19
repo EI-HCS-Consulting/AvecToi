@@ -20,7 +20,7 @@ import { toFrShort } from "@/lib/slotUtils";
 import { googleMapsSearchUrl, joinAddress } from "@/lib/address";
 import { addGenericEventToNativeCalendar } from "@/lib/calendarSync";
 import type { Task, TransportProposal } from "@/lib/types";
-import type { Theme } from "@/lib/themes";
+import { CHECKLIST_COLORS, type Theme } from "@/lib/themes";
 import { CHECKLIST_TEMPLATES, addDaysIso, checklistItemDescription, findTemplateContextForTitle, findTemplateItemByTitle, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
 
 const PHOTO_BUCKET = "entraide-photos";
@@ -677,24 +677,6 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       return;
     }
     setChecklistWizardStep((s) => s - 1);
-  }
-
-  // La marque "urgent" enchaîne directement vers l'item suivant (ou publie si
-  // c'est le dernier) — voir importWizardMarkUrgentAndNext dans MyChecklist.tsx
-  // pour le même pattern. On passe nextData directement à publishChecklistWizard
-  // plutôt que de compter sur le state React (pas encore à jour de façon
-  // synchrone au moment de l'appel).
-  function checklistWizardMarkUrgentAndNext() {
-    const entry = checklistWizardList[checklistWizardStep];
-    if (!entry) return;
-    const current = checklistWizardData[entry.key] ?? { dateLimite: "", urgent: false, detail: "" };
-    const nextData = { ...checklistWizardData, [entry.key]: { ...current, urgent: true } };
-    setChecklistWizardData(nextData);
-    if (checklistWizardStep < checklistWizardList.length - 1) {
-      setChecklistWizardStep((s) => s + 1);
-    } else {
-      publishChecklistWizard(nextData);
-    }
   }
 
   async function publishChecklistWizard(data: Record<string, ChecklistWizardFields> = checklistWizardData) {
@@ -2493,7 +2475,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                 .map((ctx) => {
                 const tpl = CHECKLIST_TEMPLATES[ctx];
                 const count = tpl.groups.reduce((n, g) => n + g.items.length, 0);
-                const color = C[tpl.colorKey];
+                const color = CHECKLIST_COLORS[tpl.colorKey];
                 return (
                   <TouchableOpacity
                     key={ctx}
@@ -2525,10 +2507,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       <Modal visible={!!checklistContext && !checklistWizardList.length} transparent animationType="fade" onRequestClose={() => setChecklistContext(null)}>
         <View style={styles.centeredOverlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !checklistSaving && setChecklistContext(null)} />
-          <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: checklistContext ? C[CHECKLIST_TEMPLATES[checklistContext].colorKey] : C.accent, maxHeight: "82%" }]}>
+          <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: checklistContext ? CHECKLIST_COLORS[CHECKLIST_TEMPLATES[checklistContext].colorKey] : C.accent, maxHeight: "82%" }]}>
             {checklistContext && (() => {
               const tpl = CHECKLIST_TEMPLATES[checklistContext];
-              const color = C[tpl.colorKey];
+              const color = CHECKLIST_COLORS[tpl.colorKey];
               const items = tpl.groups.flatMap((g) => g.items);
               // "Tout cocher/décocher" ne porte que sur les items du modèle
               // encore sélectionnables (déjà-publiés exclus, ils sont non
@@ -2678,7 +2660,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         <View style={styles.centeredOverlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !checklistSaving && checklistWizardBack()} />
           {checklistWizardList.length > 0 && checklistContext && (() => {
-            const color = C[CHECKLIST_TEMPLATES[checklistContext].colorKey];
+            const color = CHECKLIST_COLORS[CHECKLIST_TEMPLATES[checklistContext].colorKey];
             const entry = checklistWizardList[checklistWizardStep];
             const fields = checklistWizardData[entry.key] ?? { dateLimite: "", urgent: !!entry.item.urgent, detail: "" };
             const isLast = checklistWizardStep === checklistWizardList.length - 1;
@@ -2742,7 +2724,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
                       <Text style={[styles.fieldLabel, { color: C.gold }]}>Marquer Urgent</Text>
                       <TouchableOpacity
-                        onPress={checklistWizardMarkUrgentAndNext}
+                        onPress={() => updateChecklistWizardField(checklistWizardStep, { urgent: !fields.urgent })}
                         activeOpacity={0.8}
                         style={[
                           styles.claimOnCreateBtn,
@@ -2750,7 +2732,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                         ]}
                       >
                         <Text style={[styles.claimOnCreateText, { color: fields.urgent ? C.danger : C.text }]}>
-                          {fields.urgent ? "🔴 Urgent — validé" : "⚪ Marquer urgent"}
+                          {fields.urgent ? "🔴 Urgent" : "⚪ Marquer urgent"}
                         </Text>
                       </TouchableOpacity>
                     </>
