@@ -463,6 +463,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [deleteTaskTarget, setDeleteTaskTarget] = useState<Task | null>(null);
   const [deleteTaskSaving, setDeleteTaskSaving] = useState(false);
   const [unclaimConfirm, setUnclaimConfirm] = useState<{ task: Task; leg: "out" | "return" } | null>(null);
+  const [desengageEditTarget, setDesengageEditTarget] = useState<Task | null>(null);
   // Popup proposée après suppression d'un besoin issu d'une checklist
   // groupée, tant que d'autres items de la même liste sont encore ouverts —
   // complète le bandeau "Annuler" (8s seulement) pour un ménage fait plus tard.
@@ -1505,6 +1506,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     await performUnclaim(task, leg);
   }
 
+  async function confirmDesengageEdit() {
+    if (!desengageEditTarget) return;
+    const target = desengageEditTarget;
+    setDesengageEditTarget(null);
+    await performUnclaim(target);
+    setTaskForm(false);
+  }
+
   async function checkPin() {
     if (!pinModal) return;
     const legPin = pinModal.leg === "return" ? pinModal.task.transport_return_claimed_by_pin : pinModal.task.claimed_by_pin;
@@ -2409,25 +2418,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                   {!!editTask?.claimed_by_prenom && (
                     <TouchableOpacity
                       style={[styles.claimOnCreateBtn, { backgroundColor: C.bg, borderColor: C.border, marginTop: 10 }]}
-                      onPress={() => {
-                        const target = editTask;
-                        if (!target) return;
-                        Alert.alert(
-                          "Te désengager de ce besoin ?",
-                          `${target.claimed_by_prenom} ${target.claimed_by_nom} sera retiré et le besoin rouvert pour tout le monde.`,
-                          [
-                            { text: "Annuler", style: "cancel" },
-                            {
-                              text: "Me désengager",
-                              style: "destructive",
-                              onPress: async () => {
-                                await performUnclaim(target);
-                                setTaskForm(false);
-                              },
-                            },
-                          ]
-                        );
-                      }}
+                      onPress={() => setDesengageEditTarget(editTask)}
                       activeOpacity={0.8}
                     >
                       <Text style={[styles.claimOnCreateText, { color: C.text }]}>↩️ Me désengager</Text>
@@ -3500,6 +3491,21 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         confirmLabel="Me désinscrire"
         onCancel={() => setUnclaimConfirm(null)}
         onConfirm={confirmUnclaimSelf}
+        C={C}
+      />
+
+      <ConfirmModal
+        visible={!!desengageEditTarget}
+        icon="↩️"
+        title="Te désengager de ce besoin ?"
+        message={
+          desengageEditTarget
+            ? `${desengageEditTarget.claimed_by_prenom} ${desengageEditTarget.claimed_by_nom} sera retiré et le besoin rouvert pour tout le monde.`
+            : undefined
+        }
+        confirmLabel="Me désengager"
+        onCancel={() => setDesengageEditTarget(null)}
+        onConfirm={confirmDesengageEdit}
         C={C}
       />
 
