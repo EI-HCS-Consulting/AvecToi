@@ -6,6 +6,7 @@
 // selon la convention collective / l'accord d'entreprise) — un modèle à
 // adapter, pas un document juridique engageant.
 import { rightAlignBlock } from "@/lib/mediaShare";
+import type { PatientSpace } from "@/lib/types";
 
 export interface LetterField {
   key: string;
@@ -13,6 +14,16 @@ export interface LetterField {
   placeholder?: string;
   multiline?: boolean;
   required: boolean;
+}
+
+// Contexte transmis à prefill() pour pré-remplir un champ à partir de ce que
+// l'app connaît déjà — jamais depuis une saisie libre. ownerPrenom/ownerNom
+// sont la personne connectée qui remplit le courrier (pas forcément le
+// patient), space peut être null tant que le dossier patient n'a pas chargé.
+export interface LetterPrefillContext {
+  ownerPrenom: string;
+  ownerNom: string;
+  space: PatientSpace | null;
 }
 
 export interface LetterTemplate {
@@ -33,10 +44,51 @@ export interface LetterTemplate {
   // l'item de checklist lui-même, qui peuvent différer).
   piecesJointes: string[];
   body: (values: Record<string, string>) => string;
+  // Valeurs initiales déduites du profil/dossier patient déjà connu de l'app
+  // (voir openLetterModal, MyChecklist.tsx) — uniquement pour les champs où
+  // l'app a une info fiable ; les autres restent vides comme avant. Toujours
+  // modifiable ensuite par l'utilisateur, ce n'est qu'un point de départ.
+  prefill?: (ctx: LetterPrefillContext) => Record<string, string>;
 }
 
 function todayFr(): string {
   return new Date().toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+}
+
+function frDateFromIso(iso: string | null | undefined): string {
+  if (!iso) return "";
+  return new Date(iso).toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
+}
+
+function fullName(prenom: string, nom: string): string {
+  return `${prenom} ${nom}`.trim();
+}
+
+// Nom de l'établissement hospitalier + adresse, sur plusieurs lignes (les
+// champs qui l'utilisent sont multiline et passés à rightAlignBlock dans
+// body(), qui right-aligne chaque ligne du bloc).
+function hospitalBlock(space: PatientSpace | null): string {
+  if (!space || !space.hospital_name.trim()) return "";
+  const lines = [
+    space.hospital_address,
+    space.hospital_address_line2,
+    [space.hospital_postal_code, space.hospital_city].filter(Boolean).join(" "),
+  ].filter((l): l is string => !!l && l.trim() !== "");
+  return [space.hospital_name, ...lines].join("\n");
+}
+
+function homeAddressBlock(space: PatientSpace | null): string {
+  if (!space || !space.home_address?.trim()) return "";
+  const lines = [
+    space.home_address,
+    space.home_address_line2,
+    [space.home_postal_code, space.home_city].filter(Boolean).join(" "),
+  ].filter((l): l is string => !!l && l.trim() !== "");
+  return lines.join("\n");
+}
+
+function patientName(space: PatientSpace | null): string {
+  return space ? fullName(space.patient_firstname, space.patient_lastname) : "";
 }
 
 const CONGE_PROCHE_AIDANT_OBJET = "Demande de congé de proche aidant";
@@ -91,6 +143,7 @@ export const LETTER_TEMPLATES: LetterTemplate[] = [
       "",
       rightAlignBlock(v.salarie),
     ].join("\n"),
+    prefill: ({ ownerPrenom, ownerNom }) => ({ salarie: fullName(ownerPrenom, ownerNom) }),
   },
   {
     id: "autorisation_soins_enfant",
@@ -106,7 +159,7 @@ export const LETTER_TEMPLATES: LetterTemplate[] = [
       { key: "adresse", label: "Adresse du foyer", required: true, multiline: true },
       { key: "enfant", label: "Nom complet de l'enfant", required: true },
       { key: "dateNaissance", label: "Date de naissance de l'enfant", required: true },
-      { key: "etablissement", label: "Nom de l'hôpital / du service", required: true },
+      { key: "etablissement", label: "Nom de l'hôpital / du service", required: true, multiline: true },
       { key: "ville", label: "Ville (pour la date)", required: true },
       { key: "telephone", label: "Téléphone à joindre en cas d'urgence", required: true },
     ],
@@ -138,6 +191,13 @@ export const LETTER_TEMPLATES: LetterTemplate[] = [
       "",
       rightAlignBlock(`${v.parent1}${v.parent2 ? `\n${v.parent2}` : ""}`),
     ].join("\n"),
+    prefill: ({ ownerPrenom, ownerNom, space }) => ({
+      parent1: fullName(ownerPrenom, ownerNom),
+      enfant: patientName(space),
+      dateNaissance: frDateFromIso(space?.patient_birthdate),
+      etablissement: hospitalBlock(space),
+      adresse: homeAddressBlock(space),
+    }),
   },
   {
     id: "attestation_autorite_parentale",
@@ -152,7 +212,7 @@ export const LETTER_TEMPLATES: LetterTemplate[] = [
       { key: "enfant", label: "Nom complet de l'enfant", required: true },
       { key: "dateNaissance", label: "Date de naissance de l'enfant", required: true },
       { key: "situation", label: "Situation familiale (ex. parents non séparés / séparés à l'amiable, sans jugement)", required: true },
-      { key: "etablissement", label: "Établissement destinataire (hôpital, école…)", required: true },
+      { key: "etablissement", label: "Établissement destinataire (hôpital, école…)", required: true, multiline: true },
       { key: "ville", label: "Ville (pour la date)", required: true },
     ],
     piecesJointes: [
@@ -178,6 +238,12 @@ export const LETTER_TEMPLATES: LetterTemplate[] = [
       "",
       rightAlignBlock(v.parent),
     ].join("\n"),
+    prefill: ({ ownerPrenom, ownerNom, space }) => ({
+      parent: fullName(ownerPrenom, ownerNom),
+      enfant: patientName(space),
+      dateNaissance: frDateFromIso(space?.patient_birthdate),
+      etablissement: hospitalBlock(space),
+    }),
   },
   {
     id: "courrier_ecole_creche",
@@ -222,6 +288,10 @@ export const LETTER_TEMPLATES: LetterTemplate[] = [
       "",
       rightAlignBlock(v.parent),
     ].join("\n"),
+    prefill: ({ ownerPrenom, ownerNom, space }) => ({
+      parent: fullName(ownerPrenom, ownerNom),
+      enfant: patientName(space),
+    }),
   },
   {
     id: "declaration_mutuelle_cpam",
@@ -268,6 +338,10 @@ export const LETTER_TEMPLATES: LetterTemplate[] = [
       "",
       rightAlignBlock(v.assure),
     ].join("\n"),
+    prefill: ({ ownerPrenom, ownerNom, space }) => ({
+      assure: fullName(ownerPrenom, ownerNom),
+      adresse: homeAddressBlock(space),
+    }),
   },
   {
     id: "procuration_bancaire",
@@ -312,6 +386,10 @@ export const LETTER_TEMPLATES: LetterTemplate[] = [
       "",
       rightAlignBlock(v.titulaire),
     ].join("\n"),
+    prefill: ({ ownerPrenom, ownerNom, space }) => ({
+      titulaire: patientName(space),
+      mandataire: fullName(ownerPrenom, ownerNom),
+    }),
   },
   {
     id: "courrier_employeur_absence_hospitalisation",
@@ -357,6 +435,7 @@ export const LETTER_TEMPLATES: LetterTemplate[] = [
       "",
       rightAlignBlock(v.redacteur ? `${v.redacteur}\n(pour le compte de ${v.salarie})` : v.salarie),
     ].join("\n"),
+    prefill: ({ ownerPrenom, ownerNom }) => ({ salarie: fullName(ownerPrenom, ownerNom) }),
   },
   {
     id: "declaration_sinistre_assurance",
@@ -404,6 +483,7 @@ export const LETTER_TEMPLATES: LetterTemplate[] = [
       "",
       rightAlignBlock(v.assure),
     ].join("\n"),
+    prefill: ({ ownerPrenom, ownerNom }) => ({ assure: fullName(ownerPrenom, ownerNom) }),
   },
 ];
 

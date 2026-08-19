@@ -12,7 +12,7 @@ import { CHECKLIST_TEMPLATES, addDaysIso, checklistItemDescription, findTemplate
 import { findLetterTemplateForChecklistItem, LETTER_TEMPLATES, type LetterTemplate } from "@/lib/letterTemplates";
 import { saveAndShareDoc, splitAlignedLines } from "@/lib/mediaShare";
 import MesDocumentsModal from "@/components/MesDocumentsModal";
-import type { PersonalChecklistItem, IntervenantChecklistTemplate, PersonalDocument, Task } from "@/lib/types";
+import type { PersonalChecklistItem, IntervenantChecklistTemplate, PersonalDocument, PatientSpace, Task } from "@/lib/types";
 import { CHECKLIST_COLORS, type Theme } from "@/lib/themes";
 
 interface Props {
@@ -23,6 +23,11 @@ interface Props {
   // "ADMIN" côté admin (même convention que author_pin sur tasks/news_entries),
   // sinon le PIN de session du visiteur.
   ownerPin: string;
+  // Dossier patient de cet espace — sert uniquement à pré-remplir les
+  // courriers (voir openLetterModal/lib/letterTemplates.ts, prefill) avec
+  // les infos déjà connues de l'app (nom du patient, établissement
+  // hospitalier, adresse du domicile...).
+  space: PatientSpace;
   C: Theme;
   // Masque "✨ Importer une checklist toute prête" — les checklists
   // suggérées (Entraide) ne concernent pas les intervenants, voir
@@ -54,7 +59,7 @@ type ImportWizardFields = { dateLimite: string; urgent: boolean; detail: string 
 // `tasks` public ; dans ce cas, basculer son statut ici met aussi à jour
 // tasks.status, qui se propage partout via l'abonnement realtime déjà en
 // place dans Entraide.tsx.
-export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, ownerPin, C, hideImportBanner, intervenantTelephone }: Props) {
+export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, ownerPin, space, C, hideImportBanner, intervenantTelephone }: Props) {
   const normalizedTelephone = intervenantTelephone ? normalizePhone(intervenantTelephone) : "";
   const canUseTemplates = normalizedTelephone.length >= 6;
   const [items, setItems] = useState<PersonalChecklistItem[]>([]);
@@ -215,8 +220,9 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
 
   function openLetterModal(tpl: LetterTemplate) {
     setLetterModal(tpl);
+    const prefilled = tpl.prefill?.({ ownerPrenom, ownerNom, space }) ?? {};
     const initial: Record<string, string> = {};
-    tpl.fields.forEach((f) => { initial[f.key] = f.key === "salarie" && ownerPrenom ? `${ownerPrenom} ${ownerNom}`.trim() : ""; });
+    tpl.fields.forEach((f) => { initial[f.key] = prefilled[f.key] ?? ""; });
     setLetterValues(initial);
     setLetterPreview(false);
   }
@@ -1719,8 +1725,8 @@ const styles = StyleSheet.create({
     flexDirection: "row", alignItems: "center", justifyContent: "space-between",
     paddingVertical: 12, borderBottomWidth: 1,
   },
-  groupHeaderText: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },
-  groupChevron: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },
+  groupHeaderText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, flex: 1, marginRight: 10 },
+  groupChevron: { fontFamily: "DM_Sans_700Bold", fontSize: 14, flexShrink: 0 },
   groupCard: { marginTop: 10, marginBottom: 4 },
   groupTintWrap: { borderRadius: 14, marginTop: 4, marginBottom: 6, paddingHorizontal: 10, overflow: "hidden" },
   selectBar: {
