@@ -2413,12 +2413,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                         const target = editTask;
                         if (!target) return;
                         Alert.alert(
-                          "Je m'en occupe",
-                          `Retirer ${target.claimed_by_prenom} ${target.claimed_by_nom} de ce besoin et le rouvrir pour tout le monde ?`,
+                          "Te désengager de ce besoin ?",
+                          `${target.claimed_by_prenom} ${target.claimed_by_nom} sera retiré et le besoin rouvert pour tout le monde.`,
                           [
                             { text: "Annuler", style: "cancel" },
                             {
-                              text: "Confirmer",
+                              text: "Me désengager",
                               style: "destructive",
                               onPress: async () => {
                                 await performUnclaim(target);
@@ -2430,7 +2430,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                       }}
                       activeOpacity={0.8}
                     >
-                      <Text style={[styles.claimOnCreateText, { color: C.text }]}>↩️ Je m'en occupe</Text>
+                      <Text style={[styles.claimOnCreateText, { color: C.text }]}>↩️ Me désengager</Text>
                     </TouchableOpacity>
                   )}
 
