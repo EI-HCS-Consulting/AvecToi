@@ -150,6 +150,12 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
   const [documents, setDocuments] = useState<PersonalDocument[]>([]);
   const [loadingDocuments, setLoadingDocuments] = useState(false);
   const [redownloadingDocId, setRedownloadingDocId] = useState<string | null>(null);
+  // Non-null pendant l'édition d'un document déjà généré (clic prolongé →
+  // Modifier dans MesDocumentsModal) : downloadLetter met alors à jour la
+  // ligne personal_documents existante au lieu d'en créer une nouvelle.
+  const [editingDocumentId, setEditingDocumentId] = useState<string | null>(null);
+  const [deleteDocumentConfirm, setDeleteDocumentConfirm] = useState<PersonalDocument | null>(null);
+  const [deleteDocumentSaving, setDeleteDocumentSaving] = useState(false);
 
   const canLoad = !!(spaceId && ownerPrenom.trim() && ownerNom.trim() && ownerPin.trim());
 
@@ -219,27 +225,52 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     setLetterModal(null);
     setLetterValues({});
     setLetterPreview(false);
+    setEditingDocumentId(null);
   }
 
   function updateLetterField(key: string, value: string) {
     setLetterValues((prev) => ({ ...prev, [key]: value }));
   }
 
+  // Rouvre le formulaire pré-rempli sur un document déjà généré (clic
+  // prolongé → Modifier dans MesDocumentsModal), plutôt que de repartir d'un
+  // formulaire vide comme openLetterModal — downloadLetter détecte
+  // editingDocumentId et met à jour la ligne existante au lieu d'en créer une.
+  function openLetterModalForEdit(doc: PersonalDocument) {
+    const tpl = LETTER_TEMPLATES.find((lt) => lt.id === doc.letter_id);
+    if (!tpl) {
+      Alert.alert("Modèle indisponible", "Ce type de courrier n'existe plus.");
+      return;
+    }
+    setDocumentsModal(false);
+    setLetterModal(tpl);
+    setLetterValues({ ...doc.values });
+    setLetterPreview(false);
+    setEditingDocumentId(doc.id);
+  }
+
   async function downloadLetter() {
     if (!letterModal) return;
     setLetterSaving(true);
     const content = letterModal.body(letterValues);
-    const ok = await saveAndShareDoc(content, `${letterModal.id}.doc`, letterModal.label);
+    const ok = await saveAndShareDoc(content, `${letterModal.id}.doc`, letterModal.label, letterModal.objet);
     if (ok) {
-      await supabase.from("personal_documents").insert({
-        space_id: spaceId,
-        owner_prenom: ownerPrenom,
-        owner_nom: ownerNom,
-        owner_pin: ownerPin,
-        letter_id: letterModal.id,
-        label: letterModal.label,
-        values: letterValues,
-      });
+      if (editingDocumentId) {
+        await supabase
+          .from("personal_documents")
+          .update({ values: letterValues })
+          .eq("id", editingDocumentId);
+      } else {
+        await supabase.from("personal_documents").insert({
+          space_id: spaceId,
+          owner_prenom: ownerPrenom,
+          owner_nom: ownerNom,
+          owner_pin: ownerPin,
+          letter_id: letterModal.id,
+          label: letterModal.label,
+          values: letterValues,
+        });
+      }
     }
     setLetterSaving(false);
   }
@@ -268,8 +299,17 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
       return;
     }
     setRedownloadingDocId(doc.id);
-    await saveAndShareDoc(tpl.body(doc.values), `${doc.letter_id}.doc`, doc.label);
+    await saveAndShareDoc(tpl.body(doc.values), `${doc.letter_id}.doc`, doc.label, tpl.objet);
     setRedownloadingDocId(null);
+  }
+
+  async function confirmDeleteDocument() {
+    if (!deleteDocumentConfirm) return;
+    setDeleteDocumentSaving(true);
+    await supabase.from("personal_documents").delete().eq("id", deleteDocumentConfirm.id);
+    setDocuments((prev) => prev.filter((d) => d.id !== deleteDocumentConfirm.id));
+    setDeleteDocumentSaving(false);
+    setDeleteDocumentConfirm(null);
   }
 
   function addDraftToNewChecklist() {
@@ -790,12 +830,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
   // est porté par le wrapper englobant (voir groupTintWrap) — la carte reste
   // transparente et sans bordure pour ne pas dupliquer le cadre.
   function renderGroupCard(groupItemsList: PersonalChecklistItem[], addTarget?: { key: string; isCustom: boolean }, nestPieces?: boolean, cardBg?: string) {
-    // Items déjà cochés (status "fait") relégués après les items encore à
-    // faire — tri stable, l'ordre de création (voir loadItems) est conservé
-    // au sein de chaque groupe.
-    const topLevel = (nestPieces ? groupItemsList.filter((it) => !it.custom_checklist_name) : groupItemsList)
-      .slice()
-      .sort((a, b) => Number(a.status === "fait") - Number(b.status === "fait"));
+    const topLevel = nestPieces ? groupItemsList.filter((it) => !it.custom_checklist_name) : groupItemsList;
     const piecesOf = (title: string) => groupItemsList.filter((it) => it.custom_checklist_name === title);
     return (
       <View style={[styles.card, styles.groupCard, cardBg ? { backgroundColor: "transparent", borderWidth: 0 } : { backgroundColor: C.card, borderColor: C.border }]}>
@@ -992,6 +1027,20 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
         loading={loadingDocuments}
         onRedownload={redownloadDocument}
         redownloadingId={redownloadingDocId}
+        onEdit={openLetterModalForEdit}
+        onDelete={setDeleteDocumentConfirm}
+      />
+
+      <ConfirmModal
+        visible={!!deleteDocumentConfirm}
+        icon="🗑️"
+        title={`Supprimer "${deleteDocumentConfirm?.label ?? ""}" ?`}
+        message="Ce document ne sera plus disponible dans « Mes documents »."
+        confirmLabel="Supprimer"
+        saving={deleteDocumentSaving}
+        onCancel={() => setDeleteDocumentConfirm(null)}
+        onConfirm={confirmDeleteDocument}
+        C={C}
       />
 
       <ConfirmModal
