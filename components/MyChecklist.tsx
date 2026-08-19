@@ -256,10 +256,13 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     const ok = await saveAndShareDoc(content, `${letterModal.id}.doc`, letterModal.label, letterModal.objet);
     if (ok) {
       if (editingDocumentId) {
-        await supabase
+        const { error } = await supabase
           .from("personal_documents")
           .update({ values: letterValues })
           .eq("id", editingDocumentId);
+        if (error) {
+          Alert.alert("Erreur", "Le document téléchargé est à jour, mais l'enregistrement dans « Mes documents » a échoué : " + error.message);
+        }
       } else {
         await supabase.from("personal_documents").insert({
           space_id: spaceId,

@@ -114,13 +114,21 @@ function escapeRtf(text: string): string {
 }
 
 // A4, marges 2,5cm (repère standard courrier FR) : donne une largeur de
-// page connue pour que \deftab (voir lettre_employeur_conge_proche_aidant,
-// lib/letterTemplates.ts) place le bloc destinataire assez à droite pour
-// se distinguer de l'expéditeur, tout en laissant assez de place jusqu'à la
-// marge droite pour qu'une ligne d'adresse ordinaire ne soit jamais coupée
-// ni ne revienne à la ligne.
+// page connue pour placer le bloc destinataire (voir
+// lettre_employeur_conge_proche_aidant, lib/letterTemplates.ts) à environ
+// 10cm de la marge gauche, soit ~12,5cm du bord de la page — cohérent avec
+// la norme AFNOR NF Z11-001 (bloc destinataire visible dans la fenêtre
+// d'une enveloppe à fenêtre, repère ~11cm du bord) — tout en laissant ~6cm
+// jusqu'à la marge droite pour qu'une ligne d'adresse courante ne soit
+// jamais coupée ni ne revienne à la ligne.
+// \tx (taquet de tabulation explicite posé par \pard) plutôt que \deftab
+// seul : \deftab n'est pas fiable sur tous les lecteurs RTF (Word mobile,
+// Google Docs, WPS…), qui retombent alors sur un taquet par défaut bien
+// trop court — \tx est le contrôle RTF standard le plus largement respecté
+// pour un taquet de tabulation à une position donnée.
+const ADDRESS_TAB_TWIPS = 5670;
 function textToRtf(content: string): string {
-  return `{\\rtf1\\ansi\\ansicpg1252\\deff0{\\fonttbl{\\f0 Calibri;}}\\paperw11906\\paperh16838\\margl1417\\margr1417\\margt1417\\margb1417\\deftab4800\\f0\\fs22 ${escapeRtf(content)}}`;
+  return `{\\rtf1\\ansi\\ansicpg1252\\deff0{\\fonttbl{\\f0 Calibri;}}\\paperw11906\\paperh16838\\margl1417\\margr1417\\margt1417\\margb1417\\deftab${ADDRESS_TAB_TWIPS}\\pard\\tx${ADDRESS_TAB_TWIPS}\\f0\\fs22 ${escapeRtf(content)}}`;
 }
 
 // Même usage que saveAndShareText (courrier généré, voir lib/letterTemplates.ts)
