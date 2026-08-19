@@ -2189,8 +2189,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                   )}
 
                   {!editTask && fCat === "courses" && (
-                    <View style={{ marginBottom: 14 }}>
-                      <Text style={[styles.fieldLabel, { color: C.gold }]}>Liste de courses (optionnelle)</Text>
+                    <View style={[styles.transportForm, { borderColor: C.border, marginTop: 10 }]}>
+                      <Text style={[styles.fieldLabel, { color: C.gold }]}>🛒 Créer une liste de courses (optionnelle)</Text>
                       {fCourseItems.map((label, i) => (
                         <View key={i} style={styles.checklistItemRow}>
                           <View style={[styles.checklistBox, { borderColor: C.gold, backgroundColor: C.gold }]}>
