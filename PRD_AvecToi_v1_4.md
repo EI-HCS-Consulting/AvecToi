@@ -1,6 +1,13 @@
 # PRD — AvecToi
-## Product Requirements Document v1.7
+## Product Requirements Document v1.8
 *Préparé pour Claude Code — Juin 2026, synchronisé avec l'application livrée en Juillet/Août 2026*
+
+> **Changelog v1.7 → v1.8**
+> - **Entraide enrichie** : désengagement généralisé à toutes les catégories (« Me désengager », plus seulement Transport), bibliothèque de checklists suggérées passée à **11 modèles** dont deux réservés au proche aidant (« Congé proche aidant », « Répit aidant », visibles uniquement dans Mon Compte → Checklist personnelle), import via assistant séquentiel (échéance → urgence → précision) — voir §3.8
+> - **Génération de courriers administratifs** *(NOUVEAU)* : certains items de checklist (demande employeur, autorisation de soins, attestation d'autorité parentale, courrier école/crèche, déclaration mutuelle/CPAM, procuration bancaire, absence pour hospitalisation d'un proche, déclaration de sinistre) produisent un document Word prêt à l'emploi, tracé dans un nouveau bouton « 📄 Mes documents » — voir §3.8
+> - **Catégorie Courses devenue liste d'articles cochables** en temps réel par tout visiteur/admin, avec fermeture/réouverture automatique du besoin selon l'état de la liste — voir §3.8
+> - **« Mes Souvenirs »** *(NOUVEAU)* : page personnelle listant les photos prises/partagées par l'utilisateur à travers tous ses espaces, avec sélection multiple et partage groupé — distincte de la Galerie Souvenirs par espace — voir §3.2, §3.3
+> - Détail exhaustif écran par écran : `Documentation/Documentation Fonctionnalités.docx` (généré depuis le code, mis à jour à chaque handoff)
 
 > **Changelog v1.6 → v1.7**
 > - **Activation du rôle Intervenant verrouillée derrière Premium** : un espace Freemium peut désactiver « Planning des intervenants » sans condition, mais ne peut plus l'**activer** tant que l'espace n'est pas passé en Premium (contrôle absent en v1.6, corrigé) — voir §3.9, §3.12
@@ -179,7 +186,7 @@ L'app est **"consumption-only" (reader app)** : elle ne vend **aucun** bien ou s
 
 **Gestion des invitations** : lien unique, QR code, code dossier (lisible à voix haute), WhatsApp, SMS, copier.
 
-**Galerie Souvenirs (admin)** : upload (galerie/caméra), compression auto, grille anté-chronologique, lightbox, **"Sélectionner tout" / "Télécharger tout"**, légende optionnelle, **suppression de n'importe quelle photo** (sans PIN).
+**Galerie Souvenirs (admin)** : upload (galerie/caméra), compression auto, grille anté-chronologique, lightbox, **"Sélectionner tout" / "Télécharger tout"**, légende optionnelle, **suppression de n'importe quelle photo** (sans PIN). **« Mes Souvenirs »** *(NOUVEAU depuis v1.8)* : page personnelle distincte, accessible depuis Mon Compte, listant les photos de l'utilisateur regroupées par espace à travers tous ses espaces liés au même téléphone — sélection multiple et partage groupé (au lieu d'un partage photo par photo).
 
 **Entraide & Soutien (admin)** : crée/édite/supprime des besoins ; voit qui s'est attribué quoi ; modère le mur de soutien (voir §3.8).
 
@@ -231,9 +238,12 @@ Compte-rendu court après le passage d'un visiteur, pour rassurer les proches ab
 - L'admin (ou un visiteur) crée un **besoin** : ex. apporter un repas maison, du linge propre, des affaires de toilette, un livre, faire une course, un trajet
 - Chaque besoin : **catégorie** — **6 catégories depuis v1.5** : 🍽️ Repas / 👕 Affaires / 🛒 Courses / 🚗 Transport / 🗂️ Administratif / 💡 Autre (le PRD v1.4 n'en prévoyait que 4, sans Transport ni Administratif) — + **statut** (ouvert → pris en charge → fait, avec fermeture automatique si non pris en charge après sa date)
 - Un visiteur clique **« Je m'en occupe »** (identifié prénom + nom, PIN pour se désinscrire)
-- Catégorie **Administratif** : checklists suggérées prêtes à publier en bloc (bibliothèque complète pour l'admin, sous-ensemble partageable pour les visiteurs/intervenants)
+- **Désengagement généralisé** *(NOUVEAU depuis v1.8)* : un besoin pris en charge peut être libéré par la personne qui l'a pris (« Me désengager », depuis « Modifier le besoin » ou par appui long sur sa carte), quelle que soit la catégorie — auparavant réservé à Transport
+- Catégorie **Courses devenue liste d'articles** *(NOUVEAU depuis v1.8)* : articles ajoutés un par un à la création, cochables/décochables en temps réel par tout visiteur ou admin via « 👁️ Aperçu de la liste » ; cocher le dernier article ferme automatiquement le besoin, décocher un article après coup le rouvre
+- Catégorie **Administratif** : checklists suggérées prêtes à publier en bloc — **bibliothèque passée à 11 modèles depuis v1.8** (bibliothèque complète pour l'admin, sous-ensemble marqué partageable pour les visiteurs/intervenants), dont **deux modèles réservés au proche aidant** (« Congé proche aidant », « Répit aidant »), visibles uniquement dans Mon Compte → Checklist personnelle ; import via un **assistant séquentiel** *(NOUVEAU depuis v1.8)* demandant échéance → urgence → précision libre item par item
+- **Génération de courriers administratifs** *(NOUVEAU depuis v1.8)* : certains items de checklist (demande employeur, autorisation de soins pour un enfant, attestation d'autorité parentale, courrier école/crèche, déclaration mutuelle/CPAM, procuration bancaire, absence pour hospitalisation d'un proche, déclaration de sinistre) affichent un bouton « ✉️ Préparer le courrier » : popup de remplissage des champs obligatoires, aperçu fidèle à une lettre administrative réelle, export Word (.doc) ou partage par email. Chaque courrier généré est tracé dans un nouveau bouton « 📄 Mes documents » (modifiable, supprimable, retéléchargeable), qui liste aussi les listes de courses associées à un besoin Courses
 - Catégorie **Transport** *(NOUVEAU depuis v1.4 — revient sur l'exclusion initiale)* : dates/heures aller-retour, adresses, proposition d'horaire par la personne qui prend en charge
-- L'admin dispose d'opérations groupées (sélection multiple, suppression en masse) réservées à son rôle
+- L'admin dispose d'opérations groupées (sélection multiple, suppression en masse) réservées à son rôle ; les besoins qu'il prend en charge personnellement apparaissent dans une section dédiée de Mon Compte, distincte de ceux qu'il publie
 
 **Mur de soutien**
 - Messages courts d'encouragement pour le patient / la famille
