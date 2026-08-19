@@ -107,10 +107,15 @@ export function rightAlignBlock(text: string): string {
   return text.split("\n").map((line) => `${ALIGN_RIGHT_MARK}${line}`).join("\n");
 }
 
-// Retire les marqueurs avant affichage brut (aperçu dans MyChecklist.tsx) :
-// l'aperçu affiche le texte tel quel, sans interpréter l'alignement.
-export function stripAlignMarkers(text: string): string {
-  return text.split(ALIGN_RIGHT_MARK).join("");
+// Découpe le texte ligne par ligne avec son alignement, pour un aperçu
+// fidèle (WYSIWYG) dans l'app — voir MyChecklist.tsx, où chaque ligne est
+// rendue dans son propre <Text> avec le textAlign correspondant, plutôt que
+// d'afficher tout le bloc en un seul <Text> aligné à gauche.
+export function splitAlignedLines(content: string): { text: string; rightAlign: boolean }[] {
+  return content.split("\n").map((line) => {
+    const rightAlign = line.startsWith(ALIGN_RIGHT_MARK);
+    return { text: rightAlign ? line.slice(ALIGN_RIGHT_MARK.length) : line, rightAlign };
+  });
 }
 
 // RTF minimal (pas de vraie lib docx) : Word/LibreOffice l'ouvrent nativement
