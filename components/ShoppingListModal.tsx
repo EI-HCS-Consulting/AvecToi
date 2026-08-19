@@ -45,8 +45,15 @@ export default function ShoppingListModal({ visible, onClose, C, task }: Props) 
 
   async function toggleBought(item: ShoppingListItem) {
     const nextBought = !item.bought;
-    setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, bought: nextBought } : it)));
+    const nextItems = items.map((it) => (it.id === item.id ? { ...it, bought: nextBought } : it));
+    setItems(nextItems);
     await supabase.from("shopping_list_items").update({ bought: nextBought }).eq("id", item.id);
+    // Coche le dernier article → plus besoin de repasser par "C'est fait"
+    // (photo + PIN, voir confirmDone dans Entraide.tsx) : la liste pleine
+    // vaut déjà preuve que les courses sont faites.
+    if (nextBought && task && task.status !== "fait" && nextItems.length > 0 && nextItems.every((it) => it.bought)) {
+      await supabase.from("tasks").update({ status: "fait" }).eq("id", task.id);
+    }
   }
 
   async function removeItem(item: ShoppingListItem) {
