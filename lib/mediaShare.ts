@@ -91,19 +91,37 @@ export async function saveAndShareText(content: string, filename: string, dialog
   }
 }
 
+// Marqueur de début de ligne (jamais affiché) posé par rightAlignBlock
+// ci-dessous — sert à faire passer l'info "cette ligne doit être alignée à
+// droite dans le .doc" à travers LetterTemplate.body(), qui ne renvoie
+// qu'une chaîne brute (aussi utilisée telle quelle pour l'aperçu dans
+// MyChecklist.tsx, d'où stripAlignMarkers pour l'en retirer avant affichage).
+const ALIGN_RIGHT_MARK = "⦙RIGHT⦙";
+
+// Marque chaque ligne d'un bloc (ex. bloc destinataire d'un courrier, voir
+// lib/letterTemplates.ts) pour qu'elle soit rendue alignée à droite dans le
+// .doc généré — reproduit la mise en page d'un modèle de lettre administrative
+// réel (destinataire/date/signature en `w:jc="right"`), plutôt qu'un simple
+// décalage par tabulation qui ne correspondait pas à l'usage courant.
+export function rightAlignBlock(text: string): string {
+  return text.split("\n").map((line) => `${ALIGN_RIGHT_MARK}${line}`).join("\n");
+}
+
+// Retire les marqueurs avant affichage brut (aperçu dans MyChecklist.tsx) :
+// l'aperçu affiche le texte tel quel, sans interpréter l'alignement.
+export function stripAlignMarkers(text: string): string {
+  return text.split(ALIGN_RIGHT_MARK).join("");
+}
+
 // RTF minimal (pas de vraie lib docx) : Word/LibreOffice l'ouvrent nativement
 // sous l'extension .doc. \uNNNN? échappe tout caractère non-ASCII (accents),
 // ? servant de repli pour les lecteurs RTF qui ignorent \u.
-function escapeRtf(text: string): string {
+function escapeRtfLine(text: string): string {
   let out = "";
   for (const ch of text) {
     const code = ch.codePointAt(0) ?? 0;
     if (ch === "\\" || ch === "{" || ch === "}") {
       out += "\\" + ch;
-    } else if (ch === "\n") {
-      out += "\\par\n";
-    } else if (ch === "\t") {
-      out += "\\tab ";
     } else if (code > 127) {
       out += `\\u${code}?`;
     } else {
@@ -113,22 +131,23 @@ function escapeRtf(text: string): string {
   return out;
 }
 
-// A4, marges 2,5cm (repère standard courrier FR) : donne une largeur de
-// page connue pour placer le bloc destinataire (voir
-// lettre_employeur_conge_proche_aidant, lib/letterTemplates.ts) à environ
-// 10cm de la marge gauche, soit ~12,5cm du bord de la page — cohérent avec
-// la norme AFNOR NF Z11-001 (bloc destinataire visible dans la fenêtre
-// d'une enveloppe à fenêtre, repère ~11cm du bord) — tout en laissant ~6cm
-// jusqu'à la marge droite pour qu'une ligne d'adresse courante ne soit
-// jamais coupée ni ne revienne à la ligne.
-// \tx (taquet de tabulation explicite posé par \pard) plutôt que \deftab
-// seul : \deftab n'est pas fiable sur tous les lecteurs RTF (Word mobile,
-// Google Docs, WPS…), qui retombent alors sur un taquet par défaut bien
-// trop court — \tx est le contrôle RTF standard le plus largement respecté
-// pour un taquet de tabulation à une position donnée.
-const ADDRESS_TAB_TWIPS = 5670;
+// A4, marges 2,5cm (repère standard courrier FR administratif). Chaque ligne
+// devient son propre paragraphe RTF (\pard\qr ou \pard\ql posé explicitement
+// en tête de paragraphe, selon ALIGN_RIGHT_MARK) plutôt qu'un simple \deftab
+// document-wide : ce découpage ligne par ligne évite toute ambiguïté sur la
+// portée de l'alignement (un \pard par ligne ne peut pas "déborder" sur la
+// ligne suivante) et reproduit fidèlement un modèle de lettre réel où le
+// bloc destinataire/date/signature est justifié à droite (w:jc="right").
 function textToRtf(content: string): string {
-  return `{\\rtf1\\ansi\\ansicpg1252\\deff0{\\fonttbl{\\f0 Calibri;}}\\paperw11906\\paperh16838\\margl1417\\margr1417\\margt1417\\margb1417\\deftab${ADDRESS_TAB_TWIPS}\\pard\\tx${ADDRESS_TAB_TWIPS}\\f0\\fs22 ${escapeRtf(content)}}`;
+  const body = content
+    .split("\n")
+    .map((line) => {
+      const rightAlign = line.startsWith(ALIGN_RIGHT_MARK);
+      const clean = rightAlign ? line.slice(ALIGN_RIGHT_MARK.length) : line;
+      return `\\pard${rightAlign ? "\\qr" : "\\ql"} ${escapeRtfLine(clean)}\\par`;
+    })
+    .join("\n");
+  return `{\\rtf1\\ansi\\ansicpg1252\\deff0{\\fonttbl{\\f0 Calibri;}}\\paperw11906\\paperh16838\\margl1417\\margr1417\\margt1417\\margb1417\\f0\\fs22 ${body}}`;
 }
 
 // Même usage que saveAndShareText (courrier généré, voir lib/letterTemplates.ts)

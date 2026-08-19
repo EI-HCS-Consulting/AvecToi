@@ -5,6 +5,8 @@
 // prudent (pas de délai légal chiffré dans le corps du courrier, qui varie
 // selon la convention collective / l'accord d'entreprise) — un modèle à
 // adapter, pas un document juridique engageant.
+import { rightAlignBlock } from "@/lib/mediaShare";
+
 export interface LetterField {
   key: string;
   label: string;
@@ -37,21 +39,6 @@ function todayFr(): string {
   return new Date().toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" });
 }
 
-// Préfixe chaque ligne d'un bloc par une tabulation (plutôt qu'un
-// alignement à droite) pour décaler le destinataire vers la partie droite
-// de la page, comme le veut l'usage du courrier administratif — voir
-// escapeRtf/textToRtf dans lib/mediaShare.ts, qui traduit ce caractère tab
-// en \tab RTF avec un taquet de tabulation dédié (\deftab). Les lignes
-// saisies restent alignées entre elles depuis ce taquet, à gauche, et
-// wrappent naturellement dans la largeur restante plutôt que d'être
-// coupées : aucun \qr (alignement à droite) n'est utilisé ici.
-function indentBlock(text: string): string {
-  return text
-    .split("\n")
-    .map((line) => `\t${line}`)
-    .join("\n");
-}
-
 const CONGE_PROCHE_AIDANT_OBJET = "Demande de congé de proche aidant";
 
 export const LETTER_TEMPLATES: LetterTemplate[] = [
@@ -82,10 +69,10 @@ export const LETTER_TEMPLATES: LetterTemplate[] = [
       v.salarie,
       v.adresse,
       "",
-      indentBlock(v.employeur),
-      indentBlock(v.adresseEmployeur),
+      rightAlignBlock(v.employeur),
+      rightAlignBlock(v.adresseEmployeur),
       "",
-      `${v.ville}, le ${todayFr()}`,
+      rightAlignBlock(`${v.ville}, le ${todayFr()}`),
       "",
       `Objet : ${CONGE_PROCHE_AIDANT_OBJET}`,
       "",
@@ -101,7 +88,8 @@ export const LETTER_TEMPLATES: LetterTemplate[] = [
       "",
       "Je vous prie d'agréer, Madame, Monsieur, l'expression de mes salutations distinguées.",
       "",
-      v.salarie,
+      "",
+      rightAlignBlock(v.salarie),
     ].join("\n"),
   },
 ];
