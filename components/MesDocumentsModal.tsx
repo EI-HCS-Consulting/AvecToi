@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, Modal, ScrollView, StyleSheet, ActivityIndicator, Alert } from "react-native";
-import type { PersonalDocument } from "@/lib/types";
+import type { PersonalDocument, Task } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 import { LETTER_TEMPLATES } from "@/lib/letterTemplates";
 import { splitAlignedLines } from "@/lib/mediaShare";
@@ -28,9 +28,15 @@ interface Props {
   downloadingId: string | null;
   onEdit: (doc: PersonalDocument) => void;
   onDelete: (doc: PersonalDocument) => void;
+  // Besoins "courses" avec liste de courses (voir ShoppingListModal.tsx) —
+  // simple tap ouvre l'aperçu/édition, pas de suppression ici : contrairement
+  // à un courrier, supprimer le besoin lui-même reste réservé au flux normal
+  // du Mur d'Entraide (Entraide.tsx), pas à ce raccourci "Mes documents".
+  shoppingLists: Task[];
+  onOpenShoppingList: (t: Task) => void;
 }
 
-export default function MesDocumentsModal({ visible, onClose, C, documents, loading, onDownload, downloadingId, onEdit, onDelete }: Props) {
+export default function MesDocumentsModal({ visible, onClose, C, documents, loading, onDownload, downloadingId, onEdit, onDelete, shoppingLists, onOpenShoppingList }: Props) {
   const [previewDoc, setPreviewDoc] = useState<PersonalDocument | null>(null);
 
   // Repart de la liste à chaque réouverture plutôt que de garder l'aperçu
@@ -113,28 +119,47 @@ export default function MesDocumentsModal({ visible, onClose, C, documents, load
             <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: 4 }}>
               {loading ? (
                 <ActivityIndicator color={C.orange} style={{ marginVertical: 16 }} />
-              ) : documents.length === 0 ? (
+              ) : documents.length === 0 && shoppingLists.length === 0 ? (
                 <Text style={[styles.emptyText, { color: C.muted }]}>
-                  Aucun document pour l'instant. Les courriers générés via "✉️ Préparer le courrier" apparaîtront ici.
+                  Aucun document pour l'instant. Les courriers générés via "✉️ Préparer le courrier" et les listes de courses apparaîtront ici.
                 </Text>
               ) : (
-                documents.map((doc) => (
-                  <TouchableOpacity
-                    key={doc.id}
-                    activeOpacity={0.85}
-                    onLongPress={() => handleLongPress(doc)}
-                    style={[styles.docCard, { borderColor: C.border, backgroundColor: `${C.orange}0d` }]}
-                  >
-                    <Text style={[styles.docLabel, { color: C.text }]}>{doc.label}</Text>
-                    <Text style={[styles.docDate, { color: C.muted }]}>Généré le {frDateTime(doc.created_at)}</Text>
+                <>
+                  {documents.map((doc) => (
                     <TouchableOpacity
-                      style={[styles.smallBtn, { backgroundColor: C.orange }]}
-                      onPress={() => setPreviewDoc(doc)}
+                      key={doc.id}
+                      activeOpacity={0.85}
+                      onLongPress={() => handleLongPress(doc)}
+                      style={[styles.docCard, { borderColor: C.border, backgroundColor: `${C.orange}0d` }]}
                     >
-                      <Text style={styles.smallBtnText}>👁️ Aperçu</Text>
+                      <Text style={[styles.docLabel, { color: C.text }]}>{doc.label}</Text>
+                      <Text style={[styles.docDate, { color: C.muted }]}>Généré le {frDateTime(doc.created_at)}</Text>
+                      <TouchableOpacity
+                        style={[styles.smallBtn, { backgroundColor: C.orange }]}
+                        onPress={() => setPreviewDoc(doc)}
+                      >
+                        <Text style={styles.smallBtnText}>👁️ Aperçu</Text>
+                      </TouchableOpacity>
                     </TouchableOpacity>
-                  </TouchableOpacity>
-                ))
+                  ))}
+                  {shoppingLists.map((t) => (
+                    <TouchableOpacity
+                      key={t.id}
+                      activeOpacity={0.85}
+                      onPress={() => onOpenShoppingList(t)}
+                      style={[styles.docCard, { borderColor: C.border, backgroundColor: `${C.accent}0d` }]}
+                    >
+                      <Text style={[styles.docLabel, { color: C.text }]}>🛒 {t.title}</Text>
+                      <Text style={[styles.docDate, { color: C.muted }]}>Publié le {frDateTime(t.created_at)}</Text>
+                      <TouchableOpacity
+                        style={[styles.smallBtn, { backgroundColor: C.accent }]}
+                        onPress={() => onOpenShoppingList(t)}
+                      >
+                        <Text style={styles.smallBtnText}>👁️ Aperçu</Text>
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  ))}
+                </>
               )}
             </ScrollView>
           )}

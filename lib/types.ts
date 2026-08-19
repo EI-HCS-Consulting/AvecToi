@@ -424,6 +424,19 @@ export interface Task {
   deleted_by_admin: boolean;
 }
 
+// Article d'une liste de courses (voir components/ShoppingListModal.tsx),
+// rattaché à un besoin category="courses" via task_id — seule source de
+// vérité, ouverte à la fois depuis le Mur d'Entraide ("👁️ Aperçu") et
+// "📄 Mes documents" (MyChecklist.tsx), donc jamais dupliquée.
+export interface ShoppingListItem {
+  id: string;
+  task_id: string;
+  label: string;
+  bought: boolean;
+  position: number;
+  created_at: string;
+}
+
 // Item de "Ma Checklist" (bloc dédié dans Mon Compte, admin + visiteur) —
 // voir components/MyChecklist.tsx. task_id renseigné uniquement pour les
 // items importés depuis une checklist suggérée (voir lib/checklistTemplates.ts) :
