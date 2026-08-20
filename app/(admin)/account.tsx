@@ -29,6 +29,7 @@ const CAT_ICONS: Record<Task["category"], string> = {
   transport: "🚗",
   administratif: "🗂️",
   autre: "💡",
+  relais: "🆘",
 };
 
 type ContribKey = "resv" | "news" | "soutien" | "besoins";
@@ -488,6 +489,20 @@ export default function AdminAccountScreen() {
               </TouchableOpacity>
             </>
           )}
+        </View>
+
+        <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 16 }]}>
+          <Text style={[styles.patientName, { color: C.text, fontSize: 16 }]}>🆘 Besoin de relais</Text>
+          <Text style={[styles.cardDesc, { color: C.muted }]}>
+            Tu as besoin de souffler ? Publie un besoin de relais ponctuel, visible par tous les proches ou seulement certains.
+          </Text>
+          <TouchableOpacity
+            style={[styles.editProfileBtn, { backgroundColor: C.accent, borderColor: C.accent, marginTop: 10 }]}
+            onPress={() => router.push("/(admin)/entraide?openRelais=1")}
+            activeOpacity={0.85}
+          >
+            <Text style={[styles.editProfileBtnText, { color: "#fff" }]}>Publier un besoin de relais</Text>
+          </TouchableOpacity>
         </View>
 
         <TouchableOpacity

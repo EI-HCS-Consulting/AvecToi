@@ -256,7 +256,7 @@ export const CHECKLIST_TEMPLATES: Record<ChecklistContext, ChecklistTemplate> = 
         phase: "Identifier le besoin",
         items: [
           { title: "Identifier les moments où l'aidant a besoin d'être remplacé", description: "", category: "autre", sharedWithVisitors: true },
-          { title: "Publier un besoin de relais ponctuel dans Entraide", description: "", category: "autre", sharedWithVisitors: true },
+          { title: "Publier un besoin de relais ponctuel (Mon compte)", description: "", category: "autre", sharedWithVisitors: true },
         ],
       },
       {

@@ -349,7 +349,7 @@ export interface Task {
   space_id: string;
   title: string;
   description: string;
-  category: "repas" | "affaires" | "courses" | "transport" | "administratif" | "autre";
+  category: "repas" | "affaires" | "courses" | "transport" | "administratif" | "autre" | "relais";
   status: "ouvert" | "pris_en_charge" | "fait" | "ferme";
   claimed_by_prenom: string | null;
   claimed_by_nom: string | null;
@@ -422,6 +422,17 @@ export interface Task {
   // reste visible avec un bandeau rouge pour l'auteur uniquement, masqué pour
   // tous les autres. Voir supabase/migrations/20260811_content_deleted_by_admin.sql.
   deleted_by_admin: boolean;
+  // Catégorie "relais" uniquement (besoin de relais ponctuel, publié depuis
+  // Mon compte — voir components/Entraide.tsx et RelaisAlertModal.tsx). La
+  // date de fin réutilise date_limite ci-dessus, seule la date de début est
+  // nouvelle. relais_visible_to/relais_recipients ciblent qui reçoit l'alerte
+  // de connexion ET voit le besoin dans le mur Entraide ("some" = seuls les
+  // prénom/nom listés) ; relais_dismissed_by ne masque que l'alerte, jamais
+  // le besoin lui-même.
+  relais_start_date: string | null;
+  relais_visible_to: "all" | "some" | null;
+  relais_recipients: { prenom: string; nom: string }[] | null;
+  relais_dismissed_by: { prenom: string; nom: string }[];
 }
 
 // Article d'une liste de courses (voir components/ShoppingListModal.tsx),

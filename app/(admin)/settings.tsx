@@ -93,7 +93,7 @@ function chronoKindColor(kind: ChronoEventKind, C: Theme): string {
 // (les icônes réutilisent TASK_CAT_ICONS, déjà défini plus bas pour le bloc
 // Historique / Publications).
 const TASK_CAT_LABELS: Record<Task["category"], string> = {
-  repas: "Repas", affaires: "Affaires", courses: "Courses", transport: "Transport", administratif: "Administratif", autre: "Autre",
+  repas: "Repas", affaires: "Affaires", courses: "Courses", transport: "Transport", administratif: "Administratif", autre: "Autre", relais: "Relais",
 };
 const TASK_STATUS_LABELS: Record<Task["status"], string> = {
   ouvert: "Ouvert", pris_en_charge: "Pris en charge", fait: "Terminé", ferme: "Clôturé",
@@ -196,6 +196,7 @@ const TASK_CAT_ICONS: Record<Task["category"], string> = {
   transport: "🚗",
   administratif: "🗂️",
   autre: "💡",
+  relais: "🆘",
 };
 
 // ─── Barre de navigation des réglages (remplace la grille de tuiles) ─────────

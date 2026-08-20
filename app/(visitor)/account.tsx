@@ -74,7 +74,7 @@ interface LinkedIntervenantSpace {
 }
 
 const CAT_ICONS: Record<Task["category"], string> = {
-  repas: "🍽️", affaires: "🧳", courses: "🛒", transport: "🚗", administratif: "🗂️", autre: "📌",
+  repas: "🍽️", affaires: "🧳", courses: "🛒", transport: "🚗", administratif: "🗂️", autre: "📌", relais: "🆘",
 };
 
 type AccountSectionKey = "info" | "patients" | "mes_soins" | "resv" | "news" | "soutien" | "besoins";
@@ -895,6 +895,20 @@ export default function VisitorAccountScreen() {
         {!!motto.trim() && (
           <Text style={styles.identityMotto} numberOfLines={2}>{motto.trim()}</Text>
         )}
+
+        <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, width: "100%" }]}>
+          <Text style={[styles.displayModeLabel, { color: C.text }]}>🆘 Besoin de relais</Text>
+          <Text style={[styles.cardDesc, { color: C.muted }]}>
+            Tu as besoin de souffler ? Publie un besoin de relais ponctuel, visible par tous les proches ou seulement certains.
+          </Text>
+          <TouchableOpacity
+            style={[styles.patientProfileBtn, { marginTop: 4 }]}
+            onPress={() => router.push("/(visitor)/entraide?openRelais=1" as any)}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.patientProfileBtnText}>Publier un besoin de relais</Text>
+          </TouchableOpacity>
+        </View>
 
         <TouchableOpacity
           style={[styles.patientProfileBtn, myActiveAlerts.length > 0 && { backgroundColor: "#e94560" }]}

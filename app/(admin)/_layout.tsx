@@ -7,11 +7,12 @@ import { AdminSpaceProvider, useSpace } from "@/lib/SpaceContext";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import PatientOnboarding from "@/components/PatientOnboarding";
 import RgpdAlertModal from "@/components/RgpdAlertModal";
+import RelaisAlertModal from "@/components/RelaisAlertModal";
 
 // Sits inside AdminSpaceProvider — shows the onboarding form instead of the
 // tabs until the admin has an active patient_spaces row.
 function AdminGate({ children }: { children: ReactNode }) {
-  const { loading, hasSpace } = useSpace();
+  const { loading, hasSpace, space } = useSpace();
   const { theme: C } = useDisplayMode();
 
   if (loading) {
@@ -29,6 +30,7 @@ function AdminGate({ children }: { children: ReactNode }) {
   return (
     <>
       <RgpdAlertModal />
+      {!!space && <RelaisAlertModal spaceId={space.id} isAdmin />}
       {children}
     </>
   );
