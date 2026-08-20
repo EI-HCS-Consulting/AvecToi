@@ -6,6 +6,7 @@ import { useVisitorSpace } from "@/lib/VisitorContext";
 import {
   getDayStatus, findNextAvailableSlot, getDaysInMonth, getMonday, addDays,
   toISO, toFrLong, isMyReservation, visiteurIdentityKey, isSlotFullyPast,
+  getSlotOccupancy,
 } from "@/lib/slotUtils";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { getVisitorSession } from "@/lib/visitorSession";
@@ -291,20 +292,45 @@ export default function VisitorCalendarScreen() {
   // PlanningDuJourBlock et SoinsPeriodBlock.
   const visitesPanelReservations = visitesAll
     .filter((r) => !selectedVisiteurKey || visiteurIdentityKey(r.prenom, r.nom) === selectedVisiteurKey);
-  const visitesMainRows = visitesPanelReservations.filter((r) => !r.group_id || r.group_id === r.id);
+  // Une ligne principale reste affichée si le visiteur sélectionné dans la
+  // légende est soit le réservataire principal, soit l'un de ses
+  // accompagnants — sans ce deuxième cas, sélectionner le nom d'un
+  // accompagnant ferait disparaître son créneau du Planning du jour/mensuel/
+  // hebdo puisque son nom n'apparaît que noyé dans companionsById d'une
+  // ligne autrement filtrée. SoinsPlanifiesBlock garde son propre calcul
+  // (visitesPanelReservations ci-dessus, chaque accompagnant sur sa propre
+  // ligne) et n'a pas ce problème.
+  const visitesMainRows = visitesAll
+    .filter((r) => !r.group_id || r.group_id === r.id)
+    .filter((r) => {
+      if (!selectedVisiteurKey) return true;
+      if (visiteurIdentityKey(r.prenom, r.nom) === selectedVisiteurKey) return true;
+      return (companionsByMainId[r.id] ?? []).some((c) => visiteurIdentityKey(c.prenom, c.nom) === selectedVisiteurKey);
+    });
 
-  // Aucune action si cette visite n'appartient pas à la personne qui regarde
-  // (isMyReservation compare PIN + prénom/nom, et gère le cas d'une
-  // réservation "ADMIN" arrangée pour un visiteur précis — voir lib/slotUtils.ts)
-  // — même garde-fou que openSoinActions côté intervenant (soins.tsx) : un
-  // visiteur ne doit même pas voir le popup s'ouvrir sur la visite d'un
-  // autre visiteur, ni sur une réservation admin qui n'est pas la sienne.
-  // Idem pour une visite déjà passée : ni Modifier ni Y Aller n'ont de sens
-  // une fois le créneau écoulé, le popup ne doit même pas s'ouvrir au tap.
+  // Tap sur une visite : si elle m'appartient (isMyReservation compare PIN +
+  // prénom/nom, et gère le cas d'une réservation "ADMIN" arrangée pour un
+  // visiteur précis — voir lib/slotUtils.ts), ouvre le popup Modifier/Y
+  // Aller habituel. Sinon (visite d'un autre visiteur, ex. sélectionné dans
+  // la légende) : réservation rapide sur ce même créneau s'il reste une
+  // place, sinon ouverture de l'écran des créneaux de ce jour-là pour en
+  // choisir un autre. Dans tous les cas, une visite déjà passée n'ouvre plus
+  // rien (ni Modifier/Y Aller ni réservation n'ont de sens une fois le
+  // créneau écoulé).
   function openVisiteActions(r: Reservation) {
-    if (!isMyReservation(r, myPin, intervenantProfileId, myPrenom, myNom)) return;
     if (isSlotFullyPast(r.date, r.creneau)) return;
-    setPendingVisite(r);
+    if (isMyReservation(r, myPin, intervenantProfileId, myPrenom, myNom)) {
+      setPendingVisite(r);
+      return;
+    }
+    const dayConfig = getConfigForDate(r.date) ?? slotConfig!;
+    const occupancy = getSlotOccupancy(reservations, r.date, r.creneau);
+    if (occupancy.length < dayConfig.max_visitors_per_slot) {
+      flowRef.current?.openBooking(r.date, r.creneau);
+    } else {
+      setSelectedDay(new Date(r.date + "T00:00:00"));
+      router.navigate("/(visitor)/home/slots");
+    }
   }
   function handleModifierVisitePress() {
     const r = pendingVisite;
@@ -317,6 +343,20 @@ export default function VisitorCalendarScreen() {
     if (!space) return;
     const url = mapsUrlForSpace(space);
     if (url) Linking.openURL(url).catch(() => {});
+  }
+  // "Ajouter une Visite" du popup Modifier/Y Aller : réserve un créneau
+  // supplémentaire le même jour, plus rapide que fermer le popup puis
+  // rouvrir l'écran des créneaux depuis le calendrier.
+  function handleAjouterVisitePress() {
+    const r = pendingVisite;
+    setPendingVisite(null);
+    if (!r) return;
+    setSelectedDay(new Date(r.date + "T00:00:00"));
+    setCalMonth({ year: new Date(r.date + "T00:00:00").getFullYear(), month: new Date(r.date + "T00:00:00").getMonth() });
+    router.navigate("/(visitor)/home/slots");
+  }
+  function handleEmptyPlanningPress() {
+    router.navigate("/(visitor)/home/slots");
   }
 
   // Tap sur une case de la bande Hebdo. Mode Soins : comportement inchangé
@@ -718,6 +758,7 @@ export default function VisitorCalendarScreen() {
                 onSoinPress={openVisiteActions}
                 reservationType="Visite"
                 companionsById={companionsByMainId}
+                onEmptyPress={handleEmptyPlanningPress}
               />
 
               <Text style={[styles.sectionTitle, { color: C.gold }]}>
@@ -789,6 +830,7 @@ export default function VisitorCalendarScreen() {
         locationBySpaceId={{ [space.id]: careLocationDetail(space) }}
         onModifier={handleModifierVisitePress}
         onYAller={handleYAllerVisitePress}
+        onAjouterVisite={handleAjouterVisitePress}
         onClose={() => setPendingVisite(null)}
       />
       <VisiteEditFlow

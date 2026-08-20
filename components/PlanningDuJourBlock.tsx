@@ -32,9 +32,14 @@ interface Props {
   // home/calendar.tsx, companionsByMainId) — affichés sous le nom du
   // réservant principal. Absent : rien n'est affiché (usages hors visites).
   companionsById?: Record<string, Reservation[]>;
+  // Rend le message "Aucune visite prévue ce jour" tappable pour ouvrir
+  // directement l'écran de réservation des créneaux de ce jour-là (voir
+  // home/calendar.tsx) — absent : le message reste statique (usage
+  // intervenant, soins.tsx, qui a son propre écran de créneaux par soin).
+  onEmptyPress?: () => void;
 }
 
-export default function PlanningDuJourBlock({ C, iso, reservations, patientNameBySpaceId, locationBySpaceId, onSoinPress, showOtherIntervenants, onToggleOtherIntervenants, reservationType = "Intervention", companionsById }: Props) {
+export default function PlanningDuJourBlock({ C, iso, reservations, patientNameBySpaceId, locationBySpaceId, onSoinPress, showOtherIntervenants, onToggleOtherIntervenants, reservationType = "Intervention", companionsById, onEmptyPress }: Props) {
   const isToday = iso === toISO(new Date());
   const dayDate = new Date(iso + "T00:00:00");
   const sorted = [...reservations].sort((a, b) => a.creneau.localeCompare(b.creneau));
@@ -67,7 +72,17 @@ export default function PlanningDuJourBlock({ C, iso, reservations, patientNameB
           {isToday ? " · Aujourd'hui" : ""}
         </Text>
         {sorted.length === 0 ? (
-          <Text style={[styles.emptyText, { color: C.muted }]}>Aucun soin prévu ce jour-là.</Text>
+          onEmptyPress ? (
+            <TouchableOpacity activeOpacity={0.7} onPress={onEmptyPress}>
+              <Text style={[styles.emptyText, styles.emptyTextLink, { color: C.accent }]}>
+                {reservationType === "Visite" ? "Aucune visite prévue ce jour. Réserver ›" : "Aucun soin prévu ce jour-là."}
+              </Text>
+            </TouchableOpacity>
+          ) : (
+            <Text style={[styles.emptyText, { color: C.muted }]}>
+              {reservationType === "Visite" ? "Aucune visite prévue ce jour." : "Aucun soin prévu ce jour-là."}
+            </Text>
+          )
         ) : (
           sorted.map((r) => (
             <TouchableOpacity key={r.id} style={styles.soinRow} activeOpacity={0.7} onPress={() => onSoinPress(r)}>
@@ -106,6 +121,7 @@ const styles = StyleSheet.create({
   card: { borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 20 },
   dayTitle: { fontFamily: "DM_Sans_700Bold", fontSize: 13, textTransform: "capitalize", marginBottom: 8 },
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
+  emptyTextLink: { fontFamily: "DM_Sans_600SemiBold" },
   soinRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 },
   soinTime: { fontFamily: "DM_Sans_700Bold", fontSize: 13, minWidth: 42 },
   soinLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
