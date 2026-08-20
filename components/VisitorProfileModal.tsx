@@ -31,6 +31,20 @@ function visitorPhotoUrl(spaceId: string, filename: string) {
   return data.publicUrl;
 }
 
+// Même filet que VisitorsList.tsx : un select portant sur "relation" échoue
+// entièrement (et viderait aussi photo/motto) tant que la migration
+// 20260821_visitor_profiles_relation.sql n'a pas été rejouée manuellement
+// en base — voir le commentaire jumeau dans VisitorsList.tsx.
+async function fetchVisitorProfile(spaceId: string, prenom: string, nom: string) {
+  const full = await supabase.from("visitor_profiles").select("photo, motto, relation").eq("space_id", spaceId)
+    .ilike("prenom", prenom).ilike("nom", nom).maybeSingle();
+  if (!full.error) return full;
+  console.error("[VisitorProfileModal] select avec relation en échec, repli sans cette colonne:", full.error);
+  const fallback = await supabase.from("visitor_profiles").select("photo, motto").eq("space_id", spaceId)
+    .ilike("prenom", prenom).ilike("nom", nom).maybeSingle();
+  return { data: fallback.data ? { ...fallback.data, relation: null as string | null } : null, error: fallback.error };
+}
+
 interface Props {
   visible: boolean;
   onClose: () => void;
@@ -64,8 +78,7 @@ export default function VisitorProfileModal({ visible, onClose, spaceId, C, isAd
     const p = prenom.trim();
     const n = nom.trim();
     const [profile, resv, resvBookedFor, newsRes, claimed, published, souv, msgs] = await Promise.all([
-      supabase.from("visitor_profiles").select("photo, motto, relation").eq("space_id", spaceId)
-        .ilike("prenom", p).ilike("nom", n).maybeSingle(),
+      fetchVisitorProfile(spaceId, p, n),
       supabase.from("reservations").select("*").eq("space_id", spaceId)
         .ilike("prenom", p).ilike("nom", n).order("date", { ascending: false }),
       supabase.from("reservations").select("*").eq("space_id", spaceId)

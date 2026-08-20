@@ -26,6 +26,20 @@ function visitorPhotoUrl(spaceId: string, filename: string) {
   return data.publicUrl;
 }
 
+// PostgREST fait échouer le select entier (et pas juste la colonne en
+// trop) si "relation" n'existe pas encore en base — les migrations de ce
+// projet sont appliquées manuellement par Guillaume via le dashboard
+// Supabase, pas automatiquement au merge (voir
+// 20260821_visitor_profiles_relation.sql). Sans ce filet, photo/motto
+// disparaîtraient eux aussi tant que la migration n'a pas été rejouée.
+async function fetchVisitorProfiles(spaceId: string) {
+  const full = await supabase.from("visitor_profiles").select("prenom,nom,photo,motto,relation").eq("space_id", spaceId);
+  if (!full.error) return full;
+  console.error("[VisitorsList] select avec relation en échec, repli sans cette colonne:", full.error);
+  const fallback = await supabase.from("visitor_profiles").select("prenom,nom,photo,motto").eq("space_id", spaceId);
+  return { data: (fallback.data || []).map((p) => ({ ...p, relation: null as string | null })), error: fallback.error };
+}
+
 // Insensible aux accents en plus de la casse — même principe que
 // VisitorsBlock.tsx / app/(visitor)/account.tsx.
 function identityKey(prenom: string, nom: string) {
@@ -61,7 +75,7 @@ export default function VisitorsList({ spaceId, C, isAdmin, adminFirstname, admi
       supabase.from("tasks").select("transport_return_claimed_by_prenom,transport_return_claimed_by_nom").eq("space_id", spaceId),
       supabase.from("souvenirs").select("uploaded_by_prenom,uploaded_by_nom").eq("space_id", spaceId),
       supabase.from("support_messages").select("author_prenom,author_nom").eq("space_id", spaceId),
-      supabase.from("visitor_profiles").select("prenom,nom,photo,motto,relation").eq("space_id", spaceId),
+      fetchVisitorProfiles(spaceId),
       supabase.from("intervenant_profiles").select("prenom,nom").eq("space_id", spaceId),
     ]);
 

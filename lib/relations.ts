@@ -15,6 +15,8 @@ export const VISITOR_RELATIONS: VisitorRelation[] = [
   { key: "mere", label: "Mère" },
   { key: "fils", label: "Fils" },
   { key: "fille", label: "Fille" },
+  { key: "beau_fils", label: "Beau-fils" },
+  { key: "belle_fille", label: "Belle-fille" },
   { key: "frere_soeur", label: "Frère / Sœur" },
   { key: "petit_fils_fille", label: "Petit-fils / Petite-fille" },
   { key: "cousin_cousine", label: "Cousin / Cousine" },
