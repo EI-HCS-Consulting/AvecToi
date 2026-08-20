@@ -24,6 +24,7 @@ export default function VisitorEntraideScreen() {
       capped={isSpaceCapped(space, reservations)}
       hospitalName={space.hospital_name}
       allergies={space.patient_allergies}
+      patientFirstname={space.patient_firstname}
     />
   );
 }

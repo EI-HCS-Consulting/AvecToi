@@ -14,6 +14,7 @@ import PinPad from "@/components/PinPad";
 import PatientAvatar from "@/components/PatientAvatar";
 import RebookingAlertModal from "@/components/RebookingAlertModal";
 import BookingProposalAlertModal from "@/components/BookingProposalAlertModal";
+import RelaisAlertModal from "@/components/RelaisAlertModal";
 import IntervenantOnboardingFlow from "@/components/IntervenantOnboardingFlow";
 
 function VisitorTabs() {
@@ -263,6 +264,10 @@ function VisitorTabs() {
       {identityKnown === true && (role !== "intervenant" || !!intervenantProfileId) && consentGiven === true && <RebookingAlertModal />}
 
       {identityKnown === true && role === "intervenant" && !!intervenantProfileId && consentGiven === true && <BookingProposalAlertModal />}
+
+      {identityKnown === true && (role !== "intervenant" || !!intervenantProfileId) && consentGiven === true && !!space && (
+        <RelaisAlertModal spaceId={space.id} isAdmin={false} />
+      )}
 
     <Tabs
       screenOptions={{

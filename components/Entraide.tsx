@@ -51,6 +51,7 @@ const CATEGORY_ICONS: Record<TaskCategory, string> = {
   transport: "🚗",
   administratif: "🗂️",
   autre: "💡",
+  relais: "🆘",
 };
 
 // Titre inséré automatiquement dans "Titre du besoin" quand on choisit une
@@ -63,6 +64,7 @@ const CATEGORY_AUTO_TITLES: Record<TaskCategory, string> = {
   transport: "Besoin covoiturage",
   administratif: "Besoin Administratif",
   autre: "Autre besoin",
+  relais: "Besoin de relais",
 };
 
 const CATEGORY_LABELS: Record<TaskCategory, string> = {
@@ -72,7 +74,17 @@ const CATEGORY_LABELS: Record<TaskCategory, string> = {
   transport: "Transport",
   administratif: "Administratif",
   autre: "Autre",
+  relais: "Relais",
 };
+
+// Identique à identityKey dans NightVisitorModal.tsx — comparaison de nom
+// insensible aux accents/casse, pour matcher relais_recipients (prénom+nom
+// sans PIN, choisis par catégorie visitor_profiles/reservations) sans
+// dépendre du mécanisme samePerson (qui exige un PIN de session).
+function relaisIdentityKey(prenom: string, nom: string) {
+  const norm = (s: string) => s.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  return `${norm(prenom)}|${norm(nom)}`;
+}
 
 const STATUS_LABELS: Record<TaskStatus, string> = {
   ouvert: "Ouvert",
@@ -98,6 +110,9 @@ interface Props {
   // Allergies du patient (saisies par l'admin dans "Profil Patient") — affichées
   // en rappel à quiconque publie ou prend en charge un besoin "Repas".
   allergies?: string | null;
+  // Prénom du patient — utilisé dans le message pré-rempli d'un besoin de
+  // relais ponctuel (voir openRelaisForm).
+  patientFirstname?: string;
 }
 
 // "07/07 à 14h30" — combine la date (toFrShort) et une heure "HH:MM" stockée
@@ -107,8 +122,8 @@ function slotLabel(dateIso: string, time: string): string {
   return `${toFrShort(new Date(dateIso + "T12:00:00"))} à ${time.replace(":", "h")}`;
 }
 
-export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, allergies }: Props) {
-  const { focusTaskId } = useLocalSearchParams<{ focusTaskId?: string }>();
+export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, allergies, patientFirstname }: Props) {
+  const { focusTaskId, openClaim: openClaimParam, openRelais } = useLocalSearchParams<{ focusTaskId?: string; openClaim?: string; openRelais?: string }>();
   const scrollRef = useRef<ScrollView>(null);
   const taskOffsets = useRef<Record<string, number>>({});
   const [highlightId, setHighlightId] = useState<string | null>(null);
@@ -201,6 +216,27 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [fDLCalMonth, setFDLCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
   const [fUrgent, setFUrgent] = useState(false);
 
+  // Champs spécifiques catégorie "relais" (besoin de relais ponctuel, publié
+  // uniquement via openRelaisForm — pas sélectionnable dans la grille de
+  // catégories). La date de fin réutilise fDateLimite/fDLCalMonth ci-dessus
+  // (toujours affichée pour cette catégorie, pas de bouton "Ajouter une
+  // échéance"). relaisAuthorPrenom sert à générer le message pré-rempli
+  // (voir l'effet d'auto-génération plus bas) et est résolu une fois à
+  // l'ouverture du formulaire (openRelaisForm), avant que l'identité auteur
+  // ne soit re-résolue au submit comme pour les autres catégories.
+  const [fRelaisStartDate, setFRelaisStartDate] = useState("");
+  const [fRelaisStartCalMonth, setFRelaisStartCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
+  const [fRelaisVisibleTo, setFRelaisVisibleTo] = useState<"all" | "some">("all");
+  const [fRelaisCandidates, setFRelaisCandidates] = useState<{ prenom: string; nom: string }[]>([]);
+  const [fRelaisCandidatesLoading, setFRelaisCandidatesLoading] = useState(false);
+  const [fRelaisSelectedKeys, setFRelaisSelectedKeys] = useState<Set<string>>(new Set());
+  const [relaisAuthorPrenom, setRelaisAuthorPrenom] = useState("");
+  // Dernier message auto-généré (prénom auteur + dates + prénom patient) —
+  // même principe que autoTitleRef : ne réécrase jamais un texte que la
+  // personne a personnalisé à la main.
+  const autoRelaisMsgRef = useRef("");
+  const relaisOpenedRef = useRef(false);
+
   // Liste de courses en bullet points (catégorie "courses", création
   // uniquement — voir ShoppingListModal.tsx pour l'édition/coché "acheté"
   // une fois le besoin publié, qui repart des vraies lignes shopping_list_items
@@ -292,6 +328,9 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const transportFormReady = fTDate.trim() && fTOutTime.length === 5 && fTHomeAddress.trim()
     && (!fTRoundTrip || fTReturnTime.length === 5)
     && (!fTForSomeoneElse || (fTForPrenom.trim() && fTForNom.trim()));
+
+  const relaisFormReady = !!fRelaisStartDate && !!fDateLimite
+    && (fRelaisVisibleTo === "all" || fRelaisSelectedKeys.size > 0);
 
   function selectCategory(cat: TaskCategory) {
     setFCat(cat);
@@ -520,7 +559,36 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       if (y != null) scrollRef.current?.scrollTo({ y: Math.max(y - 12, 0), animated: true });
     }, 300);
     setTimeout(() => setHighlightId(null), 2500);
-  }, [focusTaskId, tasks, tasksLoading, activeCat, openOnlyFilter, closedOnlyFilter]);
+    // Depuis RelaisAlertModal ("🙋 Je m'en occupe") : ouvre directement la
+    // sheet de prise en charge sur ce besoin plutôt que de dupliquer la
+    // logique de claim (PIN, etc.).
+    if (openClaimParam === "1" && target.status === "ouvert") openClaim(target);
+  }, [focusTaskId, openClaimParam, tasks, tasksLoading, activeCat, openOnlyFilter, closedOnlyFilter]);
+
+  // Arrivée depuis "Mon compte" (?openRelais=1) : ouvre le formulaire Publier
+  // pré-rempli sur la catégorie "relais". Attend que l'identité (admin ou
+  // session visiteur) soit disponible avant de résoudre le prénom auteur du
+  // message pré-rempli — voir openRelaisForm.
+  useEffect(() => {
+    if (openRelais !== "1" || relaisOpenedRef.current) return;
+    if (!isAdmin && !mySession) return;
+    relaisOpenedRef.current = true;
+    openRelaisForm();
+  }, [openRelais, isAdmin, mySession]);
+
+  // Régénère le message pré-rempli quand les dates de début/fin changent,
+  // sans jamais écraser un texte personnalisé (même principe que
+  // autoTitleRef/selectCategory).
+  useEffect(() => {
+    if (fCat !== "relais" || editTask) return;
+    if (fDesc.trim() && fDesc !== autoRelaisMsgRef.current) return;
+    const startLabel = fRelaisStartDate ? toFrShort(new Date(fRelaisStartDate + "T12:00:00")) : null;
+    const endLabel = fDateLimite ? toFrShort(new Date(fDateLimite + "T12:00:00")) : null;
+    const period = startLabel && endLabel ? ` du ${startLabel} au ${endLabel}` : "";
+    const msg = `${relaisAuthorPrenom || "Un proche"} a besoin de souffler et sera indisponible${period} pour s'occuper de ${patientFirstname || "la personne accompagnée"}. Peux-tu prendre le relais sur cette période ?`;
+    autoRelaisMsgRef.current = msg;
+    setFDesc(msg);
+  }, [fRelaisStartDate, fDateLimite, fCat, editTask, relaisAuthorPrenom, patientFirstname]);
 
   useEffect(() => {
     const ch = supabase
@@ -575,6 +643,75 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setFDateLimite(""); setFDLPickerOpen(false); setFUrgent(false);
     setFDLCalMonth(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
     setFCourseItems([]); setFCourseItemDraft("");
+    setFRelaisStartDate(""); setFRelaisVisibleTo("all"); setFRelaisSelectedKeys(new Set());
+    autoRelaisMsgRef.current = "";
+    setTaskForm(true);
+  }
+
+  // Candidats pour le ciblage "Certains proches seulement" d'un besoin de
+  // relais — même requête que NightVisitorModal.load() (reservations +
+  // visitor_profiles, intervenants exclus), mais sans table "autorized"
+  // dédiée : la sélection va directement dans relais_recipients au submit,
+  // le ciblage se choisit à chaque besoin plutôt que comme réglage d'espace.
+  async function loadRelaisCandidates() {
+    setFRelaisCandidatesLoading(true);
+    const [resv, profiles, intervenants] = await Promise.all([
+      supabase.from("reservations").select("prenom,nom").eq("space_id", spaceId),
+      supabase.from("visitor_profiles").select("prenom,nom").eq("space_id", spaceId),
+      supabase.from("intervenant_profiles").select("prenom,nom").eq("space_id", spaceId),
+    ]);
+    const intervenantKeys = new Set((intervenants.data || []).map((i) => relaisIdentityKey(i.prenom, i.nom)));
+    const byKey = new Map<string, { prenom: string; nom: string }>();
+    function add(prenom?: string | null, nom?: string | null) {
+      if (!prenom?.trim() || !nom?.trim()) return;
+      const key = relaisIdentityKey(prenom, nom);
+      if (intervenantKeys.has(key)) return;
+      if (!byKey.has(key)) byKey.set(key, { prenom: prenom.trim(), nom: nom.trim() });
+    }
+    (resv.data || []).forEach((r) => add(r.prenom, r.nom));
+    (profiles.data || []).forEach((p) => add(p.prenom, p.nom));
+    setFRelaisCandidates(
+      Array.from(byKey.values()).sort((a, b) => a.nom.localeCompare(b.nom, "fr") || a.prenom.localeCompare(b.prenom, "fr")),
+    );
+    setFRelaisCandidatesLoading(false);
+  }
+
+  // Point d'entrée "Mon compte" (?openRelais=1, voir l'effet plus bas) :
+  // ouvre directement le formulaire Publier sur la catégorie "relais" (non
+  // sélectionnable à la main), avec le message pré-rempli et la liste de
+  // destinataires potentiels chargée.
+  async function openRelaisForm() {
+    if (capped) {
+      Alert.alert(
+        "Limite atteinte",
+        "Vous avez atteint la limite de votre espace. Consultez l'email envoyé à votre adresse pour en savoir plus.",
+      );
+      return;
+    }
+    let prenom = "";
+    if (isAdmin) {
+      const { data } = await supabase.auth.getUser();
+      prenom = (data.user?.user_metadata?.firstname ?? "").trim();
+    } else if (mySession) {
+      prenom = mySession.prenom;
+    }
+    setRelaisAuthorPrenom(prenom);
+    setEditTask(null);
+    autoTitleRef.current = CATEGORY_AUTO_TITLES.relais;
+    setFTitle(autoTitleRef.current);
+    setFCat("relais");
+    setFPhotoUri(null); setFExistingPhoto(null);
+    setClaimOnCreate(false);
+    setClaimPrenom(""); setClaimNom(""); setClaimPin("");
+    setFDateLimite(""); setFDLPickerOpen(true); setFUrgent(false);
+    setFDLCalMonth(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
+    setFRelaisStartDate("");
+    setFRelaisStartCalMonth(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
+    setFRelaisVisibleTo("all"); setFRelaisSelectedKeys(new Set());
+    const msg = `${prenom || "Un proche"} a besoin de souffler et sera indisponible pour s'occuper de ${patientFirstname || "la personne accompagnée"}. Peux-tu prendre le relais sur cette période ?`;
+    autoRelaisMsgRef.current = msg;
+    setFDesc(msg);
+    loadRelaisCandidates();
     setTaskForm(true);
   }
 
@@ -1021,6 +1158,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   async function saveTask() {
     if (!fTitle.trim() || (!editTask && !claimOnCreateReady)) return;
     if (!editTask && fCat === "transport" && !transportFormReady) return;
+    if (!editTask && fCat === "relais" && !relaisFormReady) return;
     if (!editTask && fCat === "administratif") {
       const dup = findDuplicateAdminTask(fTitle);
       if (dup) { setDuplicateTarget(dup); return; }
@@ -1093,6 +1231,16 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           transport_for_nom: fTForSomeoneElse ? fTForNom.trim() : null,
         };
       }
+      let relaisFields: Record<string, unknown> = {};
+      if (fCat === "relais") {
+        relaisFields = {
+          relais_start_date: fRelaisStartDate,
+          relais_visible_to: fRelaisVisibleTo,
+          relais_recipients: fRelaisVisibleTo === "some"
+            ? fRelaisCandidates.filter((c) => fRelaisSelectedKeys.has(relaisIdentityKey(c.prenom, c.nom)))
+            : null,
+        };
+      }
       const { data: insertedTask, error: insertError } = await supabase.from("tasks").insert({
         space_id: spaceId,
         title: fTitle.trim(),
@@ -1107,6 +1255,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         date_limite: fCat !== "transport" && fDateLimite ? fDateLimite : null,
         urgent: fUrgent,
         ...transportFields,
+        ...relaisFields,
         ...(claimOnCreate ? {
           claimed_by_prenom: claimPrenom.trim(),
           claimed_by_nom: claimNom.trim(),
@@ -1785,7 +1934,17 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             </TouchableOpacity>
           ) : null;
         })()}
-        {t.category !== "transport" && t.date_limite && (
+        {t.category === "relais" && t.relais_start_date && t.date_limite && (
+          <Text style={[styles.taskDesc, { color: C.muted }]}>
+            📅 Période : du {toFrShort(new Date(t.relais_start_date + "T12:00:00"))} au {toFrShort(new Date(t.date_limite + "T12:00:00"))}
+          </Text>
+        )}
+        {t.category === "relais" && (
+          <Text style={[styles.taskDesc, { color: C.muted }]}>
+            👁️ Visible par {t.relais_visible_to === "some" ? "certains proches" : "tous les proches"}
+          </Text>
+        )}
+        {t.category !== "transport" && t.category !== "relais" && t.date_limite && (
           <Text style={[styles.taskDesc, { color: C.muted }]}>
             📅 Échéance : {toFrShort(new Date(t.date_limite + "T12:00:00"))}
           </Text>
@@ -1995,7 +2154,20 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     );
   }
 
-  const undeletedTasks = tasks.filter((t) => !t.deleted_by_admin || (!isAdmin && isAuthor(t)));
+  // Un besoin "relais" ciblé sur "certains proches" reste invisible aux
+  // autres visiteurs (admin et auteur voient toujours tout) — le ciblage
+  // ne concerne que la visibilité dans le mur, pas juste l'alerte de
+  // connexion (RelaisAlertModal filtre séparément relais_dismissed_by).
+  const relaisVisible = (t: Task) => {
+    if (t.category !== "relais" || t.relais_visible_to !== "some") return true;
+    if (isAdmin || isAuthor(t)) return true;
+    if (!mySession) return false;
+    const myKey = relaisIdentityKey(mySession.prenom, mySession.nom);
+    return (t.relais_recipients ?? []).some((r) => relaisIdentityKey(r.prenom, r.nom) === myKey);
+  };
+  const undeletedTasks = tasks
+    .filter((t) => !t.deleted_by_admin || (!isAdmin && isAuthor(t)))
+    .filter(relaisVisible);
   const visibleTasks = undeletedTasks.filter(
     (t) =>
       (!activeCat || t.category === activeCat) &&
@@ -2173,9 +2345,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                     </TouchableOpacity>
                   )}
 
+                  {fCat !== "relais" && (
+                  <>
                   <Text style={[styles.fieldLabel, { color: C.gold }]}>Catégorie</Text>
                   <View style={styles.catGrid}>
-                    {(Object.keys(CATEGORY_ICONS) as TaskCategory[]).map((cat) => (
+                    {(Object.keys(CATEGORY_ICONS) as TaskCategory[]).filter((cat) => cat !== "relais").map((cat) => (
                       <TouchableOpacity
                         key={cat}
                         style={[
@@ -2195,6 +2369,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                       </TouchableOpacity>
                     ))}
                   </View>
+                  </>
+                  )}
+
+                  {fCat === "relais" && (
+                    <Text style={[styles.fieldLabel, { color: C.gold }]}>🆘 Besoin de relais</Text>
+                  )}
 
                   {fCat === "repas" && !!allergies && (
                     <View style={[styles.allergyBanner, { backgroundColor: "rgba(233,69,96,0.1)", borderColor: "rgba(233,69,96,0.35)" }]}>
@@ -2337,7 +2517,80 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                     </View>
                   )}
 
-                  {fCat !== "transport" && (
+                  {!editTask && fCat === "relais" && (
+                    <View style={[styles.transportForm, { borderColor: C.border }]}>
+                      <Text style={[styles.fieldLabel, { color: C.gold }]}>Date de début d'indisponibilité *</Text>
+                      <MiniCalendar
+                        selDate={fRelaisStartDate}
+                        onSelect={setFRelaisStartDate}
+                        calMonth={fRelaisStartCalMonth}
+                        onMonthChange={setFRelaisStartCalMonth}
+                        startDate={new Date()}
+                        C={C}
+                        size="lg"
+                      />
+
+                      <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 12 }]}>Date de fin *</Text>
+                      <MiniCalendar
+                        selDate={fDateLimite}
+                        onSelect={setFDateLimite}
+                        calMonth={fDLCalMonth}
+                        onMonthChange={setFDLCalMonth}
+                        startDate={fRelaisStartDate ? new Date(fRelaisStartDate + "T12:00:00") : new Date()}
+                        C={C}
+                        size="lg"
+                      />
+
+                      <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 12 }]}>Qui peut voir ce besoin ?</Text>
+                      <View style={{ marginTop: 4 }}>
+                        <SegmentedSwitch
+                          value={fRelaisVisibleTo === "some"}
+                          onChange={(v) => setFRelaisVisibleTo(v ? "some" : "all")}
+                          leftLabel="👨‍👩‍👧 Tous les proches"
+                          rightLabel="☑️ Certains"
+                          C={C}
+                        />
+                      </View>
+
+                      {fRelaisVisibleTo === "some" && (
+                        fRelaisCandidatesLoading ? (
+                          <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
+                        ) : fRelaisCandidates.length === 0 ? (
+                          <Text style={[styles.transportHint, { color: C.muted }]}>Aucun proche enregistré pour l'instant.</Text>
+                        ) : (
+                          <View style={{ marginTop: 10 }}>
+                            {fRelaisCandidates.map((cand) => {
+                              const key = relaisIdentityKey(cand.prenom, cand.nom);
+                              const selected = fRelaisSelectedKeys.has(key);
+                              return (
+                                <TouchableOpacity
+                                  key={key}
+                                  style={[
+                                    styles.claimOnCreateBtn,
+                                    { backgroundColor: selected ? `${C.accent}22` : C.bg, borderColor: selected ? C.accent : C.border, marginTop: 8 },
+                                  ]}
+                                  onPress={() => {
+                                    setFRelaisSelectedKeys((prev) => {
+                                      const next = new Set(prev);
+                                      if (next.has(key)) next.delete(key); else next.add(key);
+                                      return next;
+                                    });
+                                  }}
+                                  activeOpacity={0.8}
+                                >
+                                  <Text style={[styles.claimOnCreateText, { color: selected ? C.accent : C.text }]}>
+                                    {selected ? "✓ " : ""}{cand.prenom} {cand.nom}
+                                  </Text>
+                                </TouchableOpacity>
+                              );
+                            })}
+                          </View>
+                        )
+                      )}
+                    </View>
+                  )}
+
+                  {fCat !== "transport" && fCat !== "relais" && (
                     <>
                       <Text style={[styles.fieldLabel, { color: C.gold }]}>Photo (optionnelle)</Text>
                       {(fPhotoUri || fExistingPhoto) ? (
@@ -2493,11 +2746,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={saveTask}
-                      disabled={!fTitle.trim() || taskSaving || (!editTask && !claimOnCreateReady) || (!editTask && fCat === "transport" && !transportFormReady)}
+                      disabled={!fTitle.trim() || taskSaving || (!editTask && !claimOnCreateReady) || (!editTask && fCat === "transport" && !transportFormReady) || (!editTask && fCat === "relais" && !relaisFormReady)}
                       style={[
                         styles.btnPrimary,
                         { backgroundColor: C.accent },
-                        (!fTitle.trim() || taskSaving || (!editTask && !claimOnCreateReady) || (!editTask && fCat === "transport" && !transportFormReady)) && { opacity: 0.5 },
+                        (!fTitle.trim() || taskSaving || (!editTask && !claimOnCreateReady) || (!editTask && fCat === "transport" && !transportFormReady) || (!editTask && fCat === "relais" && !relaisFormReady)) && { opacity: 0.5 },
                       ]}
                     >
                       {taskSaving

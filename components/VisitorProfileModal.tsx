@@ -17,7 +17,7 @@ import type { Theme } from "@/lib/themes";
 // consultation (pas de modification), le PIN n'a pas lieu d'être demandé ici.
 
 const CAT_ICONS: Record<Task["category"], string> = {
-  repas: "🍽️", affaires: "🧳", courses: "🛒", transport: "🚗", administratif: "🗂️", autre: "📌",
+  repas: "🍽️", affaires: "🧳", courses: "🛒", transport: "🚗", administratif: "🗂️", autre: "📌", relais: "🆘",
 };
 
 function souvenirUrl(spaceId: string, filename: string) {
