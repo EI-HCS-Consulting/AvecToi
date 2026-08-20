@@ -53,12 +53,17 @@ export default function ShoppingListModal({ visible, onClose, C, task }: Props) 
     // vaut déjà preuve que les courses sont faites.
     if (nextBought && task && task.status !== "fait" && nextItems.length > 0 && nextItems.every((it) => it.bought)) {
       await supabase.from("tasks").update({ status: "fait" }).eq("id", task.id);
+      // Miroir pour "Ma Checklist" (voir syncPersonalChecklistStatus dans
+      // Entraide.tsx) : ce chemin de complétion automatique passe par ici,
+      // pas par les autres endroits qui font déjà ce miroir.
+      await supabase.from("personal_checklist_items").update({ status: "fait" }).eq("task_id", task.id);
     }
     // Redécocher un article après coup annule ce constat : le besoin repasse
     // à l'état où il était avant d'être marqué "fait" tout seul.
     if (!nextBought && task && task.status === "fait") {
       const revertStatus = task.claimed_by_prenom ? "pris_en_charge" : "ouvert";
       await supabase.from("tasks").update({ status: revertStatus }).eq("id", task.id);
+      await supabase.from("personal_checklist_items").update({ status: "a_faire" }).eq("task_id", task.id);
     }
   }
 

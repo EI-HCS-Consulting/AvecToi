@@ -167,6 +167,6 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", gap: 10, width: "100%" },
   btn: { flex: 1, borderRadius: 12, paddingVertical: 15, alignItems: "center" },
   btnSecondary: { borderWidth: 1 },
-  btnSecondaryText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
-  btnPrimaryText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" },
+  btnSecondaryText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14, textAlign: "center" },
+  btnPrimaryText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff", textAlign: "center" },
 });
