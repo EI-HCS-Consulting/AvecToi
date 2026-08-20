@@ -444,6 +444,8 @@ export interface ShoppingListItem {
   task_id: string;
   label: string;
   bought: boolean;
+  bought_by_prenom: string | null;
+  bought_by_nom: string | null;
   position: number;
   created_at: string;
 }

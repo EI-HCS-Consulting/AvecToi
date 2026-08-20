@@ -3784,6 +3784,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         onClose={() => setShoppingListTask(null)}
         C={C}
         task={shoppingListTask}
+        isAdmin={isAdmin}
       />
 
       {/* ── MODAL DOUBLON (besoin administratif déjà publié) ─────────────── */}
