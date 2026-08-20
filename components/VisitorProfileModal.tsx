@@ -6,6 +6,7 @@ import {
 import { useRouter } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import PatientAvatar from "@/components/PatientAvatar";
+import { relationLabel } from "@/lib/relations";
 import type { Reservation, NewsEntry, Task, SupportMessage, SouvenirPhoto } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -49,6 +50,8 @@ export default function VisitorProfileModal({ visible, onClose, spaceId, C, isAd
   const [photoLightbox, setPhotoLightbox] = useState(false);
   const [telephone, setTelephone] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
+  const [motto, setMotto] = useState<string | null>(null);
+  const [relation, setRelation] = useState<string | null>(null);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [news, setNews] = useState<NewsEntry[]>([]);
   const [tasksClaimed, setTasksClaimed] = useState<Task[]>([]);
@@ -61,7 +64,7 @@ export default function VisitorProfileModal({ visible, onClose, spaceId, C, isAd
     const p = prenom.trim();
     const n = nom.trim();
     const [profile, resv, resvBookedFor, newsRes, claimed, published, souv, msgs] = await Promise.all([
-      supabase.from("visitor_profiles").select("photo").eq("space_id", spaceId)
+      supabase.from("visitor_profiles").select("photo, motto, relation").eq("space_id", spaceId)
         .ilike("prenom", p).ilike("nom", n).maybeSingle(),
       supabase.from("reservations").select("*").eq("space_id", spaceId)
         .ilike("prenom", p).ilike("nom", n).order("date", { ascending: false }),
@@ -80,6 +83,8 @@ export default function VisitorProfileModal({ visible, onClose, spaceId, C, isAd
     ]);
 
     setPhotoUrl(profile.data?.photo ? visitorPhotoUrl(spaceId, profile.data.photo) : null);
+    setMotto(profile.data?.motto ?? null);
+    setRelation(profile.data?.relation ?? null);
     // Coordonnées (admin uniquement) : téléphone/email vivent sur la réservation
     // elle-même (pas de compte visiteur) — on prend la première réservation
     // faite à son propre nom (pas "booked_by") qui en porte une, peu importe
@@ -123,7 +128,13 @@ export default function VisitorProfileModal({ visible, onClose, spaceId, C, isAd
             </TouchableOpacity>
             <View style={{ flex: 1, marginLeft: 14 }}>
               <Text style={[styles.name, { color: C.text }]}>{prenom} {nom}</Text>
+              {!!relation && (
+                <Text style={[styles.relation, { color: C.muted }]}>{relationLabel(relation)}</Text>
+              )}
               <Text style={[styles.sub, { color: C.muted }]}>Fiche visiteur</Text>
+              {!!motto && (
+                <Text style={styles.motto} numberOfLines={2}>{motto}</Text>
+              )}
             </View>
             <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { borderColor: C.border }]}>
               <Text style={[styles.closeBtnText, { color: C.muted }]}>✕</Text>
@@ -263,7 +274,9 @@ const styles = StyleSheet.create({
   sheet: { maxHeight: "88%", borderTopLeftRadius: 20, borderTopRightRadius: 20, borderTopWidth: 1, borderLeftWidth: 1, borderRightWidth: 1, paddingTop: 20, paddingHorizontal: 20, marginBottom: 12 },
   headerRow: { flexDirection: "row", alignItems: "center", marginBottom: 12, paddingBottom: 16, borderBottomWidth: 1 },
   name: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18 },
+  relation: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 2 },
   sub: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 2 },
+  motto: { fontFamily: "Caveat_600SemiBold", fontSize: 16, color: "#7EC8E3", marginTop: 3 },
   closeBtn: { width: 32, height: 32, borderRadius: 16, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   closeBtnText: { fontSize: 14, fontFamily: "DM_Sans_700Bold" },
 

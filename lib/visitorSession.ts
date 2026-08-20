@@ -20,6 +20,9 @@ export interface VisitorSession {
   pin: string;
   localPhotoUri: string | null;
   motto: string;
+  // Lien avec le patient (Père/Mère/Ami·e/...), voir lib/relations.ts —
+  // visiteur uniquement, même principe local que motto ci-dessus.
+  relation: string;
   // Téléphone — pertinent seulement côté intervenant (intervenant_profiles),
   // caché localement sur le même principe que motto ci-dessus.
   telephone: string;
@@ -57,6 +60,7 @@ export async function saveVisitorSession(
     pin?: string;
     localPhotoUri?: string | null;
     motto?: string;
+    relation?: string;
     telephone?: string;
     metier?: string;
     role?: "visiteur" | "intervenant";
@@ -73,6 +77,7 @@ export async function saveVisitorSession(
     pin: partial.pin ?? existing?.pin ?? "",
     localPhotoUri: partial.localPhotoUri ?? existing?.localPhotoUri ?? null,
     motto: partial.motto ?? existing?.motto ?? "",
+    relation: partial.relation ?? existing?.relation ?? "",
     telephone: partial.telephone ?? existing?.telephone ?? "",
     metier: partial.metier ?? existing?.metier ?? "",
     role: partial.role ?? existing?.role ?? "visiteur",
