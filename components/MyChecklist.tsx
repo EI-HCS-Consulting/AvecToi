@@ -1074,6 +1074,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
         onClose={() => setShoppingListTask(null)}
         C={C}
         task={shoppingListTask}
+        isAdmin={isAdmin}
       />
 
       <ConfirmModal

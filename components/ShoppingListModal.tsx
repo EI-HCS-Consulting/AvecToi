@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { View, Text, TextInput, TouchableOpacity, Modal, ScrollView, StyleSheet, ActivityIndicator } from "react-native";
 import { supabase } from "@/lib/supabase";
+import { getVisitorSession } from "@/lib/visitorSession";
 import type { Task, ShoppingListItem } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -12,19 +13,50 @@ import type { Theme } from "@/lib/themes";
 // explicite : c'est la même table shopping_list_items qui est lue/écrite.
 // Ouvert à tout visiteur ou admin de l'espace, comme la modification de la
 // description d'un besoin (saveModifyDesc dans Entraide.tsx) — pas de
-// restriction à l'auteur du besoin.
+// restriction à l'auteur du besoin. Seul le cochage des articles est
+// restreint : une fois que quelqu'un a cliqué "Je m'en occupe" sur le besoin
+// (claimed_by_prenom/nom renseignés), seule cette personne peut cocher/
+// décocher — tant que personne ne l'a pris en charge, la liste reste ouverte
+// à tous pour dispatcher les articles.
 interface Props {
   visible: boolean;
   onClose: () => void;
   C: Theme;
   task: Task | null;
+  isAdmin: boolean;
 }
 
-export default function ShoppingListModal({ visible, onClose, C, task }: Props) {
+export default function ShoppingListModal({ visible, onClose, C, task, isAdmin }: Props) {
   const [items, setItems] = useState<ShoppingListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState("");
   const [adding, setAdding] = useState(false);
+  const [myPrenom, setMyPrenom] = useState("");
+  const [myNom, setMyNom] = useState("");
+
+  useEffect(() => {
+    (async () => {
+      if (isAdmin) {
+        const { data } = await supabase.auth.getUser();
+        setMyPrenom((data.user?.user_metadata?.firstname ?? "").trim());
+        setMyNom((data.user?.user_metadata?.lastname ?? "").trim());
+      } else {
+        const session = await getVisitorSession();
+        setMyPrenom(session?.prenom ?? "");
+        setMyNom(session?.nom ?? "");
+      }
+    })();
+  }, [isAdmin]);
+
+  const isSamePerson = (prenom: string | null | undefined, nom: string | null | undefined) =>
+    !!prenom && !!nom
+      && prenom.trim().toLowerCase() === myPrenom.trim().toLowerCase()
+      && nom.trim().toLowerCase() === myNom.trim().toLowerCase();
+
+  // Prise en charge = quelqu'un a cliqué "Je m'en occupe" sur le besoin
+  // (claimed_by_prenom renseigné, quel que soit le statut courant — y
+  // compris "fait", pour ne pas rouvrir le cochage à tous après coup).
+  const claimedByOther = !!task?.claimed_by_prenom && !isSamePerson(task.claimed_by_prenom, task.claimed_by_nom);
 
   useEffect(() => {
     if (!visible || !task) { setItems([]); return; }
@@ -44,10 +76,12 @@ export default function ShoppingListModal({ visible, onClose, C, task }: Props) 
   }, [visible, task]);
 
   async function toggleBought(item: ShoppingListItem) {
+    if (claimedByOther) return;
     const nextBought = !item.bought;
-    const nextItems = items.map((it) => (it.id === item.id ? { ...it, bought: nextBought } : it));
+    const boughtBy = nextBought ? { bought_by_prenom: myPrenom || null, bought_by_nom: myNom || null } : { bought_by_prenom: null, bought_by_nom: null };
+    const nextItems = items.map((it) => (it.id === item.id ? { ...it, bought: nextBought, ...boughtBy } : it));
     setItems(nextItems);
-    await supabase.from("shopping_list_items").update({ bought: nextBought }).eq("id", item.id);
+    await supabase.from("shopping_list_items").update({ bought: nextBought, ...boughtBy }).eq("id", item.id);
     // Coche le dernier article → plus besoin de repasser par "C'est fait"
     // (photo + PIN, voir confirmDone dans Entraide.tsx) : la liste pleine
     // vaut déjà preuve que les courses sont faites.
@@ -96,6 +130,11 @@ export default function ShoppingListModal({ visible, onClose, C, task }: Props) 
           {items.length > 0 && (
             <Text style={[styles.progress, { color: C.muted }]}>{boughtCount}/{items.length} achetés</Text>
           )}
+          {claimedByOther && (
+            <Text style={[styles.lockedNotice, { color: C.gold }]}>
+              🔒 Prise en charge par {task?.claimed_by_prenom} {task?.claimed_by_nom} — seule cette personne peut cocher les articles.
+            </Text>
+          )}
 
           <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: 4 }}>
             {loading ? (
@@ -107,18 +146,30 @@ export default function ShoppingListModal({ visible, onClose, C, task }: Props) 
                 <View key={item.id} style={styles.itemRow}>
                   <TouchableOpacity
                     onPress={() => toggleBought(item)}
-                    style={[styles.checkbox, { borderColor: item.bought ? C.accent : C.border, backgroundColor: item.bought ? C.accent : "transparent" }]}
+                    disabled={claimedByOther}
+                    style={[
+                      styles.checkbox,
+                      { borderColor: item.bought ? C.accent : C.border, backgroundColor: item.bought ? C.accent : "transparent" },
+                      claimedByOther && { opacity: 0.4 },
+                    ]}
                   >
                     {item.bought && <Text style={styles.checkboxMark}>✓</Text>}
                   </TouchableOpacity>
-                  <Text
-                    style={[
-                      styles.itemLabel,
-                      { color: item.bought ? C.muted : C.text, textDecorationLine: item.bought ? "line-through" : "none" },
-                    ]}
-                  >
-                    {item.label}
-                  </Text>
+                  <View style={styles.itemLabelCol}>
+                    <Text
+                      style={[
+                        styles.itemLabel,
+                        { color: item.bought ? C.muted : C.text, textDecorationLine: item.bought ? "line-through" : "none" },
+                      ]}
+                    >
+                      {item.label}
+                    </Text>
+                    {item.bought && (item.bought_by_prenom || item.bought_by_nom) && (
+                      <Text style={[styles.itemBoughtBy, { color: C.muted }]}>
+                        par {item.bought_by_prenom} {item.bought_by_nom}
+                      </Text>
+                    )}
+                  </View>
                   <TouchableOpacity onPress={() => removeItem(item)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                     <Text style={{ color: C.muted, fontSize: 16, marginLeft: 8 }}>✕</Text>
                   </TouchableOpacity>
@@ -160,13 +211,16 @@ const styles = StyleSheet.create({
   card: { width: "100%", maxWidth: 440, maxHeight: "88%", borderRadius: 20, borderWidth: 1, padding: 24 },
   title: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, marginBottom: 4 },
   progress: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12.5, marginBottom: 14 },
+  lockedNotice: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12.5, marginBottom: 14, lineHeight: 17 },
   scroll: { maxHeight: 380 },
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginVertical: 12, lineHeight: 19 },
 
   itemRow: { flexDirection: "row", alignItems: "center", paddingVertical: 8 },
   checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, alignItems: "center", justifyContent: "center", marginRight: 10 },
   checkboxMark: { color: "#fff", fontSize: 13, fontFamily: "DM_Sans_700Bold" },
-  itemLabel: { flex: 1, fontFamily: "DM_Sans_400Regular", fontSize: 14 },
+  itemLabelCol: { flex: 1 },
+  itemLabel: { fontFamily: "DM_Sans_400Regular", fontSize: 14 },
+  itemBoughtBy: { fontFamily: "DM_Sans_400Regular", fontSize: 11.5, marginTop: 1 },
 
   addRow: { flexDirection: "row", gap: 8, marginTop: 12, alignItems: "center" },
   addInput: { flex: 1, borderWidth: 1, borderRadius: 10, paddingHorizontal: 12, paddingVertical: 10, fontFamily: "DM_Sans_400Regular", fontSize: 13.5 },
