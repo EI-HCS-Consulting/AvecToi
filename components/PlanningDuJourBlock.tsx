@@ -44,12 +44,21 @@ interface Props {
   // soins.tsx, un seul soin possible par créneau, la notion ne s'applique
   // pas).
   remainingBySlotId?: Record<string, { taken: number; max: number }>;
+  // Anniversaire du patient ("YYYY-MM-DD", année de naissance) + prénom —
+  // affiche "xx ans de Prénom !" dans le titre du jour quand iso tombe sur
+  // le mois+jour de naissance (comparaison identique à BirthdayAlertModal et
+  // home/calendar.tsx). Absent : pas d'affichage (usage intervenant,
+  // soins.tsx, qui peut regrouper plusieurs patients le même jour).
+  patientBirthdate?: string | null;
+  patientFirstname?: string;
 }
 
-export default function PlanningDuJourBlock({ C, iso, reservations, patientNameBySpaceId, locationBySpaceId, onSoinPress, showOtherIntervenants, onToggleOtherIntervenants, reservationType = "Intervention", companionsById, onEmptyPress, remainingBySlotId }: Props) {
+export default function PlanningDuJourBlock({ C, iso, reservations, patientNameBySpaceId, locationBySpaceId, onSoinPress, showOtherIntervenants, onToggleOtherIntervenants, reservationType = "Intervention", companionsById, onEmptyPress, remainingBySlotId, patientBirthdate, patientFirstname }: Props) {
   const isToday = iso === toISO(new Date());
   const dayDate = new Date(iso + "T00:00:00");
   const isPastDay = isReservationDatePast(iso);
+  const isBirthday = !!patientBirthdate && patientBirthdate.slice(5) === iso.slice(5);
+  const birthdayAge = isBirthday && patientBirthdate ? dayDate.getFullYear() - parseInt(patientBirthdate.slice(0, 4), 10) : null;
   const sorted = [...reservations].sort((a, b) => a.creneau.localeCompare(b.creneau));
   // Regroupe les réservations par créneau consécutif (sorted est déjà trié
   // par creneau) — un seul horaire affiché par groupe, centré verticalement
@@ -89,10 +98,11 @@ export default function PlanningDuJourBlock({ C, iso, reservations, patientNameB
         <Text style={[styles.dayTitle, { color: isToday ? C.gold : C.text }]}>
           {dayDate.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}
           {isToday ? " · Aujourd'hui" : ""}
+          {isBirthday ? ` · ${birthdayAge} ans de ${patientFirstname} !` : ""}
         </Text>
         {sorted.length === 0 ? (
           onEmptyPress ? (
-            <TouchableOpacity activeOpacity={0.7} onPress={onEmptyPress}>
+            <TouchableOpacity activeOpacity={0.7} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} onPress={onEmptyPress}>
               <Text style={[styles.emptyText, !isPastDay && styles.emptyTextLink, { color: isPastDay ? C.muted : C.accent }]}>
                 {reservationType === "Visite"
                   ? (isPastDay ? "Aucune visite ce jour-là." : "Aucune visite prévue ce jour. Réserver ›")
@@ -105,10 +115,13 @@ export default function PlanningDuJourBlock({ C, iso, reservations, patientNameB
             </Text>
           )
         ) : (
-          groups.map((group) => {
+          groups.map((group, idx) => {
             const groupRemaining = remainingBySlotId?.[group.rows[0].id];
             return (
-              <View key={group.creneau} style={styles.slotGroup}>
+              <View
+                key={group.creneau}
+                style={[styles.slotGroup, idx > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}
+              >
                 <View style={styles.slotTimeCol}>
                   <Text style={[styles.soinTime, { color: C.orange }]}>{group.creneau}</Text>
                 </View>
@@ -179,7 +192,7 @@ const styles = StyleSheet.create({
   // plusieurs personnes partagent le créneau.
   slotGroup: { flexDirection: "row", alignItems: "stretch", gap: 10, paddingVertical: 4 },
   slotTimeCol: { minWidth: 42, alignItems: "center", justifyContent: "center" },
-  slotPersonRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 },
+  slotPersonRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 3 },
   slotRemaining: { marginTop: 2, marginBottom: 2 },
   soinTime: { fontFamily: "DM_Sans_700Bold", fontSize: 13 },
   soinLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },

@@ -306,6 +306,10 @@ export default function AdminCalendarScreen() {
             // intervenants).
             const interventionBooked = reservations.some((r) => r.date === iso && r.type === "Intervention");
             const frameVisible = soinsMode && interventionBooked;
+            // Jour hospitalisation/sortie/anniversaire : remplace tout le
+            // contenu de la case (numéro du jour compris) par un pictogramme
+            // plein cadre, jamais grisé même passé — voir styles.cellSpecialIcon.
+            const specialIcon = iso === admissionIso ? "🏥" : iso === dischargeIso ? "🏠" : birthdateMonthDay === iso.slice(5) ? "🎂" : null;
 
             return (
               <View key={iso} style={styles.cellOuter}>
@@ -313,10 +317,10 @@ export default function AdminCalendarScreen() {
                   style={[
                     styles.cell,
                     {
-                      backgroundColor: isSelected ? C.accent : isPast ? "transparent" : C.card,
+                      backgroundColor: isSelected ? C.accent : specialIcon ? C.card : isPast ? "transparent" : C.card,
                       borderColor: isSelected ? C.accent : frameVisible ? LOGO_PURPLE : isToday ? C.gold : C.border,
                       borderWidth: isToday || frameVisible ? 2 : 1,
-                      opacity: isPast ? 0.3 : 1,
+                      opacity: specialIcon ? 1 : isPast ? 0.3 : 1,
                     },
                   ]}
                   onPress={() => {
@@ -330,33 +334,21 @@ export default function AdminCalendarScreen() {
                   activeOpacity={0.7}
                 >
                   <View style={styles.cellInner}>
-                    <Text style={[styles.cellDate, { color: isSelected ? "#fff" : isToday ? C.gold : C.text }]}>
-                      {day.getDate()}
-                    </Text>
-                    <View style={[styles.dot, { backgroundColor: dotColor }]} />
+                    {specialIcon ? (
+                      <Text style={styles.cellSpecialIcon}>{specialIcon}</Text>
+                    ) : (
+                      <>
+                        <Text style={[styles.cellDate, { color: isSelected ? "#fff" : isToday ? C.gold : C.text }]}>
+                          {day.getDate()}
+                        </Text>
+                        <View style={[styles.dot, { backgroundColor: dotColor }]} />
+                      </>
+                    )}
                   </View>
                   {!!familyBooked && (
                     <View pointerEvents="none" style={[styles.visitStripe, { backgroundColor: LOGO_GREEN }]} />
                   )}
                 </TouchableOpacity>
-                {/* Badges hospitalisation (✕)/sortie (🏠) — jamais grisés,
-                    même sur un jour passé : ancrés dans cellOuter, non
-                    affecté par l'opacité posée sur cell. Voir WeekStrip. */}
-                {iso === admissionIso && (
-                  <View style={[styles.badge, styles.badgeLeft, { backgroundColor: C.danger }]}>
-                    <Text style={styles.badgeCrossText}>✕</Text>
-                  </View>
-                )}
-                {iso === dischargeIso && (
-                  <View style={[styles.badge, styles.badgeRight]}>
-                    <Text style={styles.badgeHouseText}>🏠</Text>
-                  </View>
-                )}
-                {birthdateMonthDay === iso.slice(5) && (
-                  <View style={[styles.badge, styles.badgeBottom]}>
-                    <Text style={styles.badgeCakeText}>🎂</Text>
-                  </View>
-                )}
               </View>
             );
           })}
@@ -585,19 +577,13 @@ const styles = StyleSheet.create({
   dayLabels: { flexDirection: "row", justifyContent: "center", gap: 3, marginBottom: 4 },
   dayLabel: { width: "13.5%", textAlign: "center", fontFamily: "DM_Sans_600SemiBold", fontSize: 10 },
   grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 3, marginBottom: 10 },
-  // cellOuter est l'ancre non-rognée des badges F/G — même séparation que
-  // WeekStrip.tsx (stripCellOuter/stripCell).
   cellOuter: { width: "13.5%", position: "relative" },
   cell: { aspectRatio: 1, borderRadius: 8, borderWidth: 1, overflow: "hidden" },
   cellInner: { flex: 1, width: "100%", alignItems: "center", justifyContent: "center", gap: 2 },
   cellDate: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, textAlignVertical: "center", includeFontPadding: false },
-  badge: { position: "absolute", top: -5, width: 14, height: 14, borderRadius: 7, alignItems: "center", justifyContent: "center", zIndex: 1 },
-  badgeLeft: { left: -5 },
-  badgeRight: { right: -5 },
-  badgeBottom: { top: undefined, bottom: -5, left: "50%", marginLeft: -7 },
-  badgeCrossText: { color: "#fff", fontSize: 8, fontWeight: "700", lineHeight: 10 },
-  badgeHouseText: { fontSize: 10, lineHeight: 12 },
-  badgeCakeText: { fontSize: 10, lineHeight: 12 },
+  // Jour hospitalisation/sortie/anniversaire : pictogramme plein cadre à la
+  // place du numéro du jour, centré horizontalement et verticalement.
+  cellSpecialIcon: { fontSize: 20, lineHeight: 24 },
   dot: { width: 4, height: 4, borderRadius: 2 },
   visitStripe: { position: "absolute", left: 0, right: 0, bottom: 0, height: 4 },
   legend: { flexDirection: "row", justifyContent: "center", gap: 20 },
