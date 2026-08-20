@@ -811,6 +811,7 @@ export default function VisitorCalendarScreen() {
                 remainingBySlotId={remainingByMainId}
                 patientBirthdate={space.patient_birthdate}
                 patientFirstname={space.patient_firstname}
+                patientAdmissionDate={admissionIso}
               />
 
               <Text style={[styles.sectionTitle, { color: C.gold }]}>

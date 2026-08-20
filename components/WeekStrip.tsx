@@ -206,7 +206,7 @@ export default function WeekStrip({
             <View key={iso} style={styles.stripCellOuter}>
               <TouchableOpacity
                 onPress={() => onDayPress(iso)}
-                onLongPress={soinsMode ? undefined : () => onDayLongPress?.(iso)}
+                onLongPress={soinsMode || !onDayLongPress ? undefined : () => onDayLongPress(iso)}
                 activeOpacity={0.7}
                 style={[
                   styles.stripCell,

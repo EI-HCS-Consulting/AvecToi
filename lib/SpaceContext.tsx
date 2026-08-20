@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from "react";
 import { supabase } from "./supabase";
 import { generateSlots, resolveConfigForDate, toISO } from "./slotUtils";
 import type { PatientSpace, SlotConfig, SlotConfigHistoryEntry, Reservation, IntervenantProfile } from "./types";
@@ -296,10 +296,19 @@ export function AdminSpaceProvider({ adminId, children }: { adminId: string; chi
     };
   }, [space?.id, refreshReservations, refreshIntervenantProfiles]);
 
+  // Mémoïsé : sans ça, ce littéral d'objet est recréé à chaque render du
+  // provider (donc à chaque changement de N'IMPORTE laquelle de ses ~10
+  // pièces d'état, y compris selectedDay ou pendingBookingSlot) et casse la
+  // référence de value à chaque fois, ce qui force TOUS les consommateurs de
+  // useSpace() dans l'app (dont les grilles de calendrier, coûteuses) à
+  // re-render même quand rien qui les concerne n'a changé.
+  const value = useMemo<SpaceContextValue>(
+    () => ({ space, slotConfig, slots, reservations, intervenantProfiles, loading, hasSpace: !!space, selectedDay, setSelectedDay, pendingBookingSlot, setPendingBookingSlot, refreshReservations, refreshSpace, refreshSlotConfig, patchSpace, getConfigForDate, getSlotsForDate }),
+    [space, slotConfig, slots, reservations, intervenantProfiles, loading, selectedDay, pendingBookingSlot, refreshReservations, refreshSpace, refreshSlotConfig, patchSpace, getConfigForDate, getSlotsForDate],
+  );
+
   return (
-    <SpaceContext.Provider
-      value={{ space, slotConfig, slots, reservations, intervenantProfiles, loading, hasSpace: !!space, selectedDay, setSelectedDay, pendingBookingSlot, setPendingBookingSlot, refreshReservations, refreshSpace, refreshSlotConfig, patchSpace, getConfigForDate, getSlotsForDate }}
-    >
+    <SpaceContext.Provider value={value}>
       {children}
     </SpaceContext.Provider>
   );

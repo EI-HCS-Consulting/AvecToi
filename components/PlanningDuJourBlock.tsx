@@ -51,14 +51,22 @@ interface Props {
   // soins.tsx, qui peut regrouper plusieurs patients le même jour).
   patientBirthdate?: string | null;
   patientFirstname?: string;
+  // Date d'hospitalisation ("YYYY-MM-DD", PatientSpace.patient_admission_date)
+  // — quand iso tombe exactement dessus, le titre du jour affiche l'année
+  // (seul cas où elle apparaît, pour ne pas dater les autres jours) suivie de
+  // "- Jour d'hospitalisation". Absent/null : titre inchangé (usage
+  // intervenant, soins.tsx, qui regroupe plusieurs patients sans notion
+  // d'hospitalisation unique).
+  patientAdmissionDate?: string | null;
 }
 
-export default function PlanningDuJourBlock({ C, iso, reservations, patientNameBySpaceId, locationBySpaceId, onSoinPress, showOtherIntervenants, onToggleOtherIntervenants, reservationType = "Intervention", companionsById, onEmptyPress, remainingBySlotId, patientBirthdate, patientFirstname }: Props) {
+export default function PlanningDuJourBlock({ C, iso, reservations, patientNameBySpaceId, locationBySpaceId, onSoinPress, showOtherIntervenants, onToggleOtherIntervenants, reservationType = "Intervention", companionsById, onEmptyPress, remainingBySlotId, patientBirthdate, patientFirstname, patientAdmissionDate }: Props) {
   const isToday = iso === toISO(new Date());
   const dayDate = new Date(iso + "T00:00:00");
   const isPastDay = isReservationDatePast(iso);
   const isBirthday = !!patientBirthdate && patientBirthdate.slice(5) === iso.slice(5);
   const birthdayAge = isBirthday && patientBirthdate ? dayDate.getFullYear() - parseInt(patientBirthdate.slice(0, 4), 10) : null;
+  const isAdmissionDay = !!patientAdmissionDate && patientAdmissionDate === iso;
   const sorted = [...reservations].sort((a, b) => a.creneau.localeCompare(b.creneau));
   // Regroupe les réservations par créneau consécutif (sorted est déjà trié
   // par creneau) — un seul horaire affiché par groupe, centré verticalement
@@ -96,7 +104,10 @@ export default function PlanningDuJourBlock({ C, iso, reservations, patientNameB
       </View>
       <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
         <Text style={[styles.dayTitle, { color: isToday ? C.gold : C.text }]}>
-          {dayDate.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}
+          {dayDate.toLocaleDateString("fr-FR", isAdmissionDay
+            ? { weekday: "long", day: "numeric", month: "long", year: "numeric" }
+            : { weekday: "long", day: "numeric", month: "long" })}
+          {isAdmissionDay ? " - Jour d'hospitalisation" : ""}
           {isToday ? " · Aujourd'hui" : ""}
           {isBirthday ? ` · ${birthdayAge} ans de ${patientFirstname} !` : ""}
         </Text>
