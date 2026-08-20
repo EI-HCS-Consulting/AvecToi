@@ -1239,7 +1239,11 @@ export default function VisitorAccountScreen() {
                         >
                           <View style={{ flex: 1 }}>
                             <Text style={[styles.activityRowText, { color: C.text }]}>
-                              {r.type === "Nuit" ? "🌙" : "☀️"} {new Date(r.date).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} · {r.creneau}
+                              {r.type === "Nuit" ? "🌙" : "☀️"}{" "}
+                              <Text style={{ textTransform: "capitalize" }}>
+                                {new Date(r.date).toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}
+                              </Text>
+                              {" · "}{r.creneau}
                             </Text>
                             {r.booked_by_prenom && (
                               <Text style={[styles.activityRowSub, { color: C.muted }]}>Pour {r.prenom} {r.nom}</Text>

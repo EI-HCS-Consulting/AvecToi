@@ -22,6 +22,7 @@ import VisitorsListModal from "@/components/VisitorsListModal";
 import { isRgpdAlertActive, rgpdAlertMessage, prolongSpace } from "@/lib/rgpd";
 import { disengageTask as performDisengage } from "@/lib/taskDisengage";
 import ConfirmModal from "@/components/ConfirmModal";
+import RecurringBookingModal from "@/components/RecurringBookingModal";
 import type { Reservation, ReservationChangeHistoryEntry, NewsEntry, SupportMessage, Task } from "@/lib/types";
 
 const CAT_ICONS: Record<Task["category"], string> = {
@@ -48,11 +49,22 @@ const SHEET_MAX_HEIGHT = Dimensions.get("window").height * 0.72;
 
 export default function AdminAccountScreen() {
   const router = useRouter();
-  const { space, loading, hasSpace, getConfigForDate, patchSpace } = useSpace();
+  const {
+    space, loading, hasSpace, getConfigForDate, patchSpace,
+    slotConfig, slots, reservations: allReservations, refreshReservations,
+  } = useSpace();
   const { mode, theme: C, setMode } = useDisplayMode();
 
   const [activityLoading, setActivityLoading] = useState(false);
   const [reservations, setReservations] = useState<Reservation[]>([]);
+  // "Réservations récurrentes" — même modale que côté visiteur (voir
+  // components/RecurringBookingModal.tsx), l'admin agissant ici comme un
+  // visiteur qui réserve pour lui-même. `allReservations`/`refreshReservations`
+  // viennent du SpaceContext (toutes les réservations de l'espace, pas
+  // seulement celles de l'admin) — nécessaires pour calculer l'occupation
+  // des créneaux, contrairement à `reservations` ci-dessus qui ne sert qu'à
+  // "Mes contributions".
+  const [recurringModalVisible, setRecurringModalVisible] = useState(false);
   const [changeHistory, setChangeHistory] = useState<ReservationChangeHistoryEntry[]>([]);
   const [alertsModalVisible, setAlertsModalVisible] = useState(false);
   const [patientProfileVisible, setPatientProfileVisible] = useState(false);
@@ -575,6 +587,14 @@ export default function AdminAccountScreen() {
                       </TouchableOpacity>
 
                       {isOpen && key === "resv" && (
+                        <>
+                          <TouchableOpacity
+                            onPress={() => setRecurringModalVisible(true)}
+                            activeOpacity={0.75}
+                            style={[styles.recurringBtn, { borderColor: C.accent, backgroundColor: `${C.accent}18` }]}
+                          >
+                            <Text style={[styles.recurringBtnText, { color: C.accent }]}>🔁 Réservations récurrentes</Text>
+                          </TouchableOpacity>
                         <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
                           {reservationGroups.length === 0 ? (
                             <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucune réservation pour le moment.</Text>
@@ -599,6 +619,7 @@ export default function AdminAccountScreen() {
                             </TouchableOpacity>
                           ))}
                         </View>
+                        </>
                       )}
 
                       {isOpen && key === "news" && (
@@ -764,6 +785,23 @@ export default function AdminAccountScreen() {
                   adminFirstname={adminFirstname}
                   adminLastname={adminLastname}
                 />
+
+                {slotConfig && (
+                  <RecurringBookingModal
+                    visible={recurringModalVisible}
+                    onClose={() => setRecurringModalVisible(false)}
+                    C={C}
+                    space={space}
+                    slotConfig={slotConfig}
+                    slots={slots}
+                    reservations={allReservations}
+                    getConfigForDate={getConfigForDate}
+                    prenom={adminFirstname}
+                    nom={adminLastname}
+                    pin={adminPin}
+                    refreshReservations={refreshReservations}
+                  />
+                )}
 
                 <TouchableOpacity
                   style={[styles.logoutBtn, { borderColor: "rgba(233,69,96,0.4)" }]}
@@ -1069,6 +1107,8 @@ const styles = StyleSheet.create({
   },
   contribHeaderText: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },
   contribCard: { marginTop: 10 },
+  recurringBtn: { borderWidth: 1, borderRadius: 10, paddingVertical: 12, alignItems: "center", marginTop: 6 },
+  recurringBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 13 },
 
   activityEmpty: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
   activityRow: { paddingVertical: 6, flexDirection: "row", alignItems: "center", gap: 8 },
