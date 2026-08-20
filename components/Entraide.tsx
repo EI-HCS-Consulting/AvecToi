@@ -2194,7 +2194,9 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       </View>
 
       <View style={[styles.catTabsBar, { backgroundColor: C.card, borderBottomColor: C.border }]}>
-        {(Object.keys(CATEGORY_ICONS) as TaskCategory[]).map((cat) => (
+        {(Object.keys(CATEGORY_ICONS) as TaskCategory[])
+          .filter((cat) => cat !== "relais" || undeletedTasks.some((t) => t.category === "relais"))
+          .map((cat) => (
           <TouchableOpacity
             key={cat}
             style={[
