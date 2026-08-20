@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, ScrollView, StyleSheet, ActivityIndicator
 import { supabase } from "@/lib/supabase";
 import PatientAvatar from "@/components/PatientAvatar";
 import VisitorProfileModal from "@/components/VisitorProfileModal";
+import { relationLabel } from "@/lib/relations";
 import type { Theme } from "@/lib/themes";
 
 // Corps de liste partagé entre VisitorsBlock (bloc repliable des Paramètres
@@ -17,6 +18,7 @@ interface VisitorRow {
   nom: string;
   photoUrl: string | null;
   motto: string | null;
+  relation: string | null;
 }
 
 function visitorPhotoUrl(spaceId: string, filename: string) {
@@ -59,7 +61,7 @@ export default function VisitorsList({ spaceId, C, isAdmin, adminFirstname, admi
       supabase.from("tasks").select("transport_return_claimed_by_prenom,transport_return_claimed_by_nom").eq("space_id", spaceId),
       supabase.from("souvenirs").select("uploaded_by_prenom,uploaded_by_nom").eq("space_id", spaceId),
       supabase.from("support_messages").select("author_prenom,author_nom").eq("space_id", spaceId),
-      supabase.from("visitor_profiles").select("prenom,nom,photo,motto").eq("space_id", spaceId),
+      supabase.from("visitor_profiles").select("prenom,nom,photo,motto,relation").eq("space_id", spaceId),
       supabase.from("intervenant_profiles").select("prenom,nom").eq("space_id", spaceId),
     ]);
 
@@ -77,7 +79,7 @@ export default function VisitorsList({ spaceId, C, isAdmin, adminFirstname, admi
       if (!prenom?.trim() || !nom?.trim()) return;
       const key = identityKey(prenom, nom);
       if (excludedKeys.has(key)) return;
-      if (!byKey.has(key)) byKey.set(key, { prenom: prenom.trim(), nom: nom.trim(), photoUrl: null, motto: null });
+      if (!byKey.has(key)) byKey.set(key, { prenom: prenom.trim(), nom: nom.trim(), photoUrl: null, motto: null, relation: null });
     }
     (resv.data || []).forEach((r) => add(r.prenom, r.nom));
     (resvGuestOf.data || []).forEach((r) => add(r.booked_by_prenom, r.booked_by_nom));
@@ -94,6 +96,7 @@ export default function VisitorsList({ spaceId, C, isAdmin, adminFirstname, admi
       if (!row) continue;
       if (p.photo) row.photoUrl = visitorPhotoUrl(spaceId, p.photo);
       if (p.motto) row.motto = p.motto;
+      if (p.relation) row.relation = p.relation;
     }
 
     setVisitors(
@@ -129,6 +132,9 @@ export default function VisitorsList({ spaceId, C, isAdmin, adminFirstname, admi
                   <Text style={[styles.name, { color: C.text }]} numberOfLines={1}>
                     {v.prenom} {v.nom}
                   </Text>
+                  {!!v.relation && (
+                    <Text style={[styles.relation, { color: C.muted }]} numberOfLines={1}>{relationLabel(v.relation)}</Text>
+                  )}
                   {!!v.motto && (
                     <Text style={styles.motto} numberOfLines={1}>{v.motto}</Text>
                   )}
@@ -164,6 +170,7 @@ const styles = StyleSheet.create({
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, textAlign: "center", marginVertical: 16 },
   row: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12 },
   name: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15 },
+  relation: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 1 },
   motto: { fontFamily: "Caveat_600SemiBold", fontSize: 16, color: "#7EC8E3", marginTop: 1 },
   chevron: { fontFamily: "DM_Sans_700Bold", fontSize: 16 },
 });

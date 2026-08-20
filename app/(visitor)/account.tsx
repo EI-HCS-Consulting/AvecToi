@@ -16,6 +16,7 @@ import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
 import { enterByDossierCode } from "@/lib/visitorEntry";
 import { normalizePhone } from "@/lib/phone";
 import { metierLabel } from "@/lib/metiers";
+import { VISITOR_RELATIONS } from "@/lib/relations";
 import { isSlotFullyPast } from "@/lib/slotUtils";
 import { disengageTask as performDisengage } from "@/lib/taskDisengage";
 import ConfirmModal from "@/components/ConfirmModal";
@@ -113,6 +114,9 @@ export default function VisitorAccountScreen() {
   const [pinRevealed, setPinRevealed] = useState(false);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [motto, setMotto] = useState("");
+  // Lien avec le patient (Père/Mère/Ami·e/...), voir lib/relations.ts —
+  // visiteur uniquement (pas de sens pour un intervenant, qui a un métier).
+  const [relation, setRelation] = useState("");
   // Téléphone — intervenant uniquement (colonne intervenant_profiles.telephone,
   // voir migration 20260719_intervenant_profiles_contact.sql). Ma phrase totem
   // (state `motto` ci-dessus, réutilisé pour les deux rôles) pointe vers
@@ -289,6 +293,7 @@ export default function VisitorAccountScreen() {
         setPin(s.pin);
         setPhotoUri(s.localPhotoUri);
         setMotto(s.motto);
+        setRelation(s.relation);
         setTelephone(s.telephone);
         setMetier(s.metier || null);
         setRole(s.role ?? "visiteur");
@@ -312,21 +317,22 @@ export default function VisitorAccountScreen() {
               if (!s.telephone && data?.telephone) setTelephone(data.telephone);
               if (!s.metier && data?.metier) setMetier(data.metier);
             }
-          } else if (!s.localPhotoUri || !s.motto) {
-            // Photo/motto de secours : si cet appareil/session n'a plus de copie
-            // locale (réinstallation, cache vidé, nouvel appareil) mais qu'une
-            // photo/phrase a déjà été synchronisée (visible côté admin dans ce
+          } else if (!s.localPhotoUri || !s.motto || !s.relation) {
+            // Photo/motto/relation de secours : si cet appareil/session n'a plus
+            // de copie locale (réinstallation, cache vidé, nouvel appareil) mais
+            // qu'une valeur a déjà été synchronisée (visible côté admin dans ce
             // cas, voir components/VisitorsBlock.tsx), on l'affiche quand même
             // au lieu de proposer d'en ajouter une comme si elle n'existait pas.
             const { data } = await supabase
               .from("visitor_profiles")
-              .select("photo, motto")
+              .select("photo, motto, relation")
               .eq("space_id", space.id)
               .ilike("prenom", s.prenom)
               .ilike("nom", s.nom)
               .maybeSingle();
             if (!s.localPhotoUri && data?.photo) setPhotoUri(visitorPhotoUrl(space.id, data.photo));
             if (!s.motto && data?.motto) setMotto(data.motto);
+            if (!s.relation && data?.relation) setRelation(data.relation);
           }
         }
       }
@@ -687,22 +693,24 @@ export default function VisitorAccountScreen() {
     }
   }
 
-  // Synchronise la phrase totem vers Supabase, sur le même principe que
-  // syncProfilePhoto — best-effort, rend le totem visible dans le bloc
-  // "Visiteurs" des Paramètres admin (components/VisitorsBlock.tsx). Un
-  // upsert distinct (colonnes différentes) ne clobber pas la photo déjà
-  // enregistrée par ailleurs : PostgREST ne met à jour que les colonnes
-  // fournies dans le payload.
-  async function syncProfileMotto(spaceId: string, p: string, n: string, mottoValue: string) {
+  // Synchronise la phrase totem + le lien avec le patient vers Supabase, sur
+  // le même principe que syncProfilePhoto — best-effort, rend les deux
+  // visibles dans le bloc "Visiteurs" des Paramètres admin
+  // (components/VisitorsBlock.tsx), la liste des visiteurs
+  // (components/VisitorsList.tsx) et la fiche visiteur
+  // (components/VisitorProfileModal.tsx). Un upsert distinct (colonnes
+  // différentes) ne clobber pas la photo déjà enregistrée par ailleurs :
+  // PostgREST ne met à jour que les colonnes fournies dans le payload.
+  async function syncProfileMottoAndRelation(spaceId: string, p: string, n: string, mottoValue: string, relationValue: string) {
     if (!p || !n) return;
     try {
       const { error } = await supabase.from("visitor_profiles").upsert(
-        { space_id: spaceId, prenom: p, nom: n, motto: mottoValue.trim() || null, updated_at: new Date().toISOString() },
+        { space_id: spaceId, prenom: p, nom: n, motto: mottoValue.trim() || null, relation: relationValue || null, updated_at: new Date().toISOString() },
         { onConflict: "space_id,prenom,nom" },
       );
-      if (error) console.error("[syncProfileMotto] upsert failed:", error);
+      if (error) console.error("[syncProfileMottoAndRelation] upsert failed:", error);
     } catch (e) {
-      console.error("[syncProfileMotto] unexpected error:", e);
+      console.error("[syncProfileMottoAndRelation] unexpected error:", e);
     }
   }
 
@@ -717,6 +725,7 @@ export default function VisitorAccountScreen() {
       email: email.trim(),
       localPhotoUri: photoUri,
       motto,
+      relation,
       telephone,
     });
     let ok = true;
@@ -724,7 +733,7 @@ export default function VisitorAccountScreen() {
       ok = await syncIntervenantContact(intervenantProfileId, prenom, nom, telephone, motto);
     } else {
       if (photoUri) syncProfilePhoto(space.id, prenom.trim(), nom.trim(), photoUri);
-      if (prenom.trim() && nom.trim()) syncProfileMotto(space.id, prenom.trim(), nom.trim(), motto);
+      if (prenom.trim() && nom.trim()) syncProfileMottoAndRelation(space.id, prenom.trim(), nom.trim(), motto, relation);
     }
     setSaving(false);
     if (ok) showToast("Enregistré ✓");
@@ -992,6 +1001,32 @@ export default function VisitorAccountScreen() {
                         onChangeText={setTelephone}
                         keyboardType="phone-pad"
                       />
+                    )}
+
+                    {role !== "intervenant" && (
+                      <View>
+                        <Text style={[styles.fieldLabel, { color: C.muted }]}>
+                          Votre lien avec {space.patient_firstname || "le patient"} (optionnel)
+                        </Text>
+                        <View style={styles.relationChips}>
+                          {VISITOR_RELATIONS.map((r) => {
+                            const selected = relation === r.key;
+                            return (
+                              <TouchableOpacity
+                                key={r.key}
+                                style={[
+                                  styles.relationChip,
+                                  { borderColor: selected ? C.accent : C.border, backgroundColor: selected ? `${C.accent}22` : C.bg },
+                                ]}
+                                onPress={() => setRelation(selected ? "" : r.key)}
+                                activeOpacity={0.7}
+                              >
+                                <Text style={[styles.relationChipText, { color: selected ? C.accent : C.text }]}>{r.label}</Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      </View>
                     )}
                   </View>
 
@@ -1620,6 +1655,10 @@ const styles = StyleSheet.create({
   cardDesc: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 19, marginBottom: 4 },
   input: { borderWidth: 1, borderRadius: 10, padding: 13, fontFamily: "DM_Sans_400Regular", fontSize: 15 },
   metierInfoValue: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
+  fieldLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, marginBottom: 8 },
+  relationChips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  relationChip: { borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8 },
+  relationChipText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
 
   displayModeLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15 },
 
