@@ -16,13 +16,14 @@ import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
 import { enterByDossierCode } from "@/lib/visitorEntry";
 import { normalizePhone } from "@/lib/phone";
 import { metierLabel } from "@/lib/metiers";
-import { VISITOR_RELATIONS } from "@/lib/relations";
+import { relationLabel } from "@/lib/relations";
 import { isSlotFullyPast } from "@/lib/slotUtils";
 import { disengageTask as performDisengage } from "@/lib/taskDisengage";
 import ConfirmModal from "@/components/ConfirmModal";
 import PinPad from "@/components/PinPad";
 import PatientProfileModal from "@/components/PatientProfileModal";
 import IntervenantFicheModal from "@/components/IntervenantFicheModal";
+import RelationPickerModal from "@/components/RelationPickerModal";
 import VisitorsListModal from "@/components/VisitorsListModal";
 import { switchToLinkedSpace } from "@/lib/intervenantSpaceSwitch";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
@@ -133,6 +134,7 @@ export default function VisitorAccountScreen() {
   const [role, setRole] = useState<"visiteur" | "intervenant">("visiteur");
   const [intervenantProfileId, setIntervenantProfileId] = useState<string | null>(null);
   const [ficheModalVisible, setFicheModalVisible] = useState(false);
+  const [relationModalVisible, setRelationModalVisible] = useState(false);
 
   // "Mes Patients" — autres espaces patients déjà rejoints par ce même
   // téléphone (basculement direct, sans ressaisir le code dossier — voir
@@ -323,13 +325,29 @@ export default function VisitorAccountScreen() {
             // qu'une valeur a déjà été synchronisée (visible côté admin dans ce
             // cas, voir components/VisitorsBlock.tsx), on l'affiche quand même
             // au lieu de proposer d'en ajouter une comme si elle n'existait pas.
-            const { data } = await supabase
+            // Un select portant sur "relation" échoue entièrement (et
+            // viderait aussi photo/motto) tant que la migration
+            // 20260821_visitor_profiles_relation.sql n'a pas été rejouée
+            // manuellement en base — repli sans cette colonne au besoin,
+            // même filet que components/VisitorsList.tsx.
+            let full = await supabase
               .from("visitor_profiles")
               .select("photo, motto, relation")
               .eq("space_id", space.id)
               .ilike("prenom", s.prenom)
               .ilike("nom", s.nom)
               .maybeSingle();
+            let data: { photo: string | null; motto: string | null; relation: string | null } | null = full.data;
+            if (full.error) {
+              const fallback = await supabase
+                .from("visitor_profiles")
+                .select("photo, motto")
+                .eq("space_id", space.id)
+                .ilike("prenom", s.prenom)
+                .ilike("nom", s.nom)
+                .maybeSingle();
+              data = fallback.data ? { ...fallback.data, relation: null } : null;
+            }
             if (!s.localPhotoUri && data?.photo) setPhotoUri(visitorPhotoUrl(space.id, data.photo));
             if (!s.motto && data?.motto) setMotto(data.motto);
             if (!s.relation && data?.relation) setRelation(data.relation);
@@ -1008,24 +1026,15 @@ export default function VisitorAccountScreen() {
                         <Text style={[styles.fieldLabel, { color: C.muted }]}>
                           Votre lien avec {space.patient_firstname || "le patient"} (optionnel)
                         </Text>
-                        <View style={styles.relationChips}>
-                          {VISITOR_RELATIONS.map((r) => {
-                            const selected = relation === r.key;
-                            return (
-                              <TouchableOpacity
-                                key={r.key}
-                                style={[
-                                  styles.relationChip,
-                                  { borderColor: selected ? C.accent : C.border, backgroundColor: selected ? `${C.accent}22` : C.bg },
-                                ]}
-                                onPress={() => setRelation(selected ? "" : r.key)}
-                                activeOpacity={0.7}
-                              >
-                                <Text style={[styles.relationChipText, { color: selected ? C.accent : C.text }]}>{r.label}</Text>
-                              </TouchableOpacity>
-                            );
-                          })}
-                        </View>
+                        <TouchableOpacity
+                          style={[styles.card, { backgroundColor: C.bg, borderColor: C.border }]}
+                          onPress={() => setRelationModalVisible(true)}
+                          activeOpacity={0.7}
+                        >
+                          <Text style={[styles.metierInfoValue, { color: C.gold }]}>
+                            {relation ? relationLabel(relation) : "À renseigner ›"}
+                          </Text>
+                        </TouchableOpacity>
                       </View>
                     )}
                   </View>
@@ -1616,6 +1625,14 @@ export default function VisitorAccountScreen() {
           }}
         />
       )}
+
+      <RelationPickerModal
+        visible={relationModalVisible}
+        C={C}
+        value={relation}
+        onClose={() => setRelationModalVisible(false)}
+        onPick={setRelation}
+      />
     </View>
   );
 }
@@ -1656,9 +1673,6 @@ const styles = StyleSheet.create({
   input: { borderWidth: 1, borderRadius: 10, padding: 13, fontFamily: "DM_Sans_400Regular", fontSize: 15 },
   metierInfoValue: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
   fieldLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, marginBottom: 8 },
-  relationChips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  relationChip: { borderWidth: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 8 },
-  relationChipText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
 
   displayModeLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15 },
 
