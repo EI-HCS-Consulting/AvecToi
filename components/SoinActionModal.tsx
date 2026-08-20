@@ -19,10 +19,16 @@ interface Props {
   onModifier: () => void;
   onYAller: () => void;
   onClose: () => void;
+  // Bouton "Ajouter une Visite" supplémentaire — permet de réserver un autre
+  // créneau (même jour ou un autre) sans quitter le popup, plutôt que d'avoir
+  // à fermer puis rouvrir l'écran des créneaux depuis zéro. Absent : le
+  // bouton n'est pas affiché (usage intervenant, soins.tsx, qui n'a pas
+  // cette notion de créneaux visite).
+  onAjouterVisite?: () => void;
 }
 
 export default function SoinActionModal({
-  C, visible, reservation, patientNameBySpaceId, locationBySpaceId, onModifier, onYAller, onClose,
+  C, visible, reservation, patientNameBySpaceId, locationBySpaceId, onModifier, onYAller, onClose, onAjouterVisite,
 }: Props) {
   if (!reservation) return null;
   const dayDate = new Date(reservation.date + "T00:00:00");
@@ -53,6 +59,15 @@ export default function SoinActionModal({
             </TouchableOpacity>
           </View>
 
+          {onAjouterVisite && (
+            <TouchableOpacity
+              style={[styles.addVisiteBtn, { backgroundColor: C.orange }]}
+              onPress={onAjouterVisite}
+            >
+              <Text style={styles.addVisiteBtnText}>+ Ajouter une Visite</Text>
+            </TouchableOpacity>
+          )}
+
           <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
             <Text style={[styles.closeBtnText, { color: C.muted }]}>Fermer</Text>
           </TouchableOpacity>
@@ -70,6 +85,8 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", gap: 10, width: "100%", marginTop: 20 },
   btn: { flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 13, alignItems: "center" },
   btnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },
+  addVisiteBtn: { width: "100%", borderRadius: 10, paddingVertical: 13, alignItems: "center", marginTop: 10 },
+  addVisiteBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" },
   closeBtn: { alignItems: "center", marginTop: 14 },
   closeBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
 });
