@@ -221,14 +221,16 @@ export default function WeekStrip({
                   <Text style={styles.badgeHouseText}>🏠</Text>
                 </View>
               )}
-              <Text style={[styles.stripDow, { color: whiteText ? "#fff" : pastelText ? LOGO_NAVY : C.muted }]}>
-                {WEEKDAY_LABELS[day.getDay() === 0 ? 6 : day.getDay() - 1]}
-              </Text>
-              <Text style={[styles.stripDate, { color: whiteText ? "#fff" : isToday ? C.gold : pastelText ? LOGO_NAVY : C.text }]}>
-                {day.getDate()}
-              </Text>
-              {!rich && <View style={[styles.stripDot, { backgroundColor: dotColor }]} />}
-              {rich && visiteStatus === "empty" && <View style={[styles.stripDot, { backgroundColor: C.success }]} />}
+              <View style={styles.stripCellInner}>
+                <Text style={[styles.stripDow, { color: whiteText ? "#fff" : pastelText ? LOGO_NAVY : C.muted }]}>
+                  {WEEKDAY_LABELS[day.getDay() === 0 ? 6 : day.getDay() - 1]}
+                </Text>
+                <Text style={[styles.stripDate, { color: whiteText ? "#fff" : isToday ? C.gold : pastelText ? LOGO_NAVY : C.text }]}>
+                  {day.getDate()}
+                </Text>
+                {!rich && <View style={[styles.stripDot, { backgroundColor: dotColor }]} />}
+                {rich && visiteStatus === "empty" && <View style={[styles.stripDot, { backgroundColor: C.success }]} />}
+              </View>
               {rich ? (
                 <DayStripes colors={dayVisiteurColors} />
               ) : (
@@ -281,7 +283,12 @@ const styles = StyleSheet.create({
   weekLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13, textTransform: "capitalize", flex: 1, textAlign: "center" },
 
   strip: { flexDirection: "row", justifyContent: "space-between", gap: 4, marginBottom: 8 },
-  stripCell: { flex: 1, borderRadius: 10, borderWidth: 1, paddingTop: 8, paddingBottom: 14, alignItems: "center", gap: 3, position: "relative" },
+  // Le padding vit dans stripCellInner (contenu texte), pas ici : ce View
+  // reste l'ancre absolue de DayStripes/badge (top/right/bottom/left: 0),
+  // qui doivent s'aligner sur le bord réel de la case et non sur son
+  // padding — sinon les traits de visiteur n'atteignent pas le cadre.
+  stripCell: { flex: 1, borderRadius: 10, borderWidth: 1, position: "relative" },
+  stripCellInner: { paddingTop: 8, paddingBottom: 14, alignItems: "center", gap: 3 },
   stripDow: { fontFamily: "DM_Sans_600SemiBold", fontSize: 10, textTransform: "uppercase" },
   stripDate: { fontFamily: "DM_Sans_700Bold", fontSize: 15 },
   stripDot: { width: 5, height: 5, borderRadius: 2.5 },

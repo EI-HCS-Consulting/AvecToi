@@ -1,5 +1,5 @@
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
-import { toISO } from "@/lib/slotUtils";
+import { toISO, remainingSpotsLabel } from "@/lib/slotUtils";
 import type { Theme } from "@/lib/themes";
 import type { Reservation } from "@/lib/types";
 
@@ -37,9 +37,16 @@ interface Props {
   // home/calendar.tsx) — absent : le message reste statique (usage
   // intervenant, soins.tsx, qui a son propre écran de créneaux par soin).
   onEmptyPress?: () => void;
+  // Places prises/max du créneau de chaque ligne, indexées par r.id (voir
+  // home/calendar.tsx, remainingByMainId) — affiché sous le nom du
+  // réservataire pour permettre de repérer d'un coup d'œil s'il reste une
+  // place sur ce créneau. Absent : rien n'est affiché (usage intervenant,
+  // soins.tsx, un seul soin possible par créneau, la notion ne s'applique
+  // pas).
+  remainingBySlotId?: Record<string, { taken: number; max: number }>;
 }
 
-export default function PlanningDuJourBlock({ C, iso, reservations, patientNameBySpaceId, locationBySpaceId, onSoinPress, showOtherIntervenants, onToggleOtherIntervenants, reservationType = "Intervention", companionsById, onEmptyPress }: Props) {
+export default function PlanningDuJourBlock({ C, iso, reservations, patientNameBySpaceId, locationBySpaceId, onSoinPress, showOtherIntervenants, onToggleOtherIntervenants, reservationType = "Intervention", companionsById, onEmptyPress, remainingBySlotId }: Props) {
   const isToday = iso === toISO(new Date());
   const dayDate = new Date(iso + "T00:00:00");
   const sorted = [...reservations].sort((a, b) => a.creneau.localeCompare(b.creneau));
@@ -98,6 +105,11 @@ export default function PlanningDuJourBlock({ C, iso, reservations, patientNameB
                   <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>📍 {locationBySpaceId[r.space_id]}</Text>
                 )}
                 <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>{r.prenom} {r.nom}</Text>
+                {!!remainingBySlotId?.[r.id] && (
+                  <Text style={[styles.soinBy, { color: C.accent }]} numberOfLines={1}>
+                    {remainingSpotsLabel(remainingBySlotId[r.id].taken, remainingBySlotId[r.id].max)}
+                  </Text>
+                )}
                 {!!companionsById?.[r.id]?.length && (
                   <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>
                     + {companionsById[r.id].map((c) => `${c.prenom} ${c.nom}`).join(", ")}
