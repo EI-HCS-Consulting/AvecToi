@@ -17,6 +17,8 @@ import PinPad from "@/components/PinPad";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import MyChecklist from "@/components/MyChecklist";
 import MyAlertsModal from "@/components/MyAlertsModal";
+import PatientProfileModal from "@/components/PatientProfileModal";
+import VisitorsListModal from "@/components/VisitorsListModal";
 import { isRgpdAlertActive, rgpdAlertMessage, prolongSpace } from "@/lib/rgpd";
 import { disengageTask as performDisengage } from "@/lib/taskDisengage";
 import ConfirmModal from "@/components/ConfirmModal";
@@ -53,6 +55,8 @@ export default function AdminAccountScreen() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [changeHistory, setChangeHistory] = useState<ReservationChangeHistoryEntry[]>([]);
   const [alertsModalVisible, setAlertsModalVisible] = useState(false);
+  const [patientProfileVisible, setPatientProfileVisible] = useState(false);
+  const [visitorsListVisible, setVisitorsListVisible] = useState(false);
   const [news, setNews] = useState<NewsEntry[]>([]);
   const [messages, setMessages] = useState<SupportMessage[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -726,6 +730,39 @@ export default function AdminAccountScreen() {
                   ownerPin="ADMIN"
                   space={space}
                   C={C}
+                />
+
+                <TouchableOpacity
+                  style={[styles.saveBtn, { backgroundColor: C.accent, marginTop: 16 }]}
+                  onPress={() => setPatientProfileVisible(true)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.saveBtnText}>🩺 Fiche patient</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.saveBtn, { backgroundColor: C.accent, marginTop: 10 }]}
+                  onPress={() => setVisitorsListVisible(true)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.saveBtnText}>👥 Visiteurs</Text>
+                </TouchableOpacity>
+
+                <PatientProfileModal
+                  visible={patientProfileVisible}
+                  onClose={() => setPatientProfileVisible(false)}
+                  space={space}
+                  C={C}
+                />
+
+                <VisitorsListModal
+                  visible={visitorsListVisible}
+                  onClose={() => setVisitorsListVisible(false)}
+                  spaceId={space.id}
+                  C={C}
+                  isAdmin
+                  adminFirstname={adminFirstname}
+                  adminLastname={adminLastname}
                 />
 
                 <TouchableOpacity
