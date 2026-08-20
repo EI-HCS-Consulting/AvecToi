@@ -17,7 +17,10 @@ import type { Theme } from "@/lib/themes";
 // restreint : une fois que quelqu'un a cliqué "Je m'en occupe" sur le besoin
 // (claimed_by_prenom/nom renseignés), seule cette personne peut cocher/
 // décocher — tant que personne ne l'a pris en charge, la liste reste ouverte
-// à tous pour dispatcher les articles.
+// à tous pour dispatcher les articles. Même sans prise en charge du besoin,
+// un article déjà coché par quelqu'un ne peut être décoché que par cette
+// même personne (itemLockedForMe) — on peut cocher les articles restants,
+// jamais annuler le travail d'un autre.
 interface Props {
   visible: boolean;
   onClose: () => void;
@@ -58,6 +61,12 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin }
   // compris "fait", pour ne pas rouvrir le cochage à tous après coup).
   const claimedByOther = !!task?.claimed_by_prenom && !isSamePerson(task.claimed_by_prenom, task.claimed_by_nom);
 
+  // Un article déjà coché par quelqu'un d'autre ne peut pas être décoché,
+  // même sans prise en charge du besoin — évite qu'une personne annule le
+  // travail d'une autre pendant le dispatch libre de la liste.
+  const itemLockedForMe = (item: ShoppingListItem) =>
+    item.bought && !!(item.bought_by_prenom || item.bought_by_nom) && !isSamePerson(item.bought_by_prenom, item.bought_by_nom);
+
   useEffect(() => {
     if (!visible || !task) { setItems([]); return; }
     let cancelled = false;
@@ -77,6 +86,7 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin }
 
   async function toggleBought(item: ShoppingListItem) {
     if (claimedByOther) return;
+    if (itemLockedForMe(item)) return;
     const nextBought = !item.bought;
     const boughtBy = nextBought ? { bought_by_prenom: myPrenom || null, bought_by_nom: myNom || null } : { bought_by_prenom: null, bought_by_nom: null };
     const nextItems = items.map((it) => (it.id === item.id ? { ...it, bought: nextBought, ...boughtBy } : it));
@@ -146,11 +156,11 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin }
                 <View key={item.id} style={styles.itemRow}>
                   <TouchableOpacity
                     onPress={() => toggleBought(item)}
-                    disabled={claimedByOther}
+                    disabled={claimedByOther || itemLockedForMe(item)}
                     style={[
                       styles.checkbox,
                       { borderColor: item.bought ? C.accent : C.border, backgroundColor: item.bought ? C.accent : "transparent" },
-                      claimedByOther && { opacity: 0.4 },
+                      (claimedByOther || itemLockedForMe(item)) && { opacity: 0.4 },
                     ]}
                   >
                     {item.bought && <Text style={styles.checkboxMark}>✓</Text>}
