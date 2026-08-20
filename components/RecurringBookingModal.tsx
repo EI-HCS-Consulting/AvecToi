@@ -355,9 +355,9 @@ const styles = StyleSheet.create({
 
   sheetBtns: { flexDirection: "row", gap: 10, marginTop: 18 },
   btnPrimary: { flex: 1.3, borderRadius: 10, paddingVertical: 14, alignItems: "center", justifyContent: "center" },
-  btnPrimaryText: { fontFamily: "DM_Sans_700Bold", fontSize: 15, color: "#fff" },
+  btnPrimaryText: { fontFamily: "DM_Sans_700Bold", fontSize: 15, color: "#fff", includeFontPadding: false },
   btnSecondary: { flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 14, alignItems: "center", justifyContent: "center" },
-  btnSecondaryText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
+  btnSecondaryText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14, includeFontPadding: false },
 
   closeBtn: { alignItems: "center", marginTop: 14 },
   closeBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },

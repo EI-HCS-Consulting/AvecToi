@@ -33,9 +33,24 @@ const DAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
 export default function VisitorCalendarScreen() {
   const { space, slotConfig, slots, reservations, selectedDay, setSelectedDay, setPendingBookingSlot, token, refreshReservations, getConfigForDate, getSlotsForDate, mesCreneauxOnly, setMesCreneauxOnly } = useVisitorSpace();
   const router = useRouter();
-  const { focusIso, returnTo, returnSpaceId } = useLocalSearchParams<{ focusIso?: string; returnTo?: string; returnSpaceId?: string }>();
+  const { focusIso, returnTo, returnSpaceId, keepSelection } = useLocalSearchParams<{ focusIso?: string; returnTo?: string; returnSpaceId?: string; keepSelection?: string }>();
   const [nextDispoModal, setNextDispoModal] = useState<{ date: Date; iso: string; slot: string } | null>(null);
   const [blockedDayModal, setBlockedDayModal] = useState<Date | null>(null);
+  // Regroupement par date : getDayStatus/getInterventionOverlap filtrent de
+  // toute façon `reservations` par iso en interne, mais en le refaisant sur
+  // le tableau COMPLET à chaque case de la grille Mensuelle (jusqu'à 42),
+  // plusieurs fois par case (status, visiteStatus, familyBooked...), ça
+  // coûte O(cases × reservations). Ici, un seul passage O(n) puis des accès
+  // O(1) par jour — résultat identique (filtrer un sous-tableau déjà
+  // iso-filtré par iso ne change rien).
+  const reservationsByDate = useMemo(() => {
+    const map = new Map<string, Reservation[]>();
+    for (const r of reservations) {
+      const list = map.get(r.date);
+      if (list) list.push(r); else map.set(r.date, [r]);
+    }
+    return map;
+  }, [reservations]);
   // false = planning global (visites/nuitées), true = ne montre que
   // l'occupation des soins (interventions) — remplace l'ancien raccourci
   // "Voir les nuitées". Par défaut sur "Soins" pour un intervenant (voir
@@ -136,21 +151,25 @@ export default function VisitorCalendarScreen() {
     } as any);
   }, [focusIso, space]);
 
-  // Reste sur la date du jour à chaque retour sur l'accueil (onglet
-  // Calendrier) — ex. après être allé voir Infos/Partager/Nuits puis être
-  // revenu, le curseur bleu (selectedDay, partagé via VisitorContext donc
-  // pas remis à zéro par un simple remount) doit systématiquement retrouver
-  // aujourd'hui plutôt que le dernier jour tapé. Sans effet lors de
-  // l'arrivée automatique via focusIso (l'effet ci-dessus enchaîne aussitôt
-  // vers l'écran des créneaux sur le jour ciblé, jamais affiché ici).
+  // Reste sur la date du jour à chaque retour via l'onglet bas "Accueil"
+  // (tabPress dans (visitor)/_layout.tsx, sans param) — ex. après être allé
+  // voir Infos/Partager/Nuits puis être revenu par là, le curseur bleu
+  // (selectedDay, partagé via VisitorContext donc pas remis à zéro par un
+  // simple remount) doit systématiquement retrouver aujourd'hui plutôt que
+  // le dernier jour tapé. Sans effet lors de l'arrivée automatique via
+  // focusIso (l'effet ci-dessus enchaîne aussitôt vers l'écran des créneaux
+  // sur le jour ciblé, jamais affiché ici), ni via l'onglet "📅 Calendrier"
+  // du bandeau SpaceHeader (keepSelection) — celui-ci doit au contraire
+  // retrouver le jour/vue déjà sélectionnés (ex. retour depuis la page des
+  // créneaux du jour).
   useFocusEffect(
     useCallback(() => {
-      if (focusIso) return;
+      if (focusIso || keepSelection) return;
       setSelectedDay(initialDay);
       setCalMonth({ year: initialDay.getFullYear(), month: initialDay.getMonth() });
       setWeekAnchor(getMonday(initialDay));
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [focusIso, initialDay]),
+    }, [focusIso, keepSelection, initialDay]),
   );
 
   const flowRef = useRef<BookingFlowHandle>(null);
@@ -401,7 +420,7 @@ export default function VisitorCalendarScreen() {
     const daySlots = getSlotsForDate(iso);
     const status = getDayStatus(reservations, iso, day, dayConfig, daySlots, startDate, soinsMode ? "Intervention" : "Visite");
     const isPast = iso < toISO(today);
-    const isBlocked = status === "past" && !isPast;
+    const isBlocked = (status === "past" && !isPast) || iso === admissionIso;
     if (isBlocked) {
       setBlockedDayModal(day);
       return;
@@ -420,7 +439,7 @@ export default function VisitorCalendarScreen() {
     const daySlots = getSlotsForDate(iso);
     const status = getDayStatus(reservations, iso, day, dayConfig, daySlots, startDate, "Visite");
     const isPast = iso < toISO(today);
-    const isBlocked = status === "past" && !isPast;
+    const isBlocked = (status === "past" && !isPast) || iso === admissionIso;
     if (isBlocked) {
       setBlockedDayModal(day);
       return;
@@ -445,7 +464,10 @@ export default function VisitorCalendarScreen() {
         <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginBottom: 14 }]}>
           <SegmentedSwitch
             value={planningView === "hebdo"}
-            onChange={(v) => setPlanningView(v ? "hebdo" : "mensuel")}
+            onChange={(v) => {
+              setPlanningView(v ? "hebdo" : "mensuel");
+              if (v) setWeekAnchor(getMonday(selectedDay));
+            }}
             leftLabel="Mensuel"
             rightLabel="Hebdo"
             C={C}
@@ -502,12 +524,13 @@ export default function VisitorCalendarScreen() {
           {Array(firstDow).fill(null).map((_, i) => <View key={`e${i}`} style={[styles.cellOuter, styles.cell]} />)}
           {monthDays.map((day) => {
             const iso = toISO(day);
+            const dayReservations = reservationsByDate.get(iso) ?? [];
             const dayConfig = getConfigForDate(iso) ?? slotConfig;
             const daySlots = getSlotsForDate(iso);
             // `status` sert au blocage/navigation (tap sur la case) et suit
             // le type du mode actif (Visite/Intervention). La pastille, elle,
             // ne représente plus jamais que les visites — voir visiteStatus.
-            const status = getDayStatus(reservations, iso, day, dayConfig, daySlots, startDate, soinsMode ? "Intervention" : "Visite");
+            const status = getDayStatus(dayReservations, iso, day, dayConfig, daySlots, startDate, soinsMode ? "Intervention" : "Visite");
             const isToday = toISO(day) === toISO(today);
             const isSelected = toISO(day) === toISO(selectedDay);
             // Un jour déjà passé reste consultable (lecture seule — la
@@ -516,14 +539,14 @@ export default function VisitorCalendarScreen() {
             // début de l'espace, hors jours autorisés, date bloquée par
             // l'admin) reste non cliquable.
             const isPast = iso < toISO(today);
-            const isBlocked = status === "past" && !isPast;
+            const isBlocked = (status === "past" && !isPast) || iso === admissionIso;
             const dimmed = isPast || isBlocked;
 
             // Pastille Dispo/Partiel/Complet : ne représente plus que les
             // visites (jamais les soins, qui ont leur propre cadre violet) et
             // ne s'affiche qu'en mode Soins — en mode Visites, le fond de
             // case (visitesFill ci-dessous) remplace la pastille.
-            const visiteStatus = getDayStatus(reservations, iso, day, dayConfig, daySlots, startDate, "Visite");
+            const visiteStatus = getDayStatus(dayReservations, iso, day, dayConfig, daySlots, startDate, "Visite");
             const dotColor = soinsMode ? "transparent" :
               visiteStatus === "full" ? C.danger :
               visiteStatus === "partial" ? C.orange :
@@ -545,8 +568,8 @@ export default function VisitorCalendarScreen() {
             const dayVisiteurColors: string[] = [];
             if (!soinsMode) {
               const keysToday = new Set<string>();
-              for (const r of reservations) {
-                if (r.date !== iso || r.type !== "Visite") continue;
+              for (const r of dayReservations) {
+                if (r.type !== "Visite") continue;
                 const key = visiteurIdentityKey(r.prenom, r.nom);
                 if (selectedVisiteurKey && key !== selectedVisiteurKey) continue;
                 keysToday.add(key);
@@ -563,13 +586,13 @@ export default function VisitorCalendarScreen() {
             // Toujours visible, quel que soit le mode ou "Afficher mes
             // créneaux" — reste individuelle pour les 3 profils. Mode Soins
             // uniquement (mode Visites : voir dayVisiteurColors ci-dessus).
-            const familyBooked = reservations.some((r) => r.date === iso && isMyReservation(r, myPin, intervenantProfileId, myPrenom, myNom));
+            const familyBooked = dayReservations.some((r) => isMyReservation(r, myPin, intervenantProfileId, myPrenom, myNom));
             // Case remplie en violet uniquement pour l'intervenant assigné à
             // CE soin — les autres intervenants (comme les visiteurs/admin)
             // ne voient que le cadre violet ci-dessous.
             const myInterventionToday = role === "intervenant" && !!intervenantProfileId &&
-              reservations.some((r) => r.date === iso && r.type === "Intervention" && r.intervenant_profile_id === intervenantProfileId);
-            const interventionBooked = reservations.some((r) => r.date === iso && r.type === "Intervention");
+              dayReservations.some((r) => r.type === "Intervention" && r.intervenant_profile_id === intervenantProfileId);
+            const interventionBooked = dayReservations.some((r) => r.type === "Intervention");
             // Cadre violet : en mode Soins, tous les soins de tous les
             // intervenants (vérité complète) — sauf pour un intervenant qui a
             // activé "Afficher mes créneaux", où le calendrier lui-même se

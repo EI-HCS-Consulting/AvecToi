@@ -28,6 +28,17 @@ export default function AdminCalendarScreen() {
   const { theme: C } = useDisplayMode();
   const [nextDispoModal, setNextDispoModal] = useState<{ date: Date; iso: string; slot: string } | null>(null);
   const [blockedDayModal, setBlockedDayModal] = useState<Date | null>(null);
+  // Regroupement par date — voir le même commentaire dans le calendar.tsx
+  // visiteur : évite de refiltrer le tableau `reservations` complet à chaque
+  // case de la grille Mensuelle (jusqu'à 42, plusieurs scans par case).
+  const reservationsByDate = useMemo(() => {
+    const map = new Map<string, Reservation[]>();
+    for (const r of reservations) {
+      const list = map.get(r.date);
+      if (list) list.push(r); else map.set(r.date, [r]);
+    }
+    return map;
+  }, [reservations]);
   // false = planning global (visites/nuitées), true = ne montre que
   // l'occupation des soins (interventions) — remplace l'ancien raccourci
   // "Voir les nuitées" (toujours accessible depuis Mes réservations / le
@@ -202,7 +213,7 @@ export default function AdminCalendarScreen() {
     const daySlots = getSlotsForDate(iso);
     const status = getDayStatus(reservations, iso, day, dayConfig, daySlots, startDate, "Visite");
     const isPast = iso < toISO(today);
-    const isBlocked = status === "past" && !isPast;
+    const isBlocked = (status === "past" && !isPast) || iso === admissionIso;
     if (isBlocked) {
       setBlockedDayModal(day);
       return;
@@ -226,7 +237,10 @@ export default function AdminCalendarScreen() {
         <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginBottom: 14 }]}>
           <SegmentedSwitch
             value={planningView === "hebdo"}
-            onChange={(v) => setPlanningView(v ? "hebdo" : "mensuel")}
+            onChange={(v) => {
+              setPlanningView(v ? "hebdo" : "mensuel");
+              if (v) setWeekAnchor(getMonday(selectedDay));
+            }}
             leftLabel="Mensuel"
             rightLabel="Hebdo"
             C={C}
@@ -277,12 +291,13 @@ export default function AdminCalendarScreen() {
           {Array(firstDow).fill(null).map((_, i) => <View key={`e${i}`} style={[styles.cellOuter, styles.cell]} />)}
           {monthDays.map((day) => {
             const iso = toISO(day);
+            const dayReservations = reservationsByDate.get(iso) ?? [];
             const dayConfig = getConfigForDate(iso) ?? slotConfig;
             const daySlots = getSlotsForDate(iso);
             // `status` sert au blocage/navigation (tap sur la case) et suit
             // le type du mode actif. La pastille, elle, ne représente plus
             // jamais que les visites — voir visiteStatus.
-            const status = getDayStatus(reservations, iso, day, dayConfig, daySlots, startDate, soinsMode ? "Intervention" : "Visite");
+            const status = getDayStatus(dayReservations, iso, day, dayConfig, daySlots, startDate, soinsMode ? "Intervention" : "Visite");
             const isToday = toISO(day) === toISO(today);
             const isSelected = toISO(day) === toISO(selectedDay);
             const isPast = iso < toISO(today) || status === "past";
@@ -290,11 +305,11 @@ export default function AdminCalendarScreen() {
             // semaine exclu, date bloquée) reste non cliquable — mais un
             // jour simplement passé s'ouvre, en lecture, pour voir qui est
             // venu ce jour-là.
-            const isDisabled = status === "past";
+            const isDisabled = status === "past" || iso === admissionIso;
             // Pastille Dispo/Partiel/Complet : ne représente plus que les
             // visites, et ne s'affiche qu'en mode Visites — en mode Soins,
             // seul le cadre violet reste visible.
-            const visiteStatus = getDayStatus(reservations, iso, day, dayConfig, daySlots, startDate, "Visite");
+            const visiteStatus = getDayStatus(dayReservations, iso, day, dayConfig, daySlots, startDate, "Visite");
             const dotColor = soinsMode ? "transparent" :
               visiteStatus === "full" ? C.danger :
               visiteStatus === "partial" ? C.orange :
@@ -304,12 +319,12 @@ export default function AdminCalendarScreen() {
             // propres visites/nuitées, voir isMyReservation/identityReady
             // plus haut) — jamais celles d'un autre visiteur. Toujours
             // visible, quel que soit le mode ou "Afficher mes créneaux".
-            const familyBooked = reservations.some((r) => r.date === iso && isMyReservation(r, effectiveMyPin, null, myPrenom, myNom));
+            const familyBooked = dayReservations.some((r) => isMyReservation(r, effectiveMyPin, null, myPrenom, myNom));
             // Cadre violet : uniquement en mode Soins (l'admin n'a jamais de
             // fiche intervenant, donc pas de filtrage "mes cadres" possible
             // ici — toujours la vérité complète des soins de tous les
             // intervenants).
-            const interventionBooked = reservations.some((r) => r.date === iso && r.type === "Intervention");
+            const interventionBooked = dayReservations.some((r) => r.type === "Intervention");
             const frameVisible = soinsMode && interventionBooked;
             // Jour hospitalisation/sortie/anniversaire : remplace tout le
             // contenu de la case (numéro du jour compris) par un pictogramme
