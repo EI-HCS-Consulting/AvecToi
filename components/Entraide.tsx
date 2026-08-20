@@ -254,16 +254,24 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // du popup liste), pas en temps réel entre deux cochages d'autres
   // personnes pendant qu'on reste sur l'écran.
   const [courseContributors, setCourseContributors] = useState<Record<string, { prenom: string; nom: string }[]>>({});
+  // Liste complète = tous les articles cochés (sert à afficher "... partiellement"
+  // tant qu'il reste au moins un article non coché, cf. courseContributorsLabel).
+  const [courseListComplete, setCourseListComplete] = useState<Record<string, boolean>>({});
   const loadCourseContributors = useCallback(async (taskIds: string[]) => {
-    if (!taskIds.length) { setCourseContributors({}); return; }
+    if (!taskIds.length) { setCourseContributors({}); setCourseListComplete({}); return; }
     const { data } = await supabase
       .from("shopping_list_items")
-      .select("task_id, bought_by_prenom, bought_by_nom")
-      .in("task_id", taskIds)
-      .eq("bought", true);
+      .select("task_id, bought, bought_by_prenom, bought_by_nom")
+      .in("task_id", taskIds);
     const byTask: Record<string, { prenom: string; nom: string }[]> = {};
+    const completeByTask: Record<string, boolean> = {};
     (data ?? []).forEach((row) => {
-      if (!row.bought_by_prenom || !row.bought_by_nom) return;
+      if (row.task_id in completeByTask) {
+        completeByTask[row.task_id] = completeByTask[row.task_id] && row.bought;
+      } else {
+        completeByTask[row.task_id] = row.bought;
+      }
+      if (!row.bought || !row.bought_by_prenom || !row.bought_by_nom) return;
       const list = byTask[row.task_id] ?? (byTask[row.task_id] = []);
       const key = relaisIdentityKey(row.bought_by_prenom, row.bought_by_nom);
       if (!list.some((p) => relaisIdentityKey(p.prenom, p.nom) === key)) {
@@ -271,13 +279,15 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       }
     });
     setCourseContributors(byTask);
+    setCourseListComplete(completeByTask);
   }, []);
   useEffect(() => {
     loadCourseContributors(tasks.filter((t) => t.category === "courses").map((t) => t.id));
   }, [tasks, loadCourseContributors]);
   // "X s'en occupe" / "X, Y et Z s'en occupent" — union des personnes ayant
   // coché un article et de la personne ayant cliqué "Je m'en occupe" (qui
-  // rejoint la liste sans effacer ce que les autres ont déjà fait).
+  // rejoint la liste sans effacer ce que les autres ont déjà fait). Suffixe
+  // "partiellement" tant qu'il reste au moins un article non coché.
   function courseContributorsLabel(t: Task): string | null {
     const list = [...(courseContributors[t.id] ?? [])];
     if (t.claimed_by_prenom && t.claimed_by_nom) {
@@ -291,7 +301,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     const joined = names.length > 1
       ? `${names.slice(0, -1).join(", ")} et ${names[names.length - 1]}`
       : names[0];
-    return `${joined} ${names.length > 1 ? "s'en occupent" : "s'en occupe"}`;
+    const partial = courseListComplete[t.id] === false ? " partiellement" : "";
+    return `${joined} ${names.length > 1 ? "s'en occupent" : "s'en occupe"}${partial}`;
   }
 
   // ── Checklists administratives suggérées (MVP) — voir CHECKLIST_TEMPLATES.
