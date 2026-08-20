@@ -22,7 +22,7 @@ import ConfirmModal from "@/components/ConfirmModal";
 import PinPad from "@/components/PinPad";
 import PatientProfileModal from "@/components/PatientProfileModal";
 import IntervenantFicheModal from "@/components/IntervenantFicheModal";
-import IntervenantsListModal from "@/components/IntervenantsListModal";
+import VisitorsListModal from "@/components/VisitorsListModal";
 import { switchToLinkedSpace } from "@/lib/intervenantSpaceSwitch";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import MyChecklist from "@/components/MyChecklist";
@@ -125,7 +125,7 @@ export default function VisitorAccountScreen() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState("");
   const [patientProfileVisible, setPatientProfileVisible] = useState(false);
-  const [intervenantsListVisible, setIntervenantsListVisible] = useState(false);
+  const [visitorsListVisible, setVisitorsListVisible] = useState(false);
   const [role, setRole] = useState<"visiteur" | "intervenant">("visiteur");
   const [intervenantProfileId, setIntervenantProfileId] = useState<string | null>(null);
   const [ficheModalVisible, setFicheModalVisible] = useState(false);
@@ -896,20 +896,6 @@ export default function VisitorAccountScreen() {
           <Text style={styles.identityMotto} numberOfLines={2}>{motto.trim()}</Text>
         )}
 
-        <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, width: "100%" }]}>
-          <Text style={[styles.displayModeLabel, { color: C.text }]}>🆘 Besoin de relais</Text>
-          <Text style={[styles.cardDesc, { color: C.muted }]}>
-            Tu as besoin de souffler ? Publie un besoin de relais ponctuel, visible par tous les proches ou seulement certains.
-          </Text>
-          <TouchableOpacity
-            style={[styles.patientProfileBtn, { marginTop: 4 }]}
-            onPress={() => router.push("/(visitor)/entraide?openRelais=1" as any)}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.patientProfileBtnText}>Publier un besoin de relais</Text>
-          </TouchableOpacity>
-        </View>
-
         <TouchableOpacity
           style={[styles.patientProfileBtn, myActiveAlerts.length > 0 && { backgroundColor: "#e94560" }]}
           onPress={() => setAlertsModalVisible(true)}
@@ -920,7 +906,7 @@ export default function VisitorAccountScreen() {
           </Text>
         </TouchableOpacity>
 
-        <Text style={[styles.sectionTitle, { color: C.gold, marginTop: 0 }]}>Mon affichage</Text>
+        <Text style={[styles.sectionTitle, { color: C.gold, marginTop: 24 }]}>Mon affichage</Text>
         <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
           <Text style={[styles.displayModeLabel, { color: C.text }]}>
             Mode {mode === "light" ? "Clair" : "Sombre"}
@@ -1372,13 +1358,13 @@ export default function VisitorAccountScreen() {
           <Text style={styles.patientProfileBtnText}>🩺 Fiche patient</Text>
         </TouchableOpacity>
 
-        {space?.intervenants_enabled && role !== "intervenant" && (
+        {role !== "intervenant" && (
           <TouchableOpacity
             style={[styles.patientProfileBtn, { marginTop: 10 }]}
-            onPress={() => setIntervenantsListVisible(true)}
+            onPress={() => setVisitorsListVisible(true)}
             activeOpacity={0.85}
           >
-            <Text style={styles.patientProfileBtnText}>🩺 Intervenants</Text>
+            <Text style={styles.patientProfileBtnText}>👥 Visiteurs</Text>
           </TouchableOpacity>
         )}
 
@@ -1540,11 +1526,14 @@ export default function VisitorAccountScreen() {
       )}
 
       {space && (
-        <IntervenantsListModal
-          visible={intervenantsListVisible}
-          onClose={() => setIntervenantsListVisible(false)}
+        <VisitorsListModal
+          visible={visitorsListVisible}
+          onClose={() => setVisitorsListVisible(false)}
           spaceId={space.id}
           C={C}
+          isAdmin={false}
+          adminFirstname={space.admin_firstname}
+          adminLastname={space.admin_lastname}
         />
       )}
 

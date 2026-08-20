@@ -1586,27 +1586,6 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         transport_confirmed_return_time: claimTarget.transport_return_time,
       } : {}),
     }).eq("id", claimTarget.id);
-    // Prise en charge d'une liste de courses déjà partiellement cochée : les
-    // articles restants sont attribués au preneur et la liste est considérée
-    // terminée (comme si elle avait été cochée jusqu'au bout à la main, voir
-    // toggleBought dans ShoppingListModal.tsx) — une liste encore vierge
-    // reste, elle, en attente de cochage normal.
-    if (claimTarget.category === "courses") {
-      const { data: shoppingItems } = await supabase
-        .from("shopping_list_items")
-        .select("id, bought")
-        .eq("task_id", claimTarget.id);
-      const hasBought = (shoppingItems ?? []).some((it) => it.bought);
-      const hasUnbought = (shoppingItems ?? []).some((it) => !it.bought);
-      if (hasBought && hasUnbought) {
-        await supabase.from("shopping_list_items")
-          .update({ bought: true, bought_by_prenom: claimPrenom.trim(), bought_by_nom: claimNom.trim() })
-          .eq("task_id", claimTarget.id)
-          .eq("bought", false);
-        await supabase.from("tasks").update({ status: "fait" }).eq("id", claimTarget.id);
-        await supabase.from("personal_checklist_items").update({ status: "fait" }).eq("task_id", claimTarget.id);
-      }
-    }
     // "Je m'en occupe" sur un besoin issu d'une checklist l'ajoute aussi à
     // "Ma Checklist" du preneur — même objet, visible des deux côtés. Basé
     // sur checklist_batch_id (posé sur tout item publié via une checklist,
