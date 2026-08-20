@@ -308,6 +308,28 @@ export default function VisitorCalendarScreen() {
       return (companionsByMainId[r.id] ?? []).some((c) => visiteurIdentityKey(c.prenom, c.nom) === selectedVisiteurKey);
     });
 
+  // Places prises/max du créneau de chaque ligne principale, affichées sous
+  // le nom du réservataire dans PlanningDuJourBlock — occupancy compte toute
+  // réservation Visite du créneau (accompagnants compris, voir
+  // getSlotOccupancy), cohérent avec la capacité utilisée pour la
+  // réservation rapide dans openVisiteActions ci-dessous.
+  const remainingByMainId: Record<string, { taken: number; max: number }> = {};
+  for (const r of visitesMainRows) {
+    const dayConfig = getConfigForDate(r.date) ?? slotConfig;
+    remainingByMainId[r.id] = {
+      taken: getSlotOccupancy(reservations, r.date, r.creneau).length,
+      max: dayConfig.max_visitors_per_slot,
+    };
+  }
+  // Même calcul pour la visite actuellement ouverte dans le popup Modifier/Y
+  // Aller (SoinActionModal) — null tant qu'aucun popup n'est ouvert.
+  const pendingVisiteCapacity = pendingVisite
+    ? {
+        taken: getSlotOccupancy(reservations, pendingVisite.date, pendingVisite.creneau).length,
+        max: (getConfigForDate(pendingVisite.date) ?? slotConfig).max_visitors_per_slot,
+      }
+    : null;
+
   // Tap sur une visite : si elle m'appartient (isMyReservation compare PIN +
   // prénom/nom, et gère le cas d'une réservation "ADMIN" arrangée pour un
   // visiteur précis — voir lib/slotUtils.ts), ouvre le popup Modifier/Y
@@ -759,6 +781,7 @@ export default function VisitorCalendarScreen() {
                 reservationType="Visite"
                 companionsById={companionsByMainId}
                 onEmptyPress={handleEmptyPlanningPress}
+                remainingBySlotId={remainingByMainId}
               />
 
               <Text style={[styles.sectionTitle, { color: C.gold }]}>
@@ -832,6 +855,7 @@ export default function VisitorCalendarScreen() {
         onYAller={handleYAllerVisitePress}
         onAjouterVisite={handleAjouterVisitePress}
         onClose={() => setPendingVisite(null)}
+        remaining={pendingVisiteCapacity}
       />
       <VisiteEditFlow
         ref={visiteEditFlowRef}

@@ -1,4 +1,5 @@
 import { View, Text, TouchableOpacity, Modal, StyleSheet } from "react-native";
+import { remainingSpotsLabel } from "@/lib/slotUtils";
 import type { Theme } from "@/lib/themes";
 import type { Reservation } from "@/lib/types";
 
@@ -25,10 +26,16 @@ interface Props {
   // bouton n'est pas affiché (usage intervenant, soins.tsx, qui n'a pas
   // cette notion de créneaux visite).
   onAjouterVisite?: () => void;
+  // Places prises/max du créneau de cette réservation (voir home/calendar.tsx,
+  // pendingVisiteCapacity) — affiché sous la ligne date/créneau pour savoir
+  // d'un coup d'œil s'il reste une place sur ce même créneau. Absent : rien
+  // n'est affiché (usage intervenant, soins.tsx, un seul soin possible par
+  // créneau, la notion ne s'applique pas).
+  remaining?: { taken: number; max: number } | null;
 }
 
 export default function SoinActionModal({
-  C, visible, reservation, patientNameBySpaceId, locationBySpaceId, onModifier, onYAller, onClose, onAjouterVisite,
+  C, visible, reservation, patientNameBySpaceId, locationBySpaceId, onModifier, onYAller, onClose, onAjouterVisite, remaining,
 }: Props) {
   if (!reservation) return null;
   const dayDate = new Date(reservation.date + "T00:00:00");
@@ -43,6 +50,11 @@ export default function SoinActionModal({
           <Text style={[styles.sub, { color: C.muted }]}>
             {dayDate.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })} · {reservation.creneau}
           </Text>
+          {!!remaining && (
+            <Text style={[styles.sub, { color: C.accent }]}>
+              {remainingSpotsLabel(remaining.taken, remaining.max)}
+            </Text>
+          )}
           {!!reservation.intervention_label && (
             <Text style={[styles.sub, { color: C.muted }]}>{reservation.intervention_label}</Text>
           )}

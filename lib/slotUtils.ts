@@ -201,6 +201,16 @@ export function getSlotOccupancy(
   );
 }
 
+// Libellé de places restantes affiché sous une visite déjà réservée (popup
+// SoinActionModal et bloc PlanningDuJourBlock, voir home/calendar.tsx) pour
+// que le visiteur sache s'il peut encore réserver ce même créneau sans avoir
+// à ouvrir l'écran des créneaux pour le découvrir.
+export function remainingSpotsLabel(taken: number, max: number): string {
+  const left = max - taken;
+  if (left <= 0) return "Complet";
+  return `${left} place${left > 1 ? "s" : ""} restante${left > 1 ? "s" : ""}`;
+}
+
 export function toMinutes(slot: string): number {
   const [h, m] = slot.split(":").map(Number);
   return h * 60 + m;
