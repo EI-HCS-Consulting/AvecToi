@@ -51,7 +51,7 @@ export default function SoinActionModal({
             {dayDate.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })} · {reservation.creneau}
           </Text>
           {!!remaining && (
-            <Text style={[styles.sub, { color: C.accent }]}>
+            <Text style={[styles.sub, { color: remaining.taken >= remaining.max ? C.danger : C.success }]}>
               {remainingSpotsLabel(remaining.taken, remaining.max)}
             </Text>
           )}
