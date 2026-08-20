@@ -381,7 +381,14 @@ export default function VisitorCalendarScreen() {
     setCalMonth({ year: new Date(r.date + "T00:00:00").getFullYear(), month: new Date(r.date + "T00:00:00").getMonth() });
     router.navigate("/(visitor)/home/slots");
   }
+  // Fixe explicitement le jour ciblé (au lieu de compter sur selectedDay déjà
+  // à jour) avant de naviguer — même prudence que handleAjouterVisitePress
+  // ci-dessus, pour garantir que l'écran des créneaux ouvre bien le jour du
+  // bloc "Planning du jour" tapé, y compris sur un jour déjà passé.
   function handleEmptyPlanningPress() {
+    const day = new Date(selectedIso + "T00:00:00");
+    setSelectedDay(day);
+    setCalMonth({ year: day.getFullYear(), month: day.getMonth() });
     router.navigate("/(visitor)/home/slots");
   }
 
@@ -571,6 +578,10 @@ export default function VisitorCalendarScreen() {
               : (role === "intervenant" && mesCreneauxOnly && myInterventionToday);
             const fillPurple = frameVisible && myInterventionToday;
             const whiteText = soinsMode ? (isSelected || fillPurple) : isSelected;
+            // Jour hospitalisation/sortie/anniversaire : remplace tout le
+            // contenu de la case (numéro du jour compris) par un pictogramme
+            // plein cadre, jamais grisé même passé — voir styles.cellSpecialIcon.
+            const specialIcon = iso === admissionIso ? "🏥" : iso === dischargeIso ? "🏠" : birthdateMonthDay === iso.slice(5) ? "🎂" : null;
 
             return (
               <View key={iso} style={styles.cellOuter}>
@@ -578,10 +589,10 @@ export default function VisitorCalendarScreen() {
                   style={[
                     styles.cell,
                     {
-                      backgroundColor: isSelected ? C.accent : dimmed ? "transparent" : soinsMode ? (fillPurple ? LOGO_PURPLE : C.card) : (visitesFill ?? C.card),
+                      backgroundColor: isSelected ? C.accent : specialIcon ? C.card : dimmed ? "transparent" : soinsMode ? (fillPurple ? LOGO_PURPLE : C.card) : (visitesFill ?? C.card),
                       borderColor: isSelected ? C.accent : soinsMode && frameVisible ? LOGO_PURPLE : isToday ? C.gold : C.border,
                       borderWidth: isToday || (soinsMode && frameVisible) ? 2 : 1,
-                      opacity: dimmed ? 0.3 : 1,
+                      opacity: specialIcon ? 1 : dimmed ? 0.3 : 1,
                     },
                   ]}
                   onPress={() => {
@@ -605,11 +616,17 @@ export default function VisitorCalendarScreen() {
                   activeOpacity={0.7}
                 >
                   <View style={styles.cellInner}>
-                    <Text style={[styles.cellDate, { color: whiteText ? "#fff" : isToday ? C.gold : pastelText ? LOGO_NAVY : C.text }]}>
-                      {day.getDate()}
-                    </Text>
-                    {soinsMode && <View style={[styles.dot, { backgroundColor: dotColor }]} />}
-                    {visitesDispoDot && <View style={[styles.dot, { backgroundColor: C.success }]} />}
+                    {specialIcon ? (
+                      <Text style={styles.cellSpecialIcon}>{specialIcon}</Text>
+                    ) : (
+                      <>
+                        <Text style={[styles.cellDate, { color: whiteText ? "#fff" : isToday ? C.gold : pastelText ? LOGO_NAVY : C.text }]}>
+                          {day.getDate()}
+                        </Text>
+                        {soinsMode && <View style={[styles.dot, { backgroundColor: dotColor }]} />}
+                        {visitesDispoDot && <View style={[styles.dot, { backgroundColor: C.success }]} />}
+                      </>
+                    )}
                   </View>
                   {soinsMode ? (
                     !!familyBooked && (
@@ -619,24 +636,6 @@ export default function VisitorCalendarScreen() {
                     <DayStripes colors={dayVisiteurColors} />
                   )}
                 </TouchableOpacity>
-                {/* Badges hospitalisation (✕)/sortie (🏠) — jamais grisés,
-                    même sur un jour passé (dimmed) : ancrés dans cellOuter,
-                    non affecté par l'opacité posée sur cell. Voir WeekStrip. */}
-                {iso === admissionIso && (
-                  <View style={[styles.badge, styles.badgeLeft, { backgroundColor: C.danger }]}>
-                    <Text style={styles.badgeCrossText}>✕</Text>
-                  </View>
-                )}
-                {iso === dischargeIso && (
-                  <View style={[styles.badge, styles.badgeRight]}>
-                    <Text style={styles.badgeHouseText}>🏠</Text>
-                  </View>
-                )}
-                {birthdateMonthDay === iso.slice(5) && (
-                  <View style={[styles.badge, styles.badgeBottom]}>
-                    <Text style={styles.badgeCakeText}>🎂</Text>
-                  </View>
-                )}
               </View>
             );
           })}
@@ -805,6 +804,8 @@ export default function VisitorCalendarScreen() {
                 companionsById={companionsByMainId}
                 onEmptyPress={handleEmptyPlanningPress}
                 remainingBySlotId={remainingByMainId}
+                patientBirthdate={space.patient_birthdate}
+                patientFirstname={space.patient_firstname}
               />
 
               <Text style={[styles.sectionTitle, { color: C.gold }]}>
@@ -962,10 +963,6 @@ const styles = StyleSheet.create({
   dayLabels: { flexDirection: "row", justifyContent: "center", gap: 3, marginBottom: 4 },
   dayLabel: { width: "13.5%", textAlign: "center", fontFamily: "DM_Sans_600SemiBold", fontSize: 10 },
   grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 3, marginBottom: 10 },
-  // cellOuter est l'ancre non-rognée des badges F/G (débordent volontairement
-  // via top:-5/left:-5/right:-5, voir styles.badge) ; cell garde overflow:
-  // "hidden" pour ses propres besoins (DayStripes, visitStripe). Voir la même
-  // séparation dans WeekStrip.tsx (stripCellOuter/stripCell).
   cellOuter: { width: "13.5%", position: "relative" },
   cell: {
     aspectRatio: 1,
@@ -975,15 +972,11 @@ const styles = StyleSheet.create({
   },
   cellInner: { flex: 1, width: "100%", alignItems: "center", justifyContent: "center", gap: 2 },
   cellDate: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, textAlignVertical: "center", includeFontPadding: false },
+  // Jour hospitalisation/sortie/anniversaire : pictogramme plein cadre à la
+  // place du numéro du jour, centré horizontalement et verticalement.
+  cellSpecialIcon: { fontSize: 20, lineHeight: 24 },
   dot: { width: 4, height: 4, borderRadius: 2 },
   visitStripe: { position: "absolute", left: 0, right: 0, bottom: 0, height: 4 },
-  badge: { position: "absolute", top: -5, width: 14, height: 14, borderRadius: 7, alignItems: "center", justifyContent: "center", zIndex: 1 },
-  badgeLeft: { left: -5 },
-  badgeRight: { right: -5 },
-  badgeBottom: { top: undefined, bottom: -5, left: "50%", marginLeft: -7 },
-  badgeCrossText: { color: "#fff", fontSize: 8, fontWeight: "700", lineHeight: 10 },
-  badgeHouseText: { fontSize: 10, lineHeight: 12 },
-  badgeCakeText: { fontSize: 10, lineHeight: 12 },
   legend: { flexDirection: "row", justifyContent: "center", gap: 20 },
   legendPrefix: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11 },
   // Ecart plus large que la ligne du dessus pour bien séparer "Mes créneaux"

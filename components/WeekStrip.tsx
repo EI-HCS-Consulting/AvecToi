@@ -186,7 +186,14 @@ export default function WeekStrip({
             }
           }
 
-          const bg = rich
+          // Jour hospitalisation/sortie : remplace tout le contenu de la
+          // case (jour de semaine + numéro compris) par un pictogramme plein
+          // cadre, jamais grisé même avant la date d'admission — voir
+          // styles.stripCellSpecialIcon et home/calendar.tsx (même logique).
+          const specialIcon = iso === admissionIso ? "🏥" : iso === dischargeIso ? "🏠" : null;
+          const bg = specialIcon
+            ? C.card
+            : rich
             ? (isSelected ? C.accent : visitesFill ?? C.card)
             : (isSelected ? C.accent : fillPurple ? LOGO_PURPLE : C.card);
           const border = rich
@@ -207,19 +214,25 @@ export default function WeekStrip({
                     backgroundColor: bg,
                     borderColor: border,
                     borderWidth,
-                    opacity: beforeAdmission ? 0.4 : 1,
+                    opacity: specialIcon ? 1 : beforeAdmission ? 0.4 : 1,
                   },
                 ]}
               >
                 <View style={styles.stripCellInner}>
-                  <Text style={[styles.stripDow, { color: whiteText ? "#fff" : pastelText ? LOGO_NAVY : C.muted }]}>
-                    {WEEKDAY_LABELS[day.getDay() === 0 ? 6 : day.getDay() - 1]}
-                  </Text>
-                  <Text style={[styles.stripDate, { color: whiteText ? "#fff" : isToday ? C.gold : pastelText ? LOGO_NAVY : C.text }]}>
-                    {day.getDate()}
-                  </Text>
-                  {!rich && <View style={[styles.stripDot, { backgroundColor: dotColor }]} />}
-                  {rich && visiteStatus === "empty" && <View style={[styles.stripDot, { backgroundColor: C.success }]} />}
+                  {specialIcon ? (
+                    <Text style={styles.stripCellSpecialIcon}>{specialIcon}</Text>
+                  ) : (
+                    <>
+                      <Text style={[styles.stripDow, { color: whiteText ? "#fff" : pastelText ? LOGO_NAVY : C.muted }]}>
+                        {WEEKDAY_LABELS[day.getDay() === 0 ? 6 : day.getDay() - 1]}
+                      </Text>
+                      <Text style={[styles.stripDate, { color: whiteText ? "#fff" : isToday ? C.gold : pastelText ? LOGO_NAVY : C.text }]}>
+                        {day.getDate()}
+                      </Text>
+                      {!rich && <View style={[styles.stripDot, { backgroundColor: dotColor }]} />}
+                      {rich && visiteStatus === "empty" && <View style={[styles.stripDot, { backgroundColor: C.success }]} />}
+                    </>
+                  )}
                 </View>
                 {rich ? (
                   <DayStripes colors={dayVisiteurColors} />
@@ -229,16 +242,6 @@ export default function WeekStrip({
                   )
                 )}
               </TouchableOpacity>
-              {iso === admissionIso && (
-                <View style={[styles.badge, styles.badgeLeft, { backgroundColor: C.danger }]}>
-                  <Text style={styles.badgeCrossText}>✕</Text>
-                </View>
-              )}
-              {iso === dischargeIso && (
-                <View style={[styles.badge, styles.badgeRight]}>
-                  <Text style={styles.badgeHouseText}>🏠</Text>
-                </View>
-              )}
             </View>
           );
         })}
@@ -284,27 +287,24 @@ const styles = StyleSheet.create({
   weekLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13, textTransform: "capitalize", flex: 1, textAlign: "center" },
 
   strip: { flexDirection: "row", justifyContent: "space-between", gap: 4, marginBottom: 8 },
-  // stripCellOuter est l'ancre non-rognée des badges F/G, qui débordent
-  // volontairement de la case (top: -5, voir styles.badge) ; stripCell, lui,
-  // a overflow: "hidden" pour que les traits de bord (DayStripes) — des
-  // rectangles francs — soient rognés au contour arrondi de la case plutôt
-  // que de dépasser sur les coins, qui rendait mal ("les traits n'épousent
-  // pas le cadre"). Le padding vit dans stripCellInner (contenu texte), pas
-  // directement sur stripCell, pour ne pas décaler l'ancrage top/bottom: 0
-  // des traits.
+  // stripCell a overflow: "hidden" pour que les traits de bord (DayStripes)
+  // — des rectangles francs — soient rognés au contour arrondi de la case
+  // plutôt que de dépasser sur les coins, qui rendait mal ("les traits
+  // n'épousent pas le cadre"). Le padding vit dans stripCellInner (contenu
+  // texte), pas directement sur stripCell, pour ne pas décaler l'ancrage
+  // top/bottom: 0 des traits.
   stripCellOuter: { flex: 1, position: "relative" },
   stripCell: { flex: 1, borderRadius: 10, borderWidth: 1, position: "relative", overflow: "hidden" },
-  stripCellInner: { paddingTop: 8, paddingBottom: 14, alignItems: "center", gap: 3 },
+  stripCellInner: { paddingTop: 8, paddingBottom: 14, alignItems: "center", justifyContent: "center", gap: 3 },
   stripDow: { fontFamily: "DM_Sans_600SemiBold", fontSize: 10, textTransform: "uppercase" },
   stripDate: { fontFamily: "DM_Sans_700Bold", fontSize: 15 },
   stripDot: { width: 5, height: 5, borderRadius: 2.5 },
   visitStripe: { position: "absolute", left: 0, right: 0, bottom: 0, height: 8, borderBottomLeftRadius: 9, borderBottomRightRadius: 9 },
 
-  badge: { position: "absolute", top: -5, width: 15, height: 15, borderRadius: 7.5, alignItems: "center", justifyContent: "center" },
-  badgeLeft: { left: -5 },
-  badgeRight: { right: -5 },
-  badgeCrossText: { color: "#fff", fontSize: 9, fontWeight: "700", lineHeight: 11 },
-  badgeHouseText: { fontSize: 11, lineHeight: 13 },
+  // Jour hospitalisation/sortie : pictogramme plein cadre, centré, remplace
+  // jour de semaine + numéro (voir cellSpecialIcon dans home/calendar.tsx,
+  // même principe).
+  stripCellSpecialIcon: { fontSize: 22, lineHeight: 26 },
 
   // Ecart plus large qu'avant pour bien séparer "Mes créneaux" de
   // "Intervenant"/"Soin" — mêmes valeurs que la légende de la vue Mensuel.
