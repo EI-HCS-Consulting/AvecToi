@@ -247,6 +247,52 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // carte) — même ShoppingListModal que "📄 Mes documents" (MyChecklist.tsx),
   // donc toute modification se répercute des deux côtés sans synchronisation.
   const [shoppingListTask, setShoppingListTask] = useState<Task | null>(null);
+  // Identités ayant coché au moins un article de chaque besoin "courses"
+  // (shopping_list_items.bought_by_*), pour afficher "X, Y et Z s'en
+  // occupent" sur la carte même avant toute prise en charge explicite —
+  // rechargé à chaque (re)chargement de tasks (mount + realtime + fermeture
+  // du popup liste), pas en temps réel entre deux cochages d'autres
+  // personnes pendant qu'on reste sur l'écran.
+  const [courseContributors, setCourseContributors] = useState<Record<string, { prenom: string; nom: string }[]>>({});
+  const loadCourseContributors = useCallback(async (taskIds: string[]) => {
+    if (!taskIds.length) { setCourseContributors({}); return; }
+    const { data } = await supabase
+      .from("shopping_list_items")
+      .select("task_id, bought_by_prenom, bought_by_nom")
+      .in("task_id", taskIds)
+      .eq("bought", true);
+    const byTask: Record<string, { prenom: string; nom: string }[]> = {};
+    (data ?? []).forEach((row) => {
+      if (!row.bought_by_prenom || !row.bought_by_nom) return;
+      const list = byTask[row.task_id] ?? (byTask[row.task_id] = []);
+      const key = relaisIdentityKey(row.bought_by_prenom, row.bought_by_nom);
+      if (!list.some((p) => relaisIdentityKey(p.prenom, p.nom) === key)) {
+        list.push({ prenom: row.bought_by_prenom, nom: row.bought_by_nom });
+      }
+    });
+    setCourseContributors(byTask);
+  }, []);
+  useEffect(() => {
+    loadCourseContributors(tasks.filter((t) => t.category === "courses").map((t) => t.id));
+  }, [tasks, loadCourseContributors]);
+  // "X s'en occupe" / "X, Y et Z s'en occupent" — union des personnes ayant
+  // coché un article et de la personne ayant cliqué "Je m'en occupe" (qui
+  // rejoint la liste sans effacer ce que les autres ont déjà fait).
+  function courseContributorsLabel(t: Task): string | null {
+    const list = [...(courseContributors[t.id] ?? [])];
+    if (t.claimed_by_prenom && t.claimed_by_nom) {
+      const key = relaisIdentityKey(t.claimed_by_prenom, t.claimed_by_nom);
+      if (!list.some((p) => relaisIdentityKey(p.prenom, p.nom) === key)) {
+        list.push({ prenom: t.claimed_by_prenom, nom: t.claimed_by_nom });
+      }
+    }
+    if (list.length === 0) return null;
+    const names = list.map((p) => `${p.prenom} ${p.nom}`);
+    const joined = names.length > 1
+      ? `${names.slice(0, -1).join(", ")} et ${names[names.length - 1]}`
+      : names[0];
+    return `${joined} ${names.length > 1 ? "s'en occupent" : "s'en occupe"}`;
+  }
 
   // ── Checklists administratives suggérées (MVP) — voir CHECKLIST_TEMPLATES.
   // Popup accessible à l'admin comme aux visiteurs, depuis le bouton
@@ -2032,10 +2078,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           </View>
         )}
 
-        {t.status !== "ouvert" && t.claimed_by_prenom && (!t.transport_round_trip || !t.transport_return_claimed_by_prenom) && (
+        {(t.category === "courses"
+          ? !!courseContributorsLabel(t)
+          : t.status !== "ouvert" && t.claimed_by_prenom) && (!t.transport_round_trip || !t.transport_return_claimed_by_prenom) && (
           <View style={[styles.claimerRow, { borderColor: C.border, backgroundColor: `${C.accent}11` }]}>
             <Text style={[styles.claimerText, { color: C.text }]}>
-              👤 {t.claimed_by_prenom} {t.claimed_by_nom} s'en occupe
+              👤 {t.category === "courses" ? courseContributorsLabel(t) : `${t.claimed_by_prenom} ${t.claimed_by_nom} s'en occupe`}
             </Text>
             {t.claimed_photo && (
               <Image source={{ uri: taskPhotoUrl(spaceId, t.claimed_photo) }} style={styles.claimedPhoto} resizeMode="cover" />
@@ -3781,7 +3829,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
       <ShoppingListModal
         visible={!!shoppingListTask}
-        onClose={() => setShoppingListTask(null)}
+        onClose={() => {
+          setShoppingListTask(null);
+          loadCourseContributors(tasks.filter((t) => t.category === "courses").map((t) => t.id));
+        }}
         C={C}
         task={shoppingListTask}
         isAdmin={isAdmin}
