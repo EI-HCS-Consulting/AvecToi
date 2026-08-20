@@ -242,8 +242,17 @@ export function VisitorSpaceProvider({ token, children }: { token: string; child
     };
   }, [space?.id, refreshReservations, refreshIntervenantProfiles, fetchSpace]);
 
+  // Mémoïsé — même raison que SpaceContext.tsx : un littéral d'objet
+  // recréé à chaque render forcerait tous les consommateurs de
+  // useVisitorSpace() à re-render à chaque changement de n'importe laquelle
+  // des ~11 pièces d'état du provider, même sans rapport avec eux.
+  const value = useMemo<VisitorContextValue>(
+    () => ({ space, slotConfig, slots, reservations, intervenantProfiles, loading, token, selectedDay, setSelectedDay, pendingBookingSlot, setPendingBookingSlot, pendingEditReservationId, setPendingEditReservationId, refreshReservations, getConfigForDate, getSlotsForDate, mesCreneauxOnly, setMesCreneauxOnly }),
+    [space, slotConfig, slots, reservations, intervenantProfiles, loading, token, selectedDay, pendingBookingSlot, pendingEditReservationId, refreshReservations, getConfigForDate, getSlotsForDate, mesCreneauxOnly],
+  );
+
   return (
-    <VisitorContext.Provider value={{ space, slotConfig, slots, reservations, intervenantProfiles, loading, token, selectedDay, setSelectedDay, pendingBookingSlot, setPendingBookingSlot, pendingEditReservationId, setPendingEditReservationId, refreshReservations, getConfigForDate, getSlotsForDate, mesCreneauxOnly, setMesCreneauxOnly }}>
+    <VisitorContext.Provider value={value}>
       {children}
     </VisitorContext.Provider>
   );
