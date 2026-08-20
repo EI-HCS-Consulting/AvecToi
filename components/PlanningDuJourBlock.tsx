@@ -106,7 +106,10 @@ export default function PlanningDuJourBlock({ C, iso, reservations, patientNameB
                 )}
                 <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>{r.prenom} {r.nom}</Text>
                 {!!remainingBySlotId?.[r.id] && (
-                  <Text style={[styles.soinBy, { color: C.accent }]} numberOfLines={1}>
+                  <Text
+                    style={[styles.soinBy, { color: remainingBySlotId[r.id].taken >= remainingBySlotId[r.id].max ? C.danger : C.success }]}
+                    numberOfLines={1}
+                  >
                     {remainingSpotsLabel(remainingBySlotId[r.id].taken, remainingBySlotId[r.id].max)}
                   </Text>
                 )}

@@ -18,9 +18,9 @@ export const VISITOR_RELATIONS: VisitorRelation[] = [
   { key: "frere_soeur", label: "Frère / Sœur" },
   { key: "beau_pere", label: "Beau-père" },
   { key: "belle_mere", label: "Belle-mère" },
-  { key: "petit_fils_fille", label: "Petit-fils / Petite-fille" },
   { key: "grand_pere", label: "Grand-père" },
   { key: "grand_mere", label: "Grand-mère" },
+  { key: "petit_fils_fille", label: "Petit-fils / Petite-fille" },
   { key: "beau_fils", label: "Beau-fils" },
   { key: "belle_fille", label: "Belle-fille" },
   { key: "oncle_tante", label: "Oncle / Tante" },
@@ -32,6 +32,11 @@ export const VISITOR_RELATIONS: VisitorRelation[] = [
   { key: "autre", label: "Autre" },
 ];
 
+// Un choix "Autre" précisé par saisie libre (voir RelationPickerModal.tsx)
+// est stocké tel quel dans visitor_profiles.relation, sans clé de catalogue
+// associée — même principe que metierLabel (lib/metiers.ts). On retombe
+// donc sur la valeur brute quand elle ne correspond à aucune clé connue,
+// plutôt que d'afficher une chaîne vide.
 export function relationLabel(key: string | null | undefined): string {
-  return VISITOR_RELATIONS.find((r) => r.key === key)?.label ?? "";
+  return VISITOR_RELATIONS.find((r) => r.key === key)?.label ?? key ?? "";
 }

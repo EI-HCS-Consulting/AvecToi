@@ -196,21 +196,39 @@ export default function WeekStrip({
           const whiteText = rich ? isSelected : (isSelected || fillPurple);
 
           return (
-            <TouchableOpacity
-              key={iso}
-              onPress={() => onDayPress(iso)}
-              onLongPress={soinsMode ? undefined : () => onDayLongPress?.(iso)}
-              activeOpacity={0.7}
-              style={[
-                styles.stripCell,
-                {
-                  backgroundColor: bg,
-                  borderColor: border,
-                  borderWidth,
-                  opacity: beforeAdmission ? 0.4 : 1,
-                },
-              ]}
-            >
+            <View key={iso} style={styles.stripCellOuter}>
+              <TouchableOpacity
+                onPress={() => onDayPress(iso)}
+                onLongPress={soinsMode ? undefined : () => onDayLongPress?.(iso)}
+                activeOpacity={0.7}
+                style={[
+                  styles.stripCell,
+                  {
+                    backgroundColor: bg,
+                    borderColor: border,
+                    borderWidth,
+                    opacity: beforeAdmission ? 0.4 : 1,
+                  },
+                ]}
+              >
+                <View style={styles.stripCellInner}>
+                  <Text style={[styles.stripDow, { color: whiteText ? "#fff" : pastelText ? LOGO_NAVY : C.muted }]}>
+                    {WEEKDAY_LABELS[day.getDay() === 0 ? 6 : day.getDay() - 1]}
+                  </Text>
+                  <Text style={[styles.stripDate, { color: whiteText ? "#fff" : isToday ? C.gold : pastelText ? LOGO_NAVY : C.text }]}>
+                    {day.getDate()}
+                  </Text>
+                  {!rich && <View style={[styles.stripDot, { backgroundColor: dotColor }]} />}
+                  {rich && visiteStatus === "empty" && <View style={[styles.stripDot, { backgroundColor: C.success }]} />}
+                </View>
+                {rich ? (
+                  <DayStripes colors={dayVisiteurColors} />
+                ) : (
+                  !!familyBooked && (
+                    <View pointerEvents="none" style={[styles.visitStripe, { backgroundColor: LOGO_GREEN }]} />
+                  )
+                )}
+              </TouchableOpacity>
               {iso === admissionIso && (
                 <View style={[styles.badge, styles.badgeLeft, { backgroundColor: C.danger }]}>
                   <Text style={styles.badgeCrossText}>✕</Text>
@@ -221,24 +239,7 @@ export default function WeekStrip({
                   <Text style={styles.badgeHouseText}>🏠</Text>
                 </View>
               )}
-              <View style={styles.stripCellInner}>
-                <Text style={[styles.stripDow, { color: whiteText ? "#fff" : pastelText ? LOGO_NAVY : C.muted }]}>
-                  {WEEKDAY_LABELS[day.getDay() === 0 ? 6 : day.getDay() - 1]}
-                </Text>
-                <Text style={[styles.stripDate, { color: whiteText ? "#fff" : isToday ? C.gold : pastelText ? LOGO_NAVY : C.text }]}>
-                  {day.getDate()}
-                </Text>
-                {!rich && <View style={[styles.stripDot, { backgroundColor: dotColor }]} />}
-                {rich && visiteStatus === "empty" && <View style={[styles.stripDot, { backgroundColor: C.success }]} />}
-              </View>
-              {rich ? (
-                <DayStripes colors={dayVisiteurColors} />
-              ) : (
-                !!familyBooked && (
-                  <View pointerEvents="none" style={[styles.visitStripe, { backgroundColor: LOGO_GREEN }]} />
-                )
-              )}
-            </TouchableOpacity>
+            </View>
           );
         })}
       </View>
@@ -283,11 +284,16 @@ const styles = StyleSheet.create({
   weekLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13, textTransform: "capitalize", flex: 1, textAlign: "center" },
 
   strip: { flexDirection: "row", justifyContent: "space-between", gap: 4, marginBottom: 8 },
-  // Le padding vit dans stripCellInner (contenu texte), pas ici : ce View
-  // reste l'ancre absolue de DayStripes/badge (top/right/bottom/left: 0),
-  // qui doivent s'aligner sur le bord réel de la case et non sur son
-  // padding — sinon les traits de visiteur n'atteignent pas le cadre.
-  stripCell: { flex: 1, borderRadius: 10, borderWidth: 1, position: "relative" },
+  // stripCellOuter est l'ancre non-rognée des badges F/G, qui débordent
+  // volontairement de la case (top: -5, voir styles.badge) ; stripCell, lui,
+  // a overflow: "hidden" pour que les traits de bord (DayStripes) — des
+  // rectangles francs — soient rognés au contour arrondi de la case plutôt
+  // que de dépasser sur les coins, qui rendait mal ("les traits n'épousent
+  // pas le cadre"). Le padding vit dans stripCellInner (contenu texte), pas
+  // directement sur stripCell, pour ne pas décaler l'ancrage top/bottom: 0
+  // des traits.
+  stripCellOuter: { flex: 1, position: "relative" },
+  stripCell: { flex: 1, borderRadius: 10, borderWidth: 1, position: "relative", overflow: "hidden" },
   stripCellInner: { paddingTop: 8, paddingBottom: 14, alignItems: "center", gap: 3 },
   stripDow: { fontFamily: "DM_Sans_600SemiBold", fontSize: 10, textTransform: "uppercase" },
   stripDate: { fontFamily: "DM_Sans_700Bold", fontSize: 15 },
