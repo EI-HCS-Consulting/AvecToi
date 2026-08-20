@@ -156,6 +156,10 @@ export default function AdminCalendarScreen() {
   // iso des jours de la bande.
   const admissionIso = space.patient_admission_date;
   const dischargeIso = space.patient_discharge_date;
+  // Anniversaire du patient : ne compare que mois+jour ("MM-DD"), l'année de
+  // patient_birthdate étant celle de naissance — se répète donc chaque année
+  // dans la grille mensuelle (voir aussi BirthdayAlertModal, même logique).
+  const birthdateMonthDay = space.patient_birthdate ? space.patient_birthdate.slice(5) : null;
 
   const selectedIso = toISO(selectedDay);
   const selectedDayConfig = getConfigForDate(selectedIso) ?? slotConfig;
@@ -265,7 +269,7 @@ export default function AdminCalendarScreen() {
         </View>
 
         <View style={styles.grid}>
-          {Array(firstDow).fill(null).map((_, i) => <View key={`e${i}`} style={styles.cell} />)}
+          {Array(firstDow).fill(null).map((_, i) => <View key={`e${i}`} style={[styles.cellOuter, styles.cell]} />)}
           {monthDays.map((day) => {
             const iso = toISO(day);
             const dayConfig = getConfigForDate(iso) ?? slotConfig;
@@ -304,40 +308,59 @@ export default function AdminCalendarScreen() {
             const frameVisible = soinsMode && interventionBooked;
 
             return (
-              <TouchableOpacity
-                key={iso}
-                style={[
-                  styles.cell,
-                  {
-                    backgroundColor: isSelected ? C.accent : isPast ? "transparent" : C.card,
-                    borderColor: isSelected ? C.accent : frameVisible ? LOGO_PURPLE : isToday ? C.gold : C.border,
-                    borderWidth: isToday || frameVisible ? 2 : 1,
-                    opacity: isPast ? 0.3 : 1,
-                  },
-                ]}
-                onPress={() => {
-                  if (!isDisabled) {
-                    setSelectedDay(day);
-                    router.navigate("/(admin)/home/slots");
-                  } else {
-                    setBlockedDayModal(day);
-                  }
-                }}
-                activeOpacity={0.7}
-              >
-                <View style={styles.cellInner}>
-                  <Text style={[styles.cellDate, { color: isSelected ? "#fff" : isToday ? C.gold : C.text }]}>
-                    {day.getDate()}
-                  </Text>
-                  <View style={[styles.dot, { backgroundColor: dotColor }]} />
-                </View>
-                {!!familyBooked && (
-                  <View pointerEvents="none" style={[styles.visitStripe, { backgroundColor: LOGO_GREEN }]} />
+              <View key={iso} style={styles.cellOuter}>
+                <TouchableOpacity
+                  style={[
+                    styles.cell,
+                    {
+                      backgroundColor: isSelected ? C.accent : isPast ? "transparent" : C.card,
+                      borderColor: isSelected ? C.accent : frameVisible ? LOGO_PURPLE : isToday ? C.gold : C.border,
+                      borderWidth: isToday || frameVisible ? 2 : 1,
+                      opacity: isPast ? 0.3 : 1,
+                    },
+                  ]}
+                  onPress={() => {
+                    if (!isDisabled) {
+                      setSelectedDay(day);
+                      router.navigate("/(admin)/home/slots");
+                    } else {
+                      setBlockedDayModal(day);
+                    }
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.cellInner}>
+                    <Text style={[styles.cellDate, { color: isSelected ? "#fff" : isToday ? C.gold : C.text }]}>
+                      {day.getDate()}
+                    </Text>
+                    <View style={[styles.dot, { backgroundColor: dotColor }]} />
+                  </View>
+                  {!!familyBooked && (
+                    <View pointerEvents="none" style={[styles.visitStripe, { backgroundColor: LOGO_GREEN }]} />
+                  )}
+                </TouchableOpacity>
+                {/* Badges hospitalisation (✕)/sortie (🏠) — jamais grisés,
+                    même sur un jour passé : ancrés dans cellOuter, non
+                    affecté par l'opacité posée sur cell. Voir WeekStrip. */}
+                {iso === admissionIso && (
+                  <View style={[styles.badge, styles.badgeLeft, { backgroundColor: C.danger }]}>
+                    <Text style={styles.badgeCrossText}>✕</Text>
+                  </View>
                 )}
-              </TouchableOpacity>
+                {iso === dischargeIso && (
+                  <View style={[styles.badge, styles.badgeRight]}>
+                    <Text style={styles.badgeHouseText}>🏠</Text>
+                  </View>
+                )}
+                {birthdateMonthDay === iso.slice(5) && (
+                  <View style={[styles.badge, styles.badgeBottom]}>
+                    <Text style={styles.badgeCakeText}>🎂</Text>
+                  </View>
+                )}
+              </View>
             );
           })}
-          {Array(trailingFillers).fill(null).map((_, i) => <View key={`t${i}`} style={styles.cell} />)}
+          {Array(trailingFillers).fill(null).map((_, i) => <View key={`t${i}`} style={[styles.cellOuter, styles.cell]} />)}
         </View>
 
         <View style={styles.legend}>
@@ -562,9 +585,19 @@ const styles = StyleSheet.create({
   dayLabels: { flexDirection: "row", justifyContent: "center", gap: 3, marginBottom: 4 },
   dayLabel: { width: "13.5%", textAlign: "center", fontFamily: "DM_Sans_600SemiBold", fontSize: 10 },
   grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 3, marginBottom: 10 },
-  cell: { width: "13.5%", aspectRatio: 1, borderRadius: 8, borderWidth: 1, overflow: "hidden" },
+  // cellOuter est l'ancre non-rognée des badges F/G — même séparation que
+  // WeekStrip.tsx (stripCellOuter/stripCell).
+  cellOuter: { width: "13.5%", position: "relative" },
+  cell: { aspectRatio: 1, borderRadius: 8, borderWidth: 1, overflow: "hidden" },
   cellInner: { flex: 1, width: "100%", alignItems: "center", justifyContent: "center", gap: 2 },
   cellDate: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, textAlignVertical: "center", includeFontPadding: false },
+  badge: { position: "absolute", top: -5, width: 14, height: 14, borderRadius: 7, alignItems: "center", justifyContent: "center", zIndex: 1 },
+  badgeLeft: { left: -5 },
+  badgeRight: { right: -5 },
+  badgeBottom: { top: undefined, bottom: -5, left: "50%", marginLeft: -7 },
+  badgeCrossText: { color: "#fff", fontSize: 8, fontWeight: "700", lineHeight: 10 },
+  badgeHouseText: { fontSize: 10, lineHeight: 12 },
+  badgeCakeText: { fontSize: 10, lineHeight: 12 },
   dot: { width: 4, height: 4, borderRadius: 2 },
   visitStripe: { position: "absolute", left: 0, right: 0, bottom: 0, height: 4 },
   legend: { flexDirection: "row", justifyContent: "center", gap: 20 },

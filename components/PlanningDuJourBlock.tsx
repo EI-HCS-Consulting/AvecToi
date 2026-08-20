@@ -1,5 +1,5 @@
 import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
-import { toISO, remainingSpotsLabel } from "@/lib/slotUtils";
+import { toISO, remainingSpotsLabel, isReservationDatePast } from "@/lib/slotUtils";
 import type { Theme } from "@/lib/themes";
 import type { Reservation } from "@/lib/types";
 
@@ -49,7 +49,19 @@ interface Props {
 export default function PlanningDuJourBlock({ C, iso, reservations, patientNameBySpaceId, locationBySpaceId, onSoinPress, showOtherIntervenants, onToggleOtherIntervenants, reservationType = "Intervention", companionsById, onEmptyPress, remainingBySlotId }: Props) {
   const isToday = iso === toISO(new Date());
   const dayDate = new Date(iso + "T00:00:00");
+  const isPastDay = isReservationDatePast(iso);
   const sorted = [...reservations].sort((a, b) => a.creneau.localeCompare(b.creneau));
+  // Regroupe les réservations par créneau consécutif (sorted est déjà trié
+  // par creneau) — un seul horaire affiché par groupe, centré verticalement
+  // sur les noms (voir styles.slotTimeCol), et "Complet"/"X places
+  // restantes" affiché une seule fois après le dernier nom du groupe plutôt
+  // que répété par personne (même occupation de créneau pour tout le groupe).
+  const groups: { creneau: string; rows: typeof sorted }[] = [];
+  for (const r of sorted) {
+    const g = groups[groups.length - 1];
+    if (g && g.creneau === r.creneau) g.rows.push(r);
+    else groups.push({ creneau: r.creneau, rows: [r] });
+  }
 
   return (
     <>
@@ -81,8 +93,10 @@ export default function PlanningDuJourBlock({ C, iso, reservations, patientNameB
         {sorted.length === 0 ? (
           onEmptyPress ? (
             <TouchableOpacity activeOpacity={0.7} onPress={onEmptyPress}>
-              <Text style={[styles.emptyText, styles.emptyTextLink, { color: C.accent }]}>
-                {reservationType === "Visite" ? "Aucune visite prévue ce jour. Réserver ›" : "Aucun soin prévu ce jour-là."}
+              <Text style={[styles.emptyText, !isPastDay && styles.emptyTextLink, { color: isPastDay ? C.muted : C.accent }]}>
+                {reservationType === "Visite"
+                  ? (isPastDay ? "Aucune visite ce jour-là." : "Aucune visite prévue ce jour. Réserver ›")
+                  : "Aucun soin prévu ce jour-là."}
               </Text>
             </TouchableOpacity>
           ) : (
@@ -91,37 +105,59 @@ export default function PlanningDuJourBlock({ C, iso, reservations, patientNameB
             </Text>
           )
         ) : (
-          sorted.map((r) => (
-            <TouchableOpacity key={r.id} style={styles.soinRow} activeOpacity={0.7} onPress={() => onSoinPress(r)}>
-              <Text style={[styles.soinTime, { color: C.orange }]}>{r.creneau}</Text>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.soinLabel, { color: C.text }]} numberOfLines={1}>
-                  {patientNameBySpaceId[r.space_id] ?? `${r.prenom} ${r.nom}`}
-                </Text>
-                <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>
-                  {r.intervention_label ?? reservationType}{r.duration_minutes ? ` (${r.duration_minutes} min)` : ""}
-                </Text>
-                {!!locationBySpaceId[r.space_id] && (
-                  <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>📍 {locationBySpaceId[r.space_id]}</Text>
-                )}
-                <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>{r.prenom} {r.nom}</Text>
-                {!!remainingBySlotId?.[r.id] && (
-                  <Text
-                    style={[styles.soinBy, { color: remainingBySlotId[r.id].taken >= remainingBySlotId[r.id].max ? C.danger : C.success }]}
-                    numberOfLines={1}
-                  >
-                    {remainingSpotsLabel(remainingBySlotId[r.id].taken, remainingBySlotId[r.id].max)}
-                  </Text>
-                )}
-                {!!companionsById?.[r.id]?.length && (
-                  <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>
-                    + {companionsById[r.id].map((c) => `${c.prenom} ${c.nom}`).join(", ")}
-                  </Text>
-                )}
+          groups.map((group) => {
+            const groupRemaining = remainingBySlotId?.[group.rows[0].id];
+            return (
+              <View key={group.creneau} style={styles.slotGroup}>
+                <View style={styles.slotTimeCol}>
+                  <Text style={[styles.soinTime, { color: C.orange }]}>{group.creneau}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  {group.rows.map((r) => {
+                    const boldLabel = patientNameBySpaceId[r.space_id] ?? `${r.prenom} ${r.nom}`;
+                    const plainName = `${r.prenom} ${r.nom}`;
+                    return (
+                      <TouchableOpacity key={r.id} style={styles.slotPersonRow} activeOpacity={0.7} onPress={() => onSoinPress(r)}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.soinLabel, { color: C.text }]} numberOfLines={1}>
+                            {boldLabel}
+                          </Text>
+                          {reservationType === "Intervention" && (
+                            <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>
+                              {r.intervention_label ?? reservationType}{r.duration_minutes ? ` (${r.duration_minutes} min)` : ""}
+                            </Text>
+                          )}
+                          {!!locationBySpaceId[r.space_id] && (
+                            <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>📍 {locationBySpaceId[r.space_id]}</Text>
+                          )}
+                          {/* Nom/prénom en clair uniquement s'il diffère du libellé en gras
+                              ci-dessus (patient vs visiteur, mode Soins) — évite le doublon
+                              du mode Visites, où les deux valeurs sont identiques. */}
+                          {boldLabel !== plainName && (
+                            <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>{plainName}</Text>
+                          )}
+                          {!!companionsById?.[r.id]?.length && (
+                            <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>
+                              + {companionsById[r.id].map((c) => `${c.prenom} ${c.nom}`).join(", ")}
+                            </Text>
+                          )}
+                        </View>
+                        <Text style={[styles.chevron, { color: C.muted }]}>›</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                  {!!groupRemaining && (
+                    <Text
+                      style={[styles.soinBy, styles.slotRemaining, { color: groupRemaining.taken >= groupRemaining.max ? C.danger : C.success }]}
+                      numberOfLines={1}
+                    >
+                      {remainingSpotsLabel(groupRemaining.taken, groupRemaining.max)}
+                    </Text>
+                  )}
+                </View>
               </View>
-              <Text style={[styles.chevron, { color: C.muted }]}>›</Text>
-            </TouchableOpacity>
-          ))
+            );
+          })
         )}
       </View>
     </>
@@ -137,8 +173,15 @@ const styles = StyleSheet.create({
   dayTitle: { fontFamily: "DM_Sans_700Bold", fontSize: 13, textTransform: "capitalize", marginBottom: 8 },
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
   emptyTextLink: { fontFamily: "DM_Sans_600SemiBold" },
-  soinRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 },
-  soinTime: { fontFamily: "DM_Sans_700Bold", fontSize: 13, minWidth: 42 },
+  // slotGroup regroupe toutes les réservations d'un même créneau : l'horaire
+  // (slotTimeCol) s'étire sur toute la hauteur du groupe et se centre avec
+  // justifyContent, ce qui l'aligne visuellement sur le nom du milieu quand
+  // plusieurs personnes partagent le créneau.
+  slotGroup: { flexDirection: "row", alignItems: "stretch", gap: 10, paddingVertical: 4 },
+  slotTimeCol: { minWidth: 42, alignItems: "center", justifyContent: "center" },
+  slotPersonRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 },
+  slotRemaining: { marginTop: 2, marginBottom: 2 },
+  soinTime: { fontFamily: "DM_Sans_700Bold", fontSize: 13 },
   soinLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
   soinBy: { fontFamily: "DM_Sans_400Regular", fontSize: 11.5, marginTop: 1 },
   chevron: { fontFamily: "DM_Sans_700Bold", fontSize: 16 },
