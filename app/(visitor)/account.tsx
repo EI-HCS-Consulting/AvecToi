@@ -24,6 +24,7 @@ import PinPad from "@/components/PinPad";
 import PatientProfileModal from "@/components/PatientProfileModal";
 import IntervenantFicheModal from "@/components/IntervenantFicheModal";
 import RelationPickerModal from "@/components/RelationPickerModal";
+import RecurringBookingModal from "@/components/RecurringBookingModal";
 import VisitorsListModal from "@/components/VisitorsListModal";
 import { switchToLinkedSpace } from "@/lib/intervenantSpaceSwitch";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
@@ -103,7 +104,7 @@ const SECTION_META: Record<AccountSectionKey, { icon: string; label: string }> =
 // servent qu'à pré-remplir les futurs formulaires de réservation ; le PIN
 // reste toujours ressaisi à la main pour confirmer une action sensible.
 export default function VisitorAccountScreen() {
-  const { space, token, slotConfig, setSelectedDay, setPendingEditReservationId } = useVisitorSpace();
+  const { space, token, slotConfig, slots, reservations: spaceReservations, getConfigForDate, refreshReservations, setSelectedDay, setPendingEditReservationId } = useVisitorSpace();
   const router = useRouter();
   const { mode, theme: C, setMode } = useDisplayMode();
 
@@ -135,6 +136,7 @@ export default function VisitorAccountScreen() {
   const [intervenantProfileId, setIntervenantProfileId] = useState<string | null>(null);
   const [ficheModalVisible, setFicheModalVisible] = useState(false);
   const [relationModalVisible, setRelationModalVisible] = useState(false);
+  const [recurringModalVisible, setRecurringModalVisible] = useState(false);
 
   // "Mes Patients" — autres espaces patients déjà rejoints par ce même
   // téléphone (basculement direct, sans ressaisir le code dossier — voir
@@ -1212,6 +1214,14 @@ export default function VisitorAccountScreen() {
                 activityLoading ? (
                   <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
                 ) : identityMissing ? missingIdentityCard : (
+                  <>
+                    <TouchableOpacity
+                      onPress={() => setRecurringModalVisible(true)}
+                      activeOpacity={0.75}
+                      style={[styles.recurringBtn, { borderColor: C.accent, backgroundColor: `${C.accent}18` }]}
+                    >
+                      <Text style={[styles.recurringBtnText, { color: C.accent }]}>🔁 Réservations récurrentes</Text>
+                    </TouchableOpacity>
                   <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
                     {myReservations.length === 0 ? (
                       <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucune réservation pour le moment.</Text>
@@ -1248,6 +1258,7 @@ export default function VisitorAccountScreen() {
                       );
                     })}
                   </View>
+                  </>
                 )
               )}
 
@@ -1633,6 +1644,23 @@ export default function VisitorAccountScreen() {
         onClose={() => setRelationModalVisible(false)}
         onPick={setRelation}
       />
+
+      {space && slotConfig && (
+        <RecurringBookingModal
+          visible={recurringModalVisible}
+          onClose={() => setRecurringModalVisible(false)}
+          C={C}
+          space={space}
+          slotConfig={slotConfig}
+          slots={slots}
+          reservations={spaceReservations}
+          getConfigForDate={getConfigForDate}
+          prenom={prenom}
+          nom={nom}
+          pin={pin}
+          refreshReservations={refreshReservations}
+        />
+      )}
     </View>
   );
 }
@@ -1663,6 +1691,8 @@ const styles = StyleSheet.create({
   },
   contribHeaderText: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },
   contribCard: { marginTop: 10 },
+  recurringBtn: { borderWidth: 1, borderRadius: 10, paddingVertical: 12, alignItems: "center", marginTop: 6 },
+  recurringBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 13 },
 
   sectionTitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 1, textTransform: "uppercase", marginBottom: 10, marginTop: 8 },
   sectionTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8, marginBottom: 10 },
