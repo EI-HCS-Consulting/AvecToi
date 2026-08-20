@@ -38,7 +38,7 @@ export default function BirthdayAlertModal({ spaceId, birthdate, patientFirstnam
     <Modal visible transparent animationType="fade" statusBarTranslucent onRequestClose={handleClose}>
       <View style={styles.overlay}>
         <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
-          <Text style={styles.emoji}>🎂</Text>
+          <Text style={styles.emoji}>🎉</Text>
           <Text style={[styles.title, { color: C.text }]}>Joyeux anniversaire{patientFirstname ? ` ${patientFirstname}` : ""} !</Text>
           <Text style={[styles.body, { color: C.muted }]}>
             C'est aujourd'hui l'anniversaire de {patientFirstname || "votre proche"}. Un petit mot ou une pensée lui feront toujours plaisir 💛

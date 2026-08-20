@@ -195,6 +195,7 @@ function VisitorTabs() {
                   style={[identityStyles.input, identityStyles.rowInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
                   placeholder="Prénom" placeholderTextColor={C.muted}
                   value={identityPrenom} onChangeText={setIdentityPrenom} autoCapitalize="words"
+                  autoFocus
                 />
                 <TextInput
                   style={[identityStyles.input, identityStyles.rowInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}

@@ -430,6 +430,11 @@ export default function VisitorCalendarScreen() {
     router.navigate("/(visitor)/home/slots");
   };
 
+  // Jour bloqué correspondant précisément à la date d'hospitalisation —
+  // seul cas où la modale "jour non disponible" prend un habillage dédié
+  // (picto hôpital, titre "Hospitalisation de X"), voir Modal plus bas.
+  const isAdmissionBlockedDay = !!blockedDayModal && toISO(blockedDayModal) === admissionIso;
+
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
       <SpaceHeader space={space} active="calendar" basePath="/(visitor)/home" C={C} />
@@ -581,7 +586,7 @@ export default function VisitorCalendarScreen() {
             // Jour hospitalisation/sortie/anniversaire : remplace tout le
             // contenu de la case (numéro du jour compris) par un pictogramme
             // plein cadre, jamais grisé même passé — voir styles.cellSpecialIcon.
-            const specialIcon = iso === admissionIso ? "🏥" : iso === dischargeIso ? "🏠" : birthdateMonthDay === iso.slice(5) ? "🎂" : null;
+            const specialIcon = iso === admissionIso ? "🏥" : iso === dischargeIso ? "🏠" : birthdateMonthDay === iso.slice(5) ? "🎉" : null;
 
             return (
               <View key={iso} style={styles.cellOuter}>
@@ -923,12 +928,14 @@ export default function VisitorCalendarScreen() {
       <Modal transparent visible={!!blockedDayModal} animationType="fade" onRequestClose={() => setBlockedDayModal(null)}>
         <TouchableOpacity style={styles.overlay} activeOpacity={1} onPress={() => setBlockedDayModal(null)}>
           <TouchableOpacity activeOpacity={1} style={[styles.modal, { backgroundColor: C.card, borderColor: C.border }]}>
-            <Text style={styles.modalEmoji}>🚫</Text>
-            <Text style={[styles.modalLabel, { color: C.gold }]}>Jour non disponible</Text>
+            <Text style={styles.modalEmoji}>{isAdmissionBlockedDay ? "🏥" : "🚫"}</Text>
+            <Text style={[styles.modalLabel, { color: C.gold }]}>
+              {isAdmissionBlockedDay ? `Hospitalisation de ${space.patient_firstname}` : "Jour non disponible"}
+            </Text>
             <Text style={[styles.modalDate, { color: C.text }]}>
               {blockedDayModal && blockedDayModal.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
             </Text>
-            {!!blockedDayModal && slotConfig.blocked_dates?.includes(toISO(blockedDayModal)) ? (
+            {isAdmissionBlockedDay ? null : !!blockedDayModal && slotConfig.blocked_dates?.includes(toISO(blockedDayModal)) ? (
               <Text style={[styles.modalMeta, { color: C.gold, marginTop: 8, fontStyle: "italic" }]}>
                 {slotConfig.blocked_date_reasons?.[toISO(blockedDayModal)]
                   || "Cette date a été bloquée par l'administrateur du groupe."}
