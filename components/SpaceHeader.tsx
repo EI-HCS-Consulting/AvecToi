@@ -128,7 +128,15 @@ export default function SpaceHeader({
             <TouchableOpacity
               key={t.id}
               style={styles.tabBtn}
-              onPress={() => router.replace(`${basePath}/${t.id}` as any)}
+              onPress={() =>
+                // "Calendrier" doit retrouver le jour/vue déjà sélectionnés
+                // (contrairement à l'onglet bas "Accueil", qui lui doit
+                // toujours revenir sur aujourd'hui) — voir le useFocusEffect
+                // de home/calendar.tsx qui lit ce param pour sauter son reset.
+                t.id === "calendar"
+                  ? router.replace({ pathname: `${basePath}/calendar`, params: { keepSelection: "1" } } as any)
+                  : router.replace(`${basePath}/${t.id}` as any)
+              }
               activeOpacity={0.75}
             >
               <Text
