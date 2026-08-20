@@ -1,6 +1,15 @@
 # PRD — AvecToi
-## Product Requirements Document v1.9
+## Product Requirements Document v1.10
 *Préparé pour Claude Code — Juin 2026, synchronisé avec l'application livrée en Juillet/Août 2026*
+
+> **Changelog v1.9 → v1.10**
+> - **Réservations récurrentes** *(NOUVEAU)* : bouton « 🔁 Réservations récurrentes » dans Mon Compte → Mes réservations (admin **et** visiteur) — choix d'un ou plusieurs jours de semaine, d'un créneau et d'une plage de dates, création en série d'une réservation par date correspondante ; dates indisponibles ignorées et rapportées sans faire échouer le reste du lot — voir §3.4
+> - **Popup dédié « Hospitalisation de [prénom] »** : la date d'hospitalisation ouvre désormais systématiquement (tap et appui long, Hebdo et Mensuel, admin et visiteur) un popup dédié (picto 🏥) au lieu du popup générique « 🚫 Jour non disponible » ; picto 🎉 anniversaire harmonisé sur les deux calendriers — voir §3.4
+> - **Planning du jour (visiteur) enrichi** : message « Aucune visite prévue ce jour » cliquable, bouton « Ajouter une Visite » depuis le popup d'une visite existante, réservation directe en tapant le créneau libre d'un autre visiteur, affichage des places restantes — voir §3.3, §3.4
+> - **Correction — Liste de courses** : la prise en charge tardive (« Je m'en occupe ») d'une liste de courses partiellement cochée ne coche plus automatiquement les articles restants et ne clôt plus le besoin (comportement introduit par erreur en v1.9, retiré) ; le verrouillage du cochage au preneur reste inchangé — voir §3.8
+> - **Compte visiteur** : bloc « Besoin de relais » retiré (fonctionnalité réservée à l'admin) ; bouton « Intervenants » remplacé par « Visiteurs » (liste des visiteurs de l'espace + fiche au clic) ; nouveau champ « lien avec le patient » (picker) dans Mes informations — voir §2, §3.3, §3.8
+> - **Compte admin** : boutons « 🩺 Fiche patient » et « 👥 Visiteurs » ajoutés sous « Mes checklists » — voir §2
+> - Détail exhaustif écran par écran : `Documentation/Documentation Fonctionnalités.docx` (généré depuis le code, mis à jour à chaque handoff)
 
 > **Changelog v1.8 → v1.9**
 > - **Besoin de relais ponctuel** *(NOUVEAU)* : catégorie technique dédiée, non sélectionnable dans la grille de création manuelle — publiée uniquement depuis Mon Compte (période d'indisponibilité, message pré-rempli modifiable, ciblage tous les proches ou une sélection précise) ; alerte à la connexion des personnes ciblées (« Je m'en occupe » / « Pas cette fois ») — voir §3.8
@@ -114,6 +123,7 @@ Le nom **AvecToi** porte la promesse : la **présence auprès d'un proche** — 
 - **Peut activer le rôle Intervenant pour son espace** et gérer les fiches des professionnels de soin (§2 Intervenant, §3.9)
 - Reçoit un email automatique à chaque annulation
 - **Prolonge ou déclenche la purge** de l'espace (§10bis — fenêtre 30 jours, renouvelable)
+- **Accède depuis Mon Compte aux boutons « 🩺 Fiche patient » et « 👥 Visiteurs »** *(NOUVEAU depuis v1.10)* : la fiche patient et la liste des visiteurs de l'espace (fiche au clic)
 
 ### Visiteur (accès gratuit via lien d'invitation)
 - Accède via lien unique, QR code ou code dossier (pas de compte requis)
@@ -121,12 +131,14 @@ Le nom **AvecToi** porte la promesse : la **présence auprès d'un proche** — 
 - Réserve un créneau disponible (dans la limite du **cap freemium** de 8 réservations de type Visite tant que l'espace n'est pas premium — §3.12)
 - Saisit : **Prénom (obligatoire), Nom (obligatoire)**, Téléphone (optionnel)
   - *Nom obligatoire : permet aux autres visiteurs de savoir précisément qui vient.*
+- **Indique son lien avec le patient** *(NOUVEAU depuis v1.10)* : champ picker dans Mon Compte → Mes informations (Père, Mère, Fils, Fille, Frère/Sœur, Beau-père/Belle-mère, Grand-père/Grand-mère, Petit-fils/Petite-fille, Beau-fils/Belle-fille, Cousin/Cousine, Oncle/Tante, Neveu/Nièce, Ami·e, Voisin·e, Collègue de travail, Autre) — visiteur uniquement, absent côté intervenant
 - Choisit un PIN 4 chiffres (modif/annulation, photos, nouvelles, entraide)
 - Modifie/annule sa réservation avec son PIN
 - Consulte infos patient + hôpital (ou domicile) et la **fiche médicale du patient en lecture seule** (§3.10)
 - Upload/télécharge des photos souvenirs ; **supprime ses propres photos** (PIN)
 - **Publie une Nouvelle du jour** (texte + photos) ; modifie/supprime les siennes (PIN)
-- **S'attribue un besoin d'entraide** (« Je m'en occupe ») ; **poste un message de soutien**
+- **S'attribue un besoin d'entraide** (« Je m'en occupe ») ; **poste un message de soutien**. Le bloc de publication « 🆘 Besoin de relais » de Mon Compte est réservé à l'admin depuis v1.10 (retiré du compte visiteur, §3.8)
+- **Ouvre « 👥 Visiteurs »** *(remplace « Intervenants » depuis v1.10)* depuis Mon Compte : liste des visiteurs de l'espace, fiche au clic (lien avec le patient, phrase totem)
 - **"Sélectionner tout" / "Télécharger tout"** dans la galerie
 - Reçoit un rappel push 1h avant sa visite (si notifications acceptées)
 - **Ajoute son créneau à son calendrier** (natif Android)
@@ -204,8 +216,9 @@ L'app est **"consumption-only" (reader app)** : elle ne vend **aucun** bien ou s
 **Accès** : lien unique, QR code ou code dossier ; pas de compte ; **au 1er accès, consentement** (prénom + nom visibles des autres visiteurs). Entrée dédiée « Je suis intervenant », distincte de « Je rends visite », si le rôle Intervenant est activé sur l'espace.
 
 **Onglets** :
-- **Calendrier** : vue partagée ; "⚡ Prochaine disponibilité" ; clic jour → créneaux + accès Nouvelles du jour
+- **Calendrier** : vue partagée ; "⚡ Prochaine disponibilité" ; clic jour → créneaux + accès Nouvelles du jour ; jour d'hospitalisation signalé par un popup dédié (picto 🏥) distinct du popup générique « Jour non disponible » *(NOUVEAU depuis v1.10, §3.4)*
 - **Créneaux** : liste du jour ; **noms (prénom + nom) visibles** (transparence assumée) ; "+ Réserver" ; "✏️ Modifier" (PIN) ; "📰 Nouvelles du jour" ; créneaux bloqués par une intervention signalés par un bandeau dédié
+- **Planning du jour** *(enrichi depuis v1.10)* : message « Aucune visite prévue ce jour » cliquable (ouvre les créneaux) ; bouton « Ajouter une Visite » depuis le popup d'une visite existante ; taper le créneau libre d'un autre visiteur réserve directement une place ; places restantes affichées
 - **Nouvelles du jour** (§3.7)
 - **Entraide** (§3.8, 6 catégories)
 - **Souvenirs** : voir/ uploader ; "Sélectionner tout" / "Télécharger tout" ; lightbox ; **suppression de ses propres photos** (PIN ; PIN de session si pas de résa)
@@ -216,6 +229,10 @@ L'app est **"consumption-only" (reader app)** : elle ne vend **aucun** bien ou s
 1. Sélection créneau
 2. Modal : Prénom* / **Nom*** / Téléphone (optionnel) / **PIN 4 chiffres** (clavier intégré)
 3. Confirmation : récap + affichage PIN (à noter) + **"📅 Ajouter à mon calendrier"** (Intent natif Android + fallback Google Calendar) + option notifications
+
+**Réservations récurrentes** *(NOUVEAU depuis v1.10)* : bouton « 🔁 Réservations récurrentes » dans Mon Compte → Mes réservations (admin et visiteur) — choix d'un ou plusieurs jours de semaine, d'un créneau et d'une plage de dates ; création en série d'une réservation par date correspondante, en réutilisant le format et les codes d'erreur d'une réservation classique ; les dates indisponibles sont ignorées et rapportées sans faire échouer le reste du lot.
+
+**Popup jour d'hospitalisation** *(NOUVEAU depuis v1.10)* : toucher (tap ou appui long, Hebdo ou Mensuel) la date d'hospitalisation ouvre un popup dédié (picto 🏥, titre « Hospitalisation de [prénom] »), remplaçant le popup générique « 🚫 Jour non disponible » — appliqué admin et visiteur ; les autres jours bloqués gardent le popup générique.
 
 ### 3.5 Modification / Annulation
 - "✏️ Modifier" sur créneau occupé → PIN → modifier (jour/créneau/infos) ou annuler
@@ -244,8 +261,8 @@ Compte-rendu court après le passage d'un visiteur, pour rassurer les proches ab
 - Chaque besoin : **catégorie** — **6 catégories depuis v1.5** : 🍽️ Repas / 👕 Affaires / 🛒 Courses / 🚗 Transport / 🗂️ Administratif / 💡 Autre (le PRD v1.4 n'en prévoyait que 4, sans Transport ni Administratif) — + **statut** (ouvert → pris en charge → fait, avec fermeture automatique si non pris en charge après sa date)
 - Un visiteur clique **« Je m'en occupe »** (identifié prénom + nom, PIN pour se désinscrire)
 - **Désengagement généralisé** *(NOUVEAU depuis v1.8)* : un besoin pris en charge peut être libéré par la personne qui l'a pris (« Me désengager », depuis « Modifier le besoin » ou par appui long sur sa carte), quelle que soit la catégorie — auparavant réservé à Transport
-- **Besoin de relais ponctuel** *(NOUVEAU depuis v1.9)* : catégorie technique dédiée (🆘), non sélectionnable dans la grille de création manuelle — publiée uniquement depuis Mon Compte (admin et visiteur) avec période d'indisponibilité, message pré-rempli modifiable et ciblage de l'audience à la publication (tous les proches ou une sélection précise) ; alerte popup à la connexion des personnes ciblées, avec « Je m'en occupe » (ouvre directement la prise en charge) ou « Pas cette fois » (masque l'alerte sans fermer le besoin) ; l'onglet « SOS Relais » du filtre par catégorie n'apparaît que s'il existe un besoin relais visible pour la personne connectée
-- Catégorie **Courses devenue liste d'articles** *(NOUVEAU depuis v1.8, affiné en v1.9)* : articles ajoutés un par un à la création, cochables en temps réel par tout visiteur ou admin via « 👁️ Aperçu de la liste » tant que personne n'a pris le besoin en charge (dispatch libre). Chaque article coché porte l'identité de qui l'a coché et ne peut être décoché que par cette même personne. Le bloc du besoin cumule tous les contributeurs (« X s'en occupe » / « X, Y et Z s'en occupent », suffixe « … partiellement » tant que la liste n'est pas intégralement cochée). Cliquer « Je m'en occupe » verrouille le cochage au preneur ; si la liste était déjà partiellement cochée, les articles restants sont automatiquement cochés à son nom et le besoin passe directement en « Fait ». Cocher le dernier article (à la main ou automatiquement) ferme le besoin, décocher un article après coup le rouvre
+- **Besoin de relais ponctuel** *(NOUVEAU depuis v1.9)* : catégorie technique dédiée (🆘), non sélectionnable dans la grille de création manuelle — publiée uniquement depuis Mon Compte, **réservé à l'admin depuis v1.10** (le bloc a été retiré du compte visiteur, voir §2), avec période d'indisponibilité, message pré-rempli modifiable et ciblage de l'audience à la publication (tous les proches ou une sélection précise) ; alerte popup à la connexion des personnes ciblées, avec « Je m'en occupe » (ouvre directement la prise en charge) ou « Pas cette fois » (masque l'alerte sans fermer le besoin) ; l'onglet « SOS Relais » du filtre par catégorie n'apparaît que s'il existe un besoin relais visible pour la personne connectée
+- Catégorie **Courses devenue liste d'articles** *(NOUVEAU depuis v1.8, affiné en v1.9, corrigé en v1.10)* : articles ajoutés un par un à la création, cochables en temps réel par tout visiteur ou admin via « 👁️ Aperçu de la liste » tant que personne n'a pris le besoin en charge (dispatch libre). Chaque article coché porte l'identité de qui l'a coché et ne peut être décoché que par cette même personne. Le bloc du besoin cumule tous les contributeurs (« X s'en occupe » / « X, Y et Z s'en occupent », suffixe « … partiellement » tant que la liste n'est pas intégralement cochée). Cliquer « Je m'en occupe » verrouille le cochage au preneur, **sans cochage automatique** (le comportement introduit en v1.9, qui cochait les articles restants et clôturait le besoin automatiquement, a été retiré en v1.10). Cocher le dernier article (toujours à la main) ferme le besoin, décocher un article après coup le rouvre
 - Catégorie **Administratif** : checklists suggérées prêtes à publier en bloc — **bibliothèque passée à 11 modèles depuis v1.8** (bibliothèque complète pour l'admin, sous-ensemble marqué partageable pour les visiteurs/intervenants), dont **deux modèles réservés au proche aidant** (« Congé proche aidant », « Répit aidant »), visibles uniquement dans Mon Compte → Checklist personnelle ; import via un **assistant séquentiel** *(NOUVEAU depuis v1.8)* demandant échéance → urgence → précision libre item par item
 - **Génération de courriers administratifs** *(NOUVEAU depuis v1.8)* : certains items de checklist (demande employeur, autorisation de soins pour un enfant, attestation d'autorité parentale, courrier école/crèche, déclaration mutuelle/CPAM, procuration bancaire, absence pour hospitalisation d'un proche, déclaration de sinistre) affichent un bouton « ✉️ Préparer le courrier » : popup de remplissage des champs obligatoires, aperçu fidèle à une lettre administrative réelle, export Word (.doc) ou partage par email. Chaque courrier généré est tracé dans un nouveau bouton « 📄 Mes documents » (modifiable, supprimable, retéléchargeable), qui liste aussi les listes de courses associées à un besoin Courses
 - Catégorie **Transport** *(NOUVEAU depuis v1.4 — revient sur l'exclusion initiale)* : dates/heures aller-retour, adresses, proposition d'horaire par la personne qui prend en charge
