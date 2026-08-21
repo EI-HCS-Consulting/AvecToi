@@ -329,6 +329,21 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [checklistWizardStep, setChecklistWizardStep] = useState(0);
   const [checklistWizardData, setChecklistWizardData] = useState<Record<string, ChecklistWizardFields>>({});
   const [checklistWizardDLCalMonth, setChecklistWizardDLCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
+  // Destination(s) du lot à publier — au moins une des deux doit rester
+  // cochée (voir toggleChecklistPublishWall/Mine) : Mur d'Entraide (tasks),
+  // Mes Checklists (personal_checklist_items), ou les deux en même temps —
+  // dans ce dernier cas les lignes sont liées par task_id (voir
+  // publishChecklistWizard) pour que le statut reste synchronisé (même
+  // mécanisme que syncPersonalChecklistStatus, déjà utilisé ailleurs).
+  const [checklistPublishToWall, setChecklistPublishToWall] = useState(true);
+  const [checklistPublishToMine, setChecklistPublishToMine] = useState(false);
+  // Après suppression d'un besoin lié à une checklist perso (task_id), s'il
+  // reste des lignes personal_checklist_items pointant vers ce(s) besoin(s)
+  // supprimé(s), propose de les supprimer aussi plutôt que de les laisser
+  // orphelines (task_id repassé à null par la contrainte FK "on delete set
+  // null", voir supabase/migrations/20260717_personal_checklist_items.sql).
+  const [deleteLinkedPersonalTarget, setDeleteLinkedPersonalTarget] = useState<string[] | null>(null);
+  const [deleteLinkedPersonalSaving, setDeleteLinkedPersonalSaving] = useState(false);
 
   // Popup "Créer une nouvelle checklist" (perso, hors templates) — ouvert
   // depuis le popup de choix ci-dessus (voir openCustomChecklistModal),
@@ -790,6 +805,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setChecklistChecked(initial);
     setChecklistCustomItems([]);
     setChecklistItemDraft("");
+    setChecklistPublishToWall(true);
+    setChecklistPublishToMine(false);
     setChecklistWizardList([]);
     setChecklistWizardStep(0);
     setChecklistWizardData({});
@@ -834,6 +851,22 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     return { prenom: "", nom: "", pin: "" };
   }
 
+  // Cocher "Mur d'Entraide" ne bloque le titre déjà publié que si cette
+  // destination est effectivement choisie — un import réservé à "Mes
+  // Checklists" n'a pas à se soucier des doublons publics (même logique que
+  // isDuplicateImportTitle dans MyChecklist.tsx).
+  function findDuplicateAdminTaskIfWall(title: string): Task | undefined {
+    return checklistPublishToWall ? findDuplicateAdminTask(title) : undefined;
+  }
+
+  // Au moins une destination doit rester cochée.
+  function toggleChecklistPublishWall() {
+    setChecklistPublishToWall((prev) => (prev && !checklistPublishToMine ? prev : !prev));
+  }
+  function toggleChecklistPublishMine() {
+    setChecklistPublishToMine((prev) => (prev && !checklistPublishToWall ? prev : !prev));
+  }
+
   // Fige la sélection en cours en liste d'assistant séquentiel et fait
   // passer le popup en mode "un item à la fois" (précision → échéance →
   // urgent) — voir ChecklistWizardEntry.
@@ -843,9 +876,9 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     const list: ChecklistWizardEntry[] = [
       ...items
         .map((item, i) => ({ key: String(i), item }))
-        .filter(({ key, item }) => checklistChecked[Number(key)] && !findDuplicateAdminTask(item.title)),
+        .filter(({ key, item }) => checklistChecked[Number(key)] && !findDuplicateAdminTaskIfWall(item.title)),
       ...checklistCustomItems
-        .filter((title) => !findDuplicateAdminTask(title))
+        .filter((title) => !findDuplicateAdminTaskIfWall(title))
         .map((title, idx) => ({ key: `custom-${idx}`, item: { title, description: "", sharedWithVisitors: true } as ChecklistItem })),
     ];
     if (!list.length) return;
@@ -881,45 +914,106 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
   function checklistWizardBack() {
     if (checklistWizardStep === 0) {
+      // "Retour" au premier item renvoie directement à la liste des
+      // checklists suggérées (checklistPicker), pas à l'écran de sélection
+      // des items d'un contexte — cet écran intermédiaire est déjà validé en
+      // passant "Suivant" pour arriver ici.
       setChecklistWizardList([]);
+      setChecklistContext(null);
       return;
     }
     setChecklistWizardStep((s) => s - 1);
   }
 
   async function publishChecklistWizard(data: Record<string, ChecklistWizardFields> = checklistWizardData) {
-    if (!checklistWizardList.length) return;
+    if (!checklistWizardList.length || !checklistContext) return;
+    if (!checklistPublishToWall && !checklistPublishToMine) return;
     setChecklistSaving(true);
     const author = await currentAuthor();
-    const batchId = Crypto.randomUUID();
-    const rows = [];
-    for (const { key, item } of checklistWizardList) {
-      const fields = data[key] ?? { dateLimite: "", urgent: !!item.urgent, detail: "" };
-      const detail = fields.detail.trim();
-      const description = [detail ? `Précision : ${detail}` : "", checklistItemDescription(item)]
-        .filter(Boolean)
-        .join("\n\n");
-      rows.push({
-        space_id: spaceId,
-        title: item.title,
-        description,
-        category: item.category ?? "administratif",
-        status: "ouvert" as const,
-        created_by: isAdmin ? "admin" : "visiteur",
-        author_prenom: author.prenom || null,
-        author_nom: author.nom || null,
-        author_pin: author.pin || null,
-        date_limite: fields.dateLimite || null,
-        urgent: fields.urgent,
-        checklist_batch_id: batchId,
+
+    // task_id par item — reste à null pour tous si le lot n'est pas publié
+    // sur le Mur d'Entraide (checklistPublishToWall === false) : aucune
+    // ligne tasks n'est créée, l'item n'existe alors que dans Mes Checklists.
+    let taskIds: (string | null)[] = checklistWizardList.map(() => null);
+    if (checklistPublishToWall) {
+      const batchId = Crypto.randomUUID();
+      const rows = checklistWizardList.map(({ key, item }) => {
+        const fields = data[key] ?? { dateLimite: "", urgent: !!item.urgent, detail: "" };
+        const detail = fields.detail.trim();
+        const description = [detail ? `Précision : ${detail}` : "", checklistItemDescription(item)]
+          .filter(Boolean)
+          .join("\n\n");
+        return {
+          space_id: spaceId,
+          title: item.title,
+          description,
+          category: item.category ?? "administratif",
+          status: "ouvert" as const,
+          created_by: isAdmin ? "admin" : "visiteur",
+          author_prenom: author.prenom || null,
+          author_nom: author.nom || null,
+          author_pin: author.pin || null,
+          date_limite: fields.dateLimite || null,
+          urgent: fields.urgent,
+          checklist_batch_id: batchId,
+        };
       });
+      const { data: inserted, error } = await supabase.from("tasks").insert(rows).select("id");
+      if (error || !inserted) {
+        setChecklistSaving(false);
+        Alert.alert("Erreur", "Impossible d'ajouter la checklist : " + (error?.message ?? ""));
+        return;
+      }
+      taskIds = inserted.map((row: { id: string }) => row.id);
     }
-    const { data: inserted, error } = await supabase.from("tasks").insert(rows).select("id");
+
+    if (checklistPublishToMine) {
+      const personalRows = checklistWizardList.map(({ key, item }, idx) => {
+        // personal_checklist_items n'a pas de colonne description : la
+        // précision saisie va dans le titre si le lot n'est pas aussi publié
+        // sur le Mur (sinon elle vit déjà dans tasks.description).
+        const fields = data[key] ?? { dateLimite: "", urgent: !!item.urgent, detail: "" };
+        const detail = !checklistPublishToWall ? fields.detail.trim() : "";
+        return {
+          space_id: spaceId,
+          owner_prenom: author.prenom,
+          owner_nom: author.nom,
+          owner_pin: author.pin,
+          title: detail ? `${item.title} — ${detail}` : item.title,
+          status: "a_faire" as const,
+          task_id: taskIds[idx],
+          checklist_context: checklistContext,
+          custom_checklist_name: null,
+          date_limite: fields.dateLimite || null,
+          urgent: fields.urgent,
+        };
+      });
+      const pieceRows = checklistWizardList.flatMap(({ item }) =>
+        (item.piecesRequises ?? []).map((piece) => ({
+          space_id: spaceId,
+          owner_prenom: author.prenom,
+          owner_nom: author.nom,
+          owner_pin: author.pin,
+          title: piece,
+          status: "a_faire" as const,
+          task_id: null,
+          checklist_context: checklistContext,
+          custom_checklist_name: item.title,
+          date_limite: null,
+          urgent: false,
+        })),
+      );
+      const { error: personalError } = await supabase
+        .from("personal_checklist_items")
+        .insert([...personalRows, ...pieceRows]);
+      if (personalError) {
+        setChecklistSaving(false);
+        Alert.alert("Erreur", "Impossible d'ajouter à Mes Checklists : " + personalError.message);
+        return;
+      }
+    }
+
     setChecklistSaving(false);
-    if (error) {
-      Alert.alert("Erreur", "Impossible d'ajouter la checklist : " + error.message);
-      return;
-    }
     setChecklistContext(null);
     setChecklistPicker(false);
     setChecklistCustomItems([]);
@@ -932,7 +1026,9 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     // sinon on retombe sur "Tous" pour que le lot entier reste visible.
     const batchCategories = new Set(checklistWizardList.map(({ item }) => item.category ?? "administratif"));
     setActiveCat(batchCategories.size === 1 ? [...batchCategories][0] : null);
-    triggerBatchUndo(inserted?.map((r) => r.id) ?? [], checklistWizardList.length);
+    if (checklistPublishToWall) {
+      triggerBatchUndo(taskIds.filter((id): id is string => !!id), checklistWizardList.length);
+    }
     loadTasks();
   }
 
@@ -1352,28 +1448,55 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // autres — ils restent visibles pour leur auteur avec un bandeau rouge.
   // Utilisé par les 3 flux de suppression (unitaire, lot checklist, sélection
   // multiple), qui peuvent chacun mélanger les deux cas.
-  async function deleteOrSoftDeleteTasks(list: Task[]): Promise<{ error?: string }> {
-    const mine = list.filter((t) => t.author_pin === "ADMIN");
-    const others = list.filter((t) => t.author_pin !== "ADMIN");
+  // "mine" = l'auteur du besoin est la session courante (admin qui a publié
+  // lui-même, ou visiteur qui supprime son propre besoin) → suppression
+  // définitive immédiate. "others" = l'admin supprime le besoin de
+  // quelqu'un d'autre → suppression "en douceur" (deleted_by_admin) pour que
+  // son auteur garde le bandeau rouge et puisse finaliser lui-même (voir
+  // confirmSelfDeleteTask). Retourne les id réellement supprimés en dur,
+  // pour vérifier ensuite s'il reste des personal_checklist_items liées
+  // (voir checkLinkedPersonalItems).
+  async function deleteOrSoftDeleteTasks(list: Task[]): Promise<{ error?: string; hardDeletedIds: string[] }> {
+    const isMine = (t: Task) => (isAdmin ? t.author_pin === "ADMIN" : isAuthor(t));
+    const mine = list.filter(isMine);
+    const others = list.filter((t) => !isMine(t));
 
     if (mine.length) {
       const toRemove = mine.flatMap((t) => [t.photo, t.claimed_photo].filter((f): f is string => !!f));
       if (toRemove.length) await supabase.storage.from(PHOTO_BUCKET).remove(toRemove.map((f) => `${spaceId}/${f}`));
       const { error } = await supabase.from("tasks").delete().in("id", mine.map((t) => t.id));
-      if (error) return { error: error.message };
+      if (error) return { error: error.message, hardDeletedIds: [] };
     }
     if (others.length) {
       const { error } = await supabase.from("tasks").update({ deleted_by_admin: true }).in("id", others.map((t) => t.id));
-      if (error) return { error: error.message };
+      if (error) return { error: error.message, hardDeletedIds: [] };
     }
-    return {};
+    return { hardDeletedIds: mine.map((t) => t.id) };
+  }
+
+  // La suppression d'un besoin (tasks, "on delete set null") ne supprime pas
+  // les personal_checklist_items liées par task_id — elles survivent en
+  // privé avec task_id remis à null. Propose de les supprimer aussi plutôt
+  // que de les laisser traîner silencieusement dans Mes Checklists.
+  async function checkLinkedPersonalItems(taskIds: string[]) {
+    if (!taskIds.length) return;
+    const { data } = await supabase.from("personal_checklist_items").select("id").in("task_id", taskIds);
+    if (data && data.length) setDeleteLinkedPersonalTarget(data.map((r) => r.id));
+  }
+
+  async function confirmDeleteLinkedPersonal() {
+    if (!deleteLinkedPersonalTarget) return;
+    setDeleteLinkedPersonalSaving(true);
+    await supabase.from("personal_checklist_items").delete().in("id", deleteLinkedPersonalTarget);
+    setDeleteLinkedPersonalSaving(false);
+    setDeleteLinkedPersonalTarget(null);
   }
 
   async function confirmDeleteTask() {
     if (!deleteTaskTarget) return;
     const t = deleteTaskTarget;
     setDeleteTaskSaving(true);
-    const { error } = await deleteOrSoftDeleteTasks([t]);
+    const { error, hardDeletedIds } = await deleteOrSoftDeleteTasks([t]);
     setDeleteTaskSaving(false);
     setDeleteTaskTarget(null);
     if (error) {
@@ -1390,6 +1513,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       );
       if (siblings.length) setDeleteBatchTarget({ batchId: t.checklist_batch_id, siblings });
     }
+    if (hardDeletedIds.length) await checkLinkedPersonalItems(hardDeletedIds);
     loadTasks();
   }
 
@@ -1397,7 +1521,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     if (!deleteBatchTarget) return;
     const siblings = deleteBatchTarget.siblings;
     setDeleteBatchSaving(true);
-    const { error } = await deleteOrSoftDeleteTasks(siblings);
+    const { error, hardDeletedIds } = await deleteOrSoftDeleteTasks(siblings);
     setDeleteBatchSaving(false);
     setDeleteBatchTarget(null);
     if (error) {
@@ -1405,6 +1529,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       return;
     }
     showToast("Liste supprimée");
+    if (hardDeletedIds.length) await checkLinkedPersonalItems(hardDeletedIds);
     loadTasks();
   }
 
@@ -1422,6 +1547,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       return;
     }
     showToast("Besoin supprimé définitivement");
+    await checkLinkedPersonalItems([t.id]);
     loadTasks();
   }
 
@@ -1445,7 +1571,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     const selected = tasks.filter((t) => selectedTaskIds.has(t.id));
     if (!selected.length) return;
     setBulkDeleteSaving(true);
-    const { error } = await deleteOrSoftDeleteTasks(selected);
+    const { error, hardDeletedIds } = await deleteOrSoftDeleteTasks(selected);
     setBulkDeleteSaving(false);
     setBulkDeleteConfirm(false);
     if (error) {
@@ -1454,6 +1580,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     }
     showToast(`${selected.length} besoin${selected.length > 1 ? "s" : ""} supprimé${selected.length > 1 ? "s" : ""}`);
     exitSelection();
+    if (hardDeletedIds.length) await checkLinkedPersonalItems(hardDeletedIds);
     // Même logique que confirmDeleteTask : s'il reste d'autres items ouverts
     // des checklists groupées touchées par la sélection, proposer de les
     // supprimer aussi (un seul popup pour toutes les checklists concernées).
@@ -1974,6 +2101,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           {!isAdmin && t.deleted_by_admin && isAuthor(t) && (
             <TouchableOpacity onPress={() => setSelfDeleteTaskTarget(t)} style={[styles.iconBtn, { borderColor: "rgba(233,69,96,0.3)" }]}>
               <Text style={{ fontSize: 11, color: C.danger }}>🗑️ Suppr. définitivement</Text>
+            </TouchableOpacity>
+          )}
+          {!isAdmin && !t.deleted_by_admin && isAuthor(t) && t.status !== "fait" && (
+            <TouchableOpacity onPress={() => deleteTask(t)} style={[styles.iconBtn, { borderColor: "rgba(233,69,96,0.3)" }]}>
+              <Text style={{ fontSize: 13, color: C.danger }}>🗑️</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -2951,9 +3083,9 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               // (qui inclut les déjà-publiés) empêchait le compte de jamais
               // atteindre le total dès qu'un item était déjà publié, figeant
               // le bouton sur "Tout cocher" sans effet visible.
-              const selectableCount = items.filter((item) => !findDuplicateAdminTask(item.title)).length;
-              const customCount = checklistCustomItems.filter((title) => !findDuplicateAdminTask(title)).length;
-              const checkedCount = items.filter((item, i) => checklistChecked[i] && !findDuplicateAdminTask(item.title)).length + customCount;
+              const selectableCount = items.filter((item) => !findDuplicateAdminTaskIfWall(item.title)).length;
+              const customCount = checklistCustomItems.filter((title) => !findDuplicateAdminTaskIfWall(title)).length;
+              const checkedCount = items.filter((item, i) => checklistChecked[i] && !findDuplicateAdminTaskIfWall(item.title)).length + customCount;
               const checkedTemplateCount = checkedCount - customCount;
               let runningIndex = -1;
               return (
@@ -2973,7 +3105,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                           runningIndex += 1;
                           const i = runningIndex;
                           const checked = !!checklistChecked[i];
-                          const dup = findDuplicateAdminTask(item.title);
+                          const dup = findDuplicateAdminTaskIfWall(item.title);
                           return (
                             <View key={i} style={[!!dup && { opacity: 0.55 }]}>
                               <TouchableOpacity
@@ -3058,8 +3190,37 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                     </TouchableOpacity>
                   </View>
 
+                  <Text style={[styles.fieldLabel, { color: C.gold }]}>Où publier cette checklist ?</Text>
+                  <TouchableOpacity style={styles.checklistItemRow} onPress={toggleChecklistPublishWall} activeOpacity={0.7}>
+                    <View
+                      style={[
+                        styles.checklistBox,
+                        { borderColor: checklistPublishToWall ? color : C.border, backgroundColor: checklistPublishToWall ? color : "transparent" },
+                      ]}
+                    >
+                      {checklistPublishToWall && <Text style={styles.checklistBoxMark}>✓</Text>}
+                    </View>
+                    <Text style={[styles.checklistItemTitle, { color: C.text }]}>📢 Sur le Mur d'Entraide (visible par les proches)</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.checklistItemRow} onPress={toggleChecklistPublishMine} activeOpacity={0.7}>
+                    <View
+                      style={[
+                        styles.checklistBox,
+                        { borderColor: checklistPublishToMine ? color : C.border, backgroundColor: checklistPublishToMine ? color : "transparent" },
+                      ]}
+                    >
+                      {checklistPublishToMine && <Text style={styles.checklistBoxMark}>✓</Text>}
+                    </View>
+                    <Text style={[styles.checklistItemTitle, { color: C.text }]}>🔒 Dans « Mes Checklists » (privé, personnel)</Text>
+                  </TouchableOpacity>
+
                   <Text style={[styles.publicNoticeText, { color: C.muted }]}>
-                    ℹ️ Cette checklist sera publiée dans le Mur d'Entraide et visible par tous les visiteurs de l'espace. L'échéance et l'urgence se règlent item par item à l'étape suivante.
+                    ℹ️ {checklistPublishToWall && checklistPublishToMine
+                      ? "Publiée sur le Mur d'Entraide et ajoutée à Mes Checklists, en restant liée : le statut se synchronise des deux côtés."
+                      : checklistPublishToWall
+                      ? "Publiée dans le Mur d'Entraide et visible par tous les visiteurs de l'espace."
+                      : "Ajoutée uniquement dans « Mes Checklists » (Mon Compte), privée."}
+                    {" "}L'échéance et l'urgence se règlent item par item à l'étape suivante.
                   </Text>
 
                   <View style={styles.sheetBtns}>
@@ -3813,6 +3974,19 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         saving={deleteBatchSaving}
         onCancel={() => setDeleteBatchTarget(null)}
         onConfirm={confirmDeleteBatch}
+        C={C}
+      />
+
+      <ConfirmModal
+        visible={!!deleteLinkedPersonalTarget}
+        icon="📋"
+        title="Supprimer aussi de Mes Checklists ?"
+        message="Ce besoin était aussi lié à un item personnel dans Mes Checklists. Le supprimer aussi, ou le garder en privé ?"
+        cancelLabel="Non, garder"
+        confirmLabel="Supprimer aussi"
+        saving={deleteLinkedPersonalSaving}
+        onCancel={() => setDeleteLinkedPersonalTarget(null)}
+        onConfirm={confirmDeleteLinkedPersonal}
         C={C}
       />
 
