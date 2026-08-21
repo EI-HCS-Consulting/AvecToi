@@ -1,6 +1,13 @@
 # PRD — AvecToi
-## Product Requirements Document v1.10
+## Product Requirements Document v1.11
 *Préparé pour Claude Code — Juin 2026, synchronisé avec l'application livrée en Juillet/Août 2026*
+
+> **Changelog v1.10 → v1.11**
+> - **Rôle Intervenant masqué en V1** *(21/08/2026, PR #291)* : le rôle reste défini dans ce PRD (§2, §3.9) comme référence produit pour une réintégration V2, mais n'est plus accessible nulle part dans l'application publiée (flag `INTERVENANT_ROLE_ENABLED` à `false`) — plus d'entrée « Je suis intervenant », plus de bascule d'activation admin, plus de « Planning des intervenants », plus de créneaux signalés/bloqués par une intervention. Code intact, archivé dans `Développement V2/` — voir §8, §10bis inchangés par ailleurs
+> - **Masquage des dernières traces admin** *(21/08/2026, PR #292)* : bloc « Intervenants » et sous-bloc « Soins planifiés » retirés de Paramètres → Règles/Histo côté admin ; les soins d'intervenants n'apparaissent plus dans la Chronologie
+> - **Calendrier Accueil unifié admin/visiteur** *(21/08/2026, PR #292)* : l'écran Accueil → Calendrier repose désormais sur un composant strictement commun aux deux rôles (§3.2, §3.3) — l'admin y perd la vue intervenants, le switch Visites/Soins et « Afficher mes créneaux » ; nouveau bouton « 📅 Créneaux » dans le Planning du jour pour réserver sans repasser par le calendrier ; email de confirmation désormais disponible par accompagnant, pas seulement pour le bénéficiaire principal (§3.4)
+> - **Sémantique de sélection du calendrier inversée** *(21/08/2026, PR #293)* : l'onglet bas « Accueil » conserve désormais le jour/mois/semaine déjà sélectionnés d'une visite à l'autre ; seul le bandeau « 📅 Calendrier » réinitialise sur la date du jour — comportement inverse du cycle précédent (§3.3)
+> - Détail exhaustif écran par écran : `Documentation/Documentation Fonctionnalités.docx` (généré depuis le code, mis à jour à chaque handoff)
 
 > **Changelog v1.9 → v1.10**
 > - **Réservations récurrentes** *(NOUVEAU)* : bouton « 🔁 Réservations récurrentes » dans Mon Compte → Mes réservations (admin **et** visiteur) — choix d'un ou plusieurs jours de semaine, d'un créneau et d'une plage de dates, création en série d'une réservation par date correspondante ; dates indisponibles ignorées et rapportées sans faire échouer le reste du lot — voir §3.4
@@ -120,7 +127,7 @@ Le nom **AvecToi** porte la promesse : la **présence auprès d'un proche** — 
 - Télécharge/upload des photos souvenirs ; **supprime n'importe quelle photo** (droits étendus)
 - **Publie et modère les Nouvelles du jour** (peut supprimer toute nouvelle)
 - **Crée des besoins d'entraide et modère le mur de soutien**
-- **Peut activer le rôle Intervenant pour son espace** et gérer les fiches des professionnels de soin (§2 Intervenant, §3.9)
+- **Peut activer le rôle Intervenant pour son espace** et gérer les fiches des professionnels de soin (§2 Intervenant, §3.9) — ⚠️ **rôle masqué dans l'app publiée depuis le 21/08/2026 (PR #291)**, bascule d'activation et écran dédié inaccessibles ; conservé ici comme référence produit pour une réintégration V2
 - Reçoit un email automatique à chaque annulation
 - **Prolonge ou déclenche la purge** de l'espace (§10bis — fenêtre 30 jours, renouvelable)
 - **Accède depuis Mon Compte aux boutons « 🩺 Fiche patient » et « 👥 Visiteurs »** *(NOUVEAU depuis v1.10)* : la fiche patient et la liste des visiteurs de l'espace (fiche au clic)
@@ -144,7 +151,7 @@ Le nom **AvecToi** porte la promesse : la **présence auprès d'un proche** — 
 - **Ajoute son créneau à son calendrier** (natif Android)
 - Peut recevoir une **alerte de recasage** si sa réservation a été automatiquement déplacée ou annulée suite à un changement de règles ou à une intervention prioritaire (§3.11)
 
-### Intervenant (accès gratuit, sous-mode du Visiteur) *(NOUVEAU depuis v1.4)*
+### Intervenant (accès gratuit, sous-mode du Visiteur) *(NOUVEAU depuis v1.4 — ⚠️ masqué en V1 depuis le 21/08/2026, PR #291)*
 - Professionnel de soin (infirmier·ère, kiné, aide à domicile…) — distinct d'un visiteur qui rend une visite personnelle
 - Fonctionnalité **désactivée par défaut** ; l'admin l'active pour son espace (§2 Admin, §3.9)
 - Rejoint l'espace via le **même lien/QR/code dossier** que les visiteurs, par une entrée dédiée « Je suis intervenant » (écran à deux modes : code dossier saisi ou lien préempli)
@@ -197,7 +204,7 @@ L'app est **"consumption-only" (reader app)** : elle ne vend **aucun** bien ou s
 
 ### 3.2 Interface Admin — Dashboard
 
-**Vue Calendrier** : calendrier mensuel (indicateurs dispo/partiel/complet) ; **bouton "⚡ Prochaine disponibilité"** ; **clic sur un jour → vue jour** (visiteurs + accès Nouvelles du jour) ; navigation mois.
+**Vue Calendrier** : calendrier mensuel (indicateurs dispo/partiel/complet) ; **bouton "⚡ Prochaine disponibilité"** ; **clic sur un jour → vue jour** (visiteurs + accès Nouvelles du jour) ; navigation mois. **Depuis le 21/08/2026 (PR #292), écran strictement commun avec le calendrier visiteur** (§3.3) — l'admin y perd le switch Visites/Soins et « Afficher mes créneaux » (spécifiques à l'ex-rôle Intervenant, masqué) ; nouveau bouton « 📅 Créneaux » dans le Planning du jour pour réserver directement.
 
 **Vue Jour** : créneaux du jour (heure, inscrits/max, noms) ; ajouter/modifier/supprimer une résa ; bloc nuitée si activée ; **bouton "📰 Nouvelles du jour"** pour cette date.
 
@@ -207,7 +214,7 @@ L'app est **"consumption-only" (reader app)** : elle ne vend **aucun** bien ou s
 
 **Entraide & Soutien (admin)** : crée/édite/supprime des besoins ; voit qui s'est attribué quoi ; modère le mur de soutien (voir §3.8).
 
-**Planning des intervenants (admin)** *(NOUVEAU depuis v1.4)* : écran dédié, non visible dans la barre d'onglets tant que le rôle Intervenant n'est pas activé — fiches des intervenants, planning journalier des interventions, ajout d'une intervention au nom d'un intervenant (voir §3.9).
+**Planning des intervenants (admin)** *(NOUVEAU depuis v1.4 — ⚠️ masqué en V1 depuis le 21/08/2026, PR #291)* : écran dédié, non visible dans la barre d'onglets tant que le rôle Intervenant n'est pas activé — fiches des intervenants, planning journalier des interventions, ajout d'une intervention au nom d'un intervenant (voir §3.9). Bloc « Intervenants » et sous-bloc « Soins planifiés » également retirés de Paramètres → Règles/Histo (PR #292).
 
 **Paramètres** : config espace, mode de soin (hospitalier/domicile), suspendre/réactiver nuitées, créneaux, mode d'affichage, photo patient, fiche médicale du patient, règles & notes, activation du rôle Intervenant, **gestion de la purge** (date prévue, prolonger, fermer/purger), support.
 
@@ -216,7 +223,7 @@ L'app est **"consumption-only" (reader app)** : elle ne vend **aucun** bien ou s
 **Accès** : lien unique, QR code ou code dossier ; pas de compte ; **au 1er accès, consentement** (prénom + nom visibles des autres visiteurs). Entrée dédiée « Je suis intervenant », distincte de « Je rends visite », si le rôle Intervenant est activé sur l'espace.
 
 **Onglets** :
-- **Calendrier** : vue partagée ; "⚡ Prochaine disponibilité" ; clic jour → créneaux + accès Nouvelles du jour ; jour d'hospitalisation signalé par un popup dédié (picto 🏥) distinct du popup générique « Jour non disponible » *(NOUVEAU depuis v1.10, §3.4)*
+- **Calendrier** : vue partagée ; "⚡ Prochaine disponibilité" ; clic jour → créneaux + accès Nouvelles du jour ; jour d'hospitalisation signalé par un popup dédié (picto 🏥) distinct du popup générique « Jour non disponible » *(NOUVEAU depuis v1.10, §3.4)*. **Depuis le 21/08/2026 (PR #292), composant strictement commun avec le calendrier admin** (§3.2). **Sélection du jour/vue** *(PR #293)* : l'onglet bas « Accueil » conserve le jour/mois/semaine déjà sélectionnés d'une visite à l'autre ; seul le bandeau « 📅 Calendrier » (accessible depuis Créneaux/Nuits/Infos/Partager) réinitialise sur la date du jour, tout mode confondu — sémantique inverse du cycle précédent
 - **Créneaux** : liste du jour ; **noms (prénom + nom) visibles** (transparence assumée) ; "+ Réserver" ; "✏️ Modifier" (PIN) ; "📰 Nouvelles du jour" ; créneaux bloqués par une intervention signalés par un bandeau dédié
 - **Planning du jour** *(enrichi depuis v1.10)* : message « Aucune visite prévue ce jour » cliquable (ouvre les créneaux) ; bouton « Ajouter une Visite » depuis le popup d'une visite existante ; taper le créneau libre d'un autre visiteur réserve directement une place ; places restantes affichées
 - **Nouvelles du jour** (§3.7)
@@ -229,6 +236,8 @@ L'app est **"consumption-only" (reader app)** : elle ne vend **aucun** bien ou s
 1. Sélection créneau
 2. Modal : Prénom* / **Nom*** / Téléphone (optionnel) / **PIN 4 chiffres** (clavier intégré)
 3. Confirmation : récap + affichage PIN (à noter) + **"📅 Ajouter à mon calendrier"** (Intent natif Android + fallback Google Calendar) + option notifications
+
+**Confirmation par email accompagnant** *(NOUVEAU depuis v1.11, PR #292)* : le champ email de confirmation, jusque-là réservé au bénéficiaire principal, est désormais disponible pour chaque accompagnant ajouté à la réservation.
 
 **Réservations récurrentes** *(NOUVEAU depuis v1.10)* : bouton « 🔁 Réservations récurrentes » dans Mon Compte → Mes réservations (admin et visiteur) — choix d'un ou plusieurs jours de semaine, d'un créneau et d'une plage de dates ; création en série d'une réservation par date correspondante, en réutilisant le format et les codes d'erreur d'une réservation classique ; les dates indisponibles sont ignorées et rapportées sans faire échouer le reste du lot.
 
@@ -274,6 +283,8 @@ Compte-rendu court après le passage d'un visiteur, pour rassurer les proches ab
 - Distinct des Nouvelles du jour (qui sont des comptes-rendus de visite)
 
 ### 3.9 Rôle Intervenant *(NOUVEAU depuis v1.4)*
+
+⚠️ **Section entière masquée dans l'app publiée depuis le 21/08/2026 (PR #291)** : rôle retiré derrière le flag `INTERVENANT_ROLE_ENABLED` (à `false`), plus aucune entrée « Je suis intervenant », bascule d'activation, écran « Planning des intervenants » ni créneau signalé/bloqué par une intervention. Section conservée telle quelle ci-dessous comme référence fonctionnelle pour une réintégration V2 (code archivé dans `Développement V2/`).
 
 Réservé aux professionnels de soin (infirmier·ère, kiné, aide à domicile…), désactivé par défaut sur chaque espace.
 
