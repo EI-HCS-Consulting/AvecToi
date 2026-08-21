@@ -3,6 +3,7 @@ import { useVisitorSpace } from "@/lib/VisitorContext";
 import { getSlotOccupancy, getInterventionOverlap, isSlotFullyPast } from "@/lib/slotUtils";
 import { metierLabel } from "@/lib/metiers";
 import { guessFrenchArticle } from "@/lib/frenchGender";
+import { INTERVENANT_ROLE_ENABLED } from "@/lib/featureFlags";
 import type { OtherSpaceIntervention } from "@/lib/useOtherSpaceInterventions";
 import type { Reservation } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
@@ -63,7 +64,12 @@ export default function VisitorSlotsList({
         const full = occ.length >= dayConfig.max_visitors_per_slot;
         const past = isSlotFullyPast(iso, slot);
         const mine = occ.find(isMine);
-        const intervention = getInterventionOverlap(reservations, iso, slot, dayConfig.slot_duration_minutes);
+        // Rôle Intervenant désactivé en V1 (lib/featureFlags.ts) — d'éventuels
+        // soins déjà en base (créés avant ce retrait) ne doivent plus
+        // apparaître ni bloquer les créneaux de visite.
+        const intervention = INTERVENANT_ROLE_ENABLED
+          ? getInterventionOverlap(reservations, iso, slot, dayConfig.slot_duration_minutes)
+          : undefined;
         const myInterventionHere = intervention && role === "intervenant" && intervention.intervenant_profile_id === intervenantProfileId;
         // Soin déjà pris ailleurs (autre espace patient, même intervenant) qui
         // chevauche ce créneau — n'a de sens que côté intervenant, et
