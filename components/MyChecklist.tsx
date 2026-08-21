@@ -627,6 +627,11 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     setPicker(false);
   }
 
+  function returnToImportPicker() {
+    setImportCtx(null);
+    setPicker(true);
+  }
+
   function toggleImportItem(i: number) {
     setImportChecked((prev) => ({ ...prev, [i]: !prev[i] }));
   }
@@ -1468,9 +1473,9 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
       </Modal>
 
       {/* ── MODAL : sélection des items d'un contexte à importer ────────── */}
-      <Modal visible={!!importCtx && !importWizardList.length} transparent animationType="fade" onRequestClose={() => !importSaving && setImportCtx(null)}>
+      <Modal visible={!!importCtx && !importWizardList.length} transparent animationType="fade" onRequestClose={() => !importSaving && returnToImportPicker()}>
         <View style={styles.overlay}>
-          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !importSaving && setImportCtx(null)} />
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !importSaving && returnToImportPicker()} />
           <View style={[styles.sheet, { backgroundColor: C.card, borderColor: importCtx ? CHECKLIST_COLORS[CHECKLIST_TEMPLATES[importCtx].colorKey] : C.accent }]}>
             {importCtx && (() => {
               const tpl = CHECKLIST_TEMPLATES[importCtx];
@@ -1595,7 +1600,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                   <View style={styles.sheetBtns}>
                     <TouchableOpacity
                       style={[styles.btnSecondary, { borderColor: C.border }]}
-                      onPress={() => setImportCtx(null)}
+                      onPress={returnToImportPicker}
                       disabled={importSaving}
                     >
                       <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Retour</Text>
