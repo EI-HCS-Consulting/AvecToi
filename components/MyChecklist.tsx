@@ -241,7 +241,14 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     setItems((prev) => prev.map((it) => (it.id === item.id ? { ...it, status: nextStatus } : it)));
     await supabase.from("personal_checklist_items").update({ status: nextStatus }).eq("id", item.id);
     if (item.task_id) {
-      await supabase.from("tasks").update({ status: nextStatus === "fait" ? "fait" : "ouvert" }).eq("id", item.task_id);
+      // Rayer côté Mes Checklists doit se refléter sur le Mur d'Entraide :
+      // statut Fait + "X s'en occupe" (claimed_by_*), pour que l'affichage
+      // du besoin lié reste cohérent avec celui d'un besoin coché depuis le
+      // Mur (voir markDone/adminSetStatus dans Entraide.tsx).
+      await supabase.from("tasks").update({
+        status: nextStatus === "fait" ? "fait" : "ouvert",
+        ...(nextStatus === "fait" ? { claimed_by_prenom: ownerPrenom, claimed_by_nom: ownerNom, claimed_by_pin: ownerPin } : {}),
+      }).eq("id", item.task_id);
     }
   }
 

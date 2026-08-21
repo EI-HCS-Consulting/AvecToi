@@ -799,18 +799,38 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   }
 
   function openChecklistContext(ctx: ChecklistContext) {
-    const items = CHECKLIST_TEMPLATES[ctx].groups.flatMap((g) => g.items);
-    const initial: Record<number, boolean> = {};
-    items.forEach((_, i) => { initial[i] = true; });
-    setChecklistChecked(initial);
-    setChecklistCustomItems([]);
-    setChecklistItemDraft("");
-    setChecklistPublishToWall(true);
-    setChecklistPublishToMine(false);
+    // Ferme d'abord checklistPicker (même contrainte Android que
+    // openChecklistFromForm/openCustomChecklistModal : ne jamais empiler
+    // deux <Modal>) — un picker resté "visible" sans jamais être retoggle
+    // pendant tout le flux devient injoignable une fois enseveli sous 2
+    // autres Modal, ce qui cassait le retour direct depuis le wizard (voir
+    // returnToChecklistPicker).
+    setChecklistPicker(false);
+    setTimeout(() => {
+      const items = CHECKLIST_TEMPLATES[ctx].groups.flatMap((g) => g.items);
+      const initial: Record<number, boolean> = {};
+      items.forEach((_, i) => { initial[i] = true; });
+      setChecklistChecked(initial);
+      setChecklistCustomItems([]);
+      setChecklistItemDraft("");
+      setChecklistPublishToWall(true);
+      setChecklistPublishToMine(false);
+      setChecklistWizardList([]);
+      setChecklistWizardStep(0);
+      setChecklistWizardData({});
+      setChecklistContext(ctx);
+    }, 300);
+  }
+
+  // Retour direct à la liste des checklists suggérées depuis n'importe quel
+  // écran du flux (sélection d'items ou wizard séquentiel) — referme l'écran
+  // courant puis rouvre explicitement checklistPicker (au lieu de compter
+  // sur son "visible" resté true en arrière-plan, injoignable après avoir
+  // été enseveli sous les Modal du dessus, voir openChecklistContext).
+  function returnToChecklistPicker() {
+    setChecklistContext(null);
     setChecklistWizardList([]);
-    setChecklistWizardStep(0);
-    setChecklistWizardData({});
-    setChecklistContext(ctx);
+    setTimeout(() => setChecklistPicker(true), 300);
   }
 
   function toggleChecklistItem(i: number) {
@@ -918,8 +938,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       // checklists suggérées (checklistPicker), pas à l'écran de sélection
       // des items d'un contexte — cet écran intermédiaire est déjà validé en
       // passant "Suivant" pour arriver ici.
-      setChecklistWizardList([]);
-      setChecklistContext(null);
+      returnToChecklistPicker();
       return;
     }
     setChecklistWizardStep((s) => s - 1);
@@ -1453,35 +1472,31 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // définitive immédiate. "others" = l'admin supprime le besoin de
   // quelqu'un d'autre → suppression "en douceur" (deleted_by_admin) pour que
   // son auteur garde le bandeau rouge et puisse finaliser lui-même (voir
-  // confirmSelfDeleteTask). Retourne les id réellement supprimés en dur,
-  // pour vérifier ensuite s'il reste des personal_checklist_items liées
-  // (voir checkLinkedPersonalItems).
-  async function deleteOrSoftDeleteTasks(list: Task[]): Promise<{ error?: string; hardDeletedIds: string[] }> {
+  // confirmSelfDeleteTask). Retourne les personal_checklist_items encore
+  // liées aux besoins supprimés en dur : cette recherche doit impérativement
+  // se faire AVANT le .delete() sur tasks, car la contrainte FK "on delete
+  // set null" (voir supabase/migrations/20260717_personal_checklist_items.sql)
+  // remettrait sinon task_id à null avant qu'on ait pu la lire.
+  async function deleteOrSoftDeleteTasks(list: Task[]): Promise<{ error?: string; linkedPersonalItemIds: string[] }> {
     const isMine = (t: Task) => (isAdmin ? t.author_pin === "ADMIN" : isAuthor(t));
     const mine = list.filter(isMine);
     const others = list.filter((t) => !isMine(t));
 
+    let linkedPersonalItemIds: string[] = [];
     if (mine.length) {
+      const mineIds = mine.map((t) => t.id);
+      const { data: linked } = await supabase.from("personal_checklist_items").select("id").in("task_id", mineIds);
+      if (linked && linked.length) linkedPersonalItemIds = linked.map((r) => r.id);
       const toRemove = mine.flatMap((t) => [t.photo, t.claimed_photo].filter((f): f is string => !!f));
       if (toRemove.length) await supabase.storage.from(PHOTO_BUCKET).remove(toRemove.map((f) => `${spaceId}/${f}`));
-      const { error } = await supabase.from("tasks").delete().in("id", mine.map((t) => t.id));
-      if (error) return { error: error.message, hardDeletedIds: [] };
+      const { error } = await supabase.from("tasks").delete().in("id", mineIds);
+      if (error) return { error: error.message, linkedPersonalItemIds: [] };
     }
     if (others.length) {
       const { error } = await supabase.from("tasks").update({ deleted_by_admin: true }).in("id", others.map((t) => t.id));
-      if (error) return { error: error.message, hardDeletedIds: [] };
+      if (error) return { error: error.message, linkedPersonalItemIds: [] };
     }
-    return { hardDeletedIds: mine.map((t) => t.id) };
-  }
-
-  // La suppression d'un besoin (tasks, "on delete set null") ne supprime pas
-  // les personal_checklist_items liées par task_id — elles survivent en
-  // privé avec task_id remis à null. Propose de les supprimer aussi plutôt
-  // que de les laisser traîner silencieusement dans Mes Checklists.
-  async function checkLinkedPersonalItems(taskIds: string[]) {
-    if (!taskIds.length) return;
-    const { data } = await supabase.from("personal_checklist_items").select("id").in("task_id", taskIds);
-    if (data && data.length) setDeleteLinkedPersonalTarget(data.map((r) => r.id));
+    return { linkedPersonalItemIds };
   }
 
   async function confirmDeleteLinkedPersonal() {
@@ -1496,7 +1511,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     if (!deleteTaskTarget) return;
     const t = deleteTaskTarget;
     setDeleteTaskSaving(true);
-    const { error, hardDeletedIds } = await deleteOrSoftDeleteTasks([t]);
+    const { error, linkedPersonalItemIds } = await deleteOrSoftDeleteTasks([t]);
     setDeleteTaskSaving(false);
     setDeleteTaskTarget(null);
     if (error) {
@@ -1513,7 +1528,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       );
       if (siblings.length) setDeleteBatchTarget({ batchId: t.checklist_batch_id, siblings });
     }
-    if (hardDeletedIds.length) await checkLinkedPersonalItems(hardDeletedIds);
+    if (linkedPersonalItemIds.length) setDeleteLinkedPersonalTarget(linkedPersonalItemIds);
     loadTasks();
   }
 
@@ -1521,7 +1536,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     if (!deleteBatchTarget) return;
     const siblings = deleteBatchTarget.siblings;
     setDeleteBatchSaving(true);
-    const { error, hardDeletedIds } = await deleteOrSoftDeleteTasks(siblings);
+    const { error, linkedPersonalItemIds } = await deleteOrSoftDeleteTasks(siblings);
     setDeleteBatchSaving(false);
     setDeleteBatchTarget(null);
     if (error) {
@@ -1529,7 +1544,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       return;
     }
     showToast("Liste supprimée");
-    if (hardDeletedIds.length) await checkLinkedPersonalItems(hardDeletedIds);
+    if (linkedPersonalItemIds.length) setDeleteLinkedPersonalTarget(linkedPersonalItemIds);
     loadTasks();
   }
 
@@ -1537,6 +1552,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     if (!selfDeleteTaskTarget) return;
     const t = selfDeleteTaskTarget;
     setSelfDeleteTaskSaving(true);
+    // Même contrainte que dans deleteOrSoftDeleteTasks : lire les
+    // personal_checklist_items liées AVANT le .delete(), car la FK "on
+    // delete set null" viderait sinon task_id avant qu'on ait pu le lire.
+    const { data: linked } = await supabase.from("personal_checklist_items").select("id").eq("task_id", t.id);
     const toRemove = [t.photo, t.claimed_photo].filter((f): f is string => !!f);
     if (toRemove.length) await supabase.storage.from(PHOTO_BUCKET).remove(toRemove.map((f) => `${spaceId}/${f}`));
     const { error } = await supabase.from("tasks").delete().eq("id", t.id);
@@ -1547,7 +1566,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       return;
     }
     showToast("Besoin supprimé définitivement");
-    await checkLinkedPersonalItems([t.id]);
+    if (linked && linked.length) setDeleteLinkedPersonalTarget(linked.map((r) => r.id));
     loadTasks();
   }
 
@@ -1571,7 +1590,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     const selected = tasks.filter((t) => selectedTaskIds.has(t.id));
     if (!selected.length) return;
     setBulkDeleteSaving(true);
-    const { error, hardDeletedIds } = await deleteOrSoftDeleteTasks(selected);
+    const { error, linkedPersonalItemIds } = await deleteOrSoftDeleteTasks(selected);
     setBulkDeleteSaving(false);
     setBulkDeleteConfirm(false);
     if (error) {
@@ -1580,7 +1599,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     }
     showToast(`${selected.length} besoin${selected.length > 1 ? "s" : ""} supprimé${selected.length > 1 ? "s" : ""}`);
     exitSelection();
-    if (hardDeletedIds.length) await checkLinkedPersonalItems(hardDeletedIds);
+    if (linkedPersonalItemIds.length) setDeleteLinkedPersonalTarget(linkedPersonalItemIds);
     // Même logique que confirmDeleteTask : s'il reste d'autres items ouverts
     // des checklists groupées touchées par la sélection, proposer de les
     // supprimer aussi (un seul popup pour toutes les checklists concernées).
@@ -2100,7 +2119,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           )}
           {!isAdmin && t.deleted_by_admin && isAuthor(t) && (
             <TouchableOpacity onPress={() => setSelfDeleteTaskTarget(t)} style={[styles.iconBtn, { borderColor: "rgba(233,69,96,0.3)" }]}>
-              <Text style={{ fontSize: 11, color: C.danger }}>🗑️ Suppr. définitivement</Text>
+              <Text style={{ fontSize: 13, color: C.danger }}>🗑️</Text>
             </TouchableOpacity>
           )}
           {!isAdmin && !t.deleted_by_admin && isAuthor(t) && t.status !== "fait" && (
@@ -3069,9 +3088,9 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       </Modal>
 
       {/* ── MODAL CHECKLIST : sélection des besoins d'un contexte ──────────── */}
-      <Modal visible={!!checklistContext && !checklistWizardList.length} transparent animationType="fade" onRequestClose={() => setChecklistContext(null)}>
+      <Modal visible={!!checklistContext && !checklistWizardList.length} transparent animationType="fade" onRequestClose={returnToChecklistPicker}>
         <View style={styles.centeredOverlay}>
-          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !checklistSaving && setChecklistContext(null)} />
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !checklistSaving && returnToChecklistPicker()} />
           <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: checklistContext ? CHECKLIST_COLORS[CHECKLIST_TEMPLATES[checklistContext].colorKey] : C.accent, maxHeight: "82%" }]}>
             {checklistContext && (() => {
               const tpl = CHECKLIST_TEMPLATES[checklistContext];
@@ -3226,7 +3245,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                   <View style={styles.sheetBtns}>
                     <TouchableOpacity
                       style={[styles.btnSecondary, { borderColor: C.border }]}
-                      onPress={() => setChecklistContext(null)}
+                      onPress={returnToChecklistPicker}
                     >
                       <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Retour</Text>
                     </TouchableOpacity>
