@@ -799,38 +799,34 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   }
 
   function openChecklistContext(ctx: ChecklistContext) {
-    // Ferme d'abord checklistPicker (même contrainte Android que
-    // openChecklistFromForm/openCustomChecklistModal : ne jamais empiler
-    // deux <Modal>) — un picker resté "visible" sans jamais être retoggle
-    // pendant tout le flux devient injoignable une fois enseveli sous 2
-    // autres Modal, ce qui cassait le retour direct depuis le wizard (voir
-    // returnToChecklistPicker).
+    // Le picker, l'écran de sélection d'items et le wizard séquentiel
+    // partagent désormais un seul <Modal> (voir plus bas) : passer de l'un à
+    // l'autre n'est qu'un changement de state JS, sans dismiss/reopen d'un
+    // Dialog natif Android — donc pas de setTimeout ici, contrairement à
+    // openChecklistFromForm/openCustomChecklistModal qui basculent vers un
+    // <Modal> réellement distinct.
     setChecklistPicker(false);
-    setTimeout(() => {
-      const items = CHECKLIST_TEMPLATES[ctx].groups.flatMap((g) => g.items);
-      const initial: Record<number, boolean> = {};
-      items.forEach((_, i) => { initial[i] = true; });
-      setChecklistChecked(initial);
-      setChecklistCustomItems([]);
-      setChecklistItemDraft("");
-      setChecklistPublishToWall(true);
-      setChecklistPublishToMine(false);
-      setChecklistWizardList([]);
-      setChecklistWizardStep(0);
-      setChecklistWizardData({});
-      setChecklistContext(ctx);
-    }, 300);
+    const items = CHECKLIST_TEMPLATES[ctx].groups.flatMap((g) => g.items);
+    const initial: Record<number, boolean> = {};
+    items.forEach((_, i) => { initial[i] = true; });
+    setChecklistChecked(initial);
+    setChecklistCustomItems([]);
+    setChecklistItemDraft("");
+    setChecklistPublishToWall(true);
+    setChecklistPublishToMine(false);
+    setChecklistWizardList([]);
+    setChecklistWizardStep(0);
+    setChecklistWizardData({});
+    setChecklistContext(ctx);
   }
 
   // Retour direct à la liste des checklists suggérées depuis n'importe quel
-  // écran du flux (sélection d'items ou wizard séquentiel) — referme l'écran
-  // courant puis rouvre explicitement checklistPicker (au lieu de compter
-  // sur son "visible" resté true en arrière-plan, injoignable après avoir
-  // été enseveli sous les Modal du dessus, voir openChecklistContext).
+  // écran du flux (sélection d'items ou wizard séquentiel) — même Modal
+  // unique que ci-dessus, changement de state JS pur.
   function returnToChecklistPicker() {
     setChecklistContext(null);
     setChecklistWizardList([]);
-    setTimeout(() => setChecklistPicker(true), 300);
+    setChecklistPicker(true);
   }
 
   function toggleChecklistItem(i: number) {
@@ -1507,6 +1503,34 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setDeleteLinkedPersonalTarget(null);
   }
 
+  // Un besoin supprimé peut déclencher DEUX popups de suivi (reste de la
+  // checklist groupée + item lié dans Mes Checklists) : chacun est un
+  // <ConfirmModal> = un <Modal> RN distinct, donc les ouvrir tous les deux
+  // dans le même rendu (même juste après avoir fermé le popup de
+  // suppression) reproduit la même course Android qu'entre checklistPicker/
+  // Context/Wizard — celui ouvert "en même temps" que l'autre devient
+  // injoignable. On les enchaîne : le popup "reste de la liste" passe
+  // d'abord (délai après la fermeture du popup de suppression), celui des
+  // items liés attend sa fermeture (voir closeDeleteBatch) avant de
+  // s'ouvrir à son tour, toujours avec un délai.
+  const pendingLinkedAfterBatch = useRef<string[] | null>(null);
+
+  function queueDeleteFollowups(batch: { batchId: string; siblings: Task[] } | null, linkedIds: string[]) {
+    if (batch) {
+      pendingLinkedAfterBatch.current = linkedIds.length ? linkedIds : null;
+      setTimeout(() => setDeleteBatchTarget(batch), 300);
+    } else if (linkedIds.length) {
+      setTimeout(() => setDeleteLinkedPersonalTarget(linkedIds), 300);
+    }
+  }
+
+  function closeDeleteBatch() {
+    setDeleteBatchTarget(null);
+    const pending = pendingLinkedAfterBatch.current;
+    pendingLinkedAfterBatch.current = null;
+    if (pending) setTimeout(() => setDeleteLinkedPersonalTarget(pending), 300);
+  }
+
   async function confirmDeleteTask() {
     if (!deleteTaskTarget) return;
     const t = deleteTaskTarget;
@@ -1522,13 +1546,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     // S'il reste d'autres items ouverts de la même checklist groupée,
     // proposer de les supprimer aussi (voir triggerBatchUndo : le bandeau
     // "Annuler" ne dure que 8s, insuffisant pour un ménage fait plus tard).
-    if (t.checklist_batch_id) {
-      const siblings = tasks.filter(
-        (x) => x.checklist_batch_id === t.checklist_batch_id && x.id !== t.id && x.status !== "fait",
-      );
-      if (siblings.length) setDeleteBatchTarget({ batchId: t.checklist_batch_id, siblings });
-    }
-    if (linkedPersonalItemIds.length) setDeleteLinkedPersonalTarget(linkedPersonalItemIds);
+    const siblings = t.checklist_batch_id
+      ? tasks.filter((x) => x.checklist_batch_id === t.checklist_batch_id && x.id !== t.id && x.status !== "fait")
+      : [];
+    queueDeleteFollowups(siblings.length ? { batchId: t.checklist_batch_id!, siblings } : null, linkedPersonalItemIds);
     loadTasks();
   }
 
@@ -1544,7 +1565,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       return;
     }
     showToast("Liste supprimée");
-    if (linkedPersonalItemIds.length) setDeleteLinkedPersonalTarget(linkedPersonalItemIds);
+    const pending = pendingLinkedAfterBatch.current;
+    pendingLinkedAfterBatch.current = null;
+    const allLinked = [...(pending ?? []), ...linkedPersonalItemIds];
+    if (allLinked.length) setTimeout(() => setDeleteLinkedPersonalTarget(allLinked), 300);
     loadTasks();
   }
 
@@ -1566,7 +1590,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       return;
     }
     showToast("Besoin supprimé définitivement");
-    if (linked && linked.length) setDeleteLinkedPersonalTarget(linked.map((r) => r.id));
+    if (linked && linked.length) {
+      const ids = linked.map((r) => r.id);
+      setTimeout(() => setDeleteLinkedPersonalTarget(ids), 300);
+    }
     loadTasks();
   }
 
@@ -1599,7 +1626,6 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     }
     showToast(`${selected.length} besoin${selected.length > 1 ? "s" : ""} supprimé${selected.length > 1 ? "s" : ""}`);
     exitSelection();
-    if (linkedPersonalItemIds.length) setDeleteLinkedPersonalTarget(linkedPersonalItemIds);
     // Même logique que confirmDeleteTask : s'il reste d'autres items ouverts
     // des checklists groupées touchées par la sélection, proposer de les
     // supprimer aussi (un seul popup pour toutes les checklists concernées).
@@ -1610,7 +1636,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           (x) => x.checklist_batch_id && batchIds.has(x.checklist_batch_id) && !selectedIds.has(x.id) && x.status !== "fait",
         )
       : [];
-    if (siblings.length) setDeleteBatchTarget({ batchId: [...batchIds][0], siblings });
+    queueDeleteFollowups(siblings.length ? { batchId: [...batchIds][0], siblings } : null, linkedPersonalItemIds);
     loadTasks();
   }
 
@@ -2275,7 +2301,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           </View>
         )}
 
-        {t.status === "ouvert" && t.category !== "transport" && (
+        {t.status === "ouvert" && !t.deleted_by_admin && t.category !== "transport" && (
           <TouchableOpacity
             style={[styles.claimBtn, { backgroundColor: C.accent }]}
             onPress={() => openClaim(t)}
@@ -2285,7 +2311,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           </TouchableOpacity>
         )}
 
-        {t.status === "ouvert" && t.category === "transport" && (
+        {t.status === "ouvert" && !t.deleted_by_admin && t.category === "transport" && (
           <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
             {!transportAnyLegClaimed(t) && (
               <TouchableOpacity
@@ -3038,59 +3064,39 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           Overlay en frère du sheet (jamais en ancêtre d'une ScrollView), même
           pattern que app/(admin)/settings.tsx MODAL CHRONOLOGIE : un
           TouchableOpacity ancêtre casse le geste de scroll sur Android. */}
-      <Modal visible={checklistPicker} transparent animationType="fade" onRequestClose={() => setChecklistPicker(false)}>
+      {/* ── MODAL CHECKLIST : flux unifié (choix du modèle → sélection des
+          besoins → assistant séquentiel) dans un seul <Modal> plutôt que 3
+          empilés — sur Android, fermer un <Modal> puis en rouvrir un autre
+          juste après (même via setTimeout, cf. openChecklistFromForm) ne
+          garantit pas que le nouveau Dialog natif s'affiche/réponde aux
+          touches si le précédent n'a pas fini sa propre animation de
+          fermeture. "Retour" ne rouvrait pas fiablement le picker malgré ce
+          dance close→setTimeout→open ; regrouper les 3 écrans dans un seul
+          Modal et ne faire varier que le contenu JS élimine cette course
+          pour de bon, sans dépendre d'un timing natif non garanti. */}
+      <Modal
+        visible={checklistPicker || !!checklistContext || checklistWizardList.length > 0}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (checklistSaving) return;
+          if (checklistWizardList.length > 0) { checklistWizardBack(); return; }
+          if (checklistContext) { returnToChecklistPicker(); return; }
+          setChecklistPicker(false);
+        }}
+      >
         <View style={styles.centeredOverlay}>
-          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setChecklistPicker(false)} />
-          <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.gold, maxHeight: "82%" }]}>
-            <Text style={[styles.sheetTitle, { color: C.text }]}>✨ Checklists suggérées</Text>
-            <Text style={[styles.checklistIntro, { color: C.muted }]}>
-              Choisis la situation qui correspond — tu pourras décocher ce qui ne s'applique pas avant d'ajouter.
-            </Text>
-            <TouchableOpacity
-              onPress={openCustomChecklistModal}
-              activeOpacity={0.8}
-              style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.gold, alignItems: "center", justifyContent: "center", marginBottom: 14 }}
-            >
-              <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.gold }}>+ Créer une nouvelle checklist</Text>
-            </TouchableOpacity>
-            <ScrollView style={styles.checklistPickerScroll} showsVerticalScrollIndicator nestedScrollEnabled>
-              {(Object.keys(CHECKLIST_TEMPLATES) as ChecklistContext[])
-                .filter((ctx) => !CHECKLIST_TEMPLATES[ctx].personalOnly)
-                .map((ctx) => {
-                const tpl = CHECKLIST_TEMPLATES[ctx];
-                const count = tpl.groups.reduce((n, g) => n + g.items.length, 0);
-                const color = CHECKLIST_COLORS[tpl.colorKey];
-                return (
-                  <TouchableOpacity
-                    key={ctx}
-                    style={[styles.checklistCard, { borderColor: color, backgroundColor: color + "14" }]}
-                    onPress={() => openChecklistContext(ctx)}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.checklistCardIcon}>{tpl.icon}</Text>
-                    <View style={{ flex: 1 }}>
-                      <Text style={[styles.checklistCardTitle, { color: C.text }]}>{tpl.label}</Text>
-                      <Text style={[styles.checklistCardCount, { color: C.muted }]}>{count} besoins suggérés</Text>
-                    </View>
-                    <Text style={[styles.checklistCardArrow, { color }]}>→</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </ScrollView>
-            <TouchableOpacity
-              onPress={() => setChecklistPicker(false)}
-              style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", marginTop: 10 }}
-            >
-              <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.muted }}>Annuler</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ── MODAL CHECKLIST : sélection des besoins d'un contexte ──────────── */}
-      <Modal visible={!!checklistContext && !checklistWizardList.length} transparent animationType="fade" onRequestClose={returnToChecklistPicker}>
-        <View style={styles.centeredOverlay}>
-          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !checklistSaving && returnToChecklistPicker()} />
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => {
+              if (checklistSaving) return;
+              if (checklistWizardList.length > 0) { checklistWizardBack(); return; }
+              if (checklistContext) { returnToChecklistPicker(); return; }
+              setChecklistPicker(false);
+            }}
+          />
+          {checklistContext && checklistWizardList.length === 0 && (
           <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: checklistContext ? CHECKLIST_COLORS[CHECKLIST_TEMPLATES[checklistContext].colorKey] : C.accent, maxHeight: "82%" }]}>
             {checklistContext && (() => {
               const tpl = CHECKLIST_TEMPLATES[checklistContext];
@@ -3261,17 +3267,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               );
             })()}
           </View>
-        </View>
-      </Modal>
+          )}
 
-      {/* ── MODAL CHECKLIST : assistant séquentiel (échéance / urgent /
-          précision / photo) un item à la fois — voir startChecklistWizard.
-          Overlay séparé plutôt qu'un pas de plus dans le sheet précédent :
-          évite d'empiler deux <Modal> visibles sur Android (même contrainte
-          que openChecklistFromForm). */}
-      <Modal visible={checklistWizardList.length > 0} transparent animationType="fade" onRequestClose={() => !checklistSaving && checklistWizardBack()}>
-        <View style={styles.centeredOverlay}>
-          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => !checklistSaving && checklistWizardBack()} />
           {checklistWizardList.length > 0 && checklistContext && (() => {
             const color = CHECKLIST_COLORS[CHECKLIST_TEMPLATES[checklistContext].colorKey];
             const entry = checklistWizardList[checklistWizardStep];
@@ -3375,6 +3372,52 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               </View>
             );
           })()}
+
+          {!checklistContext && checklistWizardList.length === 0 && checklistPicker && (
+          <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.gold, maxHeight: "82%" }]}>
+            <Text style={[styles.sheetTitle, { color: C.text }]}>✨ Checklists suggérées</Text>
+            <Text style={[styles.checklistIntro, { color: C.muted }]}>
+              Choisis la situation qui correspond — tu pourras décocher ce qui ne s'applique pas avant d'ajouter.
+            </Text>
+            <TouchableOpacity
+              onPress={openCustomChecklistModal}
+              activeOpacity={0.8}
+              style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.gold, alignItems: "center", justifyContent: "center", marginBottom: 14 }}
+            >
+              <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.gold }}>+ Créer une nouvelle checklist</Text>
+            </TouchableOpacity>
+            <ScrollView style={styles.checklistPickerScroll} showsVerticalScrollIndicator nestedScrollEnabled>
+              {(Object.keys(CHECKLIST_TEMPLATES) as ChecklistContext[])
+                .filter((ctx) => !CHECKLIST_TEMPLATES[ctx].personalOnly)
+                .map((ctx) => {
+                const tpl = CHECKLIST_TEMPLATES[ctx];
+                const count = tpl.groups.reduce((n, g) => n + g.items.length, 0);
+                const color = CHECKLIST_COLORS[tpl.colorKey];
+                return (
+                  <TouchableOpacity
+                    key={ctx}
+                    style={[styles.checklistCard, { borderColor: color, backgroundColor: color + "14" }]}
+                    onPress={() => openChecklistContext(ctx)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.checklistCardIcon}>{tpl.icon}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.checklistCardTitle, { color: C.text }]}>{tpl.label}</Text>
+                      <Text style={[styles.checklistCardCount, { color: C.muted }]}>{count} besoins suggérés</Text>
+                    </View>
+                    <Text style={[styles.checklistCardArrow, { color }]}>→</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <TouchableOpacity
+              onPress={() => setChecklistPicker(false)}
+              style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", marginTop: 10 }}
+            >
+              <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.muted }}>Annuler</Text>
+            </TouchableOpacity>
+          </View>
+          )}
         </View>
       </Modal>
 
@@ -3961,7 +4004,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         visible={!!deleteTaskTarget}
         title="Supprimer ce besoin ?"
         message={
-          deleteTaskTarget && deleteTaskTarget.author_pin !== "ADMIN" && deleteTaskTarget.author_prenom
+          deleteTaskTarget && deleteTaskTarget.author_pin !== "ADMIN" && deleteTaskTarget.author_prenom && !isAuthor(deleteTaskTarget)
             ? `${deleteTaskTarget.title}\n\n${deleteTaskTarget.author_prenom} recevra un message l'informant que sa publication a été supprimée.`
             : deleteTaskTarget?.title
         }
@@ -3991,7 +4034,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         cancelLabel="Non, garder"
         confirmLabel={deleteBatchTarget ? `Supprimer les ${deleteBatchTarget.siblings.length}` : "Supprimer"}
         saving={deleteBatchSaving}
-        onCancel={() => setDeleteBatchTarget(null)}
+        onCancel={closeDeleteBatch}
         onConfirm={confirmDeleteBatch}
         C={C}
       />
