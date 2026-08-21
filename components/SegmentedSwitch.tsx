@@ -34,6 +34,14 @@ export default function SegmentedSwitch({ value, onChange, leftLabel, rightLabel
   const trackWidthRef = useRef(0);
   const valueRef = useRef(value);
   useEffect(() => { valueRef.current = value; }, [value]);
+  // panResponder ci-dessous n'est créé qu'une fois (useRef) : ses callbacks
+  // figeraient sinon le `onChange` du tout premier rendu pour toute la vie
+  // du composant. On passe donc par une ref toujours à jour plutôt que par
+  // la closure directe, pour que le `onChange` déclenché au relâchement
+  // voie bien les props/état les plus récents de l'appelant (ex. le
+  // `selectedDay` fraîchement tapé dans le calendrier Accueil).
+  const onChangeRef = useRef(onChange);
+  useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
   const [leftLabelWidth, setLeftLabelWidth] = useState(0);
   const [rightLabelWidth, setRightLabelWidth] = useState(0);
   const naturalThumbWidth = leftLabelWidth > 0 && rightLabelWidth > 0
@@ -70,7 +78,7 @@ export default function SegmentedSwitch({ value, onChange, leftLabel, rightLabel
         const frac = Math.min(1, Math.max(0, dragStart.current + g.dx / w));
         const next = frac >= 0.5;
         Animated.spring(thumbX, { toValue: next ? 1 : 0, useNativeDriver: true, friction: 8 }).start();
-        onChange(next);
+        onChangeRef.current(next);
       },
       onPanResponderTerminate: () => {
         Animated.spring(thumbX, { toValue: valueRef.current ? 1 : 0, useNativeDriver: true, friction: 8 }).start();

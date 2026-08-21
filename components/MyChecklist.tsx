@@ -208,13 +208,16 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     return items.find((it) => it.title.trim().toLowerCase() === norm);
   }
 
-  // Anti-doublon pour les checklists suggérées (Entraide) : un item peut
-  // déjà exister soit comme besoin public (findDuplicateTask), soit déjà
-  // importé dans "Ma Checklist" sans avoir été publié (findExistingChecklistItem,
-  // jusqu'ici seulement branché sur le flux "Mes modèles" — un item importé
-  // en privé pouvait donc être réimporté indéfiniment et s'empiler).
+  // Anti-doublon pour les checklists suggérées (Entraide) : un item déjà
+  // importé dans "Ma Checklist" (findExistingChecklistItem) reste bloqué
+  // quel que soit le mode. Un item déjà publié comme besoin public
+  // (findDuplicateTask) n'est bloquant que si CET import est lui-même public
+  // (importPublic) — republier deux fois le même besoin sur le Mur
+  // d'Entraide n'a pas de sens, mais une checklist privée doit pouvoir
+  // reprendre l'intégralité des items suggérés même si certains sont déjà
+  // publiés en public : privé et public sont deux listes distinctes.
   function isDuplicateImportTitle(title: string): boolean {
-    return !!findDuplicateTask(title) || !!findExistingChecklistItem(title);
+    return (importPublic && !!findDuplicateTask(title)) || !!findExistingChecklistItem(title);
   }
 
   async function toggleItem(item: PersonalChecklistItem) {
@@ -1431,7 +1434,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                   <ScrollView style={styles.scroll} showsVerticalScrollIndicator nestedScrollEnabled>
                     {templateItems.map((item, i) => {
                       const checked = !!importChecked[i];
-                      const dupTask = findDuplicateTask(item.title);
+                      const dupTask = importPublic ? findDuplicateTask(item.title) : undefined;
                       const dup = dupTask || findExistingChecklistItem(item.title);
                       return (
                         <View key={i} style={!!dup && { opacity: 0.55 }}>
