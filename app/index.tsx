@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { themes } from "@/lib/themes";
 import { getVisitorSession } from "@/lib/visitorSession";
+import { INTERVENANT_ROLE_ENABLED } from "@/lib/featureFlags";
 
 const C = themes.dark;
 
@@ -63,13 +64,15 @@ export default function WelcomeScreen() {
           <Text style={styles.btnPrimaryText}>📅 Je rends visite</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.btnSecondary}
-          onPress={() => router.push("/auth/intervenant-entry")}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.btnSecondaryText}>🩺 Je suis intervenant</Text>
-        </TouchableOpacity>
+        {INTERVENANT_ROLE_ENABLED && (
+          <TouchableOpacity
+            style={styles.btnSecondary}
+            onPress={() => router.push("/auth/intervenant-entry")}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.btnSecondaryText}>🩺 Je suis intervenant</Text>
+          </TouchableOpacity>
+        )}
 
         <TouchableOpacity
           style={styles.btnSecondary}

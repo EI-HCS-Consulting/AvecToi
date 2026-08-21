@@ -30,6 +30,7 @@ import { resolvePlaceFromMapsUrl } from "@/lib/address";
 import { generateSlots, formatHourMinute } from "@/lib/slotUtils";
 import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
 import { canEnableIntervenants } from "@/lib/freemiumCap";
+import { INTERVENANT_ROLE_ENABLED } from "@/lib/featureFlags";
 import { RGPD_EXTENSION_DAYS, prolongSpace, isRgpdAlertActive, rgpdEarlyProlongMessage } from "@/lib/rgpd";
 import ConfirmModal from "@/components/ConfirmModal";
 import type { Theme } from "@/lib/themes";
@@ -2353,8 +2354,11 @@ export default function SettingsScreen() {
                   </TouchableOpacity>
                 </View>
 
-                {/* ── Bloc : Intervenants ───────────────────────────────────── */}
-                {space && (
+                {/* ── Bloc : Intervenants ─────────────────────────────────────
+                    Rôle retiré de la V1 (voir Développement V2/ à la racine
+                    du repo) : bloc masqué tant que INTERVENANT_ROLE_ENABLED
+                    est à false, code laissé en place pour la V2. ── */}
+                {INTERVENANT_ROLE_ENABLED && space && (
                   <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 16 }]}>
                     <Text style={[styles.fieldLabel, { color: C.orange, marginTop: 0 }]}>🩺 Planning des intervenants</Text>
                     <View style={styles.nightRow}>
