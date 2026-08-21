@@ -2,6 +2,7 @@ import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { useSpace } from "@/lib/SpaceContext";
 import { getSlotOccupancy, getInterventionOverlap, isSlotPast } from "@/lib/slotUtils";
 import { metierLabel } from "@/lib/metiers";
+import { INTERVENANT_ROLE_ENABLED } from "@/lib/featureFlags";
 import type { Reservation } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -47,7 +48,12 @@ export default function AdminSlotsList({
       {slots.map((slot) => {
         const occ = getSlotOccupancy(reservations, iso, slot);
         const full = occ.length >= slotConfig.max_visitors_per_slot;
-        const intervention = getInterventionOverlap(reservations, iso, slot, slotConfig.slot_duration_minutes);
+        // Rôle Intervenant désactivé en V1 (lib/featureFlags.ts) — d'éventuels
+        // soins déjà en base (créés avant ce retrait) ne doivent plus
+        // apparaître ni bloquer les créneaux de visite.
+        const intervention = INTERVENANT_ROLE_ENABLED
+          ? getInterventionOverlap(reservations, iso, slot, slotConfig.slot_duration_minutes)
+          : undefined;
         // Un créneau du jour même dont l'heure de début est déjà passée ne
         // peut plus être réservé (dayIsPast couvre les jours antérieurs).
         const slotPast = !dayIsPast && isSlotPast(iso, slot);

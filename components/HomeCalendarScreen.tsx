@@ -69,7 +69,7 @@ export default function HomeCalendarScreen({
   refreshReservations, getConfigForDate, getSlotsForDate, basePath, myPin, myPrenom, myNom, token, C,
 }: Props) {
   const router = useRouter();
-  const { keepSelection } = useLocalSearchParams<{ keepSelection?: string }>();
+  const { resetToday } = useLocalSearchParams<{ resetToday?: string }>();
   const [nextDispoModal, setNextDispoModal] = useState<{ date: Date; iso: string; slot: string } | null>(null);
   const [blockedDayModal, setBlockedDayModal] = useState<Date | null>(null);
   // Regroupement par date : évite de refiltrer le tableau `reservations`
@@ -106,21 +106,21 @@ export default function HomeCalendarScreen({
   const [calMonth, setCalMonth] = useState({ year: initialDay.getFullYear(), month: initialDay.getMonth() });
   const [weekAnchor, setWeekAnchor] = useState(() => getMonday(initialDay));
 
-  // Reste sur la date du jour à chaque retour via l'onglet bas "Accueil"
-  // (tabPress, sans param) — le curseur bleu (selectedDay, partagé via le
-  // contexte donc pas remis à zéro par un simple remount) doit
-  // systématiquement retrouver aujourd'hui plutôt que le dernier jour tapé.
-  // Sans effet en arrivant via l'onglet "📅 Calendrier" du bandeau
-  // SpaceHeader (keepSelection), qui doit au contraire retrouver le jour/vue
-  // déjà sélectionnés (ex. retour depuis la page des créneaux du jour).
+  // Conserve le jour/vue déjà sélectionnés à chaque retour via l'onglet bas
+  // "Accueil" (tabPress, sans param) — le curseur bleu (selectedDay, partagé
+  // via le contexte donc pas remis à zéro par un simple remount) doit
+  // retrouver le dernier jour tapé plutôt que systématiquement aujourd'hui.
+  // Seul un passage explicite par l'onglet "📅 Calendrier" du bandeau
+  // SpaceHeader (resetToday) revient sur la date du jour, tout mode confondu
+  // (Mensuel/Hebdo) — voir SpaceHeader.tsx.
   useFocusEffect(
     useCallback(() => {
-      if (keepSelection) return;
+      if (!resetToday) return;
       setSelectedDay(initialDay);
       setCalMonth({ year: initialDay.getFullYear(), month: initialDay.getMonth() });
       setWeekAnchor(getMonday(initialDay));
       // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [keepSelection, initialDay]),
+    }, [resetToday, initialDay]),
   );
 
   const flowRef = useRef<BookingFlowHandle>(null);
