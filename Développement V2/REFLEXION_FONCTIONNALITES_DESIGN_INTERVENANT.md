@@ -98,3 +98,12 @@ Aucun test sur appareil physique n'a jamais été possible pendant le développe
 ## 8. Pour la suite
 
 Voir `INSTRUCTIONS_CLAUDE_CODE_REINTEGRATION_V2.md` pour la marche à suivre technique, et `CODE_INTERVENANT_V1_COMPLET.md` pour le code source complet archivé.
+
+## 9. Deuxième vague de masquage (2026-08-21, suite à PR #291)
+
+Après la PR #291 (3 points d'entrée coupés), trois traces indirectes du rôle restaient visibles côté admin même sans accès possible au rôle lui-même — masquées dans la foulée, toujours dans `app/(admin)/settings.tsx` :
+- Le **bloc "Intervenants"** de la section Historique (rendu de `IntervenantsBlock`).
+- Le sous-bloc **"🩺 Soins planifiés"** de la section Historique (données de `loadSoinsPlanifies`).
+- Les entrées **"soin"** et **"resa_intervenant"** de la **frise Chronologie** (`chronoEvents`) — filtrées à la source (`chronoReservations.filter(r => r.type !== "Intervention" && !r.intervenant_profile_id)`) plutôt que masquées à l'affichage, pour ne pas non plus charger cette donnée inutilement.
+
+Même méthode que la PR #291 : gardé derrière `INTERVENANT_ROLE_ENABLED` (`lib/featureFlags.ts`), code intact, juste inatteignable. Voir `INSTRUCTIONS_CLAUDE_CODE_REINTEGRATION_V2.md` §1 Étape 4 pour le détail des 3 emplacements à réactiver en V2.

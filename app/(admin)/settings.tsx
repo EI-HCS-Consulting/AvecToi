@@ -877,7 +877,9 @@ export default function SettingsScreen() {
       loadHistory();
       loadPublicationsHistory();
       loadReservationChangeHistory();
-      loadSoinsPlanifies();
+      // Rôle Intervenant retiré de la V1 — sous-bloc "Soins planifiés" masqué,
+      // inutile de charger sa donnée (voir Développement V2/).
+      if (INTERVENANT_ROLE_ENABLED) loadSoinsPlanifies();
       loadResaVisiteurs();
     }
     setActiveSection(key);
@@ -936,22 +938,17 @@ export default function SettingsScreen() {
         detail: h.new_value ? `→ ${h.new_value}` : "→ (vide)",
       };
     }),
-    ...chronoReservations.map((r): ChronoEvent => {
-      if (r.type === "Intervention") {
-        return {
-          id: `resa-${r.id}`, kind: "soin", date: new Date(r.date + "T12:00:00"),
-          icon: "🩺",
-          title: `Visite intervenant : ${r.prenom} ${r.nom} à ${r.creneau}`,
-          detail: `Soin : ${r.intervention_label ?? "?"}${r.duration_minutes ? ` · ${r.duration_minutes} min` : ""}`,
-        };
-      }
-      return {
-        id: `resa-${r.id}`, kind: r.intervenant_profile_id ? "resa_intervenant" : "resa", date: new Date(r.date + "T12:00:00"),
+    // Rôle Intervenant retiré de la V1 (lib/featureFlags.ts) — la
+    // chronologie ne doit plus montrer les soins réalisés/planifiés ni les
+    // réservations rattachées à un intervenant (voir Développement V2/).
+    ...chronoReservations
+      .filter((r) => r.type !== "Intervention" && !r.intervenant_profile_id)
+      .map((r): ChronoEvent => ({
+        id: `resa-${r.id}`, kind: "resa", date: new Date(r.date + "T12:00:00"),
         icon: r.type === "Nuit" ? "🌙" : "☀️",
         title: `${r.prenom} ${r.nom}`,
         detail: `${r.type === "Nuit" ? "Nuitée" : "Visite"} · ${r.creneau}`,
-      };
-    }),
+      })),
     ...chronoTasks.map((t): ChronoEvent => ({
       id: `task-${t.id}`, kind: "besoin", date: new Date(t.created_at),
       icon: TASK_CAT_ICONS[t.category],
@@ -2432,7 +2429,9 @@ export default function SettingsScreen() {
         {hasSpace && space && activeSection === "hist" && (
           <VisitorsBlock spaceId={space.id} C={C} adminFirstname={space.admin_firstname} adminLastname={space.admin_lastname} />
         )}
-        {hasSpace && space && activeSection === "hist" && (
+        {/* Rôle Intervenant retiré de la V1 — bloc masqué tant que
+            INTERVENANT_ROLE_ENABLED est à false (voir Développement V2/). */}
+        {INTERVENANT_ROLE_ENABLED && hasSpace && space && activeSection === "hist" && (
           <IntervenantsBlock spaceId={space.id} C={C} />
         )}
         {hasSpace && space && activeSection === "hist" && (
@@ -2555,48 +2554,54 @@ export default function SettingsScreen() {
                   "Soins planifiés" de IntervenantProfileModal (tous
                   intervenants confondus), mais historique complet (passés ET
                   à venir) triée anté-chronologiquement : le plus récent/
-                  tardif en haut, le plus ancien tout en bas du scroll. */}
-              <TouchableOpacity style={styles.historyBlockHeader} onPress={() => toggleHistoryBlock("soins")} activeOpacity={0.7}>
-                <View style={styles.historyBlockTitleRow}>
-                  <Text style={[styles.fieldLabel, { color: C.gold, marginBottom: 0, flexShrink: 1 }]} numberOfLines={1} ellipsizeMode="tail">
-                    🩺 Soins planifiés
-                  </Text>
-                  {filteredSoinsPlanifies.length > 0 && (
-                    <Text style={[styles.fieldLabel, { color: C.gold, marginBottom: 0, marginLeft: 4, flexShrink: 0 }]}>
-                      ({filteredSoinsPlanifies.length})
-                    </Text>
+                  tardif en haut, le plus ancien tout en bas du scroll.
+                  Rôle Intervenant retiré de la V1 — sous-bloc masqué tant que
+                  INTERVENANT_ROLE_ENABLED est à false (voir Développement V2/). */}
+              {INTERVENANT_ROLE_ENABLED && (
+                <>
+                  <TouchableOpacity style={styles.historyBlockHeader} onPress={() => toggleHistoryBlock("soins")} activeOpacity={0.7}>
+                    <View style={styles.historyBlockTitleRow}>
+                      <Text style={[styles.fieldLabel, { color: C.gold, marginBottom: 0, flexShrink: 1 }]} numberOfLines={1} ellipsizeMode="tail">
+                        🩺 Soins planifiés
+                      </Text>
+                      {filteredSoinsPlanifies.length > 0 && (
+                        <Text style={[styles.fieldLabel, { color: C.gold, marginBottom: 0, marginLeft: 4, flexShrink: 0 }]}>
+                          ({filteredSoinsPlanifies.length})
+                        </Text>
+                      )}
+                    </View>
+                    <Text style={[styles.historyToggleIcon, { color: C.muted }]}>{historyBlocksOpen.soins ? "▾" : "▸"}</Text>
+                  </TouchableOpacity>
+                  {historyBlocksOpen.soins && (
+                    soinsLoading ? (
+                      <ActivityIndicator color={C.accent} style={{ marginVertical: 8 }} />
+                    ) : filteredSoinsPlanifies.length === 0 ? (
+                      <Text style={[styles.historyEmpty, { color: C.muted }]}>Aucun soin planifié.</Text>
+                    ) : (
+                      filteredSoinsPlanifies.map((r) => (
+                        <TouchableOpacity
+                          key={r.id}
+                          style={[styles.historyRow, styles.historyRowPressable, { borderLeftColor: C.accent }]}
+                          onPress={() => router.push({ pathname: "/(admin)/home/slots", params: { focusDate: r.date } } as any)}
+                          activeOpacity={0.7}
+                        >
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.historyField, { color: C.text }]}>
+                              {r.prenom} {r.nom}{r.intervention_label ? ` — ${r.intervention_label}` : ""}
+                            </Text>
+                            <Text style={[styles.historyDate, { color: C.muted }]}>
+                              {new Date(r.date + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })} · {r.creneau}
+                            </Text>
+                          </View>
+                          <Text style={[styles.historyRowChevron, { color: C.muted }]}>›</Text>
+                        </TouchableOpacity>
+                      ))
+                    )
                   )}
-                </View>
-                <Text style={[styles.historyToggleIcon, { color: C.muted }]}>{historyBlocksOpen.soins ? "▾" : "▸"}</Text>
-              </TouchableOpacity>
-              {historyBlocksOpen.soins && (
-                soinsLoading ? (
-                  <ActivityIndicator color={C.accent} style={{ marginVertical: 8 }} />
-                ) : filteredSoinsPlanifies.length === 0 ? (
-                  <Text style={[styles.historyEmpty, { color: C.muted }]}>Aucun soin planifié.</Text>
-                ) : (
-                  filteredSoinsPlanifies.map((r) => (
-                    <TouchableOpacity
-                      key={r.id}
-                      style={[styles.historyRow, styles.historyRowPressable, { borderLeftColor: C.accent }]}
-                      onPress={() => router.push({ pathname: "/(admin)/home/slots", params: { focusDate: r.date } } as any)}
-                      activeOpacity={0.7}
-                    >
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.historyField, { color: C.text }]}>
-                          {r.prenom} {r.nom}{r.intervention_label ? ` — ${r.intervention_label}` : ""}
-                        </Text>
-                        <Text style={[styles.historyDate, { color: C.muted }]}>
-                          {new Date(r.date + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })} · {r.creneau}
-                        </Text>
-                      </View>
-                      <Text style={[styles.historyRowChevron, { color: C.muted }]}>›</Text>
-                    </TouchableOpacity>
-                  ))
-                )
-              )}
 
-              <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
+                  <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
+                </>
+              )}
 
               {/* Bloc 3ter : Réservations visiteurs — visites et nuitées
                   réservées par un visiteur ou par l'admin (aussi un visiteur),
