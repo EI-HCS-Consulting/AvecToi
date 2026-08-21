@@ -68,5 +68,5 @@ const styles = StyleSheet.create({
   sub: { fontFamily: "DM_Sans_400Regular", fontSize: 13, textAlign: "center" },
   buttons: { flexDirection: "row", gap: 10, width: "100%", marginTop: 20 },
   btn: { flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 13, alignItems: "center" },
-  btnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },
+  btnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, textAlign: "center" },
 });

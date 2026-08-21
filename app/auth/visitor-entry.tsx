@@ -66,6 +66,7 @@ export default function VisitorEntryScreen() {
           style={styles.input}
           placeholder="Lien d'invitation…"
           placeholderTextColor={C.muted}
+          autoFocus
           value={token}
           onChangeText={(v) => {
             const parsed = v.includes("token=")
