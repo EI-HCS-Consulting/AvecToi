@@ -6,6 +6,7 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { themes } from "@/lib/themes";
 import { enterByToken, enterByDossierCode, completeIntervenantEntry } from "@/lib/visitorEntry";
+import { INTERVENANT_ROLE_ENABLED } from "@/lib/featureFlags";
 
 const C = themes.dark;
 
@@ -25,6 +26,14 @@ export default function IntervenantEntryScreen() {
   const [token, setToken] = useState("");
   const [dossierCode, setDossierCode] = useState("");
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    // Rôle retiré de la V1 — coupe l'accès même via un lien direct/mémorisé
+    // pointant vers cet écran (voir Développement V2/ à la racine du repo).
+    if (!INTERVENANT_ROLE_ENABLED) {
+      router.replace("/");
+    }
+  }, []);
 
   useEffect(() => {
     if (prefilledToken) {
