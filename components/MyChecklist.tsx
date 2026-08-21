@@ -107,6 +107,12 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
   const selectionMode = selectedIds.size > 0;
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [bulkDeleteSaving, setBulkDeleteSaving] = useState(false);
+  // Proposé après confirmBulkDelete si l'item supprimé était publié
+  // (task_id) et qu'il reste d'autres items publiés ouverts de la même
+  // checklist (suggérée ou perso nommée) — même logique que Entraide.tsx
+  // (deleteBatchTarget) côté Mur d'Entraide, ici pour Mon Compte.
+  const [deleteBatchTarget, setDeleteBatchTarget] = useState<PersonalChecklistItem[] | null>(null);
+  const [deleteBatchSaving, setDeleteBatchSaving] = useState(false);
 
   // Suppression d'une checklist perso nommée en entier (clic prolongé sur son
   // en-tête) — utile notamment pour retirer une checklist importée depuis un
@@ -191,6 +197,16 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
 
   useEffect(() => { loadItems(); }, [loadItems]);
   useEffect(() => { setGroupAddText(""); }, [openGroup]);
+
+  // Clé de regroupement d'un item — même règle que groupItems plus bas
+  // (checklist_context prime sur custom_checklist_name), mais utilisable ici
+  // avant sa définition (confirmBulkDelete en a besoin). null pour un item
+  // "perso" sans checklist (pas de frères à proposer en cascade).
+  function groupKeyOf(it: PersonalChecklistItem): string | null {
+    if (it.checklist_context) return `ctx:${it.checklist_context}`;
+    if (it.custom_checklist_name) return `name:${it.custom_checklist_name}`;
+    return null;
+  }
 
   function findDuplicateTask(title: string): Task | undefined {
     const norm = title.trim().toLowerCase();
@@ -526,7 +542,38 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     await supabase.from("personal_checklist_items").delete().in("id", targets.map((it) => it.id));
     setBulkDeleteSaving(false);
     setBulkDeleteConfirm(false);
+    // Si un des items supprimés était publié et appartenait à une checklist,
+    // propose de supprimer aussi les autres items publiés et non-faits
+    // restants de cette même checklist (repris de la logique déjà en place
+    // côté Entraide.tsx pour les besoins liés à un checklist_batch_id).
+    const deletedKeys = new Set(
+      targets.filter((it) => it.task_id).map((it) => groupKeyOf(it)).filter((k): k is string => !!k),
+    );
+    const targetIds = new Set(targets.map((it) => it.id));
+    const siblings = deletedKeys.size
+      ? items.filter(
+          (it) =>
+            !targetIds.has(it.id) &&
+            it.task_id &&
+            it.status !== "fait" &&
+            groupKeyOf(it) &&
+            deletedKeys.has(groupKeyOf(it) as string),
+        )
+      : [];
     exitSelection();
+    if (siblings.length) setDeleteBatchTarget(siblings);
+    loadItems();
+  }
+
+  async function confirmDeleteBatch() {
+    const targets = deleteBatchTarget;
+    if (!targets || !targets.length) return;
+    setDeleteBatchSaving(true);
+    const taskIds = targets.map((it) => it.task_id).filter((id): id is string => !!id);
+    if (taskIds.length) await supabase.from("tasks").delete().in("id", taskIds);
+    await supabase.from("personal_checklist_items").delete().in("id", targets.map((it) => it.id));
+    setDeleteBatchSaving(false);
+    setDeleteBatchTarget(null);
     loadItems();
   }
 
@@ -1105,6 +1152,19 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
         saving={bulkDeleteSaving}
         onCancel={() => setBulkDeleteConfirm(false)}
         onConfirm={confirmBulkDelete}
+        C={C}
+      />
+
+      <ConfirmModal
+        visible={!!deleteBatchTarget}
+        icon="🗑️"
+        title="Supprimer aussi le reste de la liste ?"
+        message={`${deleteBatchTarget?.length ?? 0} autre${(deleteBatchTarget?.length ?? 0) > 1 ? "s" : ""} item${(deleteBatchTarget?.length ?? 0) > 1 ? "s" : ""} de cette checklist ${(deleteBatchTarget?.length ?? 0) > 1 ? "sont" : "est"} encore publié${(deleteBatchTarget?.length ?? 0) > 1 ? "s" : ""} sur le Mur d'Entraide.`}
+        confirmLabel="Tout supprimer"
+        cancelLabel="Non, garder"
+        saving={deleteBatchSaving}
+        onCancel={() => setDeleteBatchTarget(null)}
+        onConfirm={confirmDeleteBatch}
         C={C}
       />
 

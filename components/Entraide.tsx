@@ -1454,6 +1454,17 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     }
     showToast(`${selected.length} besoin${selected.length > 1 ? "s" : ""} supprimé${selected.length > 1 ? "s" : ""}`);
     exitSelection();
+    // Même logique que confirmDeleteTask : s'il reste d'autres items ouverts
+    // des checklists groupées touchées par la sélection, proposer de les
+    // supprimer aussi (un seul popup pour toutes les checklists concernées).
+    const batchIds = new Set(selected.map((t) => t.checklist_batch_id).filter((id): id is string => !!id));
+    const selectedIds = new Set(selected.map((t) => t.id));
+    const siblings = batchIds.size
+      ? tasks.filter(
+          (x) => x.checklist_batch_id && batchIds.has(x.checklist_batch_id) && !selectedIds.has(x.id) && x.status !== "fait",
+        )
+      : [];
+    if (siblings.length) setDeleteBatchTarget({ batchId: [...batchIds][0], siblings });
     loadTasks();
   }
 
