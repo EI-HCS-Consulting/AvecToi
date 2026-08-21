@@ -85,7 +85,7 @@ function BookingFlow(
   // l'occupation du créneau et apparaissent partout comme des réservations
   // à part entière (créneau, Mes réservations), au même titre que les
   // ajouts multi-personnes côté admin (cf. AdminAddReservation.tsx).
-  const [companions, setCompanions] = useState<{ prenom: string; nom: string }[]>([]);
+  const [companions, setCompanions] = useState<{ prenom: string; nom: string; email: string }[]>([]);
 
   const [savedPrenom, setSavedPrenom] = useState("");
   const [savedNom, setSavedNom] = useState("");
@@ -151,10 +151,10 @@ function BookingFlow(
   const bookingForSomeoneElse = !!(savedPrenom || savedNom) && (prenom.trim() !== savedPrenom || nom.trim() !== savedNom);
 
   function addCompanion() {
-    setCompanions((prev) => [...prev, { prenom: "", nom: "" }]);
+    setCompanions((prev) => [...prev, { prenom: "", nom: "", email: "" }]);
   }
 
-  function updateCompanion(index: number, field: "prenom" | "nom", value: string) {
+  function updateCompanion(index: number, field: "prenom" | "nom" | "email", value: string) {
     setCompanions((prev) => prev.map((c, i) => (i === index ? { ...c, [field]: value } : c)));
   }
 
@@ -204,7 +204,7 @@ function BookingFlow(
     setSaving(true);
     const { iso, slot } = bookingTarget;
     const validCompanions = companions
-      .map((c) => ({ prenom: c.prenom.trim(), nom: c.nom.trim() }))
+      .map((c) => ({ prenom: c.prenom.trim(), nom: c.nom.trim(), email: c.email.trim() }))
       .filter((c) => c.prenom && c.nom);
     // Réutilise silencieusement le PIN déjà enregistré sur cet appareil s'il
     // existe — seul un visiteur pas encore identifié en choisit un nouveau.
@@ -244,6 +244,7 @@ function BookingFlow(
         telephone: "",
         type,
         pin: effectivePin,
+        email: c.email || null,
       })),
     ]).select();
 
@@ -319,6 +320,24 @@ function BookingFlow(
           type,
         },
       }).catch(() => {});
+    }
+
+    // Même mécanisme que ci-dessus pour chaque accompagnant dont un email a
+    // été saisi — pas de case à cocher séparée, l'email n'apparaît que si le
+    // visiteur l'a renseigné, ce qui vaut ici pour "envoyer".
+    for (const c of validCompanions) {
+      if (c.email) {
+        supabase.functions.invoke("notify-guest-confirmation", {
+          body: {
+            space_id: space.id,
+            guest_email: c.email,
+            guest_prenom: c.prenom,
+            date: iso,
+            creneau,
+            type,
+          },
+        }).catch(() => {});
+      }
     }
   }
 
@@ -545,6 +564,12 @@ function BookingFlow(
                               style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
                               placeholder="Nom accompagnant *" placeholderTextColor={C.muted}
                               value={c.nom} onChangeText={(v) => updateCompanion(i, "nom", v)} autoCapitalize="words"
+                            />
+                            <TextInput
+                              style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                              placeholder="Email accompagnant (optionnel)" placeholderTextColor={C.muted}
+                              value={c.email} onChangeText={(v) => updateCompanion(i, "email", v)}
+                              keyboardType="email-address" autoCapitalize="none"
                             />
                           </View>
                           <TouchableOpacity onPress={() => removeCompanion(i)} style={styles.removeCompanionBtn}>
