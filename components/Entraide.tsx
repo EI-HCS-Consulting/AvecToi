@@ -2001,6 +2001,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             👁️ Visible par {t.relais_visible_to === "some" ? "certains proches" : "tous les proches"}
           </Text>
         )}
+        {/* Réservé à l'admin : qui a déjà répondu "Pas cette fois" au popup
+            RelaisAlertModal, pour ne pas relancer inutilement quelqu'un qui a
+            déjà décliné ce besoin précis. */}
+        {isAdmin && t.category === "relais" && t.relais_dismissed_by.length > 0 && (
+          <Text style={[styles.taskDesc, { color: C.muted }]}>
+            🙅 A répondu « Pas cette fois » : {t.relais_dismissed_by.map((d) => `${d.prenom} ${d.nom}`.trim()).join(", ")}
+          </Text>
+        )}
         {t.category !== "transport" && t.category !== "relais" && t.date_limite && (
           <Text style={[styles.taskDesc, { color: C.muted }]}>
             📅 Échéance : {toFrShort(new Date(t.date_limite + "T12:00:00"))}
