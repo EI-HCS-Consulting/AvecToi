@@ -58,9 +58,15 @@ interface Props {
   // intervenant, soins.tsx, qui regroupe plusieurs patients sans notion
   // d'hospitalisation unique).
   patientAdmissionDate?: string | null;
+  // Bouton "Créneaux" affiché sur la ligne du titre — permet de réserver un
+  // créneau depuis ce bloc sans passer par le tap sur le jour dans le
+  // calendrier au-dessus (home/calendar.tsx, mode Visites). Absent : pas de
+  // bouton (usage intervenant, soins.tsx, qui a son propre écran de
+  // créneaux par soin).
+  onCreneauxPress?: () => void;
 }
 
-export default function PlanningDuJourBlock({ C, iso, reservations, patientNameBySpaceId, locationBySpaceId, onSoinPress, showOtherIntervenants, onToggleOtherIntervenants, reservationType = "Intervention", companionsById, onEmptyPress, remainingBySlotId, patientBirthdate, patientFirstname, patientAdmissionDate }: Props) {
+export default function PlanningDuJourBlock({ C, iso, reservations, patientNameBySpaceId, locationBySpaceId, onSoinPress, showOtherIntervenants, onToggleOtherIntervenants, reservationType = "Intervention", companionsById, onEmptyPress, remainingBySlotId, patientBirthdate, patientFirstname, patientAdmissionDate, onCreneauxPress }: Props) {
   const isToday = iso === toISO(new Date());
   const dayDate = new Date(iso + "T00:00:00");
   const isPastDay = isReservationDatePast(iso);
@@ -84,23 +90,34 @@ export default function PlanningDuJourBlock({ C, iso, reservations, patientNameB
     <>
       <View style={styles.titleRow}>
         <Text style={[styles.sectionTitle, { color: C.gold, marginBottom: 0 }]}>Planning du jour</Text>
-        {onToggleOtherIntervenants && (
-          <TouchableOpacity
-            onPress={onToggleOtherIntervenants}
-            activeOpacity={0.75}
-            style={[
-              styles.otherToggle,
-              {
-                backgroundColor: showOtherIntervenants ? C.gold : "transparent",
-                borderColor: C.gold,
-              },
-            ]}
-          >
-            <Text style={[styles.otherToggleText, { color: showOtherIntervenants ? "#fff" : C.gold }]}>
-              👥 Autres intervenants
-            </Text>
-          </TouchableOpacity>
-        )}
+        <View style={styles.titleRowActions}>
+          {onCreneauxPress && (
+            <TouchableOpacity
+              onPress={onCreneauxPress}
+              activeOpacity={0.75}
+              style={[styles.creneauxBtn, { backgroundColor: C.accent }]}
+            >
+              <Text style={styles.creneauxBtnText}>📅 Créneaux</Text>
+            </TouchableOpacity>
+          )}
+          {onToggleOtherIntervenants && (
+            <TouchableOpacity
+              onPress={onToggleOtherIntervenants}
+              activeOpacity={0.75}
+              style={[
+                styles.otherToggle,
+                {
+                  backgroundColor: showOtherIntervenants ? C.gold : "transparent",
+                  borderColor: C.gold,
+                },
+              ]}
+            >
+              <Text style={[styles.otherToggleText, { color: showOtherIntervenants ? "#fff" : C.gold }]}>
+                👥 Autres intervenants
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
       <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
         <Text style={[styles.dayTitle, { color: isToday ? C.gold : C.text }]}>
@@ -190,6 +207,9 @@ export default function PlanningDuJourBlock({ C, iso, reservations, patientNameB
 
 const styles = StyleSheet.create({
   titleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10, gap: 8 },
+  titleRowActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  creneauxBtn: { borderRadius: 8, paddingVertical: 5, paddingHorizontal: 10 },
+  creneauxBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, color: "#fff" },
   otherToggle: { borderWidth: 1, borderRadius: 8, paddingVertical: 5, paddingHorizontal: 10 },
   otherToggleText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11 },
   sectionTitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 10 },
