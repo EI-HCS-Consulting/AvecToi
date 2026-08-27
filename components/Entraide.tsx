@@ -346,6 +346,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [checklistWizardStep, setChecklistWizardStep] = useState(0);
   const [checklistWizardData, setChecklistWizardData] = useState<Record<string, ChecklistWizardFields>>({});
   const [checklistWizardDLCalMonth, setChecklistWizardDLCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
+  // Dernière date pour laquelle "Urgent" a été coché automatiquement, par
+  // item (clé = ChecklistWizardEntry.key) — même garde-fou que
+  // autoUrgentDateRef pour le formulaire Publier : ne réimpose pas le tag
+  // si la personne le décoche à la main tant qu'elle ne rechange pas la date.
+  const checklistWizardAutoUrgentRef = useRef<Record<string, string>>({});
   // Destination(s) du lot à publier — au moins une des deux doit rester
   // cochée (voir toggleChecklistPublishWall/Mine) : Mur d'Entraide (tasks),
   // Mes Checklists (personal_checklist_items), ou les deux en même temps —
@@ -750,11 +755,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     const dateIso = fCat === "transport" ? fTDate : fCat === "relais" ? fRelaisStartDate : fDateLimite;
     if (!dateIso) return;
     if (autoUrgentDateRef.current === dateIso) return;
-    const target = new Date(dateIso + "T00:00:00");
-    const today = new Date(); today.setHours(0, 0, 0, 0);
-    const diffDays = Math.round((target.getTime() - today.getTime()) / 86400000);
     autoUrgentDateRef.current = dateIso;
-    if (diffDays >= 0 && diffDays <= 2) setFUrgent(true);
+    if (isUrgentWindow(dateIso)) setFUrgent(true);
   }, [fCat, fTDate, fRelaisStartDate, fDateLimite, editTask]);
 
   useEffect(() => {
@@ -994,10 +996,16 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     ];
     if (!list.length) return;
     const data: Record<string, ChecklistWizardFields> = {};
+    checklistWizardAutoUrgentRef.current = {};
     list.forEach(({ key, item }) => {
+      const dateLimite = item.dateOffsetDays ? addDaysIso(item.dateOffsetDays) : "";
+      // Les items publiés depuis ce wizard rejoignent le mur d'Entraide au
+      // même titre qu'un besoin créé via "Publier" — même règle J+2 (voir
+      // isUrgentWindow) que le formulaire de création classique.
+      if (dateLimite && isUrgentWindow(dateLimite)) checklistWizardAutoUrgentRef.current[key] = dateLimite;
       data[key] = {
-        dateLimite: item.dateOffsetDays ? addDaysIso(item.dateOffsetDays) : "",
-        urgent: !!item.urgent,
+        dateLimite,
+        urgent: !!item.urgent || (dateLimite ? isUrgentWindow(dateLimite) : false),
         detail: "",
       };
     });
@@ -1009,6 +1017,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   function updateChecklistWizardField(step: number, patch: Partial<ChecklistWizardFields>) {
     const key = checklistWizardList[step]?.key;
     if (!key) return;
+    if (patch.dateLimite && checklistWizardAutoUrgentRef.current[key] !== patch.dateLimite) {
+      checklistWizardAutoUrgentRef.current[key] = patch.dateLimite;
+      if (isUrgentWindow(patch.dateLimite)) patch = { ...patch, urgent: true };
+    }
     setChecklistWizardData((prev) => ({
       ...prev,
       [key]: { ...(prev[key] ?? { dateLimite: "", urgent: false, detail: "" }), ...patch },
@@ -2209,6 +2221,18 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // inconnue) — voir visibleClosedUpcoming/visibleClosedHistory plus bas.
   function todayIso(): string {
     return new Date().toISOString().slice(0, 10);
+  }
+
+  // Vrai si dateIso tombe aujourd'hui, demain ou après-demain (J+2) — sert à
+  // cocher automatiquement "Urgent" à la création d'un besoin, que ce soit
+  // via le formulaire Publier (voir l'effet fUrgent plus haut) ou un item du
+  // wizard checklist (voir startChecklistWizard/updateChecklistWizardField),
+  // ces deux chemins produisant les tasks affichées sur le mur d'Entraide.
+  function isUrgentWindow(dateIso: string): boolean {
+    const target = new Date(dateIso + "T00:00:00");
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const diffDays = Math.round((target.getTime() - today.getTime()) / 86400000);
+    return diffDays >= 0 && diffDays <= 2;
   }
 
   async function openTransportPropose(t: Task) {
