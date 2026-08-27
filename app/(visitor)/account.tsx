@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, ActivityIndicator, Image, Alert, Modal,
@@ -275,10 +275,18 @@ export default function VisitorAccountScreen() {
 
   const loadRelaisAlerts = useCallback(async (spaceId: string, p: string, n: string) => {
     if (!p.trim() || !n.trim()) return;
-    const alerts = await fetchOpenRelaisAlerts(spaceId, false, { prenom: p, nom: n });
-    setRelaisAlerts(alerts);
-    const coverageHistory = await fetchMyRelaisCoverageHistory(spaceId, { prenom: p, nom: n });
-    setRelaisCoverageHistory(coverageHistory);
+    try {
+      const alerts = await fetchOpenRelaisAlerts(spaceId, false, { prenom: p, nom: n });
+      setRelaisAlerts(alerts);
+    } catch (e) {
+      console.error("[loadRelaisAlerts] fetchOpenRelaisAlerts failed:", e);
+    }
+    try {
+      const coverageHistory = await fetchMyRelaisCoverageHistory(spaceId, { prenom: p, nom: n });
+      setRelaisCoverageHistory(coverageHistory);
+    } catch (e) {
+      console.error("[loadRelaisAlerts] fetchMyRelaisCoverageHistory failed:", e);
+    }
   }, []);
 
   // Permet de se désengager d'un besoin pris en charge en cas d'imprévu —
@@ -697,6 +705,47 @@ export default function VisitorAccountScreen() {
     }
   }
 
+  // localPhotoUri pointe vers un fichier du bac documents de l'app — perdu
+  // après une réinstallation/un rebuild natif (Dev Build), ce qui laisse la
+  // photo de "Mon compte" cassée alors que la copie Supabase (visible côté
+  // fiche visiteur/Visiteurs, voir VisitorsList.tsx) est intacte. Sur échec
+  // de chargement de l'Image, on retombe une fois sur cette copie serveur et
+  // on répare la session locale au passage. photoRefetchedRef évite une
+  // boucle si l'URL serveur échoue aussi.
+  const photoRefetchedRef = useRef(false);
+  async function refetchServerPhotoOnError() {
+    if (photoRefetchedRef.current || !space || !prenom || !nom) return;
+    photoRefetchedRef.current = true;
+    try {
+      let url: string | null = null;
+      if (role === "intervenant" && intervenantProfileId) {
+        const { data } = await supabase
+          .from("intervenant_profiles")
+          .select("photo, photo_updated_at")
+          .eq("id", intervenantProfileId)
+          .maybeSingle();
+        if (data?.photo) url = intervenantPhotoUrl(data.photo, data.photo_updated_at);
+      } else {
+        const { data } = await supabase
+          .from("visitor_profiles")
+          .select("photo")
+          .eq("space_id", space.id)
+          .ilike("prenom", prenom)
+          .ilike("nom", nom)
+          .maybeSingle();
+        if (data?.photo) url = visitorPhotoUrl(space.id, data.photo);
+      }
+      if (url) {
+        setPhotoUri(url);
+        await saveVisitorSession({ token, spaceId: space.id, localPhotoUri: url });
+      } else {
+        setPhotoUri(null);
+      }
+    } catch (e) {
+      console.error("[refetchServerPhotoOnError] unexpected error:", e);
+    }
+  }
+
   // Synchronise la photo de "Mon compte" vers Supabase — jusqu'ici elle
   // restait locale à l'appareil (localPhotoUri), invisible pour les autres
   // visiteurs. Rend cette photo visible dans la fiche visiteur (voir
@@ -880,15 +929,16 @@ export default function VisitorAccountScreen() {
 
   // "🔔 Mes alertes" ne doit montrer que l'historique jamais vu (pas tout
   // reservation_change_history, qui ne s'efface jamais) — "Mes réservations"
-  // plus bas continue d'afficher le tout via myChangeHistory brut.
+  // plus bas continue d'afficher le tout via myChangeHistory brut. Marqué vu
+  // uniquement sur clic explicite "Marquer comme lu" (voir
+  // handleHistorySeen) — pas à la fermeture du popup, sinon un visiteur qui
+  // ouvre "Mes alertes" pour un tout autre motif (ex. relais) perd ses
+  // alertes de changement de créneau sans les avoir lues.
   const unseenChangeHistory = myChangeHistory.filter((h) => !h.seen);
 
-  async function handleAlertsModalClose() {
-    setAlertsModalVisible(false);
-    const ids = unseenChangeHistory.map((h) => h.id);
-    if (!ids.length) return;
-    setMyChangeHistory((prev) => prev.map((h) => (ids.includes(h.id) ? { ...h, seen: true } : h)));
-    await supabase.from("reservation_change_history").update({ seen: true }).in("id", ids);
+  async function handleHistorySeen(h: ReservationChangeHistoryEntry) {
+    setMyChangeHistory((prev) => prev.map((e) => (e.id === h.id ? { ...e, seen: true } : e)));
+    await supabase.from("reservation_change_history").update({ seen: true }).eq("id", h.id);
   }
 
   async function handleAlertModify(r: Reservation) {
@@ -946,7 +996,7 @@ export default function VisitorAccountScreen() {
       <ScrollView contentContainerStyle={styles.scroll}>
         <TouchableOpacity onPress={handlePickPhoto} style={styles.photoWrap} activeOpacity={0.8}>
           {photoUri ? (
-            <Image source={{ uri: photoUri }} style={styles.photo} />
+            <Image source={{ uri: photoUri }} style={styles.photo} onError={refetchServerPhotoOnError} />
           ) : (
             <View style={[styles.photoPlaceholder, { backgroundColor: C.bg, borderColor: C.border }]}>
               <Text style={{ fontSize: 28 }}>📷</Text>
@@ -1647,7 +1697,7 @@ export default function VisitorAccountScreen() {
 
       <MyAlertsModal
         visible={alertsModalVisible}
-        onClose={handleAlertsModalClose}
+        onClose={() => setAlertsModalVisible(false)}
         C={C}
         activeAlerts={myActiveAlerts}
         history={unseenChangeHistory}
@@ -1657,6 +1707,7 @@ export default function VisitorAccountScreen() {
         onClaimRelais={handleClaimRelais}
         onDismissRelais={handleDismissRelais}
         relaisCoverageHistory={relaisCoverageHistory}
+        onMarkHistorySeen={handleHistorySeen}
       />
 
       {space && role === "intervenant" && intervenantProfileId && (
