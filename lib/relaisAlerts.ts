@@ -36,7 +36,8 @@ async function fetchMyRelaisCoverageByTask(
   myKey: string,
 ): Promise<Record<string, TaskRelaisCoverage[]>> {
   if (!taskIds.length) return {};
-  const { data } = await supabase.from("task_relais_coverage").select("*").in("task_id", taskIds);
+  const { data, error } = await supabase.from("task_relais_coverage").select("*").in("task_id", taskIds);
+  if (error) console.error("[fetchMyRelaisCoverageByTask] query failed:", error);
   const rows = (data as TaskRelaisCoverage[] | null) ?? [];
   const byTask: Record<string, TaskRelaisCoverage[]> = {};
   rows.forEach((r) => {
@@ -60,12 +61,13 @@ export async function fetchOpenRelaisAlerts(
   isAdmin: boolean,
   identity: { prenom: string; nom: string },
 ): Promise<Task[]> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("tasks")
     .select("*")
     .eq("space_id", spaceId)
     .eq("category", "relais")
     .eq("status", "ouvert");
+  if (error) console.error("[fetchOpenRelaisAlerts] query failed:", error);
   const tasks = (data as Task[] | null) ?? [];
   const myKey = relaisIdentityKey(identity.prenom, identity.nom);
   const candidates = tasks.filter((t) => {
@@ -99,11 +101,12 @@ export async function fetchMyRelaisCoverageHistory(
   spaceId: string,
   identity: { prenom: string; nom: string },
 ): Promise<RelaisCoverageSummary[]> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("tasks")
     .select("*")
     .eq("space_id", spaceId)
     .eq("category", "relais");
+  if (error) console.error("[fetchMyRelaisCoverageHistory] query failed:", error);
   const tasks = (data as Task[] | null) ?? [];
   if (!tasks.length) return [];
   const myKey = relaisIdentityKey(identity.prenom, identity.nom);

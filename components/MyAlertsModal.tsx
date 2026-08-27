@@ -47,6 +47,11 @@ interface Props {
   history: ReservationChangeHistoryEntry[];
   onModify: (r: Reservation) => void;
   onMarkSeen: (r: Reservation) => void | Promise<void>;
+  // Marque une entrée de reservation_change_history comme vue — action
+  // explicite (bouton), plus jamais déclenchée par la simple fermeture du
+  // popup (sinon un visiteur qui ouvre "Mes alertes" pour tout autre motif
+  // et referme perd sans le vouloir ses alertes de changement de créneau).
+  onMarkHistorySeen?: (h: ReservationChangeHistoryEntry) => void | Promise<void>;
   // Alerte RGPD (conservation des données proche de l'échéance, admin
   // uniquement) — voir lib/rgpd.ts et RgpdAlertModal.tsx pour le popup
   // équivalent à l'ouverture de l'app. Absente/nulle si pas d'espace ou hors
@@ -65,7 +70,7 @@ interface Props {
   relaisCoverageHistory?: RelaisCoverageSummary[];
 }
 
-export default function MyAlertsModal({ visible, onClose, C, activeAlerts, history, onModify, onMarkSeen, rgpdAlert, relaisAlerts = [], onClaimRelais, onDismissRelais, relaisCoverageHistory = [] }: Props) {
+export default function MyAlertsModal({ visible, onClose, C, activeAlerts, history, onModify, onMarkSeen, rgpdAlert, relaisAlerts = [], onClaimRelais, onDismissRelais, relaisCoverageHistory = [], onMarkHistorySeen }: Props) {
   function handleModify(r: Reservation) {
     onClose();
     onModify(r);
@@ -186,6 +191,14 @@ export default function MyAlertsModal({ visible, onClose, C, activeAlerts, histo
                             hour: "2-digit", minute: "2-digit",
                           })}
                         </Text>
+                        {!!onMarkHistorySeen && (
+                          <TouchableOpacity
+                            style={[styles.smallBtn, { borderColor: C.border, alignSelf: "flex-start", marginTop: 8, paddingHorizontal: 14 }]}
+                            onPress={() => onMarkHistorySeen(h)}
+                          >
+                            <Text style={[styles.smallBtnText, { color: C.muted }]}>Marquer comme lu</Text>
+                          </TouchableOpacity>
+                        )}
                       </View>
                     ))}
                   </>

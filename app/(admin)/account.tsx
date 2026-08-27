@@ -355,10 +355,18 @@ export default function AdminAccountScreen() {
     setMyClaimedTasks(claimedTasksData.data || []);
     setChangeHistory(changeHistoryData.data || []);
     setActivityLoading(false);
-    const relais = await fetchOpenRelaisAlerts(spaceId, true, { prenom: p, nom: n });
-    setRelaisAlerts(relais);
-    const coverageHistory = await fetchMyRelaisCoverageHistory(spaceId, { prenom: p, nom: n });
-    setRelaisCoverageHistory(coverageHistory);
+    try {
+      const relais = await fetchOpenRelaisAlerts(spaceId, true, { prenom: p, nom: n });
+      setRelaisAlerts(relais);
+    } catch (e) {
+      console.error("[loadActivity] fetchOpenRelaisAlerts failed:", e);
+    }
+    try {
+      const coverageHistory = await fetchMyRelaisCoverageHistory(spaceId, { prenom: p, nom: n });
+      setRelaisCoverageHistory(coverageHistory);
+    } catch (e) {
+      console.error("[loadActivity] fetchMyRelaisCoverageHistory failed:", e);
+    }
   }
 
   // Alertes actives = réservations "Visite"/"Nuit" de l'admin lui-même
@@ -370,15 +378,16 @@ export default function AdminAccountScreen() {
     .sort((a, b) => (a.date === b.date ? a.creneau.localeCompare(b.creneau) : a.date.localeCompare(b.date)));
 
   // "🔔 Mes alertes" ne doit montrer que l'historique jamais vu (pas tout
-  // reservation_change_history, qui ne s'efface jamais).
+  // reservation_change_history, qui ne s'efface jamais). Marqué vu
+  // uniquement sur clic explicite "Marquer comme lu" (voir
+  // handleHistorySeen) — pas à la fermeture du popup, sinon un admin qui
+  // ouvre "Mes alertes" pour un tout autre motif perd ses alertes de
+  // changement de créneau sans les avoir lues.
   const unseenChangeHistory = changeHistory.filter((h) => !h.seen);
 
-  async function handleAlertsModalClose() {
-    setAlertsModalVisible(false);
-    const ids = unseenChangeHistory.map((h) => h.id);
-    if (!ids.length) return;
-    setChangeHistory((prev) => prev.map((h) => (ids.includes(h.id) ? { ...h, seen: true } : h)));
-    await supabase.from("reservation_change_history").update({ seen: true }).in("id", ids);
+  async function handleHistorySeen(h: ReservationChangeHistoryEntry) {
+    setChangeHistory((prev) => prev.map((e) => (e.id === h.id ? { ...e, seen: true } : e)));
+    await supabase.from("reservation_change_history").update({ seen: true }).eq("id", h.id);
   }
 
   // Alerte RGPD (conservation des données proche de l'échéance) — voir
@@ -568,7 +577,7 @@ export default function AdminAccountScreen() {
 
         <MyAlertsModal
           visible={alertsModalVisible}
-          onClose={handleAlertsModalClose}
+          onClose={() => setAlertsModalVisible(false)}
           C={C}
           activeAlerts={myActiveAlerts}
           history={unseenChangeHistory}
@@ -579,6 +588,7 @@ export default function AdminAccountScreen() {
           onClaimRelais={handleClaimRelais}
           onDismissRelais={handleDismissRelais}
           relaisCoverageHistory={relaisCoverageHistory}
+          onMarkHistorySeen={handleHistorySeen}
         />
 
         {/* Section Mon affichage */}
