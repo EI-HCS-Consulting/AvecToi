@@ -1,6 +1,7 @@
 import { View, Text, TouchableOpacity, Modal, ScrollView, StyleSheet } from "react-native";
-import type { Reservation, ReservationChangeHistoryEntry } from "@/lib/types";
+import type { Reservation, ReservationChangeHistoryEntry, Task } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
+import { toFrShort } from "@/lib/slotUtils";
 
 // Sous-menu "Mes alertes" (Mon compte, juste après "Mes Checklists") —
 // regroupe en un seul endroit les recasages/annulations automatiques posés
@@ -45,12 +46,23 @@ interface Props {
   // équivalent à l'ouverture de l'app. Absente/nulle si pas d'espace ou hors
   // fenêtre d'alerte.
   rgpdAlert?: { message: string; onProlong: () => void; prolonging: boolean } | null;
+  // Besoins de relais ouverts ciblant cette identité (voir
+  // lib/relaisAlerts.ts) — même source que le popup RelaisAlertModal, mais
+  // consultable ici à tout moment plutôt que sur une seule connexion.
+  relaisAlerts?: Task[];
+  onClaimRelais?: (t: Task) => void;
+  onDismissRelais?: (t: Task) => void | Promise<void>;
 }
 
-export default function MyAlertsModal({ visible, onClose, C, activeAlerts, history, onModify, onMarkSeen, rgpdAlert }: Props) {
+export default function MyAlertsModal({ visible, onClose, C, activeAlerts, history, onModify, onMarkSeen, rgpdAlert, relaisAlerts = [], onClaimRelais, onDismissRelais }: Props) {
   function handleModify(r: Reservation) {
     onClose();
     onModify(r);
+  }
+
+  function handleClaimRelais(t: Task) {
+    onClose();
+    onClaimRelais?.(t);
   }
 
   return (
@@ -60,7 +72,7 @@ export default function MyAlertsModal({ visible, onClose, C, activeAlerts, histo
           <Text style={[styles.title, { color: C.text }]}>🔔 Mes alertes</Text>
 
           <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: 4 }}>
-            {!rgpdAlert && activeAlerts.length === 0 && history.length === 0 ? (
+            {!rgpdAlert && relaisAlerts.length === 0 && activeAlerts.length === 0 && history.length === 0 ? (
               <Text style={[styles.emptyText, { color: C.muted }]}>Aucune alerte pour l'instant.</Text>
             ) : (
               <>
@@ -82,9 +94,46 @@ export default function MyAlertsModal({ visible, onClose, C, activeAlerts, histo
                   </>
                 )}
 
+                {relaisAlerts.length > 0 && (
+                  <>
+                    <Text style={[styles.sectionLabel, { color: C.gold, marginTop: rgpdAlert ? 16 : 0 }]}>🆘 Besoins de relais</Text>
+                    {relaisAlerts.map((t) => (
+                      <View
+                        key={t.id}
+                        style={[styles.activeCard, { borderColor: "rgba(233,69,96,0.4)", backgroundColor: "rgba(233,69,96,0.08)" }]}
+                      >
+                        {!!t.author_prenom && (
+                          <Text style={[styles.activeMessage, { color: C.text, marginBottom: 2 }]}>🙋 Publié par {t.author_prenom}</Text>
+                        )}
+                        {!!t.relais_start_date && !!t.date_limite && (
+                          <Text style={[styles.activeMessage, { color: C.text, marginBottom: 2 }]}>
+                            📅 Du {toFrShort(new Date(t.relais_start_date + "T12:00:00"))} au {toFrShort(new Date(t.date_limite + "T12:00:00"))}
+                          </Text>
+                        )}
+                        {t.relais_visible_to === "some" && !!t.relais_recipients?.length && (
+                          <Text style={[styles.activeMessage, { color: C.text, marginBottom: 2 }]}>
+                            🙋 Sollicité·e·s : {t.relais_recipients.map((r) => `${r.prenom} ${r.nom}`.trim()).join(", ")}
+                          </Text>
+                        )}
+                        {!!t.description && (
+                          <Text style={[styles.activeMessage, { color: C.text }]}>{t.description}</Text>
+                        )}
+                        <View style={styles.activeRow}>
+                          <TouchableOpacity style={[styles.smallBtn, { borderColor: C.border }]} onPress={() => onDismissRelais?.(t)}>
+                            <Text style={[styles.smallBtnText, { color: C.muted }]}>Pas cette fois</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={[styles.smallBtn, { backgroundColor: C.accent }]} onPress={() => handleClaimRelais(t)}>
+                            <Text style={styles.smallBtnPrimaryText}>🙋 Je m'en occupe</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ))}
+                  </>
+                )}
+
                 {activeAlerts.length > 0 && (
                   <>
-                    <Text style={[styles.sectionLabel, { color: C.gold, marginTop: rgpdAlert ? 16 : 0 }]}>À traiter</Text>
+                    <Text style={[styles.sectionLabel, { color: C.gold, marginTop: (rgpdAlert || relaisAlerts.length > 0) ? 16 : 0 }]}>À traiter</Text>
                     {activeAlerts.map((r) => (
                       <View
                         key={r.id}
@@ -106,7 +155,7 @@ export default function MyAlertsModal({ visible, onClose, C, activeAlerts, histo
 
                 {history.length > 0 && (
                   <>
-                    <Text style={[styles.sectionLabel, { color: C.gold, marginTop: (activeAlerts.length > 0 || rgpdAlert) ? 16 : 0 }]}>Historique</Text>
+                    <Text style={[styles.sectionLabel, { color: C.gold, marginTop: (activeAlerts.length > 0 || relaisAlerts.length > 0 || rgpdAlert) ? 16 : 0 }]}>Historique</Text>
                     {history.map((h) => (
                       <View key={h.id} style={[styles.historyRow, { borderLeftColor: C.danger }]}>
                         <Text style={[styles.historyType, { color: C.text }]}>

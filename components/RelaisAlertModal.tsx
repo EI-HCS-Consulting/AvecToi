@@ -1,15 +1,11 @@
 import { useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, Modal, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
-import { getVisitorSession } from "@/lib/visitorSession";
 import { supabase } from "@/lib/supabase";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { toFrShort } from "@/lib/slotUtils";
+import { relaisIdentityKey, resolveRelaisIdentity, fetchOpenRelaisAlerts } from "@/lib/relaisAlerts";
 import type { Task } from "@/lib/types";
-
-function relaisIdentityKey(prenom: string, nom: string) {
-  return `${prenom}|${nom}`.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
-}
 
 // Popup affiché à la connexion (admin et visiteur, voir montage dans
 // (admin)/_layout.tsx et (visitor)/_layout.tsx) pour un besoin de relais
@@ -27,45 +23,27 @@ export default function RelaisAlertModal({ spaceId, isAdmin }: { spaceId: string
   const [identityReady, setIdentityReady] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [acting, setActing] = useState(false);
+  // Alertes "regardées" pendant cette session d'app uniquement (jamais
+  // persisté) — voir handleLater ci-dessous : le popup ne doit pas revenir
+  // tant que l'app tourne, mais doit réapparaître à la prochaine connexion,
+  // et rester consultable dans "Mes alertes" entre-temps.
+  const [sessionHiddenIds, setSessionHiddenIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     (async () => {
-      if (isAdmin) {
-        const { data } = await supabase.auth.getUser();
-        setMyPrenom((data.user?.user_metadata?.firstname ?? "").trim());
-        setMyNom((data.user?.user_metadata?.lastname ?? "").trim());
-      } else {
-        const session = await getVisitorSession();
-        setMyPrenom(session?.prenom ?? "");
-        setMyNom(session?.nom ?? "");
-      }
+      const identity = await resolveRelaisIdentity(isAdmin);
+      setMyPrenom(identity.prenom);
+      setMyNom(identity.nom);
       setIdentityReady(true);
     })();
   }, [isAdmin]);
 
   useEffect(() => {
     if (!identityReady) return;
-    supabase
-      .from("tasks")
-      .select("*")
-      .eq("space_id", spaceId)
-      .eq("category", "relais")
-      .eq("status", "ouvert")
-      .then(({ data }) => setTasks((data as Task[] | null) ?? []));
-  }, [identityReady, spaceId]);
+    fetchOpenRelaisAlerts(spaceId, isAdmin, { prenom: myPrenom, nom: myNom }).then(setTasks);
+  }, [identityReady, spaceId, isAdmin, myPrenom, myNom]);
 
-  const myKey = relaisIdentityKey(myPrenom, myNom);
-  const alerts = tasks.filter((t) => {
-    const isSelfAuthor = isAdmin
-      ? t.author_pin === "ADMIN"
-      : relaisIdentityKey(t.author_prenom ?? "", t.author_nom ?? "") === myKey;
-    if (isSelfAuthor) return false;
-    const targeted = t.relais_visible_to !== "some"
-      || (t.relais_recipients ?? []).some((r) => relaisIdentityKey(r.prenom, r.nom) === myKey);
-    if (!targeted) return false;
-    const dismissed = t.relais_dismissed_by.some((d) => relaisIdentityKey(d.prenom, d.nom) === myKey);
-    return !dismissed;
-  });
+  const alerts = tasks.filter((t) => !sessionHiddenIds.has(t.id));
   const current = alerts[0];
 
   async function handleAccept() {
@@ -83,6 +61,11 @@ export default function RelaisAlertModal({ spaceId, isAdmin }: { spaceId: string
     await supabase.from("tasks").update({ relais_dismissed_by: nextDismissed }).eq("id", current.id);
     setTasks((prev) => prev.map((t) => (t.id === current.id ? { ...t, relais_dismissed_by: nextDismissed } : t)));
     setActing(false);
+  }
+
+  function handleLater() {
+    if (!current) return;
+    setSessionHiddenIds((prev) => new Set(prev).add(current.id));
   }
 
   if (!current) return null;
@@ -103,11 +86,24 @@ export default function RelaisAlertModal({ spaceId, isAdmin }: { spaceId: string
                   📅 Du {toFrShort(new Date(current.relais_start_date + "T12:00:00"))} au {toFrShort(new Date(current.date_limite + "T12:00:00"))}
                 </Text>
               )}
+              {current.relais_visible_to === "some" && !!current.relais_recipients?.length && (
+                <Text style={[styles.detailRow, { color: C.text }]}>
+                  🙋 Sollicité·e·s : {current.relais_recipients.map((r) => `${r.prenom} ${r.nom}`.trim()).join(", ")}
+                </Text>
+              )}
             </View>
           )}
           {!!current.description && (
             <Text style={[styles.body, { color: C.muted }]}>{current.description}</Text>
           )}
+          <TouchableOpacity
+            style={[styles.btnFull, { backgroundColor: C.accent }]}
+            onPress={handleAccept}
+            disabled={acting}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.btnPrimaryText}>🙋 Je m'en occupe</Text>
+          </TouchableOpacity>
           <View style={styles.row}>
             <TouchableOpacity
               style={[styles.btn, styles.btnSecondary, { borderColor: C.border }]}
@@ -118,12 +114,12 @@ export default function RelaisAlertModal({ spaceId, isAdmin }: { spaceId: string
               <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Pas cette fois</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.btn, { backgroundColor: C.accent }]}
-              onPress={handleAccept}
+              style={[styles.btn, styles.btnSecondary, { borderColor: C.border }]}
+              onPress={handleLater}
               disabled={acting}
               activeOpacity={0.85}
             >
-              <Text style={styles.btnPrimaryText}>🙋 Je m'en occupe</Text>
+              <Text style={[styles.btnSecondaryText, { color: C.muted }]}>🗓️ Je regarde mon planning</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -166,6 +162,7 @@ const styles = StyleSheet.create({
   },
   row: { flexDirection: "row", gap: 10, width: "100%" },
   btn: { flex: 1, borderRadius: 12, paddingVertical: 15, alignItems: "center" },
+  btnFull: { width: "100%", borderRadius: 12, paddingVertical: 15, alignItems: "center", marginBottom: 10 },
   btnSecondary: { borderWidth: 1 },
   btnSecondaryText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14, textAlign: "center" },
   btnPrimaryText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff", textAlign: "center" },

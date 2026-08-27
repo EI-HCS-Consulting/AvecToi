@@ -30,6 +30,7 @@ import { switchToLinkedSpace } from "@/lib/intervenantSpaceSwitch";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import MyChecklist from "@/components/MyChecklist";
 import MyAlertsModal from "@/components/MyAlertsModal";
+import { fetchOpenRelaisAlerts } from "@/lib/relaisAlerts";
 import type { Reservation, ReservationChangeHistoryEntry, NewsEntry, SupportMessage, Task } from "@/lib/types";
 
 function visitorPhotoUrl(spaceId: string, filename: string) {
@@ -166,6 +167,9 @@ export default function VisitorAccountScreen() {
   // native pour l'une et une modale custom pour l'autre.
   const [confirmModal, setConfirmModal] = useState<"logout" | "switchSpace" | null>(null);
   const [alertsModalVisible, setAlertsModalVisible] = useState(false);
+  // Besoins de relais ouverts ciblant cette identité — voir lib/relaisAlerts.ts,
+  // même source que le popup RelaisAlertModal, ici consultable à tout moment.
+  const [relaisAlerts, setRelaisAlerts] = useState<Task[]>([]);
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pinPhase, setPinPhase] = useState<"verify" | "new" | "confirm">("verify");
   const [pinInput, setPinInput] = useState("");
@@ -265,6 +269,12 @@ export default function VisitorAccountScreen() {
     setActivityLoading(false);
   }, []);
 
+  const loadRelaisAlerts = useCallback(async (spaceId: string, p: string, n: string) => {
+    if (!p.trim() || !n.trim()) return;
+    const alerts = await fetchOpenRelaisAlerts(spaceId, false, { prenom: p, nom: n });
+    setRelaisAlerts(alerts);
+  }, []);
+
   // Permet de se désengager d'un besoin pris en charge en cas d'imprévu —
   // clic prolongé sur la ligne du besoin dans "Mon compte / Entraide". Même
   // fonction propagée côté admin (app/(admin)/account.tsx), l'admin étant
@@ -304,6 +314,7 @@ export default function VisitorAccountScreen() {
         setIntervenantProfileId(s.intervenantProfileId ?? null);
         if (space) {
           loadActivity(space.id, s.prenom, s.nom);
+          loadRelaisAlerts(space.id, s.prenom, s.nom);
           if (s.role === "intervenant" && s.intervenantProfileId) {
             // Photo/téléphone/phrase totem/métier de secours — même principe
             // que le fallback visiteur ci-dessous, mais la source de vérité
@@ -358,7 +369,7 @@ export default function VisitorAccountScreen() {
       }
       setLoading(false);
     });
-  }, [space, loadActivity]);
+  }, [space, loadActivity, loadRelaisAlerts]);
 
   useEffect(() => {
     const normalized = normalizePhone(telephone);
@@ -888,6 +899,17 @@ export default function VisitorAccountScreen() {
     if (space) loadActivity(space.id, prenom, nom);
   }
 
+  function handleClaimRelais(t: Task) {
+    setRelaisAlerts((prev) => prev.filter((x) => x.id !== t.id));
+    router.push(`/(visitor)/entraide?focusTaskId=${t.id}&openClaim=1` as any);
+  }
+
+  async function handleDismissRelais(t: Task) {
+    const nextDismissed = [...t.relais_dismissed_by, { prenom, nom }];
+    await supabase.from("tasks").update({ relais_dismissed_by: nextDismissed }).eq("id", t.id);
+    setRelaisAlerts((prev) => prev.filter((x) => x.id !== t.id));
+  }
+
   const missingIdentityCard = (
     <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
       <Text style={[styles.cardDesc, { color: C.muted, marginBottom: 0 }]}>
@@ -926,12 +948,12 @@ export default function VisitorAccountScreen() {
         )}
 
         <TouchableOpacity
-          style={[styles.patientProfileBtn, myActiveAlerts.length > 0 && { backgroundColor: "#e94560" }]}
+          style={[styles.patientProfileBtn, (myActiveAlerts.length + relaisAlerts.length) > 0 && { backgroundColor: "#e94560" }]}
           onPress={() => setAlertsModalVisible(true)}
           activeOpacity={0.85}
         >
           <Text style={styles.patientProfileBtnText}>
-            🔔 Mes alertes{myActiveAlerts.length > 0 ? ` (${myActiveAlerts.length})` : ""}
+            🔔 Mes alertes{(myActiveAlerts.length + relaisAlerts.length) > 0 ? ` (${myActiveAlerts.length + relaisAlerts.length})` : ""}
           </Text>
         </TouchableOpacity>
 
@@ -1604,6 +1626,9 @@ export default function VisitorAccountScreen() {
         history={myChangeHistory}
         onModify={handleAlertModify}
         onMarkSeen={handleAlertMarkSeen}
+        relaisAlerts={relaisAlerts}
+        onClaimRelais={handleClaimRelais}
+        onDismissRelais={handleDismissRelais}
       />
 
       {space && role === "intervenant" && intervenantProfileId && (
