@@ -30,6 +30,13 @@ interface Props {
   // getDayStatus (qui ne couvre que l'occupation des visites) — utilisé côté
   // admin pour repérer les jours avec un soin planifié.
   markedDates?: Set<string>;
+  // Restreint la sélection à cette fenêtre (bornes incluses) et colore ces
+  // jours en orange pour les distinguer du reste du mois — utilisé par le
+  // choix de période du flux de claim relais (Entraide.tsx) pour que seuls
+  // les jours de la période demandée par l'admin soient cliquables. Optionnel
+  // et sans effet sur les autres appelants (BookingFlow, MyChecklist, etc.)
+  // qui ne le passent pas.
+  allowedRange?: { start: Date; end: Date };
 }
 
 // Toujours 6 lignes (42 cases) quel que soit le mois affiché, pour que ce
@@ -48,7 +55,7 @@ const GRID_GAP_LG = 3;
 const WEEKDAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
 
 export default function MiniCalendar({
-  selDate, onSelect, calMonth, onMonthChange, startDate, C, size = "sm", slotConfig, slots, reservations, markedDates,
+  selDate, onSelect, calMonth, onMonthChange, startDate, C, size = "sm", slotConfig, slots, reservations, markedDates, allowedRange,
 }: Props) {
   const large = size === "lg";
   const showDots = !!(slotConfig && slots && reservations);
@@ -104,7 +111,14 @@ export default function MiniCalendar({
           const iso = toISO(day);
           const d = new Date(day); d.setHours(0, 0, 0, 0);
           const start = new Date(startDate); start.setHours(0, 0, 0, 0);
-          const isPast = d < start || d < today;
+          let outOfAllowedRange = false;
+          if (allowedRange) {
+            const allowedStart = new Date(allowedRange.start); allowedStart.setHours(0, 0, 0, 0);
+            const allowedEnd = new Date(allowedRange.end); allowedEnd.setHours(0, 0, 0, 0);
+            outOfAllowedRange = d < allowedStart || d > allowedEnd;
+          }
+          const isPast = d < start || d < today || outOfAllowedRange;
+          const inAllowedRange = !!allowedRange && !outOfAllowedRange;
           const isSelected = iso === selDate;
           const status = showDots ? getDayStatus(reservations!, iso, day, slotConfig!, slots!, startDate) : null;
           // Un jour "empty" garde l'apparence neutre de la cellule — seul un
@@ -134,8 +148,8 @@ export default function MiniCalendar({
                   StyleSheet.absoluteFillObject,
                   large ? styles.miniCellBgLg : styles.miniCellBg,
                   {
-                    backgroundColor: isSelected ? C.accent : isPast ? "transparent" : useStatusBg ? statusBg : C.bg,
-                    borderColor: isSelected ? C.accent : C.border,
+                    backgroundColor: isSelected ? C.accent : isPast ? "transparent" : useStatusBg ? statusBg : inAllowedRange ? `${C.orange}33` : C.bg,
+                    borderColor: isSelected ? C.accent : inAllowedRange ? C.orange : C.border,
                   },
                 ]}
               />
