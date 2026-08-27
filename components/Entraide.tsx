@@ -4,7 +4,7 @@ import {
   Modal, StyleSheet, Alert, ActivityIndicator, Image,
   KeyboardAvoidingView, Platform, Linking,
 } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as Crypto from "expo-crypto";
@@ -135,6 +135,7 @@ function relaisRequestedPeriodLabel(t: Task | null): string | null {
 
 export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, allergies, patientFirstname }: Props) {
   const { focusTaskId, openClaim: openClaimParam, openRelais } = useLocalSearchParams<{ focusTaskId?: string; openClaim?: string; openRelais?: string }>();
+  const router = useRouter();
   const scrollRef = useRef<ScrollView>(null);
   const taskOffsets = useRef<Record<string, number>>({});
   const [highlightId, setHighlightId] = useState<string | null>(null);
@@ -3785,7 +3786,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                         </Text>
                       </View>
                       <TouchableOpacity
-                        onPress={() => setThanksModal(false)}
+                        onPress={() => {
+                          setThanksModal(false);
+                          router.navigate(isAdmin ? "/(admin)/home/calendar" : "/(visitor)/home/calendar");
+                        }}
                         style={[styles.btnPrimary, { backgroundColor: C.gold, alignSelf: "stretch", paddingVertical: 18 }]}
                       >
                         <Text style={[styles.btnPrimaryText, { color: "#0D1B2E" }]}>J'ai compris</Text>

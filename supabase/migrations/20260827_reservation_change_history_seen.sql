@@ -9,5 +9,7 @@
 alter table public.reservation_change_history
   add column if not exists seen boolean not null default false;
 
+drop policy if exists "public can update reservation_change_history"
+  on public.reservation_change_history;
 create policy "public can update reservation_change_history"
   on public.reservation_change_history for update using (true) with check (true);

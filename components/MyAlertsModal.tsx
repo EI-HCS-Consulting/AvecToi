@@ -2,6 +2,12 @@ import { View, Text, TouchableOpacity, Modal, ScrollView, StyleSheet } from "rea
 import type { Reservation, ReservationChangeHistoryEntry, Task } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 import { toFrShort } from "@/lib/slotUtils";
+import type { RelaisCoverageSummary } from "@/lib/relaisAlerts";
+
+function relaisCoverageLine(s: RelaisCoverageSummary): string {
+  const periods = s.ranges.map((r) => `du ${toFrShort(new Date(r.start_date + "T12:00:00"))} au ${toFrShort(new Date(r.end_date + "T12:00:00"))}`).join(", ");
+  return s.fullyCovered ? `Tu as pris en charge la totalité de la période : ${periods}` : `Tu as pris en charge une partie de la période : ${periods}`;
+}
 
 // Sous-menu "Mes alertes" (Mon compte, juste après "Mes Checklists") —
 // regroupe en un seul endroit les recasages/annulations automatiques posés
@@ -52,9 +58,14 @@ interface Props {
   relaisAlerts?: Task[];
   onClaimRelais?: (t: Task) => void;
   onDismissRelais?: (t: Task) => void | Promise<void>;
+  // Besoins de relais déjà pris en charge (en tout ou partie) par cette
+  // identité — voir lib/relaisAlerts.ts, fetchMyRelaisCoverageHistory.
+  // Affichés dans "Historique" plutôt que dans "Besoins de relais", puisqu'il
+  // n'y a plus rien à demander à la personne pour ces besoins-là.
+  relaisCoverageHistory?: RelaisCoverageSummary[];
 }
 
-export default function MyAlertsModal({ visible, onClose, C, activeAlerts, history, onModify, onMarkSeen, rgpdAlert, relaisAlerts = [], onClaimRelais, onDismissRelais }: Props) {
+export default function MyAlertsModal({ visible, onClose, C, activeAlerts, history, onModify, onMarkSeen, rgpdAlert, relaisAlerts = [], onClaimRelais, onDismissRelais, relaisCoverageHistory = [] }: Props) {
   function handleModify(r: Reservation) {
     onClose();
     onModify(r);
@@ -72,7 +83,7 @@ export default function MyAlertsModal({ visible, onClose, C, activeAlerts, histo
           <Text style={[styles.title, { color: C.text }]}>🔔 Mes alertes</Text>
 
           <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: 4 }}>
-            {!rgpdAlert && relaisAlerts.length === 0 && activeAlerts.length === 0 && history.length === 0 ? (
+            {!rgpdAlert && relaisAlerts.length === 0 && activeAlerts.length === 0 && history.length === 0 && relaisCoverageHistory.length === 0 ? (
               <Text style={[styles.emptyText, { color: C.muted }]}>Aucune alerte pour l'instant.</Text>
             ) : (
               <>
@@ -153,9 +164,15 @@ export default function MyAlertsModal({ visible, onClose, C, activeAlerts, histo
                   </>
                 )}
 
-                {history.length > 0 && (
+                {(history.length > 0 || relaisCoverageHistory.length > 0) && (
                   <>
                     <Text style={[styles.sectionLabel, { color: C.gold, marginTop: (activeAlerts.length > 0 || relaisAlerts.length > 0 || rgpdAlert) ? 16 : 0 }]}>Historique</Text>
+                    {relaisCoverageHistory.map((s) => (
+                      <View key={s.task.id} style={[styles.historyRow, { borderLeftColor: C.gold }]}>
+                        <Text style={[styles.historyType, { color: C.text }]}>🆘 {s.task.title}</Text>
+                        <Text style={[styles.historyLine, { color: C.muted }]}>{relaisCoverageLine(s)}</Text>
+                      </View>
+                    ))}
                     {history.map((h) => (
                       <View key={h.id} style={[styles.historyRow, { borderLeftColor: C.danger }]}>
                         <Text style={[styles.historyType, { color: C.text }]}>
