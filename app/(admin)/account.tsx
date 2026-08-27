@@ -16,6 +16,7 @@ import PatientAvatar from "@/components/PatientAvatar";
 import PinPad from "@/components/PinPad";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import MyChecklist from "@/components/MyChecklist";
+import MyRelaisCommitments from "@/components/MyRelaisCommitments";
 import MyAlertsModal from "@/components/MyAlertsModal";
 import PatientProfileModal from "@/components/PatientProfileModal";
 import VisitorsListModal from "@/components/VisitorsListModal";
@@ -363,6 +364,18 @@ export default function AdminAccountScreen() {
     .filter((r) => r.alert_message && !r.alert_seen)
     .sort((a, b) => (a.date === b.date ? a.creneau.localeCompare(b.creneau) : a.date.localeCompare(b.date)));
 
+  // "🔔 Mes alertes" ne doit montrer que l'historique jamais vu (pas tout
+  // reservation_change_history, qui ne s'efface jamais).
+  const unseenChangeHistory = changeHistory.filter((h) => !h.seen);
+
+  async function handleAlertsModalClose() {
+    setAlertsModalVisible(false);
+    const ids = unseenChangeHistory.map((h) => h.id);
+    if (!ids.length) return;
+    setChangeHistory((prev) => prev.map((h) => (ids.includes(h.id) ? { ...h, seen: true } : h)));
+    await supabase.from("reservation_change_history").update({ seen: true }).in("id", ids);
+  }
+
   // Alerte RGPD (conservation des données proche de l'échéance) — voir
   // lib/rgpd.ts et RgpdAlertModal.tsx pour le popup équivalent à l'ouverture
   // de l'app. Comptée dans le badge "Mes alertes" au même titre que les
@@ -550,10 +563,10 @@ export default function AdminAccountScreen() {
 
         <MyAlertsModal
           visible={alertsModalVisible}
-          onClose={() => setAlertsModalVisible(false)}
+          onClose={handleAlertsModalClose}
           C={C}
           activeAlerts={myActiveAlerts}
-          history={changeHistory}
+          history={unseenChangeHistory}
           onModify={handleAlertModify}
           onMarkSeen={handleAlertMarkSeen}
           rgpdAlert={rgpdAlertActive && space ? { message: rgpdAlertMessage(space), onProlong: handleRgpdProlong, prolonging: rgpdProlonging } : null}
@@ -770,6 +783,14 @@ export default function AdminAccountScreen() {
                   ownerNom={adminLastname}
                   ownerPin="ADMIN"
                   space={space}
+                  C={C}
+                />
+
+                <MyRelaisCommitments
+                  spaceId={space.id}
+                  prenom={adminFirstname}
+                  nom={adminLastname}
+                  pin="ADMIN"
                   C={C}
                 />
 

@@ -256,6 +256,9 @@ export interface ReservationChangeHistoryEntry {
   new_creneau: string | null;
   message: string;
   changed_at: string;
+  // Vu dans "🔔 Mes alertes" (voir MyAlertsModal.tsx) — ne filtre que cet
+  // affichage-là, "Mes réservations" continue de montrer tout l'historique.
+  seen: boolean;
 }
 
 export interface SouvenirPhoto {

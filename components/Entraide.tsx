@@ -123,6 +123,16 @@ function slotLabel(dateIso: string, time: string): string {
   return `${toFrShort(new Date(dateIso + "T12:00:00"))} à ${time.replace(":", "h")}`;
 }
 
+// Rappel de la période demandée par l'admin (relais_start_date/date_limite),
+// affiché sous le sous-titre à chaque étape du flux de claim relais — voir
+// le popup de claim plus bas, où il reste visible du choix initial jusqu'à
+// la feuille de confirmation, contrairement aux plages effectivement
+// choisies par le preneur (relaisClaimRanges), propres à chaque étape.
+function relaisRequestedPeriodLabel(t: Task | null): string | null {
+  if (!t?.relais_start_date || !t.date_limite) return null;
+  return `📅 Période demandée : du ${toFrShort(new Date(t.relais_start_date + "T12:00:00"))} au ${toFrShort(new Date(t.date_limite + "T12:00:00"))}`;
+}
+
 export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, allergies, patientFirstname }: Props) {
   const { focusTaskId, openClaim: openClaimParam, openRelais } = useLocalSearchParams<{ focusTaskId?: string; openClaim?: string; openRelais?: string }>();
   const scrollRef = useRef<ScrollView>(null);
@@ -548,9 +558,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // possibles sur des sous-périodes distinctes, voir task_relais_coverage) —
   // s'intercale entre l'ouverture du claim et la feuille commune photo/texte.
   // null = pas un besoin relais (ou pas encore choisi) ; "choice" = les deux
-  // gros boutons ; "period" = les deux MiniCalendar ; "ready" = la feuille
-  // commune s'affiche, relaisClaimRanges contient déjà les plages à insérer.
-  const [relaisClaimStep, setRelaisClaimStep] = useState<"choice" | "period" | "ready" | null>(null);
+  // gros boutons ; "period_start"/"period_end" = les deux popups "Du"/"Au"
+  // enchaînés (un MiniCalendar chacun) ; "ready" = la feuille commune
+  // s'affiche, relaisClaimRanges contient déjà les plages à insérer.
+  const [relaisClaimStep, setRelaisClaimStep] = useState<"choice" | "period_start" | "period_end" | "ready" | null>(null);
   const [relaisClaimRanges, setRelaisClaimRanges] = useState<RelaisCoverageRange[]>([]);
   const [relaisClaimFullPeriod, setRelaisClaimFullPeriod] = useState(false);
   const [relaisClaimPeriodStart, setRelaisClaimPeriodStart] = useState("");
@@ -561,6 +572,9 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     && relaisClaimPeriodStart <= relaisClaimPeriodEnd
     && (!claimTarget?.relais_start_date || relaisClaimPeriodStart >= claimTarget.relais_start_date)
     && (!claimTarget?.date_limite || relaisClaimPeriodEnd <= claimTarget.date_limite);
+  // "Du"/"Au" s'affichent en popups centrés (comme thanksModal) plutôt qu'en
+  // feuille coulissante depuis le bas — voir la <Modal> commune plus bas.
+  const relaisClaimStepCentered = relaisClaimStep === "period_start" || relaisClaimStep === "period_end";
 
   // Toutes les lignes task_relais_coverage des besoins relais actuellement
   // affichés — même pattern que courseContributors/loadCourseContributors
@@ -617,6 +631,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // ancien Alert.alert() natif, incohérent avec le reste de l'app (même
   // constat que pour le picker photo de SouvenirsGallery.tsx).
   const [thanksModal, setThanksModal] = useState(false);
+  // Capturé juste avant que claimTarget soit remis à null (voir handleClaim)
+  // — le popup "Merci" affiche un texte différent pour les besoins relais,
+  // mais claimTarget n'existe déjà plus une fois ce popup affiché.
+  const [thanksModalCategory, setThanksModalCategory] = useState<Task["category"] | null>(null);
 
   // Confirmations de suppression/désinscription — remplacent d'anciens
   // Alert.alert() natifs par ConfirmModal, cohérent avec le reste de l'app.
@@ -1802,8 +1820,28 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setRelaisClaimStep("ready");
   }
 
+  // Ouvre le popup "Du" directement sur le mois de la période demandée par
+  // l'admin (relais_start_date), pas sur le mois courant — sinon l'utilisateur
+  // doit naviguer à l'aveugle jusqu'au bon mois avant de pouvoir sélectionner
+  // quoi que ce soit (tout le reste du calendrier est grisé/non cliquable,
+  // voir allowedRange sur MiniCalendar).
   function chooseRelaisPeriod() {
-    setRelaisClaimStep("period");
+    if (claimTarget?.relais_start_date) {
+      const d = new Date(claimTarget.relais_start_date + "T12:00:00");
+      setRelaisClaimStartCalMonth({ year: d.getFullYear(), month: d.getMonth() });
+    }
+    setRelaisClaimPeriodStart("");
+    setRelaisClaimPeriodEnd("");
+    setRelaisClaimStep("period_start");
+  }
+
+  // Enchaîne sur le popup "Au", ouvert sur le mois de la date "Du" qui vient
+  // d'être choisie (plutôt que le mois courant).
+  function confirmRelaisPeriodStart() {
+    if (!relaisClaimPeriodStart) return;
+    const d = new Date(relaisClaimPeriodStart + "T12:00:00");
+    setRelaisClaimEndCalMonth({ year: d.getFullYear(), month: d.getMonth() });
+    setRelaisClaimStep("period_end");
   }
 
   function confirmRelaisPeriod() {
@@ -1921,6 +1959,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     // claimTarget et thanksModal pilotent la même <Modal> fusionnée (voir plus
     // bas) : passer de l'un à l'autre dans le même batch ne rouvre jamais de
     // fenêtre native, donc pas de setTimeout nécessaire ici.
+    setThanksModalCategory(claimTarget.category);
     setClaimTarget(null);
     setRelaisClaimStep(null);
     setThanksModal(true);
@@ -3719,28 +3758,30 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       <Modal
         visible={!!claimTarget || thanksModal}
         transparent
-        animationType={thanksModal ? "fade" : "slide"}
+        animationType={thanksModal || relaisClaimStepCentered ? "fade" : "slide"}
         onRequestClose={() => (thanksModal ? setThanksModal(false) : closeClaim())}
       >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <TouchableOpacity
-            style={thanksModal ? styles.centeredOverlay : styles.overlay}
+            style={thanksModal || relaisClaimStepCentered ? styles.centeredOverlay : styles.overlay}
             activeOpacity={1}
             onPress={() => { if (thanksModal) setThanksModal(false); else if (!claimSaving) closeClaim(); }}
           >
             <ScrollView
-              contentContainerStyle={thanksModal ? styles.centeredOverlayScroll : styles.overlayScroll}
+              contentContainerStyle={thanksModal || relaisClaimStepCentered ? styles.centeredOverlayScroll : styles.overlayScroll}
               keyboardShouldPersistTaps="handled"
             >
               <TouchableOpacity activeOpacity={1}>
-                <View style={[thanksModal ? styles.centeredSheet : styles.sheet, { backgroundColor: C.card, borderColor: thanksModal ? C.gold : C.accent }]}>
+                <View style={[thanksModal || relaisClaimStepCentered ? styles.centeredSheet : styles.sheet, { backgroundColor: C.card, borderColor: thanksModal ? C.gold : C.accent }]}>
                   {thanksModal ? (
                     <>
                       <View style={{ alignItems: "center", marginBottom: 16 }}>
                         <Text style={{ fontSize: 32, marginBottom: 6 }}>💛</Text>
                         <Text style={[styles.sheetTitle, { color: C.text }]}>Merci, tu t'en occupes</Text>
                         <Text style={[styles.sheetSub, { color: C.muted }]}>
-                          Pense bien à revenir sur cette page et à cliquer sur "Fait" une fois que ce sera fait, pour que les autres le sachent.
+                          {thanksModalCategory === "relais"
+                            ? "Les autres personnes sollicitées pour ce besoin de relais seront informées que tu as pris le relais sur cette période."
+                            : "Pense bien à revenir sur cette page et à cliquer sur \"Fait\" une fois que ce sera fait, pour que les autres le sachent."}
                         </Text>
                       </View>
                       <TouchableOpacity
@@ -3758,6 +3799,9 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                         <Text style={[styles.sheetSub, { color: C.muted }]}>
                           {CATEGORY_ICONS[claimTarget.category]} {claimTarget.title}
                         </Text>
+                        {relaisRequestedPeriodLabel(claimTarget) && (
+                          <Text style={[styles.sheetSub, { color: C.gold, marginTop: 2 }]}>{relaisRequestedPeriodLabel(claimTarget)}</Text>
+                        )}
                       </View>
 
                       <TouchableOpacity
@@ -3786,28 +3830,66 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                         </TouchableOpacity>
                       </View>
                     </>
-                  ) : claimTarget?.category === "relais" && relaisClaimStep === "period" ? (
+                  ) : claimTarget?.category === "relais" && relaisClaimStep === "period_start" ? (
                     <>
                       <View style={{ alignItems: "center", marginBottom: 14 }}>
                         <Text style={{ fontSize: 32, marginBottom: 6 }}>📅</Text>
-                        <Text style={[styles.sheetTitle, { color: C.text }]}>Choisis ta période</Text>
+                        <Text style={[styles.sheetTitle, { color: C.text }]}>Choisis ta période — Du</Text>
                         <Text style={[styles.sheetSub, { color: C.muted }]}>
                           {CATEGORY_ICONS[claimTarget.category]} {claimTarget.title}
                         </Text>
+                        {relaisRequestedPeriodLabel(claimTarget) && (
+                          <Text style={[styles.sheetSub, { color: C.gold, marginTop: 2 }]}>{relaisRequestedPeriodLabel(claimTarget)}</Text>
+                        )}
                       </View>
 
-                      <Text style={[styles.fieldLabel, { color: C.gold }]}>Du</Text>
                       <MiniCalendar
                         selDate={relaisClaimPeriodStart}
                         onSelect={setRelaisClaimPeriodStart}
                         calMonth={relaisClaimStartCalMonth}
                         onMonthChange={setRelaisClaimStartCalMonth}
                         startDate={claimTarget.relais_start_date ? new Date(claimTarget.relais_start_date + "T12:00:00") : new Date()}
+                        allowedRange={claimTarget.relais_start_date && claimTarget.date_limite ? {
+                          start: new Date(claimTarget.relais_start_date + "T12:00:00"),
+                          end: new Date(claimTarget.date_limite + "T12:00:00"),
+                        } : undefined}
                         C={C}
                         size="lg"
                       />
 
-                      <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 12 }]}>Au</Text>
+                      <View style={styles.sheetBtns}>
+                        <TouchableOpacity
+                          onPress={() => setRelaisClaimStep("choice")}
+                          style={[styles.btnSecondary, { borderColor: C.border }]}
+                        >
+                          <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Retour</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={confirmRelaisPeriodStart}
+                          disabled={!relaisClaimPeriodStart}
+                          style={[
+                            styles.btnPrimary,
+                            { backgroundColor: C.accent },
+                            !relaisClaimPeriodStart && { opacity: 0.5 },
+                          ]}
+                        >
+                          <Text style={styles.btnPrimaryText}>Continuer</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  ) : claimTarget?.category === "relais" && relaisClaimStep === "period_end" ? (
+                    <>
+                      <View style={{ alignItems: "center", marginBottom: 14 }}>
+                        <Text style={{ fontSize: 32, marginBottom: 6 }}>📅</Text>
+                        <Text style={[styles.sheetTitle, { color: C.text }]}>Choisis ta période — Au</Text>
+                        <Text style={[styles.sheetSub, { color: C.muted }]}>
+                          {CATEGORY_ICONS[claimTarget.category]} {claimTarget.title}
+                        </Text>
+                        {relaisRequestedPeriodLabel(claimTarget) && (
+                          <Text style={[styles.sheetSub, { color: C.gold, marginTop: 2 }]}>{relaisRequestedPeriodLabel(claimTarget)}</Text>
+                        )}
+                      </View>
+
                       <MiniCalendar
                         selDate={relaisClaimPeriodEnd}
                         onSelect={setRelaisClaimPeriodEnd}
@@ -3816,13 +3898,17 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                         startDate={relaisClaimPeriodStart
                           ? new Date(relaisClaimPeriodStart + "T12:00:00")
                           : (claimTarget.relais_start_date ? new Date(claimTarget.relais_start_date + "T12:00:00") : new Date())}
+                        allowedRange={claimTarget.relais_start_date && claimTarget.date_limite ? {
+                          start: new Date(claimTarget.relais_start_date + "T12:00:00"),
+                          end: new Date(claimTarget.date_limite + "T12:00:00"),
+                        } : undefined}
                         C={C}
                         size="lg"
                       />
 
                       <View style={styles.sheetBtns}>
                         <TouchableOpacity
-                          onPress={() => setRelaisClaimStep("choice")}
+                          onPress={() => setRelaisClaimStep("period_start")}
                           style={[styles.btnSecondary, { borderColor: C.border }]}
                         >
                           <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Retour</Text>
@@ -3849,6 +3935,9 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                           <Text style={[styles.sheetSub, { color: C.muted }]}>
                             {CATEGORY_ICONS[claimTarget.category]} {claimTarget.title}
                           </Text>
+                        )}
+                        {claimTarget?.category === "relais" && relaisRequestedPeriodLabel(claimTarget) && (
+                          <Text style={[styles.sheetSub, { color: C.gold, marginTop: 2 }]}>{relaisRequestedPeriodLabel(claimTarget)}</Text>
                         )}
                       </View>
 
@@ -3927,7 +4016,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
                       <View style={styles.sheetBtns}>
                         <TouchableOpacity
-                          onPress={claimTarget?.category === "relais" ? () => setRelaisClaimStep(relaisClaimFullPeriod ? "choice" : "period") : closeClaim}
+                          onPress={claimTarget?.category === "relais" ? () => setRelaisClaimStep(relaisClaimFullPeriod ? "choice" : "period_end") : closeClaim}
                           disabled={claimSaving}
                           style={[styles.btnSecondary, { borderColor: C.border }]}
                         >

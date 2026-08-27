@@ -29,6 +29,7 @@ import VisitorsListModal from "@/components/VisitorsListModal";
 import { switchToLinkedSpace } from "@/lib/intervenantSpaceSwitch";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import MyChecklist from "@/components/MyChecklist";
+import MyRelaisCommitments from "@/components/MyRelaisCommitments";
 import MyAlertsModal from "@/components/MyAlertsModal";
 import { fetchOpenRelaisAlerts } from "@/lib/relaisAlerts";
 import type { Reservation, ReservationChangeHistoryEntry, NewsEntry, SupportMessage, Task } from "@/lib/types";
@@ -872,6 +873,19 @@ export default function VisitorAccountScreen() {
     .filter((r) => r.alert_message && !r.alert_seen)
     .sort((a, b) => (a.date === b.date ? a.creneau.localeCompare(b.creneau) : a.date.localeCompare(b.date)));
 
+  // "🔔 Mes alertes" ne doit montrer que l'historique jamais vu (pas tout
+  // reservation_change_history, qui ne s'efface jamais) — "Mes réservations"
+  // plus bas continue d'afficher le tout via myChangeHistory brut.
+  const unseenChangeHistory = myChangeHistory.filter((h) => !h.seen);
+
+  async function handleAlertsModalClose() {
+    setAlertsModalVisible(false);
+    const ids = unseenChangeHistory.map((h) => h.id);
+    if (!ids.length) return;
+    setMyChangeHistory((prev) => prev.map((h) => (ids.includes(h.id) ? { ...h, seen: true } : h)));
+    await supabase.from("reservation_change_history").update({ seen: true }).in("id", ids);
+  }
+
   async function handleAlertModify(r: Reservation) {
     // Intervention proposée par l'admin (voir BookingProposalAlertModal) :
     // pas d'édition en place possible, on supprime la réservation puis on
@@ -1431,6 +1445,14 @@ export default function VisitorAccountScreen() {
           intervenantTelephone={role === "intervenant" ? telephone : undefined}
         />
 
+        <MyRelaisCommitments
+          spaceId={space.id}
+          prenom={prenom}
+          nom={nom}
+          pin={pin}
+          C={C}
+        />
+
         <TouchableOpacity
           style={[styles.patientProfileBtn, { marginTop: 10 }]}
           onPress={() => setPatientProfileVisible(true)}
@@ -1620,10 +1642,10 @@ export default function VisitorAccountScreen() {
 
       <MyAlertsModal
         visible={alertsModalVisible}
-        onClose={() => setAlertsModalVisible(false)}
+        onClose={handleAlertsModalClose}
         C={C}
         activeAlerts={myActiveAlerts}
-        history={myChangeHistory}
+        history={unseenChangeHistory}
         onModify={handleAlertModify}
         onMarkSeen={handleAlertMarkSeen}
         relaisAlerts={relaisAlerts}
