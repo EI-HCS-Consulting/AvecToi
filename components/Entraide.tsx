@@ -227,6 +227,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [fDLPickerOpen, setFDLPickerOpen] = useState(false);
   const [fDLCalMonth, setFDLCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
   const [fUrgent, setFUrgent] = useState(false);
+  // Dernière date pour laquelle le tag Urgent a été activé automatiquement
+  // (voir l'effet plus bas, "besoin créé pour J+2") — empêche de re-forcer
+  // le tag après que la personne l'ait décoché à la main tant que la date
+  // choisie ne change pas.
+  const autoUrgentDateRef = useRef<string | null>(null);
 
   // Champs spécifiques catégorie "relais" (besoin de relais ponctuel, publié
   // uniquement via openRelaisForm — pas sélectionnable dans la grille de
@@ -695,8 +700,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     if (!target) return;
     focusedRef.current = true;
     if (activeCat && activeCat !== target.category) setActiveCat(null);
-    if (openOnlyFilter && (target.status === "fait" || target.status === "ferme")) setOpenOnlyFilter(false);
-    if (closedOnlyFilter && target.status !== "ferme" && target.status !== "fait") setClosedOnlyFilter(false);
+    if (openOnlyFilter && target.status !== "ouvert") setOpenOnlyFilter(false);
+    if (closedOnlyFilter && target.status === "ouvert") setClosedOnlyFilter(false);
     setHighlightId(focusTaskId);
     setTimeout(() => {
       const y = taskOffsets.current[focusTaskId];
@@ -733,6 +738,24 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     autoRelaisMsgRef.current = msg;
     setFDesc(msg);
   }, [fRelaisStartDate, fDateLimite, fCat, editTask, relaisAuthorPrenom, patientFirstname]);
+
+  // Coche automatiquement "Urgent" quand la date du besoin (échéance, date
+  // de transport, ou début de relais selon la catégorie) tombe à J+2 ou
+  // moins — uniquement à la création (pas en édition, où la personne garde
+  // la main). Ne re-force le tag qu'une fois par date choisie : si la
+  // personne le décoche ensuite à la main, on ne le lui réimpose pas tant
+  // qu'elle ne change pas à nouveau la date (voir autoUrgentDateRef).
+  useEffect(() => {
+    if (editTask) return;
+    const dateIso = fCat === "transport" ? fTDate : fCat === "relais" ? fRelaisStartDate : fDateLimite;
+    if (!dateIso) return;
+    if (autoUrgentDateRef.current === dateIso) return;
+    const target = new Date(dateIso + "T00:00:00");
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    const diffDays = Math.round((target.getTime() - today.getTime()) / 86400000);
+    autoUrgentDateRef.current = dateIso;
+    if (diffDays >= 0 && diffDays <= 2) setFUrgent(true);
+  }, [fCat, fTDate, fRelaisStartDate, fDateLimite, editTask]);
 
   useEffect(() => {
     const ch = supabase
@@ -784,7 +807,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setFTHomePostalCode(""); setFTHomeCity(""); setFTHomeCountry("");
     setFTForSomeoneElse(false); setFTForPrenom(""); setFTForNom("");
     setFTCalMonth(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
-    setFDateLimite(""); setFDLPickerOpen(false); setFUrgent(false);
+    setFDateLimite(""); setFDLPickerOpen(false); setFUrgent(false); autoUrgentDateRef.current = null;
     setFDLCalMonth(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
     setFCourseItems([]); setFCourseItemDraft("");
     setFRelaisStartDate(""); setFRelaisVisibleTo("all"); setFRelaisSelectedKeys(new Set());
@@ -847,7 +870,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setFPhotoUri(null); setFExistingPhoto(null);
     setClaimOnCreate(false);
     setClaimPrenom(""); setClaimNom(""); setClaimPin("");
-    setFDateLimite(""); setFDLPickerOpen(true); setFUrgent(false);
+    setFDateLimite(""); setFDLPickerOpen(true); setFUrgent(false); autoUrgentDateRef.current = null;
     setFDLCalMonth(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
     setFRelaisStartDate("");
     setFRelaisStartCalMonth(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
@@ -2140,6 +2163,54 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     return new Date(`${t.date_limite}T23:59:59`) < new Date();
   }
 
+  // Date "utile" d'un besoin pour le tri temporel du mur — Transport a sa
+  // propre date structurée (confirmée si elle existe, sinon la date
+  // demandée), un relais se rattache à son début de période, les autres
+  // catégories à l'échéance générique optionnelle. null = aucune date
+  // connue (besoin sans échéance), traité comme "le plus loin dans le
+  // temps" plutôt que comme "le plus proche" (voir compareSoonestFirst).
+  function taskEffectiveDate(t: Task): string | null {
+    if (t.category === "transport") return t.transport_confirmed_date || t.transport_date;
+    if (t.category === "relais") return t.relais_start_date || t.date_limite;
+    return t.date_limite;
+  }
+
+  // Plus proche → plus éloigné dans le temps ; un besoin sans date connue
+  // passe toujours après ceux qui en ont une (on ne peut pas juger de sa
+  // proximité), les besoins sans date entre eux gardent l'ordre de création
+  // le plus récent en premier (comportement historique du mur).
+  function compareSoonestFirst(a: Task, b: Task): number {
+    const da = taskEffectiveDate(a);
+    const db = taskEffectiveDate(b);
+    if (da && db) return da < db ? -1 : da > db ? 1 : 0;
+    if (da) return -1;
+    if (db) return 1;
+    return b.created_at.localeCompare(a.created_at);
+  }
+
+  // Section "Ouverts" : les besoins tagués Urgent passent avant les autres,
+  // chaque groupe restant trié du plus proche au plus éloigné.
+  function compareOpenSection(a: Task, b: Task): number {
+    if (a.urgent !== b.urgent) return a.urgent ? -1 : 1;
+    return compareSoonestFirst(a, b);
+  }
+
+  // Sous-bloc "Historique" (besoins fermés déjà passés, ou sans date) : du
+  // plus récent au plus ancien — clé = date effective si connue, sinon date
+  // de création, pour que les besoins sans échéance restent triés entre eux.
+  function compareMostRecentFirst(a: Task, b: Task): number {
+    const ka = taskEffectiveDate(a) ?? a.created_at.slice(0, 10);
+    const kb = taskEffectiveDate(b) ?? b.created_at.slice(0, 10);
+    return ka < kb ? 1 : ka > kb ? -1 : 0;
+  }
+
+  // Aujourd'hui en ISO (YYYY-MM-DD), pour séparer les besoins fermés entre
+  // "À venir" (date effective non passée) et "Historique" (passée ou
+  // inconnue) — voir visibleClosedUpcoming/visibleClosedHistory plus bas.
+  function todayIso(): string {
+    return new Date().toISOString().slice(0, 10);
+  }
+
   async function openTransportPropose(t: Task) {
     setProposeTarget(t);
     setPDate(t.transport_date ?? "");
@@ -2301,6 +2372,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         style={[
           styles.taskCard,
           { backgroundColor: C.card, borderColor: highlighted ? C.gold : (t.status === "fait" ? "rgba(122,143,166,0.2)" : C.border) },
+          // Cadre rouge autour du bloc dès que le tag Urgent est activé —
+          // reste visible quel que soit le statut, sauf priorité visuelle du
+          // surlignage (deep-link) ou de la sélection multiple ci-dessous.
+          t.urgent && { borderColor: C.danger, borderWidth: 2 },
           highlighted && { borderWidth: 2 },
           selected && { borderColor: C.accent, borderWidth: 2, backgroundColor: `${C.accent}11` },
         ]}
@@ -2655,14 +2730,31 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const undeletedTasks = tasks
     .filter((t) => !t.deleted_by_admin || (!isAdmin && isAuthor(t)))
     .filter(relaisVisible);
-  const visibleTasks = undeletedTasks.filter(
-    (t) =>
-      (!activeCat || t.category === activeCat) &&
-      (!openOnlyFilter || (t.status !== "fait" && t.status !== "ferme")) &&
-      (!closedOnlyFilter || t.status === "ferme" || t.status === "fait")
-  );
-  const openCount = undeletedTasks.filter((t) => t.status !== "fait" && t.status !== "ferme").length;
-  const closedCount = undeletedTasks.filter((t) => t.status === "ferme" || t.status === "fait").length;
+  // "Ouvert" = jamais pris en charge. Dès qu'un besoin est pris en charge il
+  // rejoint les besoins fermés (voir répartition À venir/Historique
+  // ci-dessous) — un besoin "ouvert" au statut réel n'est donc plus jamais
+  // mélangé avec "pris_en_charge" comme c'était le cas auparavant.
+  const isOpenStatus = (t: Task) => t.status === "ouvert";
+  const isClosedStatus = (t: Task) => t.status !== "ouvert";
+  const catFiltered = undeletedTasks.filter((t) => !activeCat || t.category === activeCat);
+  const today = todayIso();
+  const visibleOpen = catFiltered
+    .filter((t) => !closedOnlyFilter && isOpenStatus(t))
+    .sort(compareOpenSection);
+  const closedFiltered = catFiltered.filter((t) => !openOnlyFilter && isClosedStatus(t));
+  // À venir : besoin fermé (pris en charge / fait / fermé) dont la date
+  // effective n'est pas encore passée — trié du plus proche au plus
+  // éloigné. Historique : date passée ou inconnue — du plus récent au plus
+  // ancien (voir compareMostRecentFirst).
+  const visibleClosedUpcoming = closedFiltered
+    .filter((t) => { const d = taskEffectiveDate(t); return !!d && d >= today; })
+    .sort(compareSoonestFirst);
+  const visibleClosedHistory = closedFiltered
+    .filter((t) => { const d = taskEffectiveDate(t); return !d || d < today; })
+    .sort(compareMostRecentFirst);
+  const visibleTasksCount = visibleOpen.length + visibleClosedUpcoming.length + visibleClosedHistory.length;
+  const openCount = undeletedTasks.filter(isOpenStatus).length;
+  const closedCount = undeletedTasks.filter(isClosedStatus).length;
 
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
@@ -2770,7 +2862,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
       {tasksLoading ? (
         <View style={styles.centered}><ActivityIndicator color={C.accent} size="large" /></View>
-      ) : visibleTasks.length === 0 ? (
+      ) : visibleTasksCount === 0 ? (
         <View style={styles.centered}>
           <Text style={{ fontSize: 36, marginBottom: 12 }}>🤝</Text>
           <Text style={[styles.emptyText, { color: C.muted }]}>
@@ -2790,7 +2882,22 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         </View>
       ) : (
         <ScrollView ref={scrollRef} contentContainerStyle={styles.listPad}>
-          {visibleTasks.map(renderTask)}
+          {visibleOpen.map(renderTask)}
+          {(visibleClosedUpcoming.length > 0 || visibleClosedHistory.length > 0) && visibleOpen.length > 0 && (
+            <Text style={[styles.listSectionHeader, { color: C.gold }]}>🔒 Fermés</Text>
+          )}
+          {visibleClosedUpcoming.length > 0 && (
+            <>
+              <Text style={[styles.listSubsectionHeader, { color: C.muted }]}>À venir</Text>
+              {visibleClosedUpcoming.map(renderTask)}
+            </>
+          )}
+          {visibleClosedHistory.length > 0 && (
+            <>
+              <Text style={[styles.listSubsectionHeader, { color: C.muted }]}>Historique</Text>
+              {visibleClosedHistory.map(renderTask)}
+            </>
+          )}
         </ScrollView>
       )}
 
@@ -4660,6 +4767,8 @@ const styles = StyleSheet.create({
   openFilterIcon: { fontSize: 11 },
 
   listPad: { padding: 14, paddingBottom: 40 },
+  listSectionHeader: { fontFamily: "DM_Sans_700Bold", fontSize: 14, marginTop: 16, marginBottom: 8 },
+  listSubsectionHeader: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", marginTop: 10, marginBottom: 6 },
 
   taskCard: { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 },
   taskHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" },
