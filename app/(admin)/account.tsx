@@ -24,7 +24,7 @@ import { isRgpdAlertActive, rgpdAlertMessage, prolongSpace } from "@/lib/rgpd";
 import { disengageTask as performDisengage } from "@/lib/taskDisengage";
 import ConfirmModal from "@/components/ConfirmModal";
 import RecurringBookingModal from "@/components/RecurringBookingModal";
-import { fetchOpenRelaisAlerts } from "@/lib/relaisAlerts";
+import { fetchOpenRelaisAlerts, fetchMyRelaisCoverageHistory, type RelaisCoverageSummary } from "@/lib/relaisAlerts";
 import type { Reservation, ReservationChangeHistoryEntry, NewsEntry, SupportMessage, Task } from "@/lib/types";
 
 const CAT_ICONS: Record<Task["category"], string> = {
@@ -80,6 +80,9 @@ export default function AdminAccountScreen() {
   // Besoins de relais ouverts ciblant l'admin — voir lib/relaisAlerts.ts,
   // même source que le popup RelaisAlertModal, ici consultable à tout moment.
   const [relaisAlerts, setRelaisAlerts] = useState<Task[]>([]);
+  // Besoins de relais déjà pris en charge (en tout ou partie) par l'admin —
+  // sortis de relaisAlerts ci-dessus, affichés dans "Historique".
+  const [relaisCoverageHistory, setRelaisCoverageHistory] = useState<RelaisCoverageSummary[]>([]);
   const [desengageTarget, setDesengageTarget] = useState<Task | null>(null);
   const [desengageSaving, setDesengageSaving] = useState(false);
   async function confirmDesengage() {
@@ -354,6 +357,8 @@ export default function AdminAccountScreen() {
     setActivityLoading(false);
     const relais = await fetchOpenRelaisAlerts(spaceId, true, { prenom: p, nom: n });
     setRelaisAlerts(relais);
+    const coverageHistory = await fetchMyRelaisCoverageHistory(spaceId, { prenom: p, nom: n });
+    setRelaisCoverageHistory(coverageHistory);
   }
 
   // Alertes actives = réservations "Visite"/"Nuit" de l'admin lui-même
@@ -573,6 +578,7 @@ export default function AdminAccountScreen() {
           relaisAlerts={relaisAlerts}
           onClaimRelais={handleClaimRelais}
           onDismissRelais={handleDismissRelais}
+          relaisCoverageHistory={relaisCoverageHistory}
         />
 
         {/* Section Mon affichage */}

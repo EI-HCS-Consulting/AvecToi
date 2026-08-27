@@ -31,7 +31,7 @@ import SegmentedSwitch from "@/components/SegmentedSwitch";
 import MyChecklist from "@/components/MyChecklist";
 import MyRelaisCommitments from "@/components/MyRelaisCommitments";
 import MyAlertsModal from "@/components/MyAlertsModal";
-import { fetchOpenRelaisAlerts } from "@/lib/relaisAlerts";
+import { fetchOpenRelaisAlerts, fetchMyRelaisCoverageHistory, type RelaisCoverageSummary } from "@/lib/relaisAlerts";
 import type { Reservation, ReservationChangeHistoryEntry, NewsEntry, SupportMessage, Task } from "@/lib/types";
 
 function visitorPhotoUrl(spaceId: string, filename: string) {
@@ -171,6 +171,9 @@ export default function VisitorAccountScreen() {
   // Besoins de relais ouverts ciblant cette identité — voir lib/relaisAlerts.ts,
   // même source que le popup RelaisAlertModal, ici consultable à tout moment.
   const [relaisAlerts, setRelaisAlerts] = useState<Task[]>([]);
+  // Besoins de relais déjà pris en charge (en tout ou partie) par cette
+  // identité — sortis de relaisAlerts ci-dessus, affichés dans "Historique".
+  const [relaisCoverageHistory, setRelaisCoverageHistory] = useState<RelaisCoverageSummary[]>([]);
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pinPhase, setPinPhase] = useState<"verify" | "new" | "confirm">("verify");
   const [pinInput, setPinInput] = useState("");
@@ -274,6 +277,8 @@ export default function VisitorAccountScreen() {
     if (!p.trim() || !n.trim()) return;
     const alerts = await fetchOpenRelaisAlerts(spaceId, false, { prenom: p, nom: n });
     setRelaisAlerts(alerts);
+    const coverageHistory = await fetchMyRelaisCoverageHistory(spaceId, { prenom: p, nom: n });
+    setRelaisCoverageHistory(coverageHistory);
   }, []);
 
   // Permet de se désengager d'un besoin pris en charge en cas d'imprévu —
@@ -1651,6 +1656,7 @@ export default function VisitorAccountScreen() {
         relaisAlerts={relaisAlerts}
         onClaimRelais={handleClaimRelais}
         onDismissRelais={handleDismissRelais}
+        relaisCoverageHistory={relaisCoverageHistory}
       />
 
       {space && role === "intervenant" && intervenantProfileId && (
