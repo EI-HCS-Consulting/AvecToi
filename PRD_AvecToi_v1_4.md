@@ -1,6 +1,12 @@
 # PRD — AvecToi
-## Product Requirements Document v1.12
+## Product Requirements Document v1.13
 *Préparé pour Claude Code — Juin 2026, synchronisé avec l'application livrée en Juillet/Août 2026*
+
+> **Changelog v1.12 → v1.13**
+> - **Besoin de relais : planning et alertes** *(27/08/2026, PR #303)* : nouveau bouton « 🗓️ Je regarde mon planning » dans le popup d'alerte de relais, qui le ferme sans rien décider — le besoin reste ouvert, le popup revient à la prochaine connexion, et reste consultable à tout moment dans un nouveau bouton « 🔔 Mes alertes » (Mon Compte, admin **et** visiteur) qui centralise RGPD, besoins de relais ouverts et réservations recasées/annulées ; la liste des personnes sollicitées pour un besoin est visible dans le détail du popup dès que le ciblage n'est pas « tous les proches » — voir §2, §3.8, §5.11/§6.4
+> - **Besoin de relais : répartition entre plusieurs preneurs** *(27/08/2026, PR #305)* : la prise en charge d'un besoin de relais peut désormais se répartir entre plusieurs personnes, chacune sur une sous-période distincte de la période demandée (« 🙋 Je m'en charge (ce qu'il reste) » ou « 📅 Choisir une période », en deux popups centrés successifs « Du »/« Au » où seuls les jours de la période demandée sont sélectionnables) ; la carte du besoin liste chaque contributeur avec sa période et l'éventuel reste à couvrir, chacun pouvant se désinscrire individuellement de sa propre sous-période ; nouveau bloc « 🤝 Mes engagements de relais » dans Mon Compte rappelant les sous-périodes prises — voir §3.8, §5.11/§6.4
+> - **« 🔔 Mes alertes » : historique filtré aux entrées non vues** *(27/08/2026, PR #305)* : la section « Historique » ne montre plus tout l'historique permanent des changements de réservation, mais seulement les entrées jamais consultées, marquées vues à la fermeture du popup — « Mes réservations » continue d'afficher tout l'historique par réservation — voir §5.11/§6.4
+> - Détail exhaustif écran par écran : `Documentation/Documentation Fonctionnalités.docx` (généré depuis le code, mis à jour à chaque handoff)
 
 > **Changelog v1.11 → v1.12**
 > - **Publication d'une checklist suggérée : choix de la destination** *(21/08/2026, PR #297)* : Mur d'Entraide seul, « Mes Checklists » seul, ou les deux en même temps — dans ce dernier cas les deux copies restent liées et se synchronisent automatiquement (statut « Fait », identité de qui s'en occupe) — voir §3.8
@@ -139,6 +145,7 @@ Le nom **AvecToi** porte la promesse : la **présence auprès d'un proche** — 
 - Reçoit un email automatique à chaque annulation
 - **Prolonge ou déclenche la purge** de l'espace (§10bis — fenêtre 30 jours, renouvelable)
 - **Accède depuis Mon Compte aux boutons « 🩺 Fiche patient » et « 👥 Visiteurs »** *(NOUVEAU depuis v1.10)* : la fiche patient et la liste des visiteurs de l'espace (fiche au clic)
+- **« 🔔 Mes alertes »** *(NOUVEAU depuis v1.13)* : bouton à badge centralisant alerte RGPD, besoins de relais ouverts et réservations recasées/annulées ; l'historique n'y montre que les entrées jamais vues. **« 🤝 Mes engagements de relais »** *(NOUVEAU depuis v1.13)* : bloc récapitulant les sous-périodes de relais réclamées, sous « Mes checklists »
 
 ### Visiteur (accès gratuit via lien d'invitation)
 - Accède via lien unique, QR code ou code dossier (pas de compte requis)
@@ -154,6 +161,7 @@ Le nom **AvecToi** porte la promesse : la **présence auprès d'un proche** — 
 - **Publie une Nouvelle du jour** (texte + photos) ; modifie/supprime les siennes (PIN)
 - **S'attribue un besoin d'entraide** (« Je m'en occupe ») ; **poste un message de soutien**. Le bloc de publication « 🆘 Besoin de relais » de Mon Compte est réservé à l'admin depuis v1.10 (retiré du compte visiteur, §3.8). **Supprime lui-même un besoin qu'il a publié** *(NOUVEAU depuis v1.12)*, sans passer par l'admin
 - **Ouvre « 👥 Visiteurs »** *(remplace « Intervenants » depuis v1.10)* depuis Mon Compte : liste des visiteurs de l'espace, fiche au clic (lien avec le patient, phrase totem)
+- **« 🔔 Mes alertes »** *(NOUVEAU depuis v1.13)* : bouton à badge centralisant besoins de relais ouverts le sollicitant et réservations recasées/annulées ; l'historique n'y montre que les entrées jamais vues. **« 🤝 Mes engagements de relais »** *(NOUVEAU depuis v1.13)* : bloc récapitulant les sous-périodes de relais réclamées, sous « Mes checklists »
 - **"Sélectionner tout" / "Télécharger tout"** dans la galerie
 - Reçoit un rappel push 1h avant sa visite (si notifications acceptées)
 - **Ajoute son créneau à son calendrier** (natif Android)
@@ -278,7 +286,7 @@ Compte-rendu court après le passage d'un visiteur, pour rassurer les proches ab
 - Chaque besoin : **catégorie** — **6 catégories depuis v1.5** : 🍽️ Repas / 👕 Affaires / 🛒 Courses / 🚗 Transport / 🗂️ Administratif / 💡 Autre (le PRD v1.4 n'en prévoyait que 4, sans Transport ni Administratif) — + **statut** (ouvert → pris en charge → fait, avec fermeture automatique si non pris en charge après sa date)
 - Un visiteur clique **« Je m'en occupe »** (identifié prénom + nom, PIN pour se désinscrire)
 - **Désengagement généralisé** *(NOUVEAU depuis v1.8)* : un besoin pris en charge peut être libéré par la personne qui l'a pris (« Me désengager », depuis « Modifier le besoin » ou par appui long sur sa carte), quelle que soit la catégorie — auparavant réservé à Transport
-- **Besoin de relais ponctuel** *(NOUVEAU depuis v1.9)* : catégorie technique dédiée (🆘), non sélectionnable dans la grille de création manuelle — publiée uniquement depuis Mon Compte, **réservé à l'admin depuis v1.10** (le bloc a été retiré du compte visiteur, voir §2), avec période d'indisponibilité, message pré-rempli modifiable et ciblage de l'audience à la publication (tous les proches ou une sélection précise) ; alerte popup à la connexion des personnes ciblées, avec « Je m'en occupe » (ouvre directement la prise en charge) ou « Pas cette fois » (masque l'alerte sans fermer le besoin) ; l'onglet « SOS Relais » du filtre par catégorie n'apparaît que s'il existe un besoin relais visible pour la personne connectée. **Traçabilité des refus** *(NOUVEAU depuis v1.12)* : la carte du besoin affiche, côté admin uniquement, la liste des personnes ayant répondu « Pas cette fois »
+- **Besoin de relais ponctuel** *(NOUVEAU depuis v1.9)* : catégorie technique dédiée (🆘), non sélectionnable dans la grille de création manuelle — publiée uniquement depuis Mon Compte, **réservé à l'admin depuis v1.10** (le bloc a été retiré du compte visiteur, voir §2), avec période d'indisponibilité, message pré-rempli modifiable et ciblage de l'audience à la publication (tous les proches ou une sélection précise) ; alerte popup à la connexion des personnes ciblées, avec « Je m'en occupe » (ouvre directement la prise en charge), « Pas cette fois » (masque l'alerte sans fermer le besoin) ou **« 🗓️ Je regarde mon planning »** *(NOUVEAU depuis v1.13)* — ferme le popup sans rien décider, le besoin reste ouvert et l'alerte revient à la prochaine connexion, consultable entre-temps dans « 🔔 Mes alertes » (§5.11/§6.4) ; la liste des personnes sollicitées est visible dans le détail du popup dès que le ciblage n'est pas « tous les proches ». L'onglet « SOS Relais » du filtre par catégorie n'apparaît que s'il existe un besoin relais visible pour la personne connectée. **Traçabilité des refus** *(NOUVEAU depuis v1.12)* : la carte du besoin affiche, côté admin uniquement, la liste des personnes ayant répondu « Pas cette fois ». **Répartition entre plusieurs preneurs** *(NOUVEAU depuis v1.13)* : la prise en charge se fait « 🙋 Je m'en charge (ce qu'il reste) » ou « 📅 Choisir une période » (deux popups centrés successifs « Du »/« Au », seuls les jours de la période demandée par l'admin sélectionnables et surlignés en orange) — plusieurs personnes peuvent ainsi couvrir chacune une sous-période distincte ; la carte liste chaque contributeur avec sa période et l'éventuel reste à couvrir, avec désinscription individuelle par sous-période ; le popup de remerciement affiche, pour cette catégorie uniquement, un message dédié informant que les autres personnes sollicitées seront prévenues
 - Catégorie **Courses devenue liste d'articles** *(NOUVEAU depuis v1.8, affiné en v1.9, corrigé en v1.10)* : articles ajoutés un par un à la création, cochables en temps réel par tout visiteur ou admin via « 👁️ Aperçu de la liste » tant que personne n'a pris le besoin en charge (dispatch libre). Chaque article coché porte l'identité de qui l'a coché et ne peut être décoché que par cette même personne. Le bloc du besoin cumule tous les contributeurs (« X s'en occupe » / « X, Y et Z s'en occupent », suffixe « … partiellement » tant que la liste n'est pas intégralement cochée). Cliquer « Je m'en occupe » verrouille le cochage au preneur, **sans cochage automatique** (le comportement introduit en v1.9, qui cochait les articles restants et clôturait le besoin automatiquement, a été retiré en v1.10). Cocher le dernier article (toujours à la main) ferme le besoin, décocher un article après coup le rouvre
 - Catégorie **Administratif** : checklists suggérées prêtes à publier en bloc — **bibliothèque passée à 11 modèles depuis v1.8** (bibliothèque complète pour l'admin, sous-ensemble marqué partageable pour les visiteurs/intervenants), dont **deux modèles réservés au proche aidant** (« Congé proche aidant », « Répit aidant »), visibles uniquement dans Mon Compte → Checklist personnelle ; import via un **assistant séquentiel** *(NOUVEAU depuis v1.8)* demandant échéance → urgence → précision libre item par item. **Choix de la destination de publication** *(NOUVEAU depuis v1.12)* : Mur d'Entraide seul, « Mes Checklists » seul, ou les deux à la fois — les deux copies restent alors liées et se synchronisent automatiquement (statut « Fait », identité de qui s'en occupe). Import privé depuis Mon Compte indépendant du Mur *(v1.12)* : un item déjà publié publiquement ne bloque plus son import en privé, l'anti-doublon public ne s'appliquant qu'en cochant « Publier aussi sur le Mur d'Entraide »
 - **Génération de courriers administratifs** *(NOUVEAU depuis v1.8)* : certains items de checklist (demande employeur, autorisation de soins pour un enfant, attestation d'autorité parentale, courrier école/crèche, déclaration mutuelle/CPAM, procuration bancaire, absence pour hospitalisation d'un proche, déclaration de sinistre) affichent un bouton « ✉️ Préparer le courrier » : popup de remplissage des champs obligatoires, aperçu fidèle à une lettre administrative réelle, export Word (.doc) ou partage par email. Chaque courrier généré est tracé dans un nouveau bouton « 📄 Mes documents » (modifiable, supprimable, retéléchargeable), qui liste aussi les listes de courses associées à un besoin Courses
@@ -507,6 +515,7 @@ new_date (date, nullable)
 new_creneau (text, nullable)
 message (text)
 changed_at (timestamp)
+seen (boolean)                ← NOUVEAU depuis v1.13, pilote le filtrage de la section "Historique" du bouton "🔔 Mes alertes" (§3.8, §5.11/§6.4) ; "Mes réservations" reste indépendant, affiche toujours tout l'historique
 ```
 
 ### Table `souvenirs`
@@ -547,6 +556,22 @@ claimed_by_prenom (text, nullable)
 claimed_by_nom (text, nullable)
 claimed_by_pin (text, nullable)
 created_by (text)
+created_at (timestamp)
+```
+
+### Table `task_relais_coverage` — sous-périodes de relais réclamées *(NOUVEAU depuis v1.13, §3.8)*
+Une ligne par sous-période réclamée sur un besoin `category="relais"` — remplace `claimed_by_*` de `tasks` pour cette catégorie, qui peut avoir plusieurs preneurs simultanés sur des sous-périodes distinctes.
+```
+id (uuid, PK)
+task_id (uuid, FK → tasks, on delete cascade)
+prenom (text)
+nom (text)
+pin (text)
+start_date (date)
+end_date (date)
+full_period (boolean)         ← vrai si "Je m'en charge (ce qu'il reste)" a été choisi (informatif)
+claimed_text (text, nullable)
+claimed_photo (text, nullable)
 created_at (timestamp)
 ```
 
