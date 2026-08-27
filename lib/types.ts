@@ -450,6 +450,30 @@ export interface ShoppingListItem {
   created_at: string;
 }
 
+// Sous-période prise en charge par une personne sur un besoin de relais
+// (category="relais") — voir lib/relaisCoverage.ts pour le calcul de
+// couverture/trous, et components/Entraide.tsx pour le flux de claim.
+// Plusieurs lignes peuvent coexister pour un même task_id, une par
+// contributeur·rice ; devient la seule source de vérité pour les preneurs
+// d'un besoin relais (tasks.claimed_by_* n'est plus renseigné pour cette
+// catégorie).
+export interface TaskRelaisCoverage {
+  id: string;
+  task_id: string;
+  prenom: string;
+  nom: string;
+  pin: string;
+  start_date: string;
+  end_date: string;
+  // Vrai seulement si "Je m'en charge" (tout ce qu'il restait à couvrir) a
+  // été choisi plutôt qu'une période saisie à la main — informatif, ne
+  // rentre pas dans le calcul de couverture.
+  full_period: boolean;
+  claimed_text: string | null;
+  claimed_photo: string | null;
+  created_at: string;
+}
+
 // Item de "Ma Checklist" (bloc dédié dans Mon Compte, admin + visiteur) —
 // voir components/MyChecklist.tsx. task_id renseigné uniquement pour les
 // items importés depuis une checklist suggérée (voir lib/checklistTemplates.ts) :

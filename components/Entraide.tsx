@@ -20,9 +20,10 @@ import ShoppingListModal from "@/components/ShoppingListModal";
 import { toFrShort } from "@/lib/slotUtils";
 import { googleMapsSearchUrl, joinAddress } from "@/lib/address";
 import { addGenericEventToNativeCalendar } from "@/lib/calendarSync";
-import type { Task, TransportProposal } from "@/lib/types";
+import type { Task, TransportProposal, TaskRelaisCoverage } from "@/lib/types";
 import { CHECKLIST_COLORS, type Theme } from "@/lib/themes";
 import { CHECKLIST_TEMPLATES, addDaysIso, checklistItemDescription, findTemplateContextForTitle, findTemplateItemByTitle, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
+import { isRelaisFullyCovered, computeRelaisGaps, type RelaisCoverageRange } from "@/lib/relaisCoverage";
 
 const PHOTO_BUCKET = "entraide-photos";
 
@@ -543,6 +544,50 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [claimText, setClaimText] = useState("");
   const [claimSaving, setClaimSaving] = useState(false);
 
+  // Étape intermédiaire propre à un besoin "relais" (plusieurs preneurs
+  // possibles sur des sous-périodes distinctes, voir task_relais_coverage) —
+  // s'intercale entre l'ouverture du claim et la feuille commune photo/texte.
+  // null = pas un besoin relais (ou pas encore choisi) ; "choice" = les deux
+  // gros boutons ; "period" = les deux MiniCalendar ; "ready" = la feuille
+  // commune s'affiche, relaisClaimRanges contient déjà les plages à insérer.
+  const [relaisClaimStep, setRelaisClaimStep] = useState<"choice" | "period" | "ready" | null>(null);
+  const [relaisClaimRanges, setRelaisClaimRanges] = useState<RelaisCoverageRange[]>([]);
+  const [relaisClaimFullPeriod, setRelaisClaimFullPeriod] = useState(false);
+  const [relaisClaimPeriodStart, setRelaisClaimPeriodStart] = useState("");
+  const [relaisClaimPeriodEnd, setRelaisClaimPeriodEnd] = useState("");
+  const [relaisClaimStartCalMonth, setRelaisClaimStartCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
+  const [relaisClaimEndCalMonth, setRelaisClaimEndCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
+  const relaisClaimPeriodValid = !!relaisClaimPeriodStart && !!relaisClaimPeriodEnd
+    && relaisClaimPeriodStart <= relaisClaimPeriodEnd
+    && (!claimTarget?.relais_start_date || relaisClaimPeriodStart >= claimTarget.relais_start_date)
+    && (!claimTarget?.date_limite || relaisClaimPeriodEnd <= claimTarget.date_limite);
+
+  // Toutes les lignes task_relais_coverage des besoins relais actuellement
+  // affichés — même pattern que courseContributors/loadCourseContributors
+  // ci-dessus, mais gardant chaque ligne (identité + dates), pas juste un nom.
+  const [relaisCoverage, setRelaisCoverage] = useState<Record<string, TaskRelaisCoverage[]>>({});
+  const loadRelaisCoverage = useCallback(async (taskIds: string[]) => {
+    if (!taskIds.length) { setRelaisCoverage({}); return; }
+    const { data } = await supabase
+      .from("task_relais_coverage")
+      .select("*")
+      .in("task_id", taskIds)
+      .order("start_date", { ascending: true });
+    const byTask: Record<string, TaskRelaisCoverage[]> = {};
+    (data ?? []).forEach((row) => {
+      (byTask[row.task_id] ?? (byTask[row.task_id] = [])).push(row as TaskRelaisCoverage);
+    });
+    setRelaisCoverage(byTask);
+  }, []);
+  useEffect(() => {
+    loadRelaisCoverage(tasks.filter((t) => t.category === "relais").map((t) => t.id));
+  }, [tasks, loadRelaisCoverage]);
+
+  function closeClaim() {
+    setClaimTarget(null);
+    setRelaisClaimStep(null);
+  }
+
   // Doublon détecté à la publication d'un besoin administratif (voir
   // findDuplicateAdminTask) : propose de rejoindre ("Je m'en occupe", flux
   // claim ci-dessus) ou de modifier le besoin déjà existant plutôt que d'en
@@ -552,7 +597,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [modifyDesc, setModifyDesc] = useState("");
   const [modifySaving, setModifySaving] = useState(false);
 
-  const [pinModal, setPinModal] = useState<{ task: Task; action: "unclaim"; leg: "out" | "return" } | null>(null);
+  const [pinModal, setPinModal] = useState<
+    | { task: Task; action: "unclaim"; leg: "out" | "return" }
+    | { task: Task; action: "unclaim_relais"; coverage: TaskRelaisCoverage }
+    | null
+  >(null);
   const [pinEntry, setPinEntry] = useState("");
   const [pinError, setPinError] = useState(false);
 
@@ -573,7 +622,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // Alert.alert() natifs par ConfirmModal, cohérent avec le reste de l'app.
   const [deleteTaskTarget, setDeleteTaskTarget] = useState<Task | null>(null);
   const [deleteTaskSaving, setDeleteTaskSaving] = useState(false);
-  const [unclaimConfirm, setUnclaimConfirm] = useState<{ task: Task; leg: "out" | "return" } | null>(null);
+  const [unclaimConfirm, setUnclaimConfirm] = useState<
+    | { task: Task; leg: "out" | "return" }
+    | { task: Task; coverage: TaskRelaisCoverage }
+    | null
+  >(null);
   const [desengageEditTarget, setDesengageEditTarget] = useState<Task | null>(null);
   // Popup proposée après suppression d'un besoin issu d'une checklist
   // groupée, tant que d'autres items de la même liste sont encore ouverts —
@@ -1726,6 +1779,38 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       const s = await getVisitorSession();
       if (s) { setClaimPrenom(s.prenom); setClaimNom(s.nom); setClaimPin(s.pin ?? ""); }
     }
+    if (t.category === "relais") {
+      setRelaisClaimStep("choice");
+      setRelaisClaimRanges([]);
+      setRelaisClaimFullPeriod(false);
+      setRelaisClaimPeriodStart(""); setRelaisClaimPeriodEnd("");
+      const d = new Date();
+      setRelaisClaimStartCalMonth({ year: d.getFullYear(), month: d.getMonth() });
+      setRelaisClaimEndCalMonth({ year: d.getFullYear(), month: d.getMonth() });
+    } else {
+      setRelaisClaimStep(null);
+    }
+  }
+
+  // "Je m'en charge (le reste)" — pré-remplit les trous restants plutôt que
+  // toute la période d'origine, pour ne jamais chevaucher un contributeur déjà
+  // inscrit (voir lib/relaisCoverage.ts, computeRelaisGaps).
+  function chooseRelaisFull() {
+    if (!claimTarget?.relais_start_date || !claimTarget.date_limite) return;
+    setRelaisClaimRanges(computeRelaisGaps(relaisCoverage[claimTarget.id] ?? [], claimTarget.relais_start_date, claimTarget.date_limite));
+    setRelaisClaimFullPeriod(true);
+    setRelaisClaimStep("ready");
+  }
+
+  function chooseRelaisPeriod() {
+    setRelaisClaimStep("period");
+  }
+
+  function confirmRelaisPeriod() {
+    if (!relaisClaimPeriodValid) return;
+    setRelaisClaimRanges([{ start_date: relaisClaimPeriodStart, end_date: relaisClaimPeriodEnd }]);
+    setRelaisClaimFullPeriod(false);
+    setRelaisClaimStep("ready");
   }
 
   function removeClaimPhoto() {
@@ -1756,19 +1841,46 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       }
     }
 
-    await supabase.from("tasks").update({
-      status: "pris_en_charge",
-      claimed_by_prenom: claimPrenom.trim(),
-      claimed_by_nom: claimNom.trim(),
-      claimed_by_pin: claimPin,
-      claimed_photo: claimedPhotoFilename,
-      claimed_text: claimText.trim() || null,
-      ...(claimTarget.category === "transport" ? {
-        transport_confirmed_date: claimTarget.transport_date,
-        transport_confirmed_out_time: claimTarget.transport_out_time,
-        transport_confirmed_return_time: claimTarget.transport_return_time,
-      } : {}),
-    }).eq("id", claimTarget.id);
+    if (claimTarget.category === "relais") {
+      // task_relais_coverage est la seule source de vérité des preneurs d'un
+      // besoin relais — tasks.claimed_by_* n'est jamais écrit ici, plusieurs
+      // personnes pouvant chacune couvrir une sous-période distincte.
+      const rows = relaisClaimRanges.map((r) => ({
+        task_id: claimTarget.id,
+        prenom: claimPrenom.trim(),
+        nom: claimNom.trim(),
+        pin: claimPin,
+        start_date: r.start_date,
+        end_date: r.end_date,
+        full_period: relaisClaimFullPeriod,
+        claimed_text: claimText.trim() || null,
+        claimed_photo: claimedPhotoFilename,
+      }));
+      if (rows.length) {
+        await supabase.from("task_relais_coverage").insert(rows);
+      }
+      const newCoverage = [...(relaisCoverage[claimTarget.id] ?? []), ...rows];
+      if (
+        claimTarget.relais_start_date && claimTarget.date_limite
+        && isRelaisFullyCovered(newCoverage, claimTarget.relais_start_date, claimTarget.date_limite)
+      ) {
+        await supabase.from("tasks").update({ status: "pris_en_charge" }).eq("id", claimTarget.id);
+      }
+    } else {
+      await supabase.from("tasks").update({
+        status: "pris_en_charge",
+        claimed_by_prenom: claimPrenom.trim(),
+        claimed_by_nom: claimNom.trim(),
+        claimed_by_pin: claimPin,
+        claimed_photo: claimedPhotoFilename,
+        claimed_text: claimText.trim() || null,
+        ...(claimTarget.category === "transport" ? {
+          transport_confirmed_date: claimTarget.transport_date,
+          transport_confirmed_out_time: claimTarget.transport_out_time,
+          transport_confirmed_return_time: claimTarget.transport_return_time,
+        } : {}),
+      }).eq("id", claimTarget.id);
+    }
     // "Je m'en occupe" sur un besoin issu d'une checklist l'ajoute aussi à
     // "Ma Checklist" du preneur — même objet, visible des deux côtés. Basé
     // sur checklist_batch_id (posé sur tout item publié via une checklist,
@@ -1810,6 +1922,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     // bas) : passer de l'un à l'autre dans le même batch ne rouvre jamais de
     // fenêtre native, donc pas de setTimeout nécessaire ici.
     setClaimTarget(null);
+    setRelaisClaimStep(null);
     setThanksModal(true);
     loadTasks();
   }
@@ -1875,6 +1988,21 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     loadTasks();
   }
 
+  // Désinscription d'UN contributeur d'un besoin relais — supprime uniquement
+  // sa ligne task_relais_coverage (les autres restent intactes) et rouvre le
+  // besoin si la période n'est plus intégralement couverte sans lui.
+  async function performRelaisCoverageUnclaim(task: Task, coverage: TaskRelaisCoverage) {
+    await supabase.from("task_relais_coverage").delete().eq("id", coverage.id);
+    if (task.status === "pris_en_charge" && task.relais_start_date && task.date_limite) {
+      const remaining = (relaisCoverage[task.id] ?? []).filter((c) => c.id !== coverage.id);
+      if (!isRelaisFullyCovered(remaining, task.relais_start_date, task.date_limite)) {
+        await supabase.from("tasks").update({ status: "ouvert" }).eq("id", task.id);
+      }
+    }
+    showToast("Tu t'es désinscrit ✓");
+    loadTasks();
+  }
+
   async function openPinModal(task: Task, action: "unclaim", leg: "out" | "return" = "out") {
     const legPin = leg === "return" ? task.transport_return_claimed_by_pin : task.claimed_by_pin;
     const legAuthor = leg === "return"
@@ -1888,9 +2016,24 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setPinEntry(""); setPinError(false);
   }
 
+  async function openRelaisCoverageUnclaim(task: Task, coverage: TaskRelaisCoverage) {
+    if (!isAdmin && (await sessionPinMatches(coverage.pin, { prenom: coverage.prenom, nom: coverage.nom }))) {
+      setUnclaimConfirm({ task, coverage });
+      return;
+    }
+    setPinModal({ task, action: "unclaim_relais", coverage });
+    setPinEntry(""); setPinError(false);
+  }
+
   async function confirmUnclaimSelf() {
     if (!unclaimConfirm) return;
-    const { task, leg } = unclaimConfirm;
+    const { task } = unclaimConfirm;
+    if ("coverage" in unclaimConfirm) {
+      setUnclaimConfirm(null);
+      await performRelaisCoverageUnclaim(task, unclaimConfirm.coverage);
+      return;
+    }
+    const { leg } = unclaimConfirm;
     setUnclaimConfirm(null);
     await performUnclaim(task, leg);
   }
@@ -1905,6 +2048,17 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
   async function checkPin() {
     if (!pinModal) return;
+    if (pinModal.action === "unclaim_relais") {
+      if (pinEntry === pinModal.coverage.pin) {
+        const { task, coverage } = pinModal;
+        setPinModal(null);
+        await performRelaisCoverageUnclaim(task, coverage);
+      } else {
+        setPinError(true);
+        setPinEntry("");
+      }
+      return;
+    }
     const legPin = pinModal.leg === "return" ? pinModal.task.transport_return_claimed_by_pin : pinModal.task.claimed_by_pin;
     if (pinEntry === legPin) {
       const { task, leg } = pinModal;
@@ -2285,7 +2439,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           </View>
         )}
 
-        {(t.category === "courses"
+        {t.category !== "relais" && (t.category === "courses"
           ? !!courseContributorsLabel(t)
           : t.status !== "ouvert" && t.claimed_by_prenom) && (!t.transport_round_trip || !t.transport_return_claimed_by_prenom) && (
           <View style={[styles.claimerRow, { borderColor: C.border, backgroundColor: `${C.accent}11` }]}>
@@ -2298,6 +2452,44 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             {t.claimed_text && (
               <Text style={[styles.claimerText, { color: C.muted, marginTop: 4 }]}>{t.claimed_text}</Text>
             )}
+          </View>
+        )}
+
+        {/* Un besoin relais peut avoir plusieurs preneurs, chacun sur sa
+            propre sous-période — une ligne par contributeur plutôt que le
+            "X s'en occupe" générique ci-dessus, plus les trous restants tant
+            que la période n'est pas intégralement couverte. */}
+        {t.category === "relais" && (relaisCoverage[t.id]?.length ?? 0) > 0 && (
+          <View style={[styles.claimerRow, { borderColor: C.border, backgroundColor: `${C.accent}11` }]}>
+            {(relaisCoverage[t.id] ?? []).map((cov) => (
+              <View key={cov.id} style={{ marginBottom: 6 }}>
+                <Text style={[styles.claimerText, { color: C.text }]}>
+                  👤 {cov.prenom} {cov.nom} — du {toFrShort(new Date(cov.start_date + "T12:00:00"))} au {toFrShort(new Date(cov.end_date + "T12:00:00"))}
+                </Text>
+                {cov.claimed_text && (
+                  <Text style={[styles.claimerText, { color: C.muted, marginTop: 2 }]}>{cov.claimed_text}</Text>
+                )}
+                {cov.claimed_photo && (
+                  <Image source={{ uri: taskPhotoUrl(spaceId, cov.claimed_photo) }} style={styles.claimedPhoto} resizeMode="cover" />
+                )}
+                {!isAdmin && samePerson(cov.prenom, cov.nom, cov.pin) && (
+                  <TouchableOpacity
+                    style={[styles.actionSmall, { borderColor: C.border, marginTop: 4, alignSelf: "flex-start" }]}
+                    onPress={() => openRelaisCoverageUnclaim(t, cov)}
+                  >
+                    <Text style={[styles.actionSmallText, { color: C.muted }]}>Se désinscrire</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            ))}
+            {t.status === "ouvert" && t.relais_start_date && t.date_limite && (() => {
+              const gaps = computeRelaisGaps(relaisCoverage[t.id] ?? [], t.relais_start_date, t.date_limite);
+              return gaps.length > 0 ? (
+                <Text style={[styles.claimerText, { color: C.danger, marginTop: 4 }]}>
+                  🕳️ Reste à couvrir : {gaps.map((g) => `du ${toFrShort(new Date(g.start_date + "T12:00:00"))} au ${toFrShort(new Date(g.end_date + "T12:00:00"))}`).join(", ")}
+                </Text>
+              ) : null;
+            })()}
           </View>
         )}
 
@@ -2935,7 +3127,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                     </TouchableOpacity>
                   )}
 
-                  {!editTask && (
+                  {!editTask && fCat !== "relais" && (
                     <>
                       <TouchableOpacity
                         style={[
@@ -3528,13 +3720,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         visible={!!claimTarget || thanksModal}
         transparent
         animationType={thanksModal ? "fade" : "slide"}
-        onRequestClose={() => (thanksModal ? setThanksModal(false) : setClaimTarget(null))}
+        onRequestClose={() => (thanksModal ? setThanksModal(false) : closeClaim())}
       >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <TouchableOpacity
             style={thanksModal ? styles.centeredOverlay : styles.overlay}
             activeOpacity={1}
-            onPress={() => { if (thanksModal) setThanksModal(false); else if (!claimSaving) setClaimTarget(null); }}
+            onPress={() => { if (thanksModal) setThanksModal(false); else if (!claimSaving) closeClaim(); }}
           >
             <ScrollView
               contentContainerStyle={thanksModal ? styles.centeredOverlayScroll : styles.overlayScroll}
@@ -3558,6 +3750,96 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                         <Text style={[styles.btnPrimaryText, { color: "#0D1B2E" }]}>J'ai compris</Text>
                       </TouchableOpacity>
                     </>
+                  ) : claimTarget?.category === "relais" && relaisClaimStep === "choice" ? (
+                    <>
+                      <View style={{ alignItems: "center", marginBottom: 14 }}>
+                        <Text style={{ fontSize: 32, marginBottom: 6 }}>🙋</Text>
+                        <Text style={[styles.sheetTitle, { color: C.text }]}>Comment veux-tu aider ?</Text>
+                        <Text style={[styles.sheetSub, { color: C.muted }]}>
+                          {CATEGORY_ICONS[claimTarget.category]} {claimTarget.title}
+                        </Text>
+                      </View>
+
+                      <TouchableOpacity
+                        style={[styles.claimOnCreateBtn, { backgroundColor: `${C.accent}22`, borderColor: C.accent, marginTop: 4 }]}
+                        onPress={chooseRelaisFull}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={[styles.claimOnCreateText, { color: C.accent }]}>
+                          🙋 Je m'en charge{(relaisCoverage[claimTarget.id]?.length ?? 0) > 0 ? " (le reste)" : ""}
+                        </Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.claimOnCreateBtn, { backgroundColor: C.bg, borderColor: C.border, marginTop: 8 }]}
+                        onPress={chooseRelaisPeriod}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={[styles.claimOnCreateText, { color: C.text }]}>📅 Choisir une période</Text>
+                      </TouchableOpacity>
+
+                      <View style={styles.sheetBtns}>
+                        <TouchableOpacity
+                          onPress={closeClaim}
+                          style={[styles.btnSecondary, { borderColor: C.border, alignSelf: "stretch", flex: 1 }]}
+                        >
+                          <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  ) : claimTarget?.category === "relais" && relaisClaimStep === "period" ? (
+                    <>
+                      <View style={{ alignItems: "center", marginBottom: 14 }}>
+                        <Text style={{ fontSize: 32, marginBottom: 6 }}>📅</Text>
+                        <Text style={[styles.sheetTitle, { color: C.text }]}>Choisis ta période</Text>
+                        <Text style={[styles.sheetSub, { color: C.muted }]}>
+                          {CATEGORY_ICONS[claimTarget.category]} {claimTarget.title}
+                        </Text>
+                      </View>
+
+                      <Text style={[styles.fieldLabel, { color: C.gold }]}>Du</Text>
+                      <MiniCalendar
+                        selDate={relaisClaimPeriodStart}
+                        onSelect={setRelaisClaimPeriodStart}
+                        calMonth={relaisClaimStartCalMonth}
+                        onMonthChange={setRelaisClaimStartCalMonth}
+                        startDate={claimTarget.relais_start_date ? new Date(claimTarget.relais_start_date + "T12:00:00") : new Date()}
+                        C={C}
+                        size="lg"
+                      />
+
+                      <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 12 }]}>Au</Text>
+                      <MiniCalendar
+                        selDate={relaisClaimPeriodEnd}
+                        onSelect={setRelaisClaimPeriodEnd}
+                        calMonth={relaisClaimEndCalMonth}
+                        onMonthChange={setRelaisClaimEndCalMonth}
+                        startDate={relaisClaimPeriodStart
+                          ? new Date(relaisClaimPeriodStart + "T12:00:00")
+                          : (claimTarget.relais_start_date ? new Date(claimTarget.relais_start_date + "T12:00:00") : new Date())}
+                        C={C}
+                        size="lg"
+                      />
+
+                      <View style={styles.sheetBtns}>
+                        <TouchableOpacity
+                          onPress={() => setRelaisClaimStep("choice")}
+                          style={[styles.btnSecondary, { borderColor: C.border }]}
+                        >
+                          <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Retour</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={confirmRelaisPeriod}
+                          disabled={!relaisClaimPeriodValid}
+                          style={[
+                            styles.btnPrimary,
+                            { backgroundColor: C.accent },
+                            !relaisClaimPeriodValid && { opacity: 0.5 },
+                          ]}
+                        >
+                          <Text style={styles.btnPrimaryText}>Continuer</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </>
                   ) : (
                     <>
                       <View style={{ alignItems: "center", marginBottom: 14 }}>
@@ -3569,6 +3851,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                           </Text>
                         )}
                       </View>
+
+                      {claimTarget?.category === "relais" && relaisClaimRanges.length > 0 && (
+                        <View style={[styles.pinContext, { backgroundColor: C.bg, borderColor: C.border, marginBottom: 8 }]}>
+                          <Text style={[styles.pinContextText, { color: C.text }]}>
+                            📅 {relaisClaimRanges.map((r) => `du ${toFrShort(new Date(r.start_date + "T12:00:00"))} au ${toFrShort(new Date(r.end_date + "T12:00:00"))}`).join(", ")}
+                          </Text>
+                        </View>
+                      )}
 
                       <View style={{ flexDirection: "row", gap: 8 }}>
                         <TextInput
@@ -3637,19 +3927,23 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
                       <View style={styles.sheetBtns}>
                         <TouchableOpacity
-                          onPress={() => setClaimTarget(null)}
+                          onPress={claimTarget?.category === "relais" ? () => setRelaisClaimStep(relaisClaimFullPeriod ? "choice" : "period") : closeClaim}
                           disabled={claimSaving}
                           style={[styles.btnSecondary, { borderColor: C.border }]}
                         >
-                          <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                          <Text style={[styles.btnSecondaryText, { color: C.muted }]}>
+                            {claimTarget?.category === "relais" ? "Retour" : "Annuler"}
+                          </Text>
                         </TouchableOpacity>
                         <TouchableOpacity
                           onPress={handleClaim}
-                          disabled={!claimPrenom.trim() || !claimNom.trim() || claimPin.length < 4 || claimSaving}
+                          disabled={!claimPrenom.trim() || !claimNom.trim() || claimPin.length < 4 || claimSaving
+                            || (claimTarget?.category === "relais" && relaisClaimRanges.length === 0)}
                           style={[
                             styles.btnPrimary,
                             { backgroundColor: C.accent },
-                            (!claimPrenom.trim() || !claimNom.trim() || claimPin.length < 4 || claimSaving) && { opacity: 0.5 },
+                            (!claimPrenom.trim() || !claimNom.trim() || claimPin.length < 4 || claimSaving
+                              || (claimTarget?.category === "relais" && relaisClaimRanges.length === 0)) && { opacity: 0.5 },
                           ]}
                         >
                           {claimSaving
@@ -3890,9 +4184,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                   {CATEGORY_ICONS[pinModal.task.category]} {pinModal.task.title}
                 </Text>
                 <Text style={[styles.pinContextSub, { color: C.muted }]}>
-                  Pris en charge par {pinModal.leg === "return"
-                    ? `${pinModal.task.transport_return_claimed_by_prenom} ${pinModal.task.transport_return_claimed_by_nom}`
-                    : `${pinModal.task.claimed_by_prenom} ${pinModal.task.claimed_by_nom}`}
+                  Pris en charge par {pinModal.action === "unclaim_relais"
+                    ? `${pinModal.coverage.prenom} ${pinModal.coverage.nom}`
+                    : pinModal.leg === "return"
+                      ? `${pinModal.task.transport_return_claimed_by_prenom} ${pinModal.task.transport_return_claimed_by_nom}`
+                      : `${pinModal.task.claimed_by_prenom} ${pinModal.task.claimed_by_nom}`}
                 </Text>
               </View>
             )}
