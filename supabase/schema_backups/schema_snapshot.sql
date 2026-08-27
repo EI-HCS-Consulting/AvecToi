@@ -89,20 +89,10 @@ declare
   v_daycap_date date;
   v_winning_cohort uuid;
   v_loser record;
-
-  v_today date;
-  v_now_minutes integer;
 begin
   perform pg_advisory_xact_lock(hashtext(p_space_id::text));
 
   p_new_slots := coalesce(p_new_slots, array[]::text[]);
-
-  -- Heure murale Europe/Paris (le serveur tourne en UTC) — sert à ne
-  -- jamais recaser/suspendre une réservation "Visite" dont le créneau du
-  -- jour même est déjà passé, même si son jour est bien >= aujourd'hui.
-  v_today := (now() at time zone 'Europe/Paris')::date;
-  v_now_minutes := extract(hour from (now() at time zone 'Europe/Paris'))::integer * 60
-    + extract(minute from (now() at time zone 'Europe/Paris'))::integer;
 
   select * into v_old from slot_config where space_id = p_space_id;
   if not found then
@@ -200,8 +190,7 @@ begin
   v_night_scan_needed := v_night_became_disabled or v_weekday_blocked_changed;
   v_one_visit_activated := (not coalesce(v_old.one_visit_per_day, false)) and coalesce(v_one_visit_per_day, false);
 
-  -- 2. Recasage des réservations "Visite" futures invalidées — jamais un
-  -- créneau du jour même déjà passé en heure (v_today/v_now_minutes).
+  -- 2. Recasage des réservations "Visite" futures invalidées
   if v_structural_change then
     for v_cohort in
       select
@@ -211,8 +200,7 @@ begin
         array_agg(id order by created_at) as member_ids,
         count(*) as cohort_size
       from reservations
-      where space_id = p_space_id and type = 'Visite'
-        and (date > v_today or (date = v_today and to_minutes(creneau) > v_now_minutes))
+      where space_id = p_space_id and type = 'Visite' and date >= current_date
       group by coalesce(group_id, id)
       order by min(created_at) asc
     loop
@@ -333,14 +321,11 @@ begin
     end loop;
   end if;
 
-  -- 3. Nuitées invalidées : message seul, jamais de déplacement/suppression.
-  -- Contrairement aux visites, l'heure du jour n'entre pas en jeu pour une
-  -- "Nuit" (elle couvre toute la soirée) — seul le jour compte, comme
-  -- isReservationDatePast côté client.
+  -- 3. Nuitées invalidées : message seul, jamais de déplacement/suppression
   if v_night_scan_needed then
     for v_night in
       select id, date from reservations
-      where space_id = p_space_id and type = 'Nuit' and date >= v_today
+      where space_id = p_space_id and type = 'Nuit' and date >= current_date
     loop
       v_night_invalid := v_night_became_disabled
         or not (extract(dow from v_night.date)::integer = any(v_allowed_weekdays))
@@ -367,24 +352,21 @@ begin
   end if;
 
   -- 4. Activation du mode "1 visite / jour" : ne touche jamais le passé
-  -- (jour révolu, ou créneau du jour même déjà passé en heure), et ne
-  -- déplace ni ne supprime rien — pour chaque jour où plusieurs réservations
-  -- "Visite" à venir existent déjà, la première enregistrée (created_at le
-  -- plus ancien) reste active, toutes les autres sont marquées
-  -- "day_cap_suspended".
+  -- (date >= current_date), et ne déplace ni ne supprime rien — pour chaque
+  -- jour où plusieurs réservations "Visite" existent déjà, la première
+  -- enregistrée (created_at le plus ancien) reste active, toutes les autres
+  -- sont marquées "day_cap_suspended".
   if v_one_visit_activated then
     for v_daycap_date in
       select date
       from reservations
-      where space_id = p_space_id and type = 'Visite'
-        and (date > v_today or (date = v_today and to_minutes(creneau) > v_now_minutes))
+      where space_id = p_space_id and type = 'Visite' and date >= current_date
       group by date
       having count(distinct coalesce(group_id, id)) > 1
     loop
       select coalesce(group_id, id) into v_winning_cohort
       from reservations
       where space_id = p_space_id and type = 'Visite' and date = v_daycap_date
-        and (v_daycap_date > v_today or to_minutes(creneau) > v_now_minutes)
       group by coalesce(group_id, id)
       order by min(created_at) asc
       limit 1;
@@ -393,7 +375,6 @@ begin
         select id, prenom, nom, type, date, creneau
         from reservations
         where space_id = p_space_id and type = 'Visite' and date = v_daycap_date
-          and (v_daycap_date > v_today or to_minutes(creneau) > v_now_minutes)
           and coalesce(group_id, id) <> v_winning_cohort
       loop
         update reservations set
@@ -440,7 +421,6 @@ CREATE OR REPLACE FUNCTION "public"."book_intervention"("p_space_id" "uuid", "p_
 declare
   v_prenom text;
   v_nom text;
-  v_telephone text;
   v_duration_minutes integer;
   v_label text;
   v_start_min integer;
@@ -468,7 +448,7 @@ begin
 
   p_slots := coalesce(p_slots, array[]::text[]);
 
-  select prenom, nom, telephone into v_prenom, v_nom, v_telephone
+  select prenom, nom into v_prenom, v_nom
     from intervenant_profiles
     where id = p_intervenant_profile_id and space_id = p_space_id;
   if not found then
@@ -501,25 +481,6 @@ begin
       and to_minutes(creneau) + coalesce(duration_minutes, 0) > v_start_min
   ) then
     raise exception 'INTERVENTION_OVERLAP_SELF';
-  end if;
-
-  -- Même contrôle, mais à travers les AUTRES espaces patients auxquels cet
-  -- intervenant est rattaché (même téléphone) : impossible de réserver ce
-  -- créneau depuis cet espace s'il est déjà engagé dessus ailleurs.
-  if v_telephone is not null and v_telephone <> '' then
-    if exists (
-      select 1
-      from reservations r
-      join intervenant_profiles ip on ip.id = r.intervenant_profile_id
-      where r.type = 'Intervention'
-        and r.date = p_date
-        and r.space_id <> p_space_id
-        and ip.telephone = v_telephone
-        and to_minutes(r.creneau) < v_end_min
-        and to_minutes(r.creneau) + coalesce(r.duration_minutes, 0) > v_start_min
-    ) then
-      raise exception 'INTERVENTION_OVERLAP_OTHER_SPACE';
-    end if;
   end if;
 
   select * into v_config from slot_config where space_id = p_space_id;
@@ -557,7 +518,7 @@ begin
   loop
     -- Créneaux du même jour STRICTEMENT postérieurs au créneau d'origine,
     -- triés par ordre chronologique croissant (le prochain créneau libre
-    -- d'abord).
+    -- d'abord) — voir commentaire en tête de fichier.
     select coalesce(array_agg(s order by to_minutes(s)), array[]::text[])
       into v_same_day_slots
       from unnest(p_slots) s
@@ -1765,7 +1726,7 @@ CREATE TABLE IF NOT EXISTS "public"."intervenant_profiles" (
     "space_id" "uuid" NOT NULL,
     "prenom" "text" NOT NULL,
     "nom" "text" NOT NULL,
-    "pin" "text" NOT NULL,
+    "pin" "text",
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "photo" "text",
     "photo_updated_at" timestamp with time zone,
@@ -1773,7 +1734,8 @@ CREATE TABLE IF NOT EXISTS "public"."intervenant_profiles" (
     "phrase_totem" "text",
     "metier" "text",
     "priority_slots" boolean DEFAULT true NOT NULL,
-    "metier_secondaire" "text"
+    "metier_secondaire" "text",
+    "email" "text"
 );
 
 
@@ -1936,12 +1898,30 @@ CREATE TABLE IF NOT EXISTS "public"."personal_checklist_items" (
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "checklist_context" "text",
     "custom_checklist_name" "text",
-    CONSTRAINT "personal_checklist_items_checklist_context_check" CHECK (("checklist_context" = ANY (ARRAY['adulte'::"text", 'enfant'::"text", 'domicile'::"text"]))),
+    "date_limite" "date",
+    "urgent" boolean DEFAULT false NOT NULL,
+    CONSTRAINT "personal_checklist_items_checklist_context_check" CHECK (("checklist_context" = ANY (ARRAY['adulte'::"text", 'enfant'::"text", 'domicile'::"text", 'situations_besoins'::"text", 'retour_domicile'::"text", 'relais_familial'::"text", 'repit_aidant'::"text", 'conge_proche_aidant'::"text", 'maintien_domicile'::"text", 'handicap'::"text", 'fin_de_vie'::"text"]))),
     CONSTRAINT "personal_checklist_items_status_check" CHECK (("status" = ANY (ARRAY['a_faire'::"text", 'fait'::"text"])))
 );
 
 
 ALTER TABLE "public"."personal_checklist_items" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."personal_documents" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "space_id" "uuid" NOT NULL,
+    "owner_prenom" "text" NOT NULL,
+    "owner_nom" "text" NOT NULL,
+    "owner_pin" "text" NOT NULL,
+    "letter_id" "text" NOT NULL,
+    "label" "text" NOT NULL,
+    "values" "jsonb" DEFAULT '{}'::"jsonb" NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."personal_documents" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."reservation_change_history" (
@@ -1989,7 +1969,7 @@ CREATE TABLE IF NOT EXISTS "public"."reservations" (
     "duration_minutes" integer,
     "intervention_label" "text",
     "intervenant_profile_id" "uuid",
-    CONSTRAINT "reservations_alert_type_check" CHECK (("alert_type" = ANY (ARRAY['rebooked'::"text", 'night_cancelled'::"text", 'rebooking_failed'::"text", 'day_cap_suspended'::"text"]))),
+    CONSTRAINT "reservations_alert_type_check" CHECK (("alert_type" = ANY (ARRAY['rebooked'::"text", 'night_cancelled'::"text", 'rebooking_failed'::"text", 'day_cap_suspended'::"text", 'booking_proposal'::"text"]))),
     CONSTRAINT "reservations_type_check" CHECK (("type" = ANY (ARRAY['Visite'::"text", 'Nuit'::"text", 'Intervention'::"text"])))
 );
 
@@ -1999,6 +1979,38 @@ ALTER TABLE "public"."reservations" OWNER TO "postgres";
 
 COMMENT ON COLUMN "public"."reservations"."pin" IS 'Code Pin Utilisateur';
 
+
+
+CREATE TABLE IF NOT EXISTS "public"."saved_media" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "space_id" "uuid" NOT NULL,
+    "source_type" "text" NOT NULL,
+    "source_id" "uuid" NOT NULL,
+    "photo_url" "text" NOT NULL,
+    "saved_by_pin" "text" NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "saved_by_prenom" "text" DEFAULT ''::"text" NOT NULL,
+    "saved_by_nom" "text" DEFAULT ''::"text" NOT NULL,
+    CONSTRAINT "saved_media_source_type_check" CHECK (("source_type" = ANY (ARRAY['news'::"text", 'support'::"text"])))
+);
+
+
+ALTER TABLE "public"."saved_media" OWNER TO "postgres";
+
+
+CREATE TABLE IF NOT EXISTS "public"."shopping_list_items" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "task_id" "uuid" NOT NULL,
+    "label" "text" NOT NULL,
+    "bought" boolean DEFAULT false NOT NULL,
+    "position" integer DEFAULT 0 NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "bought_by_prenom" "text",
+    "bought_by_nom" "text"
+);
+
+
+ALTER TABLE "public"."shopping_list_items" OWNER TO "postgres";
 
 
 CREATE TABLE IF NOT EXISTS "public"."slot_config" (
@@ -2184,7 +2196,12 @@ CREATE TABLE IF NOT EXISTS "public"."tasks" (
     "modified_by_prenom" "text",
     "modified_by_nom" "text",
     "deleted_by_admin" boolean DEFAULT false NOT NULL,
-    CONSTRAINT "tasks_category_check" CHECK (("category" = ANY (ARRAY['repas'::"text", 'affaires'::"text", 'courses'::"text", 'transport'::"text", 'administratif'::"text", 'autre'::"text"]))),
+    "relais_start_date" "date",
+    "relais_visible_to" "text",
+    "relais_recipients" "jsonb",
+    "relais_dismissed_by" "jsonb" DEFAULT '[]'::"jsonb" NOT NULL,
+    CONSTRAINT "tasks_category_check" CHECK (("category" = ANY (ARRAY['repas'::"text", 'affaires'::"text", 'courses'::"text", 'transport'::"text", 'administratif'::"text", 'autre'::"text", 'relais'::"text"]))),
+    CONSTRAINT "tasks_relais_visible_to_check" CHECK ((("relais_visible_to" IS NULL) OR ("relais_visible_to" = ANY (ARRAY['all'::"text", 'some'::"text"])))),
     CONSTRAINT "tasks_status_check" CHECK (("status" = ANY (ARRAY['ouvert'::"text", 'pris_en_charge'::"text", 'fait'::"text", 'ferme'::"text"])))
 );
 
@@ -2199,7 +2216,8 @@ CREATE TABLE IF NOT EXISTS "public"."visitor_profiles" (
     "nom" "text" NOT NULL,
     "photo" "text",
     "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
-    "motto" "text"
+    "motto" "text",
+    "relation" "text"
 );
 
 
@@ -2235,7 +2253,11 @@ CREATE TABLE IF NOT EXISTS "storage"."buckets" (
     "file_size_limit" bigint,
     "allowed_mime_types" "text"[],
     "owner_id" "text",
-    "type" "storage"."buckettype" DEFAULT 'STANDARD'::"storage"."buckettype" NOT NULL
+    "type" "storage"."buckettype" DEFAULT 'STANDARD'::"storage"."buckettype" NOT NULL,
+    "versioning_status" "text" DEFAULT 'DISABLED'::"text" NOT NULL,
+    CONSTRAINT "buckets_versioning_dark_check" CHECK (("versioning_status" = 'DISABLED'::"text")),
+    CONSTRAINT "buckets_versioning_standard_only_check" CHECK ((("type" = 'STANDARD'::"storage"."buckettype") OR ("versioning_status" = 'DISABLED'::"text"))),
+    CONSTRAINT "buckets_versioning_status_check" CHECK (("versioning_status" = ANY (ARRAY['DISABLED'::"text", 'ENABLED'::"text", 'SUSPENDED'::"text"])))
 );
 
 
@@ -2294,7 +2316,10 @@ CREATE TABLE IF NOT EXISTS "storage"."objects" (
     "path_tokens" "text"[] GENERATED ALWAYS AS ("string_to_array"("name", '/'::"text")) STORED,
     "version" "text",
     "owner_id" "text",
-    "user_metadata" "jsonb"
+    "user_metadata" "jsonb",
+    "archived_at" timestamp with time zone,
+    "is_delete_marker" boolean DEFAULT false NOT NULL,
+    "is_versioned" boolean DEFAULT false NOT NULL
 );
 
 
@@ -2435,6 +2460,11 @@ ALTER TABLE ONLY "public"."personal_checklist_items"
 
 
 
+ALTER TABLE ONLY "public"."personal_documents"
+    ADD CONSTRAINT "personal_documents_pkey" PRIMARY KEY ("id");
+
+
+
 ALTER TABLE ONLY "public"."reservation_change_history"
     ADD CONSTRAINT "reservation_change_history_pkey" PRIMARY KEY ("id");
 
@@ -2442,6 +2472,16 @@ ALTER TABLE ONLY "public"."reservation_change_history"
 
 ALTER TABLE ONLY "public"."reservations"
     ADD CONSTRAINT "reservations_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."saved_media"
+    ADD CONSTRAINT "saved_media_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."shopping_list_items"
+    ADD CONSTRAINT "shopping_list_items_pkey" PRIMARY KEY ("id");
 
 
 
@@ -2577,6 +2617,14 @@ CREATE INDEX "intervenant_checklist_templates_telephone_idx" ON "public"."interv
 
 
 CREATE INDEX "reservations_space_id_idx" ON "public"."reservations" USING "btree" ("space_id");
+
+
+
+CREATE UNIQUE INDEX "saved_media_identity_idx" ON "public"."saved_media" USING "btree" ("space_id", "source_type", "source_id", "photo_url", "saved_by_pin", "saved_by_prenom", "saved_by_nom");
+
+
+
+CREATE INDEX "shopping_list_items_task_id_idx" ON "public"."shopping_list_items" USING "btree" ("task_id");
 
 
 
@@ -2718,6 +2766,11 @@ ALTER TABLE ONLY "public"."personal_checklist_items"
 
 
 
+ALTER TABLE ONLY "public"."personal_documents"
+    ADD CONSTRAINT "personal_documents_space_id_fkey" FOREIGN KEY ("space_id") REFERENCES "public"."patient_spaces"("id") ON DELETE CASCADE;
+
+
+
 ALTER TABLE ONLY "public"."reservations"
     ADD CONSTRAINT "reservations_intervenant_profile_id_fkey" FOREIGN KEY ("intervenant_profile_id") REFERENCES "public"."intervenant_profiles"("id") ON DELETE SET NULL;
 
@@ -2725,6 +2778,11 @@ ALTER TABLE ONLY "public"."reservations"
 
 ALTER TABLE ONLY "public"."reservations"
     ADD CONSTRAINT "reservations_space_id_fkey" FOREIGN KEY ("space_id") REFERENCES "public"."patient_spaces"("id");
+
+
+
+ALTER TABLE ONLY "public"."shopping_list_items"
+    ADD CONSTRAINT "shopping_list_items_task_id_fkey" FOREIGN KEY ("task_id") REFERENCES "public"."tasks"("id") ON DELETE CASCADE;
 
 
 
@@ -2871,6 +2929,9 @@ ALTER TABLE "public"."patient_spaces" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."personal_checklist_items" ENABLE ROW LEVEL SECURITY;
 
 
+ALTER TABLE "public"."personal_documents" ENABLE ROW LEVEL SECURITY;
+
+
 CREATE POLICY "public can delete intervenant_profiles" ON "public"."intervenant_profiles" FOR DELETE USING (true);
 
 
@@ -2888,6 +2949,10 @@ CREATE POLICY "public can delete news_entries" ON "public"."news_entries" FOR DE
 
 
 CREATE POLICY "public can delete reservations" ON "public"."reservations" FOR DELETE USING (true);
+
+
+
+CREATE POLICY "public can delete saved_media" ON "public"."saved_media" FOR DELETE USING (true);
 
 
 
@@ -2995,7 +3060,15 @@ CREATE POLICY "public delete personal checklist items" ON "public"."personal_che
 
 
 
+CREATE POLICY "public delete personal documents" ON "public"."personal_documents" FOR DELETE USING (true);
+
+
+
 CREATE POLICY "public delete reservations" ON "public"."reservations" FOR DELETE USING (true);
+
+
+
+CREATE POLICY "public delete shopping list items" ON "public"."shopping_list_items" FOR DELETE USING (true);
 
 
 
@@ -3008,6 +3081,10 @@ CREATE POLICY "public read" ON "public"."news_entries" FOR SELECT USING (true);
 
 
 CREATE POLICY "public read" ON "public"."reservations" FOR SELECT USING (true);
+
+
+
+CREATE POLICY "public read" ON "public"."saved_media" FOR SELECT USING (true);
 
 
 
@@ -3039,11 +3116,23 @@ CREATE POLICY "public read personal checklist items" ON "public"."personal_check
 
 
 
+CREATE POLICY "public read personal documents" ON "public"."personal_documents" FOR SELECT USING (true);
+
+
+
+CREATE POLICY "public read shopping list items" ON "public"."shopping_list_items" FOR SELECT USING (true);
+
+
+
 CREATE POLICY "public update intervenant checklist templates" ON "public"."intervenant_checklist_templates" FOR UPDATE USING (true);
 
 
 
 CREATE POLICY "public update personal checklist items" ON "public"."personal_checklist_items" FOR UPDATE USING (true);
+
+
+
+CREATE POLICY "public update shopping list items" ON "public"."shopping_list_items" FOR UPDATE USING (true) WITH CHECK (true);
 
 
 
@@ -3056,6 +3145,10 @@ CREATE POLICY "public write" ON "public"."news_entries" FOR INSERT WITH CHECK (t
 
 
 CREATE POLICY "public write" ON "public"."reservations" FOR INSERT WITH CHECK (true);
+
+
+
+CREATE POLICY "public write" ON "public"."saved_media" FOR INSERT WITH CHECK (true);
 
 
 
@@ -3079,10 +3172,24 @@ CREATE POLICY "public write personal checklist items" ON "public"."personal_chec
 
 
 
+CREATE POLICY "public write personal documents" ON "public"."personal_documents" FOR INSERT WITH CHECK (true);
+
+
+
+CREATE POLICY "public write shopping list items" ON "public"."shopping_list_items" FOR INSERT WITH CHECK (true);
+
+
+
 ALTER TABLE "public"."reservation_change_history" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."reservations" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."saved_media" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."shopping_list_items" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."slot_config" ENABLE ROW LEVEL SECURITY;
@@ -3365,6 +3472,12 @@ GRANT ALL ON TABLE "public"."personal_checklist_items" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."personal_documents" TO "anon";
+GRANT ALL ON TABLE "public"."personal_documents" TO "authenticated";
+GRANT ALL ON TABLE "public"."personal_documents" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."reservation_change_history" TO "anon";
 GRANT ALL ON TABLE "public"."reservation_change_history" TO "authenticated";
 GRANT ALL ON TABLE "public"."reservation_change_history" TO "service_role";
@@ -3374,6 +3487,18 @@ GRANT ALL ON TABLE "public"."reservation_change_history" TO "service_role";
 GRANT ALL ON TABLE "public"."reservations" TO "anon";
 GRANT ALL ON TABLE "public"."reservations" TO "authenticated";
 GRANT ALL ON TABLE "public"."reservations" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."saved_media" TO "anon";
+GRANT ALL ON TABLE "public"."saved_media" TO "authenticated";
+GRANT ALL ON TABLE "public"."saved_media" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."shopping_list_items" TO "anon";
+GRANT ALL ON TABLE "public"."shopping_list_items" TO "authenticated";
+GRANT ALL ON TABLE "public"."shopping_list_items" TO "service_role";
 
 
 
