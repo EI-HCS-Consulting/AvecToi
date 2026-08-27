@@ -23,6 +23,7 @@ import { isRgpdAlertActive, rgpdAlertMessage, prolongSpace } from "@/lib/rgpd";
 import { disengageTask as performDisengage } from "@/lib/taskDisengage";
 import ConfirmModal from "@/components/ConfirmModal";
 import RecurringBookingModal from "@/components/RecurringBookingModal";
+import { fetchOpenRelaisAlerts } from "@/lib/relaisAlerts";
 import type { Reservation, ReservationChangeHistoryEntry, NewsEntry, SupportMessage, Task } from "@/lib/types";
 
 const CAT_ICONS: Record<Task["category"], string> = {
@@ -75,6 +76,9 @@ export default function AdminAccountScreen() {
   // Besoins pris en charge personnellement par l'admin (agissant comme un
   // visiteur) — même liste/geste que myTasks côté visiteur, voir disengageTask.
   const [myClaimedTasks, setMyClaimedTasks] = useState<Task[]>([]);
+  // Besoins de relais ouverts ciblant l'admin — voir lib/relaisAlerts.ts,
+  // même source que le popup RelaisAlertModal, ici consultable à tout moment.
+  const [relaisAlerts, setRelaisAlerts] = useState<Task[]>([]);
   const [desengageTarget, setDesengageTarget] = useState<Task | null>(null);
   const [desengageSaving, setDesengageSaving] = useState(false);
   async function confirmDesengage() {
@@ -347,6 +351,8 @@ export default function AdminAccountScreen() {
     setMyClaimedTasks(claimedTasksData.data || []);
     setChangeHistory(changeHistoryData.data || []);
     setActivityLoading(false);
+    const relais = await fetchOpenRelaisAlerts(spaceId, true, { prenom: p, nom: n });
+    setRelaisAlerts(relais);
   }
 
   // Alertes actives = réservations "Visite"/"Nuit" de l'admin lui-même
@@ -363,7 +369,7 @@ export default function AdminAccountScreen() {
   // recasages/annulations.
   const [rgpdProlonging, setRgpdProlonging] = useState(false);
   const rgpdAlertActive = !!space && isRgpdAlertActive(space);
-  const alertsBadgeCount = myActiveAlerts.length + (rgpdAlertActive ? 1 : 0);
+  const alertsBadgeCount = myActiveAlerts.length + relaisAlerts.length + (rgpdAlertActive ? 1 : 0);
 
   async function handleRgpdProlong() {
     if (!space) return;
@@ -388,6 +394,17 @@ export default function AdminAccountScreen() {
       await updateLinkedCalendarEvent(r.id, r.date, r.creneau, r.type, config);
     }
     if (space) loadActivity(space.id, adminFirstname, adminLastname);
+  }
+
+  function handleClaimRelais(t: Task) {
+    setRelaisAlerts((prev) => prev.filter((x) => x.id !== t.id));
+    router.push(`/(admin)/entraide?focusTaskId=${t.id}&openClaim=1` as any);
+  }
+
+  async function handleDismissRelais(t: Task) {
+    const nextDismissed = [...t.relais_dismissed_by, { prenom: adminFirstname, nom: adminLastname }];
+    await supabase.from("tasks").update({ relais_dismissed_by: nextDismissed }).eq("id", t.id);
+    setRelaisAlerts((prev) => prev.filter((x) => x.id !== t.id));
   }
 
   // Une réservation faite avec un ou plusieurs accompagnants insère une ligne
@@ -540,6 +557,9 @@ export default function AdminAccountScreen() {
           onModify={handleAlertModify}
           onMarkSeen={handleAlertMarkSeen}
           rgpdAlert={rgpdAlertActive && space ? { message: rgpdAlertMessage(space), onProlong: handleRgpdProlong, prolonging: rgpdProlonging } : null}
+          relaisAlerts={relaisAlerts}
+          onClaimRelais={handleClaimRelais}
+          onDismissRelais={handleDismissRelais}
         />
 
         {/* Section Mon affichage */}
