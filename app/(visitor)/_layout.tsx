@@ -17,6 +17,7 @@ import BookingProposalAlertModal from "@/components/BookingProposalAlertModal";
 import RelaisAlertModal from "@/components/RelaisAlertModal";
 import BirthdayAlertModal from "@/components/BirthdayAlertModal";
 import IntervenantOnboardingFlow from "@/components/IntervenantOnboardingFlow";
+import EntraideTabIcon from "@/components/EntraideTabIcon";
 
 function VisitorTabs() {
   const { space, token, loading } = useVisitorSpace();
@@ -330,7 +331,9 @@ function VisitorTabs() {
         name="entraide"
         options={{
           title: "Entraide",
-          tabBarIcon: ({ color, size }) => <Ionicons name="people-outline" size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => (
+            <EntraideTabIcon spaceId={space?.id ?? null} isAdmin={false} color={color} size={size} theme={C} />
+          ),
           href: role === "intervenant" ? null : undefined,
         }}
       />

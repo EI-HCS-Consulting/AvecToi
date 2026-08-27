@@ -11,6 +11,7 @@ import * as Crypto from "expo-crypto";
 import { File } from "expo-file-system";
 import { supabase } from "@/lib/supabase";
 import { getVisitorSession, rememberAuthorPin, sessionPinMatches } from "@/lib/visitorSession";
+import { markEntraideSeen } from "@/lib/entraideBadges";
 import PinPad from "@/components/PinPad";
 import MiniCalendar from "@/components/MiniCalendar";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
@@ -694,6 +695,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   }, [spaceId]);
 
   useEffect(() => { loadTasks(); }, [loadTasks]);
+
+  // Marque "vu" à chaque affichage de la liste (y compris rechargements
+  // realtime pendant que l'écran est déjà ouvert) — référence utilisée par
+  // la cloche rouge de la barre d'onglets, voir lib/entraideBadges.ts.
+  useEffect(() => {
+    if (tasksLoading) return;
+    markEntraideSeen(spaceId, isAdmin);
+  }, [tasksLoading, tasks, spaceId, isAdmin]);
 
   // Arrivée depuis "Mon compte" via un lien profond (?focusTaskId=...) :
   // on retire un éventuel filtre de catégorie qui cacherait le besoin, on
@@ -2374,9 +2383,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   function renderTask(t: Task) {
     const statusColors = STATUS_COLORS(C);
     const highlighted = highlightId === t.id;
-    // Sélection multiple admin : les besoins "fait" restent hors du champ
-    // (même règle que la suppression simple, voir deleteTask).
-    const selectable = isAdmin && t.status !== "fait";
+    // Sélection multiple : admin sur tout besoin, visiteur seulement sur ceux
+    // qu'il a lui-même publiés (voir isAuthor) — même périmètre que la
+    // suppression unitaire (icône 🗑️ juste au-dessus). Les besoins "fait"
+    // restent hors du champ (même règle que la suppression simple, voir
+    // deleteTask), ainsi que ceux déjà "supprimés en douceur" par l'admin
+    // (deleted_by_admin, géré par un autre bouton — voir setSelfDeleteTaskTarget).
+    const selectable = t.status !== "fait" && !t.deleted_by_admin && (isAdmin || isAuthor(t));
     const selected = selectedTaskIds.has(t.id);
     const modifiedByLabel = [t.modified_by_prenom, t.modified_by_nom].filter(Boolean).join(" ");
     return (
@@ -4602,7 +4615,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         visible={bulkDeleteConfirm}
         title={`Supprimer ${selectedTaskIds.size} besoin${selectedTaskIds.size > 1 ? "s" : ""} ?`}
         message={
-          tasks.some((t) => selectedTaskIds.has(t.id) && t.author_pin !== "ADMIN" && t.author_prenom)
+          tasks.some((t) => {
+            if (!selectedTaskIds.has(t.id) || !t.author_prenom) return false;
+            return isAdmin ? t.author_pin !== "ADMIN" : !isAuthor(t);
+          })
             ? "Les auteurs concernés recevront un message les informant de cette suppression."
             : undefined
         }
