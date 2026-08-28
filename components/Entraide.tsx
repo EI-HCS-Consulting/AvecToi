@@ -263,9 +263,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // peu fiable (même contrainte déjà rencontrée sur le flux checklist, voir
   // checklistWizardList plus bas). Catégories pas encore migrées vers ce
   // nouvel assistant : repli sur l'ancien taskForm (voir choosePublishCategory).
-  type PublishStep = "category" | "generic" | "autres_options";
+  type PublishStep = "category" | "generic" | "courses" | "courses_recurring" | "autres_options";
   const [publishWizardOpen, setPublishWizardOpen] = useState(false);
   const [publishStep, setPublishStep] = useState<PublishStep>("category");
+  // Sélection multiple pour l'étape "Produits récurrents" du nouvel assistant
+  // — volontairement distincte de recurringSelectMode/recurringSelected (qui
+  // servent à l'admin à supprimer des entrées du catalogue) : ici on choisit
+  // des articles à ajouter au brouillon fCourseItems, pas à supprimer.
+  const [wizardRecurringPicked, setWizardRecurringPicked] = useState<Set<string>>(new Set());
 
   // Popup "Choisis la source de la photo" (caméra / galerie), partagé entre
   // les 3 flux photo du mur d'entraide — pickerTarget route le choix vers le
@@ -931,10 +936,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   }
 
   // Catégories couvertes par le nouvel assistant "Publier" — les autres
-  // (Courses/Transport) ouvrent encore l'ancien formulaire taskForm en
-  // attendant leur propre PR, pour ne jamais publier un besoin mal formé
-  // (ex. transport sans date) pendant la transition.
-  const WIZARD_READY_CATEGORIES: TaskCategory[] = ["affaires", "autre", "repas", "administratif"];
+  // (Transport) ouvrent encore l'ancien formulaire taskForm en attendant sa
+  // propre PR, pour ne jamais publier un besoin mal formé (ex. transport
+  // sans date) pendant la transition.
+  const WIZARD_READY_CATEGORIES: TaskCategory[] = ["affaires", "autre", "repas", "administratif", "courses"];
 
   function choosePublishCategory(cat: TaskCategory) {
     if (!WIZARD_READY_CATEGORIES.includes(cat)) {
@@ -943,7 +948,6 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       const title = CATEGORY_AUTO_TITLES[cat];
       autoTitleRef.current = title;
       setFTitle(title);
-      if (cat === "courses") openCoursesListModal();
       setTaskForm(true);
       return;
     }
@@ -951,7 +955,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     const title = CATEGORY_AUTO_TITLES[cat];
     autoTitleRef.current = title;
     setFTitle(title);
-    setPublishStep("generic");
+    setPublishStep(cat === "courses" ? "courses" : "generic");
   }
 
   function cancelPublishWizard() {
@@ -1435,6 +1439,48 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     } else {
       setFCourseItems((prev) => [...prev, label]);
     }
+  }
+
+  // Étape "Produits récurrents" du nouvel assistant "Publier" : sélection
+  // multiple via cases à cocher (wizardRecurringPicked) puis ajout groupé à
+  // fCourseItems via confirmWizardRecurringPick, au lieu du bascule immédiat
+  // de pickRecurringItem (conservé pour l'ancien popup, voir plus bas).
+  function openWizardRecurringPicker() {
+    setWizardRecurringPicked(new Set());
+    setPublishStep("courses_recurring");
+    setRecurringLoading(true);
+    supabase
+      .from("recurring_shopping_items")
+      .select("id,label")
+      .eq("space_id", spaceId)
+      .order("label", { ascending: true })
+      .then(({ data }) => {
+        setRecurringItems((data ?? []) as { id: string; label: string }[]);
+        setRecurringLoading(false);
+      });
+  }
+
+  function toggleWizardRecurringPick(id: string) {
+    setWizardRecurringPicked((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function confirmWizardRecurringPick() {
+    const picked = recurringItems.filter((it) => wizardRecurringPicked.has(it.id));
+    setFCourseItems((prev) => {
+      const next = [...prev];
+      for (const it of picked) {
+        if (!next.some((f) => normalizeShoppingLabel(f) === normalizeShoppingLabel(it.label))) {
+          next.push(it.label);
+        }
+      }
+      return next;
+    });
+    setWizardRecurringPicked(new Set());
+    setPublishStep("courses");
   }
 
   function toggleRecurringSelected(id: string) {
@@ -3688,8 +3734,9 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         animationType="fade"
         onRequestClose={() => {
           if (taskSaving) return;
-          if (publishStep === "autres_options") { setPublishStep("generic"); return; }
-          if (publishStep === "generic") { setPublishStep("category"); return; }
+          if (publishStep === "autres_options") { setPublishStep(fCat === "courses" ? "courses" : "generic"); return; }
+          if (publishStep === "courses_recurring") { setWizardRecurringPicked(new Set()); setPublishStep("courses"); return; }
+          if (publishStep === "courses" || publishStep === "generic") { setPublishStep("category"); return; }
           cancelPublishWizard();
         }}
       >
@@ -3789,6 +3836,143 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                           ? <ActivityIndicator color="#fff" size="small" />
                           : <Text style={styles.btnPrimaryText}>Publier</Text>
                         }
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
+                {publishStep === "courses" && (
+                  <View>
+                    <Text style={[styles.sheetTitle, { color: C.text }]}>
+                      {CATEGORY_AUTO_TITLES.courses}
+                    </Text>
+
+                    <TextInput
+                      style={[styles.input, styles.descArea, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 8 }]}
+                      placeholder="Description (optionnelle)"
+                      placeholderTextColor={C.muted}
+                      value={fDesc}
+                      onChangeText={setFDesc}
+                      multiline
+                      numberOfLines={3}
+                      textAlignVertical="top"
+                    />
+
+                    <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 12 }]}>🛒 Articles (optionnel)</Text>
+                    <ScrollView style={[styles.checklistScroll, { maxHeight: 180 }]} showsVerticalScrollIndicator nestedScrollEnabled>
+                      {fCourseItems.length === 0 ? (
+                        <Text style={[styles.checklistItemDesc, { color: C.muted }]}>Aucun article pour le moment.</Text>
+                      ) : fCourseItems.map((label, i) => (
+                        <View key={i} style={styles.checklistItemRow}>
+                          <View style={[styles.checklistBox, { borderColor: C.gold, backgroundColor: C.gold }]}>
+                            <Text style={styles.checklistBoxMark}>✓</Text>
+                          </View>
+                          <Text style={[styles.checklistItemTitle, { color: C.text, flex: 1 }]}>{label}</Text>
+                          <TouchableOpacity onPress={() => removeFCourseItem(i)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                            <Text style={{ color: C.muted, fontSize: 16, marginLeft: 8 }}>✕</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </ScrollView>
+
+                    <View style={styles.groupAddRow}>
+                      <TextInput
+                        style={[styles.groupAddInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 0 }]}
+                        placeholder="Nom de l'article"
+                        placeholderTextColor={C.muted}
+                        value={fCourseItemDraft}
+                        onChangeText={setFCourseItemDraft}
+                        onSubmitEditing={addFCourseItem}
+                      />
+                      <TouchableOpacity
+                        style={[styles.groupAddBtn, { borderColor: C.gold, opacity: fCourseItemDraft.trim() ? 1 : 0.5 }]}
+                        onPress={addFCourseItem}
+                        disabled={!fCourseItemDraft.trim()}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.groupAddBtnText, { color: C.gold }]}>+ Ajouter</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <TouchableOpacity
+                      onPress={openWizardRecurringPicker}
+                      activeOpacity={0.8}
+                      style={{ width: "100%", height: 44, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", marginTop: 12 }}
+                    >
+                      <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 13.5, color: C.text }}>🔁 Produits récurrents</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={() => setPublishStep("autres_options")}
+                      style={[styles.claimOnCreateBtn, { backgroundColor: C.bg, borderColor: C.border, marginTop: 12 }]}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.claimOnCreateText, { color: C.text }]}>⚙️ Autres options</Text>
+                    </TouchableOpacity>
+
+                    <View style={styles.sheetBtns}>
+                      <TouchableOpacity onPress={cancelPublishWizard} disabled={taskSaving} style={[styles.btnSecondary, { borderColor: C.border }]}>
+                        <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={handleWizardPublish}
+                        disabled={!publishWizardReady || taskSaving}
+                        style={[styles.btnPrimary, { backgroundColor: C.accent }, (!publishWizardReady || taskSaving) && { opacity: 0.5 }]}
+                      >
+                        {taskSaving
+                          ? <ActivityIndicator color="#fff" size="small" />
+                          : <Text style={styles.btnPrimaryText}>Publier</Text>
+                        }
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
+                {publishStep === "courses_recurring" && (
+                  <View>
+                    <Text style={[styles.sheetTitle, { color: C.text }]}>🔁 Produits récurrents</Text>
+                    <Text style={[styles.checklistIntro, { color: C.muted }]}>
+                      Coche les articles à ajouter à la liste, puis valide.
+                    </Text>
+
+                    <ScrollView style={styles.checklistScroll} showsVerticalScrollIndicator nestedScrollEnabled>
+                      {recurringLoading ? (
+                        <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
+                      ) : recurringItems.length === 0 ? (
+                        <Text style={[styles.checklistItemDesc, { color: C.muted }]}>
+                          Aucun produit récurrent pour le moment — la liste se construit au fur et à mesure des courses.
+                        </Text>
+                      ) : recurringItems.map((it) => {
+                        const alreadyInList = fCourseItems.some((f) => normalizeShoppingLabel(f) === normalizeShoppingLabel(it.label));
+                        const checked = wizardRecurringPicked.has(it.id);
+                        return (
+                          <Pressable
+                            key={it.id}
+                            onPress={() => !alreadyInList && toggleWizardRecurringPick(it.id)}
+                            disabled={alreadyInList}
+                            style={[styles.checklistItemRow, checked && { backgroundColor: `${C.accent}1A`, borderRadius: 8 }]}
+                          >
+                            <View style={[styles.checklistBox, { borderColor: checked || alreadyInList ? C.accent : C.border, backgroundColor: checked || alreadyInList ? C.accent : "transparent" }]}>
+                              {(checked || alreadyInList) && <Text style={styles.checklistBoxMark}>✓</Text>}
+                            </View>
+                            <Text style={[styles.checklistItemTitle, { color: alreadyInList ? C.muted : C.text, flex: 1 }]}>
+                              {it.label}{alreadyInList ? " (déjà dans la liste)" : ""}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+
+                    <View style={styles.sheetBtns}>
+                      <TouchableOpacity onPress={() => { setWizardRecurringPicked(new Set()); setPublishStep("courses"); }} style={[styles.btnSecondary, { borderColor: C.border }]}>
+                        <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={confirmWizardRecurringPick}
+                        disabled={!wizardRecurringPicked.size}
+                        style={[styles.btnPrimary, { backgroundColor: C.accent }, !wizardRecurringPicked.size && { opacity: 0.5 }]}
+                      >
+                        <Text style={styles.btnPrimaryText}>Ajouter à la liste</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -3935,7 +4119,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                     )}
 
                     <TouchableOpacity
-                      onPress={() => setPublishStep("generic")}
+                      onPress={() => setPublishStep(fCat === "courses" ? "courses" : "generic")}
                       activeOpacity={0.85}
                       style={{ width: "100%", borderRadius: 10, paddingVertical: 14, alignItems: "center", justifyContent: "center", backgroundColor: C.accent, marginTop: 16 }}
                     >
