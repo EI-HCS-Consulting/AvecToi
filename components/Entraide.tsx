@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, Pressable, ScrollView,
   Modal, StyleSheet, Alert, ActivityIndicator, Image,
-  KeyboardAvoidingView, Platform, Linking,
+  KeyboardAvoidingView, Platform, Linking, useWindowDimensions,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
@@ -144,6 +144,21 @@ function relaisRequestedPeriodLabel(t: Task | null): string | null {
 export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, allergies, patientFirstname }: Props) {
   const { focusTaskId, openClaim: openClaimParam, openRelais } = useLocalSearchParams<{ focusTaskId?: string; openClaim?: string; openRelais?: string }>();
   const router = useRouter();
+
+  // Dimensions fixes de l'assistant "Publier" (même largeur/plafond de
+  // hauteur pour toutes les étapes, actuelles et futures PR) — calculées en
+  // pixels réels via useWindowDimensions plutôt qu'en "%", car un maxHeight
+  // en pourcentage posé sur une View imbriquée dans le contentContainer d'un
+  // ScrollView (lui-même sans hauteur propre) se résout de façon incohérente
+  // sur Android : la carte se retrouvait plafonnée bien en dessous de son
+  // contenu réel, et comme overflow est visible par défaut, les boutons
+  // Annuler/Publier débordaient hors du popup au lieu d'y rester (voir
+  // screenshots du 28/08/2026). Le popup a maintenant une largeur fixe et un
+  // plafond de hauteur fixe (en px), et un ScrollView interne à la carte
+  // (pas autour d'elle) prend le relais si le contenu dépasse ce plafond.
+  const { width: winW, height: winH } = useWindowDimensions();
+  const publishCardWidth = Math.min(winW - 32, 480);
+  const publishCardMaxHeight = winH * 0.82;
   const scrollRef = useRef<ScrollView>(null);
   const taskOffsets = useRef<Record<string, number>>({});
   const [highlightId, setHighlightId] = useState<string | null>(null);
@@ -3640,17 +3655,17 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         }}
       >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
-          <View style={styles.centeredOverlay}>
+          <View style={styles.publishOverlay}>
             <TouchableOpacity
               style={StyleSheet.absoluteFill}
               activeOpacity={1}
               onPress={() => { if (!taskSaving) cancelPublishWizard(); }}
             />
-            <ScrollView contentContainerStyle={styles.centeredOverlayScroll} keyboardShouldPersistTaps="handled">
-              <TouchableOpacity activeOpacity={1}>
+            <View style={[styles.publishCard, { width: publishCardWidth, maxHeight: publishCardMaxHeight, backgroundColor: C.card, borderColor: C.accent }]}>
+              <ScrollView contentContainerStyle={styles.publishCardScroll} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
 
                 {publishStep === "category" && (
-                  <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
+                  <View>
                     <Text style={[styles.sheetTitle, { color: C.text }]}>Catégorie</Text>
                     <View style={[styles.catGrid, { marginTop: 12, marginBottom: 8 }]}>
                       {(Object.keys(CATEGORY_ICONS) as TaskCategory[]).filter((cat) => cat !== "relais").map((cat) => (
@@ -3674,7 +3689,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                 )}
 
                 {publishStep === "generic" && (
-                  <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
+                  <View>
                     <Text style={[styles.sheetTitle, { color: C.text }]}>
                       {fCat === "repas" ? "Besoin Repas" : fCat === "affaires" ? "Besoin Affaires" : "Autre besoin"}
                     </Text>
@@ -3725,7 +3740,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                 )}
 
                 {publishStep === "autres_options" && (
-                  <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
+                  <View>
                     <Text style={[styles.sheetTitle, { color: C.text }]}>Autres options</Text>
 
                     <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 8 }]}>Photo (optionnelle)</Text>
@@ -3862,8 +3877,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                   </View>
                 )}
 
-              </TouchableOpacity>
-            </ScrollView>
+              </ScrollView>
+            </View>
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -5495,6 +5510,14 @@ const styles = StyleSheet.create({
   centeredOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center" },
   centeredOverlayScroll: { flexGrow: 1, justifyContent: "center", alignItems: "center" },
   centeredSheet: { width: "88%", borderRadius: 20, borderWidth: 1, padding: 24 },
+
+  // Assistant "Publier" — carte à largeur/plafond de hauteur fixes en px
+  // (voir publishCardWidth/publishCardMaxHeight), overflow "hidden" pour que
+  // rien ne puisse jamais déborder hors des coins arrondis ; le ScrollView
+  // est DANS la carte (publishCardScroll), pas autour d'elle.
+  publishOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center", paddingHorizontal: 16 },
+  publishCard: { borderRadius: 20, borderWidth: 1, overflow: "hidden" },
+  publishCardScroll: { padding: 24, flexGrow: 1 },
   pickerSheet: { alignItems: "stretch" },
   pickerOption: { flexDirection: "row", alignItems: "center", gap: 12, borderWidth: 1, borderRadius: 12, paddingVertical: 14, paddingHorizontal: 16, marginTop: 12 },
   pickerOptionIcon: { fontSize: 20 },
