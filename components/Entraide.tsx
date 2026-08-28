@@ -1313,10 +1313,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
   // Ouvre le popup de choix de checklist (checklistPicker) depuis le
   // formulaire "Nouveau besoin" (catégorie Administratif) — ferme d'abord
-  // taskForm, comme claimDuplicate plus bas, pour ne jamais empiler deux
-  // <Modal> sur Android.
+  // taskForm et publishWizardOpen (un seul des deux est réellement ouvert
+  // selon qu'on vient de l'ancien formulaire ou du nouvel assistant), comme
+  // claimDuplicate plus bas, pour ne jamais empiler deux <Modal> sur Android.
   function openChecklistFromForm() {
     setTaskForm(false);
+    setPublishWizardOpen(false);
     setTimeout(() => openChecklistPicker(), 300);
   }
 
@@ -2727,6 +2729,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         ) : null}
         <Text style={[styles.taskDesc, { color: C.muted }]}>
           🗓️ Publié le {toFrShort(new Date(t.created_at))}
+          {(t.author_prenom || t.author_nom) ? ` par ${[t.author_prenom, t.author_nom].filter(Boolean).join(" ")}` : ""}
         </Text>
         {(() => {
           // Lien officiel re-dérivé du template d'origine (tasks n'a pas de
@@ -3718,6 +3721,16 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                       textAlignVertical="top"
                     />
 
+                    {fCat === "administratif" && (
+                      <TouchableOpacity
+                        onPress={openChecklistFromForm}
+                        activeOpacity={0.8}
+                        style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.gold, alignItems: "center", justifyContent: "center", marginTop: 8 }}
+                      >
+                        <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.gold }}>🗂️ Créer une checklist</Text>
+                      </TouchableOpacity>
+                    )}
+
                     <TouchableOpacity
                       onPress={() => setPublishStep("autres_options")}
                       style={[styles.claimOnCreateBtn, { backgroundColor: C.bg, borderColor: C.border }]}
@@ -3876,8 +3889,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                       </>
                     )}
 
-                    <TouchableOpacity onPress={() => setPublishStep("generic")} style={{ marginTop: 16, alignItems: "center" }}>
-                      <Text style={[styles.btnSecondaryText, { color: C.muted }]}>‹ Retour</Text>
+                    <TouchableOpacity
+                      onPress={() => setPublishStep("generic")}
+                      activeOpacity={0.85}
+                      style={{ width: "100%", borderRadius: 10, paddingVertical: 14, alignItems: "center", justifyContent: "center", backgroundColor: C.accent, marginTop: 16 }}
+                    >
+                      <Text style={styles.btnPrimaryText}>✓ Valider</Text>
                     </TouchableOpacity>
                   </View>
                 )}
