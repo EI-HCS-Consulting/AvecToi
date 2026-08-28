@@ -23,7 +23,7 @@ import { googleMapsSearchUrl, joinAddress } from "@/lib/address";
 import { addGenericEventToNativeCalendar } from "@/lib/calendarSync";
 import type { Task, TransportProposal, TaskRelaisCoverage } from "@/lib/types";
 import { CHECKLIST_COLORS, type Theme } from "@/lib/themes";
-import { CHECKLIST_TEMPLATES, addDaysIso, checklistItemDescription, findTemplateContextForTitle, findTemplateItemByTitle, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
+import { CHECKLIST_TEMPLATES, addDaysIso, checklistItemDescription, findTemplateItemByTitle, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
 import { isRelaisFullyCovered, computeRelaisGaps, type RelaisCoverageRange } from "@/lib/relaisCoverage";
 
 const PHOTO_BUCKET = "entraide-photos";
@@ -458,6 +458,21 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [customChecklistItems, setCustomChecklistItems] = useState<string[]>([]);
   const [customChecklistItemDraft, setCustomChecklistItemDraft] = useState("");
   const [customChecklistSaving, setCustomChecklistSaving] = useState(false);
+
+  // Lots de checklist "en attente de publication" — pour toujours repasser
+  // par le popup "Besoin Administratif" (étape "generic" de l'assistant
+  // Publier) avant l'insertion réelle, afin de pouvoir ajouter "Autres
+  // options" (description/échéance/urgent) au lot entier. Un seul des deux
+  // est non-null à la fois selon l'origine (checklist perso "Créer une
+  // checklist" vs checklist suggérée par templates) — voir
+  // stageCustomChecklist / checklistWizardNext et le bouton "Publier" de
+  // l'étape "generic".
+  const [pendingChecklistBatch, setPendingChecklistBatch] = useState<{ items: string[] } | null>(null);
+  const [pendingSuggestedChecklist, setPendingSuggestedChecklist] = useState<{
+    list: ChecklistWizardEntry[];
+    data: Record<string, ChecklistWizardFields>;
+    context: ChecklistContext;
+  } | null>(null);
 
   // Annulation d'un lot ajouté d'un coup (checklist admin dédiée ou sélecteur
   // repliable ci-dessus) — capture les id insérés pour pouvoir tout supprimer
@@ -947,6 +962,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setPublishWizardOpen(false);
     setPublishStep("category");
     resetPublishDraft();
+    setPendingChecklistBatch(null);
+    setPendingSuggestedChecklist(null);
   }
 
   // Candidats pour le ciblage "Certains proches seulement" d'un besoin de
@@ -1159,12 +1176,34 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     }));
   }
 
+  // Fige la checklist suggérée (liste + réglages par item déjà saisis) en
+  // lot "en attente" et rouvre l'étape "generic" de l'assistant Publier
+  // (catégorie Administratif) au lieu de publier directement — même logique
+  // que stageCustomChecklist, pour toujours repasser par ce popup avant le
+  // vrai "Publier". checklistContext/checklistWizardList sont vidés pour
+  // fermer ce <Modal> (sa visibilité en dépend) ; checklistPublishToWall/Mine
+  // restent en l'état, ils ne changent plus une fois cette étape passée.
+  function stageChecklistWizard() {
+    if (!checklistWizardList.length || !checklistContext) return;
+    if (!checklistPublishToWall && !checklistPublishToMine) return;
+    setPendingSuggestedChecklist({ list: checklistWizardList, data: checklistWizardData, context: checklistContext });
+    setChecklistContext(null);
+    setChecklistWizardList([]);
+    setChecklistWizardStep(0);
+    setChecklistPicker(false);
+    setFCat("administratif");
+    const title = CATEGORY_AUTO_TITLES.administratif;
+    autoTitleRef.current = title;
+    setFTitle(title);
+    setTimeout(() => { setPublishStep("generic"); setPublishWizardOpen(true); }, 300);
+  }
+
   function checklistWizardNext() {
     if (checklistWizardStep < checklistWizardList.length - 1) {
       setChecklistWizardStep((s) => s + 1);
       return;
     }
-    publishChecklistWizard();
+    stageChecklistWizard();
   }
 
   function checklistWizardBack() {
@@ -1179,19 +1218,26 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setChecklistWizardStep((s) => s - 1);
   }
 
-  async function publishChecklistWizard(data: Record<string, ChecklistWizardFields> = checklistWizardData) {
-    if (!checklistWizardList.length || !checklistContext) return;
+  // Publie un lot de checklist suggérée déjà figé (stageChecklistWizard) —
+  // par défaut celui en attente (pendingSuggestedChecklist), puisque c'est
+  // désormais le seul appelant (bouton "Publier" de l'étape "generic" de
+  // l'assistant Publier, catégorie Administratif).
+  async function publishChecklistWizard(
+    pending: { list: ChecklistWizardEntry[]; data: Record<string, ChecklistWizardFields>; context: ChecklistContext } | null = pendingSuggestedChecklist,
+  ) {
+    if (!pending || !pending.list.length) return;
     if (!checklistPublishToWall && !checklistPublishToMine) return;
     setChecklistSaving(true);
     const author = await currentAuthor();
+    const { list, data, context } = pending;
 
     // task_id par item — reste à null pour tous si le lot n'est pas publié
     // sur le Mur d'Entraide (checklistPublishToWall === false) : aucune
     // ligne tasks n'est créée, l'item n'existe alors que dans Mes Checklists.
-    let taskIds: (string | null)[] = checklistWizardList.map(() => null);
+    let taskIds: (string | null)[] = list.map(() => null);
     if (checklistPublishToWall) {
       const batchId = Crypto.randomUUID();
-      const rows = checklistWizardList.map(({ key, item }) => {
+      const rows = list.map(({ key, item }) => {
         const fields = data[key] ?? { dateLimite: "", urgent: !!item.urgent, detail: "" };
         const detail = fields.detail.trim();
         const description = [detail ? `Précision : ${detail}` : "", checklistItemDescription(item)]
@@ -1222,7 +1268,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     }
 
     if (checklistPublishToMine) {
-      const personalRows = checklistWizardList.map(({ key, item }, idx) => {
+      const personalRows = list.map(({ key, item }, idx) => {
         // personal_checklist_items n'a pas de colonne description : la
         // précision saisie va dans le titre si le lot n'est pas aussi publié
         // sur le Mur (sinon elle vit déjà dans tasks.description).
@@ -1236,13 +1282,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           title: detail ? `${item.title} — ${detail}` : item.title,
           status: "a_faire" as const,
           task_id: taskIds[idx],
-          checklist_context: checklistContext,
+          checklist_context: context,
           custom_checklist_name: null,
           date_limite: fields.dateLimite || null,
           urgent: fields.urgent,
         };
       });
-      const pieceRows = checklistWizardList.flatMap(({ item }) =>
+      const pieceRows = list.flatMap(({ item }) =>
         (item.piecesRequises ?? []).map((piece) => ({
           space_id: spaceId,
           owner_prenom: author.prenom,
@@ -1251,7 +1297,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           title: piece,
           status: "a_faire" as const,
           task_id: null,
-          checklist_context: checklistContext,
+          checklist_context: context,
           custom_checklist_name: item.title,
           date_limite: null,
           urgent: false,
@@ -1268,6 +1314,9 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     }
 
     setChecklistSaving(false);
+    setPendingSuggestedChecklist(null);
+    setPublishWizardOpen(false);
+    resetPublishDraft();
     setChecklistContext(null);
     setChecklistPicker(false);
     setChecklistCustomItems([]);
@@ -1278,10 +1327,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     // Un lot de checklist peut désormais couvrir plusieurs catégories — on ne
     // bascule l'onglet actif que si tous les items publiés partagent la même,
     // sinon on retombe sur "Tous" pour que le lot entier reste visible.
-    const batchCategories = new Set(checklistWizardList.map(({ item }) => item.category ?? "administratif"));
+    const batchCategories = new Set(list.map(({ item }) => item.category ?? "administratif"));
     setActiveCat(batchCategories.size === 1 ? [...batchCategories][0] : null);
     if (checklistPublishToWall) {
-      triggerBatchUndo(taskIds.filter((id): id is string => !!id), checklistWizardList.length);
+      triggerBatchUndo(taskIds.filter((id): id is string => !!id), list.length);
     }
     loadTasks();
   }
@@ -1446,40 +1495,64 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setCustomChecklistItems((prev) => prev.filter((_, idx) => idx !== i));
   }
 
-  // Publie la checklist perso créée comme autant de besoins "administratif"
-  // distincts du même lot (checklist_batch_id) — même logique d'auteur et de
-  // dédoublonnage que publishChecklistWizard ; le nom donné à la checklist ne sert
-  // qu'à la saisie, il n'existe pas de colonne dédiée sur "tasks" (regroupées
-  // uniquement par checklist_batch_id, comme les checklists suggérées).
-  async function confirmCreateCustomChecklist() {
+  // Fige la checklist perso créée (dédoublonnée) en lot "en attente" et
+  // rouvre l'étape "generic" de l'assistant Publier (catégorie Administratif)
+  // au lieu de publier directement — pour que "Autres options"
+  // (description/échéance/urgent) reste accessible avant le vrai "Publier".
+  // Voir publishPendingChecklistBatch pour l'insertion effective, et
+  // openCustomChecklistModal/openChecklistFromForm pour la contrainte Android
+  // (fermer ce <Modal> puis en rouvrir un autre après un court délai).
+  function stageCustomChecklist() {
     const items = customChecklistItems.filter((title) => !findDuplicateAdminTask(title));
     if (!customChecklistName.trim() || !items.length) return;
-    setCustomChecklistSaving(true);
+    setPendingChecklistBatch({ items });
+    setCustomChecklistModal(false);
+    setFCat("administratif");
+    const title = CATEGORY_AUTO_TITLES.administratif;
+    autoTitleRef.current = title;
+    setFTitle(title);
+    setTimeout(() => { setPublishStep("generic"); setPublishWizardOpen(true); }, 300);
+  }
+
+  // Insertion effective du lot "Créer une checklist" (perso, hors templates)
+  // — mêmes règles d'auteur/regroupement que confirmCreateCustomChecklist
+  // avant sa scission en stageCustomChecklist + cette fonction ; la
+  // description/échéance/urgent saisies à l'étape "generic"/"Autres options"
+  // de l'assistant Publier s'appliquent désormais uniformément à tout le lot.
+  async function publishPendingChecklistBatch() {
+    if (!pendingChecklistBatch) return;
+    setChecklistSaving(true);
     const author = await currentAuthor();
     const batchId = Crypto.randomUUID();
-    const rows = items.map((title) => ({
+    const rows = pendingChecklistBatch.items.map((title) => ({
       space_id: spaceId,
       title,
-      description: "",
+      description: fDesc.trim(),
       category: "administratif" as const,
       status: "ouvert" as const,
       created_by: isAdmin ? "admin" : "visiteur",
       author_prenom: author.prenom || null,
       author_nom: author.nom || null,
       author_pin: author.pin || null,
-      date_limite: null,
-      urgent: false,
+      date_limite: fDateLimite || null,
+      urgent: fUrgent,
       checklist_batch_id: batchId,
     }));
     const { data: inserted, error } = await supabase.from("tasks").insert(rows).select("id");
-    setCustomChecklistSaving(false);
+    setChecklistSaving(false);
     if (error) {
       Alert.alert("Erreur", "Impossible de créer la checklist : " + error.message);
       return;
     }
-    setCustomChecklistModal(false);
+    const count = pendingChecklistBatch.items.length;
+    setPendingChecklistBatch(null);
+    setCustomChecklistName("");
+    setCustomChecklistItems([]);
+    setCustomChecklistItemDraft("");
+    setPublishWizardOpen(false);
+    resetPublishDraft();
     setActiveCat("administratif");
-    triggerBatchUndo(inserted?.map((r) => r.id) ?? [], items.length);
+    triggerBatchUndo(inserted?.map((r) => r.id) ?? [], count);
     loadTasks();
   }
 
@@ -1571,6 +1644,18 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // Assistant "Publier" : le titre n'est jamais vide (auto-rempli par
   // choosePublishCategory), donc pas besoin du garde !fTitle.trim() ici.
   const publishWizardReady = claimOnCreateReady;
+
+  // Un lot de checklist (perso "Créer une checklist" ou suggérée) en attente
+  // de publication — l'étape "generic"/"Autres options" masque alors ce qui
+  // ne s'applique qu'à un seul besoin (photo, "Je vais me débrouiller") et
+  // le bouton "Publier" finalise le lot au lieu d'appeler saveTask.
+  const pendingChecklistActive = !!pendingChecklistBatch || !!pendingSuggestedChecklist;
+
+  function handleWizardPublish() {
+    if (pendingChecklistBatch) { publishPendingChecklistBatch(); return; }
+    if (pendingSuggestedChecklist) { publishChecklistWizard(pendingSuggestedChecklist); return; }
+    saveTask();
+  }
 
   // Un besoin ne doit jamais être publié en double (titre identique, encore
   // ouvert) — que ce soit via le formulaire classique ou une checklist
@@ -2189,35 +2274,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         } : {}),
       }).eq("id", claimTarget.id);
     }
-    // "Je m'en occupe" sur un besoin issu d'une checklist l'ajoute aussi à
-    // "Ma Checklist" du preneur — même objet, visible des deux côtés. Basé
-    // sur checklist_batch_id (posé sur tout item publié via une checklist,
-    // suggérée ou perso) plutôt que sur category, qui ne vaut plus toujours
-    // "administratif" depuis que les checklists suggérées couvrent aussi
-    // courses/repas/transport/affaires/autre.
-    if (claimTarget.checklist_batch_id) {
-      // Un item importé depuis "Ma Checklist" (checklist privée publiée sur
-      // le Mur) crée déjà sa propre ligne personal_checklist_items côté
-      // importateur — si c'est aussi lui qui prend en charge ici (même PIN),
-      // éviter un doublon visuel dans sa checklist personnelle.
-      const { data: existing } = await supabase.from("personal_checklist_items")
-        .select("id")
-        .eq("task_id", claimTarget.id)
-        .eq("owner_pin", claimPin)
-        .maybeSingle();
-      if (!existing) {
-        await supabase.from("personal_checklist_items").insert({
-          space_id: spaceId,
-          owner_prenom: claimPrenom.trim(),
-          owner_nom: claimNom.trim(),
-          owner_pin: claimPin,
-          title: claimTarget.title,
-          status: "a_faire",
-          task_id: claimTarget.id,
-          checklist_context: findTemplateContextForTitle(claimTarget.title),
-        });
-      }
-    }
+    // "Je m'en occupe" ne colle plus automatiquement le besoin dans "Ma
+    // Checklist" du preneur : seul le choix explicite fait au moment de la
+    // publication ("Dans « Mes Checklists »") doit contrôler ce qui atterrit
+    // dans Mon Compte — voir checklistPublishToMine/publishChecklistWizard.
     setClaimSaving(false);
     if (!isAdmin) {
       await rememberAuthorPin(claimPrenom.trim(), claimNom.trim(), claimPin);
@@ -3710,18 +3770,26 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                       </View>
                     )}
 
-                    <TextInput
-                      style={[styles.input, styles.descArea, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 8 }]}
-                      placeholder="Description (optionnelle)"
-                      placeholderTextColor={C.muted}
-                      value={fDesc}
-                      onChangeText={setFDesc}
-                      multiline
-                      numberOfLines={3}
-                      textAlignVertical="top"
-                    />
+                    {!pendingSuggestedChecklist && (
+                      <TextInput
+                        style={[styles.input, styles.descArea, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 8 }]}
+                        placeholder={pendingChecklistBatch ? "Description commune à tous les items (optionnelle)" : "Description (optionnelle)"}
+                        placeholderTextColor={C.muted}
+                        value={fDesc}
+                        onChangeText={setFDesc}
+                        multiline
+                        numberOfLines={3}
+                        textAlignVertical="top"
+                      />
+                    )}
 
-                    {fCat === "administratif" && (
+                    {pendingChecklistActive && (
+                      <Text style={[styles.publicNoticeText, { color: C.muted, marginTop: 8 }]}>
+                        🗂️ Checklist de {(pendingChecklistBatch?.items.length ?? pendingSuggestedChecklist?.list.length ?? 0)} item(s) prête à publier.
+                      </Text>
+                    )}
+
+                    {fCat === "administratif" && !pendingChecklistActive && (
                       <TouchableOpacity
                         onPress={openChecklistFromForm}
                         activeOpacity={0.8}
@@ -3740,15 +3808,15 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                     </TouchableOpacity>
 
                     <View style={styles.sheetBtns}>
-                      <TouchableOpacity onPress={cancelPublishWizard} disabled={taskSaving} style={[styles.btnSecondary, { borderColor: C.border }]}>
+                      <TouchableOpacity onPress={cancelPublishWizard} disabled={taskSaving || checklistSaving} style={[styles.btnSecondary, { borderColor: C.border }]}>
                         <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
-                        onPress={saveTask}
-                        disabled={!publishWizardReady || taskSaving}
-                        style={[styles.btnPrimary, { backgroundColor: C.accent }, (!publishWizardReady || taskSaving) && { opacity: 0.5 }]}
+                        onPress={handleWizardPublish}
+                        disabled={!publishWizardReady || taskSaving || checklistSaving}
+                        style={[styles.btnPrimary, { backgroundColor: C.accent }, (!publishWizardReady || taskSaving || checklistSaving) && { opacity: 0.5 }]}
                       >
-                        {taskSaving
+                        {(taskSaving || checklistSaving)
                           ? <ActivityIndicator color="#fff" size="small" />
                           : <Text style={styles.btnPrimaryText}>Publier</Text>
                         }
@@ -3761,129 +3829,141 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                   <View>
                     <Text style={[styles.sheetTitle, { color: C.text }]}>Autres options</Text>
 
-                    <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 8 }]}>Photo (optionnelle)</Text>
-                    {(fPhotoUri || fExistingPhoto) ? (
-                      <View style={styles.photoPreviewRow}>
-                        <Image
-                          source={{ uri: fPhotoUri ?? taskPhotoUrl(spaceId, fExistingPhoto!) }}
-                          style={styles.photoPreviewImg}
-                          resizeMode="cover"
-                        />
-                        <TouchableOpacity
-                          style={[styles.photoPickRemove, { backgroundColor: C.danger }]}
-                          onPress={removeTaskPhoto}
-                        >
-                          <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>✕</Text>
-                        </TouchableOpacity>
-                      </View>
-                    ) : (
-                      <TouchableOpacity
-                        style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
-                        onPress={openTaskPhotoPicker}
-                        disabled={pickingPhoto}
-                      >
-                        {pickingPhoto
-                          ? <ActivityIndicator color={C.accent} size="small" />
-                          : <Text style={[styles.photoPickAddText, { color: C.muted }]}>📷 Ajouter une photo</Text>
-                        }
-                      </TouchableOpacity>
-                    )}
-
-                    <TouchableOpacity
-                      style={[
-                        styles.claimOnCreateBtn,
-                        { backgroundColor: fDLPickerOpen ? `${C.accent}22` : C.bg, borderColor: fDLPickerOpen ? C.accent : C.border },
-                      ]}
-                      onPress={() => {
-                        if (fDLPickerOpen) setFDateLimite("");
-                        setFDLPickerOpen((v) => !v);
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={[styles.claimOnCreateText, { color: fDLPickerOpen ? C.accent : C.text }]}>
-                        {fDLPickerOpen ? "📅 Retirer la date" : "📅 Ajouter une échéance (optionnel)"}
-                      </Text>
-                    </TouchableOpacity>
-
-                    {fDLPickerOpen && (
+                    {!pendingChecklistActive && (
                       <>
-                        <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 12 }]}>
-                          Le besoin se fermera automatiquement passé cette date s'il n'est pas pris en charge
-                        </Text>
-                        <MiniCalendar
-                          selDate={fDateLimite}
-                          onSelect={setFDateLimite}
-                          calMonth={fDLCalMonth}
-                          onMonthChange={setFDLCalMonth}
-                          startDate={new Date()}
-                          C={C}
-                          size="lg"
-                        />
+                        <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 8 }]}>Photo (optionnelle)</Text>
+                        {(fPhotoUri || fExistingPhoto) ? (
+                          <View style={styles.photoPreviewRow}>
+                            <Image
+                              source={{ uri: fPhotoUri ?? taskPhotoUrl(spaceId, fExistingPhoto!) }}
+                              style={styles.photoPreviewImg}
+                              resizeMode="cover"
+                            />
+                            <TouchableOpacity
+                              style={[styles.photoPickRemove, { backgroundColor: C.danger }]}
+                              onPress={removeTaskPhoto}
+                            >
+                              <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>✕</Text>
+                            </TouchableOpacity>
+                          </View>
+                        ) : (
+                          <TouchableOpacity
+                            style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
+                            onPress={openTaskPhotoPicker}
+                            disabled={pickingPhoto}
+                          >
+                            {pickingPhoto
+                              ? <ActivityIndicator color={C.accent} size="small" />
+                              : <Text style={[styles.photoPickAddText, { color: C.muted }]}>📷 Ajouter une photo</Text>
+                            }
+                          </TouchableOpacity>
+                        )}
                       </>
                     )}
 
-                    <TouchableOpacity
-                      style={[
-                        styles.claimOnCreateBtn,
-                        { backgroundColor: fUrgent ? C.danger : C.bg, borderColor: fUrgent ? C.danger : C.border, marginTop: 14 },
-                      ]}
-                      onPress={() => setFUrgent((v) => !v)}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={[styles.claimOnCreateText, { color: fUrgent ? "#fff" : C.text }]}>
-                        {fUrgent ? "🔴 Besoin urgent" : "⚪ Marquer comme urgent"}
-                      </Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[
-                        styles.claimOnCreateBtn,
-                        {
-                          backgroundColor: claimOnCreate ? `${C.accent}22` : C.bg,
-                          borderColor: claimOnCreate ? C.accent : C.border,
-                        },
-                      ]}
-                      onPress={toggleClaimOnCreate}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={[styles.claimOnCreateText, { color: claimOnCreate ? C.accent : C.text }]}>
-                        {claimOnCreate ? "🙋 Tu t'en occupes déjà" : "🙋 Je vais me débrouiller"}
-                      </Text>
-                    </TouchableOpacity>
-
-                    {claimOnCreate && (
+                    {!pendingSuggestedChecklist && (
                       <>
-                        <Text style={[styles.claimOnCreateHint, { color: C.muted }]}>
-                          Le besoin apparaîtra directement comme "Pris en charge" par toi.
-                        </Text>
+                        <TouchableOpacity
+                          style={[
+                            styles.claimOnCreateBtn,
+                            { backgroundColor: fDLPickerOpen ? `${C.accent}22` : C.bg, borderColor: fDLPickerOpen ? C.accent : C.border },
+                          ]}
+                          onPress={() => {
+                            if (fDLPickerOpen) setFDateLimite("");
+                            setFDLPickerOpen((v) => !v);
+                          }}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={[styles.claimOnCreateText, { color: fDLPickerOpen ? C.accent : C.text }]}>
+                            {fDLPickerOpen ? "📅 Retirer la date" : pendingChecklistBatch ? "📅 Ajouter une échéance commune (optionnel)" : "📅 Ajouter une échéance (optionnel)"}
+                          </Text>
+                        </TouchableOpacity>
 
-                        {!(claimPrenom.trim() && claimNom.trim()) && (
-                          <View style={{ flexDirection: "row", gap: 8, marginBottom: 10 }}>
-                            <TextInput
-                              style={[styles.input, { flex: 1, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                              placeholder="Prénom *"
-                              placeholderTextColor={C.muted}
-                              value={claimPrenom}
-                              onChangeText={setClaimPrenom}
-                              autoCapitalize="words"
+                        {fDLPickerOpen && (
+                          <>
+                            <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 12 }]}>
+                              Le besoin se fermera automatiquement passé cette date s'il n'est pas pris en charge
+                            </Text>
+                            <MiniCalendar
+                              selDate={fDateLimite}
+                              onSelect={setFDateLimite}
+                              calMonth={fDLCalMonth}
+                              onMonthChange={setFDLCalMonth}
+                              startDate={new Date()}
+                              C={C}
+                              size="lg"
                             />
-                            <TextInput
-                              style={[styles.input, { flex: 1, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-                              placeholder="Nom *"
-                              placeholderTextColor={C.muted}
-                              value={claimNom}
-                              onChangeText={setClaimNom}
-                              autoCapitalize="words"
-                            />
-                          </View>
+                          </>
                         )}
 
-                        {!isAdmin && (
+                        <TouchableOpacity
+                          style={[
+                            styles.claimOnCreateBtn,
+                            { backgroundColor: fUrgent ? C.danger : C.bg, borderColor: fUrgent ? C.danger : C.border, marginTop: 14 },
+                          ]}
+                          onPress={() => setFUrgent((v) => !v)}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={[styles.claimOnCreateText, { color: fUrgent ? "#fff" : C.text }]}>
+                            {fUrgent ? "🔴 Besoin urgent" : "⚪ Marquer comme urgent"}
+                          </Text>
+                        </TouchableOpacity>
+                      </>
+                    )}
+
+                    {!pendingChecklistActive && (
+                      <>
+                        <TouchableOpacity
+                          style={[
+                            styles.claimOnCreateBtn,
+                            {
+                              backgroundColor: claimOnCreate ? `${C.accent}22` : C.bg,
+                              borderColor: claimOnCreate ? C.accent : C.border,
+                            },
+                          ]}
+                          onPress={toggleClaimOnCreate}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={[styles.claimOnCreateText, { color: claimOnCreate ? C.accent : C.text }]}>
+                            {claimOnCreate ? "🙋 Tu t'en occupes déjà" : "🙋 Je vais me débrouiller"}
+                          </Text>
+                        </TouchableOpacity>
+
+                        {claimOnCreate && (
                           <>
-                            <Text style={[styles.fieldLabel, { color: C.gold }]}>
-                              🔐 Code PIN (pour te désinscrire si besoin)
+                            <Text style={[styles.claimOnCreateHint, { color: C.muted }]}>
+                              Le besoin apparaîtra directement comme "Pris en charge" par toi.
                             </Text>
-                            <PinPad value={claimPin} onChange={setClaimPin} theme={C} />
+
+                            {!(claimPrenom.trim() && claimNom.trim()) && (
+                              <View style={{ flexDirection: "row", gap: 8, marginBottom: 10 }}>
+                                <TextInput
+                                  style={[styles.input, { flex: 1, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                                  placeholder="Prénom *"
+                                  placeholderTextColor={C.muted}
+                                  value={claimPrenom}
+                                  onChangeText={setClaimPrenom}
+                                  autoCapitalize="words"
+                                />
+                                <TextInput
+                                  style={[styles.input, { flex: 1, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                                  placeholder="Nom *"
+                                  placeholderTextColor={C.muted}
+                                  value={claimNom}
+                                  onChangeText={setClaimNom}
+                                  autoCapitalize="words"
+                                />
+                              </View>
+                            )}
+
+                            {!isAdmin && (
+                              <>
+                                <Text style={[styles.fieldLabel, { color: C.gold }]}>
+                                  🔐 Code PIN (pour te désinscrire si besoin)
+                                </Text>
+                                <PinPad value={claimPin} onChange={setClaimPin} theme={C} />
+                              </>
+                            )}
                           </>
                         )}
                       </>
@@ -4369,7 +4449,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             </View>
 
             <Text style={[styles.publicNoticeText, { color: C.muted }]}>
-              ℹ️ Cette checklist sera publiée dans le Mur d'Entraide et visible par tous les visiteurs de l'espace.
+              ℹ️ L'étape suivante ("Besoin Administratif") permet d'ajouter d'autres options avant de publier.
             </Text>
 
             <View style={styles.sheetBtns}>
@@ -4385,12 +4465,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                   styles.btnPrimary,
                   { backgroundColor: C.gold, opacity: !customChecklistName.trim() || !customChecklistItems.length || customChecklistSaving ? 0.5 : 1 },
                 ]}
-                onPress={confirmCreateCustomChecklist}
+                onPress={stageCustomChecklist}
                 disabled={!customChecklistName.trim() || !customChecklistItems.length || customChecklistSaving}
               >
                 {customChecklistSaving
                   ? <ActivityIndicator color="#fff" />
-                  : <Text style={styles.btnPrimaryText}>Créer et publier</Text>}
+                  : <Text style={styles.btnPrimaryText}>Créer</Text>}
               </TouchableOpacity>
             </View>
           </View>
