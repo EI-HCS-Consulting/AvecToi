@@ -1137,6 +1137,8 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
         C={C}
         task={shoppingListTask}
         isAdmin={isAdmin}
+        spaceId={spaceId}
+        isAuthor
       />
 
       <ConfirmModal

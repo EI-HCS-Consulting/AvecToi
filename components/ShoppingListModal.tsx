@@ -1,9 +1,15 @@
 import { useEffect, useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, Modal, ScrollView, StyleSheet, ActivityIndicator } from "react-native";
+import { View, Text, TextInput, TouchableOpacity, Modal, ScrollView, StyleSheet, ActivityIndicator, Alert } from "react-native";
 import { supabase } from "@/lib/supabase";
 import { getVisitorSession } from "@/lib/visitorSession";
 import type { Task, ShoppingListItem } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
+
+// Insensible à la casse/accents pour éviter les doublons — même principe que
+// normalizeShoppingLabel dans Entraide.tsx.
+function normalizeShoppingLabel(s: string) {
+  return s.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
 
 // Liste de courses éditable en bullet points, partagée entre le bouton
 // "👁️ Aperçu" d'un besoin category="courses" (Entraide.tsx) et "📄 Mes
@@ -27,15 +33,25 @@ interface Props {
   C: Theme;
   task: Task | null;
   isAdmin: boolean;
+  spaceId: string;
+  // Auteur du besoin "courses" affiché — avec isAdmin, détermine qui peut
+  // faire un appui long pour supprimer plusieurs articles à la fois. Le
+  // simple ✕ par article reste ouvert à tous, comme avant.
+  isAuthor: boolean;
 }
 
-export default function ShoppingListModal({ visible, onClose, C, task, isAdmin }: Props) {
+export default function ShoppingListModal({ visible, onClose, C, task, isAdmin, spaceId, isAuthor }: Props) {
   const [items, setItems] = useState<ShoppingListItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState("");
   const [adding, setAdding] = useState(false);
   const [myPrenom, setMyPrenom] = useState("");
   const [myNom, setMyNom] = useState("");
+  // Sélection multiple par appui long, réservée à isAdmin/isAuthor — voir
+  // deleteSelected. Reset à chaque fermeture du popup (useEffect ci-dessous).
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const canManageList = isAdmin || isAuthor;
 
   useEffect(() => {
     (async () => {
@@ -69,6 +85,8 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin }
 
   useEffect(() => {
     if (!visible || !task) { setItems([]); return; }
+    setSelectMode(false);
+    setSelectedIds(new Set());
     let cancelled = false;
     setLoading(true);
     supabase
@@ -116,9 +134,39 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin }
     await supabase.from("shopping_list_items").delete().eq("id", item.id);
   }
 
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  // "L'utilisateur qui a publié une liste peut toujours supprimer 1 ou
+  // plusieurs article de sa liste en faisant un clic prolongé" — même geste
+  // pour l'admin, réservé aux deux via canManageList.
+  function startSelect(id: string) {
+    if (!canManageList) return;
+    setSelectMode(true);
+    setSelectedIds(new Set([id]));
+  }
+
+  async function deleteSelected() {
+    const ids = Array.from(selectedIds);
+    if (!ids.length) return;
+    setItems((prev) => prev.filter((it) => !ids.includes(it.id)));
+    setSelectedIds(new Set());
+    setSelectMode(false);
+    await supabase.from("shopping_list_items").delete().in("id", ids);
+  }
+
   async function addItem() {
     const label = draft.trim();
     if (!label || !task) return;
+    if (items.some((it) => normalizeShoppingLabel(it.label) === normalizeShoppingLabel(label))) {
+      Alert.alert("Article déjà présent", "Cet article figure déjà dans la liste.");
+      return;
+    }
     setAdding(true);
     const { data } = await supabase
       .from("shopping_list_items")
@@ -128,6 +176,9 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin }
     if (data) setItems((prev) => [...prev, data as ShoppingListItem]);
     setDraft("");
     setAdding(false);
+    // Enrichit "Produits récurrents" (voir Entraide.tsx) — insert en conflit
+    // (même libellé déjà catalogué pour l'espace) ignoré silencieusement.
+    await supabase.from("recurring_shopping_items").insert({ space_id: spaceId, label });
   }
 
   const boughtCount = items.filter((it) => it.bought).length;
@@ -146,26 +197,48 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin }
             </Text>
           )}
 
+          {selectMode && (
+            <View style={styles.selectBar}>
+              <Text style={[styles.selectBarCount, { color: C.text }]}>{selectedIds.size} sélectionné(s)</Text>
+              <View style={{ flexDirection: "row", gap: 16 }}>
+                <TouchableOpacity onPress={() => { setSelectMode(false); setSelectedIds(new Set()); }}>
+                  <Text style={[styles.selectBarAction, { color: C.muted }]}>Annuler</Text>
+                </TouchableOpacity>
+                <TouchableOpacity onPress={deleteSelected} disabled={!selectedIds.size}>
+                  <Text style={[styles.selectBarAction, { color: C.danger, opacity: selectedIds.size ? 1 : 0.4 }]}>🗑️ Supprimer</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
           <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: 4 }}>
             {loading ? (
               <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
             ) : items.length === 0 ? (
               <Text style={[styles.emptyText, { color: C.muted }]}>Aucun article pour le moment.</Text>
             ) : (
-              items.map((item) => (
-                <View key={item.id} style={styles.itemRow}>
+              items.map((item) => {
+                const selected = selectedIds.has(item.id);
+                return (
+                <View key={item.id} style={[styles.itemRow, selected && { backgroundColor: "rgba(233,69,96,0.12)", borderRadius: 8 }]}>
                   <TouchableOpacity
                     onPress={() => toggleBought(item)}
-                    disabled={claimedByOther || itemLockedForMe(item)}
+                    disabled={selectMode || claimedByOther || itemLockedForMe(item)}
                     style={[
                       styles.checkbox,
                       { borderColor: item.bought ? C.accent : C.border, backgroundColor: item.bought ? C.accent : "transparent" },
-                      (claimedByOther || itemLockedForMe(item)) && { opacity: 0.4 },
+                      (selectMode || claimedByOther || itemLockedForMe(item)) && { opacity: 0.4 },
                     ]}
                   >
                     {item.bought && <Text style={styles.checkboxMark}>✓</Text>}
                   </TouchableOpacity>
-                  <View style={styles.itemLabelCol}>
+                  <TouchableOpacity
+                    style={styles.itemLabelCol}
+                    activeOpacity={selectMode ? 0.6 : 1}
+                    onPress={() => selectMode && toggleSelected(item.id)}
+                    onLongPress={() => startSelect(item.id)}
+                    disabled={!selectMode && !canManageList}
+                  >
                     <Text
                       style={[
                         styles.itemLabel,
@@ -179,12 +252,19 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin }
                         par {item.bought_by_prenom} {item.bought_by_nom}
                       </Text>
                     )}
-                  </View>
-                  <TouchableOpacity onPress={() => removeItem(item)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                    <Text style={{ color: C.muted, fontSize: 16, marginLeft: 8 }}>✕</Text>
                   </TouchableOpacity>
+                  {selectMode ? (
+                    <View style={[styles.checkbox, { marginRight: 0, borderColor: selected ? C.danger : C.border, backgroundColor: selected ? C.danger : "transparent" }]}>
+                      {selected && <Text style={styles.checkboxMark}>✓</Text>}
+                    </View>
+                  ) : (
+                    <TouchableOpacity onPress={() => removeItem(item)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                      <Text style={{ color: C.muted, fontSize: 16, marginLeft: 8 }}>✕</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
-              ))
+                );
+              })
             )}
           </ScrollView>
 
@@ -222,6 +302,9 @@ const styles = StyleSheet.create({
   title: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, marginBottom: 4 },
   progress: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12.5, marginBottom: 14 },
   lockedNotice: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12.5, marginBottom: 14, lineHeight: 17 },
+  selectBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
+  selectBarCount: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
+  selectBarAction: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
   scroll: { maxHeight: 380 },
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginVertical: 12, lineHeight: 19 },
 
