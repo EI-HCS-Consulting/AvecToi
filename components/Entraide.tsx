@@ -920,10 +920,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   }
 
   // Catégories couvertes par le nouvel assistant "Publier" — les autres
-  // (Repas/Courses/Transport/Administratif) ouvrent encore l'ancien
-  // formulaire taskForm en attendant leur propre PR, pour ne jamais publier
-  // un besoin mal formé (ex. transport sans date) pendant la transition.
-  const WIZARD_READY_CATEGORIES: TaskCategory[] = ["affaires", "autre"];
+  // (Courses/Transport) ouvrent encore l'ancien formulaire taskForm en
+  // attendant leur propre PR, pour ne jamais publier un besoin mal formé
+  // (ex. transport sans date) pendant la transition.
+  const WIZARD_READY_CATEGORIES: TaskCategory[] = ["affaires", "autre", "repas", "administratif"];
 
   function choosePublishCategory(cat: TaskCategory) {
     if (!WIZARD_READY_CATEGORIES.includes(cat)) {
@@ -1610,7 +1610,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     if (!duplicateTarget) return;
     const t = duplicateTarget;
     setDuplicateTarget(null);
+    // Le doublon administratif peut survenir depuis l'ancien taskForm ou
+    // depuis le nouvel assistant Publier (publishWizardOpen) — un seul des
+    // deux est réellement ouvert, fermer les deux ne coûte rien.
     setTaskForm(false);
+    setPublishWizardOpen(false);
     setTimeout(() => openClaim(t), 300);
   }
 
@@ -1619,6 +1623,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     const t = duplicateTarget;
     setDuplicateTarget(null);
     setTaskForm(false);
+    setPublishWizardOpen(false);
     setTimeout(() => {
       setModifyTarget(t);
       setModifyDesc(t.description ?? "");
@@ -3691,7 +3696,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                 {publishStep === "generic" && (
                   <View>
                     <Text style={[styles.sheetTitle, { color: C.text }]}>
-                      {fCat === "repas" ? "Besoin Repas" : fCat === "affaires" ? "Besoin Affaires" : "Autre besoin"}
+                      {CATEGORY_AUTO_TITLES[fCat]}
                     </Text>
 
                     {fCat === "repas" && !!allergies && (
