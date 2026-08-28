@@ -141,12 +141,19 @@ export default function SoinsPlanifiesBlock({ spaceId, C, filterIntervenantProfi
     return onPressRow ? () => onPressRow(r.date, r) : () => router.push({ pathname: "/(admin)/home/slots", params: { focusDate: r.date } } as any);
   }
 
-  const upcomingDesc = soins.filter((r) => !isSlotFullyPast(r.date, r.creneau) && (!excludeUpToDate || r.date > excludeUpToDate));
-  // soins est trié date/créneau descendant (voir la requête ci-dessus) :
-  // reverse() suffit à obtenir l'ordre chronologique ascendant demandé,
-  // sans requête ni tri supplémentaire.
+  // La requête Supabase ci-dessus trie déjà date/créneau descendant, mais le
+  // prop `reservations` (fourni directement par l'appelant, voir
+  // home/calendar.tsx via HomeCalendarScreen) contourne cette requête et
+  // n'apporte aucune garantie d'ordre — on retrie donc systématiquement ici
+  // pour ne jamais dépendre de l'ordre d'arrivée de la source.
+  const sortedSoins = [...soins].sort((a, b) =>
+    a.date !== b.date ? (a.date < b.date ? 1 : -1) : (a.creneau < b.creneau ? 1 : a.creneau > b.creneau ? -1 : 0)
+  );
+  const upcomingDesc = sortedSoins.filter((r) => !isSlotFullyPast(r.date, r.creneau) && (!excludeUpToDate || r.date > excludeUpToDate));
+  // sortedSoins est trié date/créneau descendant : reverse() suffit à
+  // obtenir l'ordre chronologique ascendant demandé, sans tri supplémentaire.
   const upcoming = chronological ? [...upcomingDesc].reverse() : upcomingDesc;
-  const past = includePast ? soins.filter((r) => isSlotFullyPast(r.date, r.creneau)) : [];
+  const past = includePast ? sortedSoins.filter((r) => isSlotFullyPast(r.date, r.creneau)) : [];
 
   return (
     <>
