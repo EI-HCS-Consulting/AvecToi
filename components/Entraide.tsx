@@ -177,6 +177,24 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       mySession.nom.trim().toLowerCase() === nom.trim().toLowerCase()
     );
   }
+  // Identité de la personne connectée (admin ou visiteur), indépendante du
+  // PIN — un admin n'en a pas. Sert uniquement à savoir si *moi* j'ai déjà
+  // coché un article d'une liste de courses (courseContributedByMe), pour ne
+  // pas confondre avec samePerson/isMine qui exigent un PIN pour le claim.
+  const [myFullName, setMyFullName] = useState<{ prenom: string; nom: string } | null>(null);
+  useEffect(() => {
+    (async () => {
+      if (isAdmin) {
+        const { data } = await supabase.auth.getUser();
+        const prenom = (data.user?.user_metadata?.firstname ?? "").trim();
+        const nom = (data.user?.user_metadata?.lastname ?? "").trim();
+        if (prenom && nom) setMyFullName({ prenom, nom });
+      } else {
+        const s = await getVisitorSession();
+        if (s) setMyFullName({ prenom: s.prenom, nom: s.nom });
+      }
+    })();
+  }, [isAdmin]);
   const isMine = (t: Task) => samePerson(t.claimed_by_prenom, t.claimed_by_nom, t.claimed_by_pin);
   // Preneur du retour, uniquement renseigné quand aller et retour ont été
   // attribués séparément à deux personnes différentes (sinon ce champ reste
@@ -348,6 +366,17 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // courseContributorsLabel.
   function coursePartial(t: Task): boolean {
     return t.category === "courses" && t.status === "pris_en_charge" && courseListComplete[t.id] === false;
+  }
+
+  // Vrai si *moi* (myFullName) ai déjà coché au moins un article de cette
+  // liste de courses — sert à retirer "Je m'en occupe" de mon côté dès que
+  // j'ai commencé à participer, même si la liste n'est pas encore complète
+  // (d'autres personnes peuvent continuer à voir le bouton et dispatcher le
+  // reste tant que personne n'a explicitement pris en charge le besoin).
+  function courseContributedByMe(t: Task): boolean {
+    if (!myFullName) return false;
+    const myKey = relaisIdentityKey(myFullName.prenom, myFullName.nom);
+    return (courseContributors[t.id] ?? []).some((p) => relaisIdentityKey(p.prenom, p.nom) === myKey);
   }
 
   // ── Checklists administratives suggérées (MVP) — voir CHECKLIST_TEMPLATES.
@@ -1310,12 +1339,17 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setTimeout(() => setCoursesListModal(true), 300);
   }
 
+  // Bascule : un produit récurrent déjà présent dans fCourseItems (surligné
+  // dans la liste, voir le rendu du popup) se retire au lieu d'afficher un
+  // toast "Déjà dans la liste" — le surlignage suffit à montrer l'état, et
+  // permet de revenir en arrière sans passer par la liste de courses elle-même.
   function pickRecurringItem(label: string) {
-    if (fCourseItems.some((it) => normalizeShoppingLabel(it) === normalizeShoppingLabel(label))) {
-      showToast("Déjà dans la liste");
-      return;
+    const already = fCourseItems.some((it) => normalizeShoppingLabel(it) === normalizeShoppingLabel(label));
+    if (already) {
+      setFCourseItems((prev) => prev.filter((it) => normalizeShoppingLabel(it) !== normalizeShoppingLabel(label)));
+    } else {
+      setFCourseItems((prev) => [...prev, label]);
     }
-    setFCourseItems((prev) => [...prev, label]);
   }
 
   function toggleRecurringSelected(id: string) {
@@ -2796,7 +2830,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           </View>
         )}
 
-        {t.status === "ouvert" && !t.deleted_by_admin && t.category !== "transport" && (
+        {t.status === "ouvert" && !t.deleted_by_admin && t.category !== "transport"
+          && !(t.category === "courses" && courseContributedByMe(t)) && (
           <TouchableOpacity
             style={[styles.claimBtn, { backgroundColor: C.accent }]}
             onPress={() => openClaim(t)}
@@ -4097,17 +4132,18 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       </Modal>
 
       {/* ── MODAL "PRODUITS RÉCURRENTS" ───────────────────────────────────────
-          Sous-popup de la liste de courses : tapoter un article l'ajoute à
-          fCourseItems (dédoublonné) ; appui long réservé à l'admin ouvre une
-          sélection multiple pour en supprimer du catalogue (n'affecte aucun
-          besoin déjà publié — table recurring_shopping_items séparée). */}
+          Sous-popup de la liste de courses : tapoter un article bascule sa
+          présence dans fCourseItems (surligné pendant qu'il y est) ; appui
+          long réservé à l'admin ouvre une sélection multiple pour en
+          supprimer du catalogue (n'affecte aucun besoin déjà publié — table
+          recurring_shopping_items séparée). */}
       <Modal visible={recurringItemsModal} transparent animationType="fade" onRequestClose={closeRecurringItemsModal}>
         <View style={styles.centeredOverlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={closeRecurringItemsModal} />
           <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.gold, maxHeight: "82%" }]}>
             <Text style={[styles.sheetTitle, { color: C.text }]}>🔁 Produits récurrents</Text>
             <Text style={[styles.checklistIntro, { color: C.muted }]}>
-              {isAdmin ? "Touche un article pour l'ajouter à la liste, appui long pour sélectionner et supprimer." : "Touche un article pour l'ajouter à la liste."}
+              {isAdmin ? "Touche un article pour l'ajouter ou le retirer de la liste, appui long pour sélectionner et supprimer." : "Touche un article pour l'ajouter ou le retirer de la liste."}
             </Text>
 
             {recurringSelectMode && (
@@ -4133,19 +4169,29 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                 </Text>
               ) : recurringItems.map((it) => {
                 const selected = recurringSelected.has(it.id);
+                const picked = fCourseItems.some((f) => normalizeShoppingLabel(f) === normalizeShoppingLabel(it.label));
                 return (
                   <Pressable
                     key={it.id}
                     onPress={() => (recurringSelectMode ? toggleRecurringSelected(it.id) : pickRecurringItem(it.label))}
                     onLongPress={() => startRecurringSelect(it.id)}
-                    style={[styles.checklistItemRow, selected && { backgroundColor: "rgba(233,69,96,0.12)", borderRadius: 8 }]}
+                    style={[
+                      styles.checklistItemRow,
+                      !recurringSelectMode && picked && { backgroundColor: `${C.accent}1A`, borderRadius: 8 },
+                      selected && { backgroundColor: "rgba(233,69,96,0.12)", borderRadius: 8 },
+                    ]}
                   >
                     {recurringSelectMode && (
                       <View style={[styles.checklistBox, { borderColor: selected ? C.danger : C.border, backgroundColor: selected ? C.danger : "transparent" }]}>
                         {selected && <Text style={styles.checklistBoxMark}>✓</Text>}
                       </View>
                     )}
-                    <Text style={[styles.checklistItemTitle, { color: C.text, flex: 1 }]}>{it.label}</Text>
+                    <Text style={[styles.checklistItemTitle, { color: picked && !recurringSelectMode ? C.accent : C.text, flex: 1 }]}>{it.label}</Text>
+                    {!recurringSelectMode && picked && (
+                      <View style={[styles.checklistBox, { borderColor: C.accent, backgroundColor: C.accent }]}>
+                        <Text style={styles.checklistBoxMark}>✓</Text>
+                      </View>
+                    )}
                   </Pressable>
                 );
               })}
