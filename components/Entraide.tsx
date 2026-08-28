@@ -88,6 +88,13 @@ function relaisIdentityKey(prenom: string, nom: string) {
   return `${norm(prenom)}|${norm(nom)}`;
 }
 
+// Comparaison insensible à la casse/accents pour éviter les doublons dans
+// une liste de courses (saisie manuelle ou choix dans "Produits récurrents"),
+// même principe que relaisIdentityKey ci-dessus.
+function normalizeShoppingLabel(s: string) {
+  return s.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+}
+
 const STATUS_LABELS: Record<TaskStatus, string> = {
   ouvert: "Ouvert",
   pris_en_charge: "Pris en charge",
@@ -261,6 +268,18 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // plutôt que de ce brouillon pour ne jamais écraser un article déjà coché).
   const [fCourseItems, setFCourseItems] = useState<string[]>([]);
   const [fCourseItemDraft, setFCourseItemDraft] = useState("");
+  // Popup dédié "Créer une liste de courses" (ouvert depuis le bouton
+  // Catégorie "Courses" du formulaire), et son sous-popup "Produits
+  // récurrents" — même contrainte Android que checklistPicker/taskForm : un
+  // seul <Modal> visible à la fois, on ferme puis rouvre via setTimeout.
+  const [coursesListModal, setCoursesListModal] = useState(false);
+  const [recurringItemsModal, setRecurringItemsModal] = useState(false);
+  const [recurringItems, setRecurringItems] = useState<{ id: string; label: string }[]>([]);
+  const [recurringLoading, setRecurringLoading] = useState(false);
+  // Sélection multiple (appui long), réservée à l'admin — supprime des
+  // entrées du catalogue sans toucher aux besoins déjà publiés.
+  const [recurringSelectMode, setRecurringSelectMode] = useState(false);
+  const [recurringSelected, setRecurringSelected] = useState<Set<string>>(new Set());
   // Besoin "courses" dont on affiche la liste (bouton "👁️ Aperçu" sur la
   // carte) — même ShoppingListModal que "📄 Mes documents" (MyChecklist.tsx),
   // donc toute modification se répercute des deux côtés sans synchronisation.
@@ -445,6 +464,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       autoTitleRef.current = next;
       setFTitle(next);
     }
+    // "Quand on clique sur Courses, ça doit ouvrir un popup 'Créer une liste
+    // de courses'" — ouvert directement au clic sur la catégorie, pas
+    // seulement via un bouton séparé (voir openCoursesListModal).
+    if (!editTask && cat === "courses") openCoursesListModal();
   }
 
   function handleTransportDateSelect(iso: string) {
@@ -1223,15 +1246,101 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setCustomChecklistItemDraft("");
   }
 
+  // Alimente le catalogue "Produits récurrents" — insert en conflit (même
+  // libellé déjà présent pour l'espace, voir l'index unique de la migration)
+  // ignoré silencieusement : c'est un enrichissement, pas une opération
+  // critique pour l'utilisateur.
+  async function addToRecurringCatalog(label: string) {
+    const clean = label.trim();
+    if (!clean) return;
+    await supabase.from("recurring_shopping_items").insert({ space_id: spaceId, label: clean });
+  }
+
   function addFCourseItem() {
     const label = fCourseItemDraft.trim();
     if (!label) return;
+    if (fCourseItems.some((it) => normalizeShoppingLabel(it) === normalizeShoppingLabel(label))) {
+      showToast("Déjà dans la liste");
+      setFCourseItemDraft("");
+      return;
+    }
     setFCourseItems((prev) => [...prev, label]);
     setFCourseItemDraft("");
+    addToRecurringCatalog(label);
   }
 
   function removeFCourseItem(i: number) {
     setFCourseItems((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  // Ouvre le popup dédié "Créer une liste de courses" depuis le formulaire
+  // "Nouveau besoin" (catégorie Courses) — même contrainte Android que
+  // openChecklistFromForm : on ferme taskForm avant de rouvrir.
+  function openCoursesListModal() {
+    setTaskForm(false);
+    setTimeout(() => setCoursesListModal(true), 300);
+  }
+
+  function closeCoursesListModal() {
+    setCoursesListModal(false);
+    setTimeout(() => setTaskForm(true), 300);
+  }
+
+  async function openRecurringItemsModal() {
+    setCoursesListModal(false);
+    setRecurringSelectMode(false);
+    setRecurringSelected(new Set());
+    setTimeout(() => {
+      setRecurringItemsModal(true);
+      setRecurringLoading(true);
+      supabase
+        .from("recurring_shopping_items")
+        .select("id,label")
+        .eq("space_id", spaceId)
+        .order("label", { ascending: true })
+        .then(({ data }) => {
+          setRecurringItems((data ?? []) as { id: string; label: string }[]);
+          setRecurringLoading(false);
+        });
+    }, 300);
+  }
+
+  function closeRecurringItemsModal() {
+    setRecurringItemsModal(false);
+    setTimeout(() => setCoursesListModal(true), 300);
+  }
+
+  function pickRecurringItem(label: string) {
+    if (fCourseItems.some((it) => normalizeShoppingLabel(it) === normalizeShoppingLabel(label))) {
+      showToast("Déjà dans la liste");
+      return;
+    }
+    setFCourseItems((prev) => [...prev, label]);
+  }
+
+  function toggleRecurringSelected(id: string) {
+    setRecurringSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  // Réservé admin : "L'admin peut en supprimer 1 ou plusieurs en faisant un
+  // clic prolongé sur un article de la liste des produits récurrents."
+  function startRecurringSelect(id: string) {
+    if (!isAdmin) return;
+    setRecurringSelectMode(true);
+    setRecurringSelected(new Set([id]));
+  }
+
+  async function deleteSelectedRecurringItems() {
+    const ids = Array.from(recurringSelected);
+    if (!ids.length) return;
+    setRecurringItems((prev) => prev.filter((it) => !ids.includes(it.id)));
+    setRecurringSelected(new Set());
+    setRecurringSelectMode(false);
+    await supabase.from("recurring_shopping_items").delete().in("id", ids);
   }
 
   function removeCustomChecklistItem(i: number) {
@@ -3066,36 +3175,19 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
                   {!editTask && fCat === "courses" && (
                     <View style={[styles.transportForm, { borderColor: C.border, marginTop: 10 }]}>
-                      <Text style={[styles.fieldLabel, { color: C.gold }]}>🛒 Créer une liste de courses (optionnelle)</Text>
-                      {fCourseItems.map((label, i) => (
-                        <View key={i} style={styles.checklistItemRow}>
-                          <View style={[styles.checklistBox, { borderColor: C.gold, backgroundColor: C.gold }]}>
-                            <Text style={styles.checklistBoxMark}>✓</Text>
-                          </View>
-                          <Text style={[styles.checklistItemTitle, { color: C.text, flex: 1 }]}>{label}</Text>
-                          <TouchableOpacity onPress={() => removeFCourseItem(i)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                            <Text style={{ color: C.muted, fontSize: 16, marginLeft: 8 }}>✕</Text>
-                          </TouchableOpacity>
-                        </View>
-                      ))}
-                      <View style={styles.groupAddRow}>
-                        <TextInput
-                          style={[styles.groupAddInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 0 }]}
-                          placeholder="Nom de l'article"
-                          placeholderTextColor={C.muted}
-                          value={fCourseItemDraft}
-                          onChangeText={setFCourseItemDraft}
-                          onSubmitEditing={addFCourseItem}
-                        />
-                        <TouchableOpacity
-                          style={[styles.groupAddBtn, { borderColor: C.gold, opacity: fCourseItemDraft.trim() ? 1 : 0.5 }]}
-                          onPress={addFCourseItem}
-                          disabled={!fCourseItemDraft.trim()}
-                          activeOpacity={0.8}
-                        >
-                          <Text style={[styles.groupAddBtnText, { color: C.gold }]}>+ Ajouter un article</Text>
-                        </TouchableOpacity>
-                      </View>
+                      <Text style={[styles.fieldLabel, { color: C.gold }]}>🛒 Liste de courses (optionnelle)</Text>
+                      <Text style={{ fontFamily: "DM_Sans_400Regular", fontSize: 13, color: C.muted, marginBottom: 10 }}>
+                        {fCourseItems.length ? `${fCourseItems.length} article${fCourseItems.length > 1 ? "s" : ""} ajouté${fCourseItems.length > 1 ? "s" : ""}` : "Aucun article pour le moment."}
+                      </Text>
+                      <TouchableOpacity
+                        onPress={openCoursesListModal}
+                        activeOpacity={0.8}
+                        style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.gold, alignItems: "center", justifyContent: "center" }}
+                      >
+                        <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.gold }}>
+                          {fCourseItems.length ? "✏️ Modifier la liste de courses" : "🛒 Créer une liste de courses"}
+                        </Text>
+                      </TouchableOpacity>
                     </View>
                   )}
 
@@ -3938,6 +4030,137 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         </View>
       </Modal>
 
+      {/* ── MODAL "CRÉER UNE LISTE DE COURSES" ────────────────────────────────
+          Ouvert au clic sur la catégorie "Courses" (selectCategory) ou via
+          le bouton "Modifier la liste" — édite fCourseItems, qui n'est
+          soumis à shopping_list_items qu'à la publication du besoin (voir
+          confirmCreateTask). "Valider" referme ce popup et rouvre taskForm,
+          jamais les deux <Modal> en même temps (contrainte Android). */}
+      <Modal visible={coursesListModal} transparent animationType="fade" onRequestClose={closeCoursesListModal}>
+        <View style={styles.centeredOverlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={closeCoursesListModal} />
+          <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.gold, maxHeight: "82%" }]}>
+            <Text style={[styles.sheetTitle, { color: C.text }]}>🛒 Créer une liste de courses</Text>
+
+            <ScrollView style={styles.checklistScroll} showsVerticalScrollIndicator nestedScrollEnabled>
+              {fCourseItems.length === 0 ? (
+                <Text style={[styles.checklistItemDesc, { color: C.muted }]}>Aucun article pour le moment.</Text>
+              ) : fCourseItems.map((label, i) => (
+                <View key={i} style={styles.checklistItemRow}>
+                  <View style={[styles.checklistBox, { borderColor: C.gold, backgroundColor: C.gold }]}>
+                    <Text style={styles.checklistBoxMark}>✓</Text>
+                  </View>
+                  <Text style={[styles.checklistItemTitle, { color: C.text, flex: 1 }]}>{label}</Text>
+                  <TouchableOpacity onPress={() => removeFCourseItem(i)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Text style={{ color: C.muted, fontSize: 16, marginLeft: 8 }}>✕</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </ScrollView>
+
+            <View style={styles.groupAddRow}>
+              <TextInput
+                style={[styles.groupAddInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 0 }]}
+                placeholder="Nom de l'article"
+                placeholderTextColor={C.muted}
+                value={fCourseItemDraft}
+                onChangeText={setFCourseItemDraft}
+                onSubmitEditing={addFCourseItem}
+              />
+              <TouchableOpacity
+                style={[styles.groupAddBtn, { borderColor: C.gold, opacity: fCourseItemDraft.trim() ? 1 : 0.5 }]}
+                onPress={addFCourseItem}
+                disabled={!fCourseItemDraft.trim()}
+                activeOpacity={0.8}
+              >
+                <Text style={[styles.groupAddBtnText, { color: C.gold }]}>+ Ajouter</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              onPress={openRecurringItemsModal}
+              activeOpacity={0.8}
+              style={{ width: "100%", height: 44, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", marginTop: 12 }}
+            >
+              <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 13.5, color: C.text }}>🔁 Produits récurrents</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={closeCoursesListModal}
+              activeOpacity={0.85}
+              style={[styles.btnPrimary, { backgroundColor: C.gold, marginTop: 14 }]}
+            >
+              <Text style={styles.btnPrimaryText}>Valider</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── MODAL "PRODUITS RÉCURRENTS" ───────────────────────────────────────
+          Sous-popup de la liste de courses : tapoter un article l'ajoute à
+          fCourseItems (dédoublonné) ; appui long réservé à l'admin ouvre une
+          sélection multiple pour en supprimer du catalogue (n'affecte aucun
+          besoin déjà publié — table recurring_shopping_items séparée). */}
+      <Modal visible={recurringItemsModal} transparent animationType="fade" onRequestClose={closeRecurringItemsModal}>
+        <View style={styles.centeredOverlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={closeRecurringItemsModal} />
+          <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.gold, maxHeight: "82%" }]}>
+            <Text style={[styles.sheetTitle, { color: C.text }]}>🔁 Produits récurrents</Text>
+            <Text style={[styles.checklistIntro, { color: C.muted }]}>
+              {isAdmin ? "Touche un article pour l'ajouter à la liste, appui long pour sélectionner et supprimer." : "Touche un article pour l'ajouter à la liste."}
+            </Text>
+
+            {recurringSelectMode && (
+              <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 13, color: C.text }}>{recurringSelected.size} sélectionné(s)</Text>
+                <View style={{ flexDirection: "row", gap: 16 }}>
+                  <TouchableOpacity onPress={() => { setRecurringSelectMode(false); setRecurringSelected(new Set()); }}>
+                    <Text style={{ color: C.muted, fontFamily: "DM_Sans_600SemiBold", fontSize: 13 }}>Annuler</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={deleteSelectedRecurringItems} disabled={!recurringSelected.size}>
+                    <Text style={{ color: C.danger, fontFamily: "DM_Sans_600SemiBold", fontSize: 13, opacity: recurringSelected.size ? 1 : 0.4 }}>🗑️ Supprimer</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            <ScrollView style={styles.checklistScroll} showsVerticalScrollIndicator nestedScrollEnabled>
+              {recurringLoading ? (
+                <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
+              ) : recurringItems.length === 0 ? (
+                <Text style={[styles.checklistItemDesc, { color: C.muted }]}>
+                  Aucun produit récurrent pour le moment — la liste se construit au fur et à mesure des courses.
+                </Text>
+              ) : recurringItems.map((it) => {
+                const selected = recurringSelected.has(it.id);
+                return (
+                  <Pressable
+                    key={it.id}
+                    onPress={() => (recurringSelectMode ? toggleRecurringSelected(it.id) : pickRecurringItem(it.label))}
+                    onLongPress={() => startRecurringSelect(it.id)}
+                    style={[styles.checklistItemRow, selected && { backgroundColor: "rgba(233,69,96,0.12)", borderRadius: 8 }]}
+                  >
+                    {recurringSelectMode && (
+                      <View style={[styles.checklistBox, { borderColor: selected ? C.danger : C.border, backgroundColor: selected ? C.danger : "transparent" }]}>
+                        {selected && <Text style={styles.checklistBoxMark}>✓</Text>}
+                      </View>
+                    )}
+                    <Text style={[styles.checklistItemTitle, { color: C.text, flex: 1 }]}>{it.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+
+            <TouchableOpacity
+              onPress={closeRecurringItemsModal}
+              style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", marginTop: 12 }}
+            >
+              <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.muted }}>Retour</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* ── MODAL CLAIM ───────────────────────────────────────────────────── */}
       {/* Le "Merci, tu t'en occupes" est fusionné dans cette même <Modal>
           (bascule interne via thanksModal) plutôt que d'être une seconde
@@ -4685,6 +4908,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         C={C}
         task={shoppingListTask}
         isAdmin={isAdmin}
+        spaceId={spaceId}
+        isAuthor={!!shoppingListTask && isAuthor(shoppingListTask)}
       />
 
       {/* ── MODAL DOUBLON (besoin administratif déjà publié) ─────────────── */}

@@ -453,6 +453,16 @@ export interface ShoppingListItem {
   created_at: string;
 }
 
+// Catalogue des articles de courses déjà saisis au moins une fois dans
+// l'espace ("Produits récurrents", voir components/Entraide.tsx) — table
+// indépendante de ShoppingListItem, jamais rattachée à un besoin précis.
+export interface RecurringShoppingItem {
+  id: string;
+  space_id: string;
+  label: string;
+  created_at: string;
+}
+
 // Sous-période prise en charge par une personne sur un besoin de relais
 // (category="relais") — voir lib/relaisCoverage.ts pour le calcul de
 // couverture/trous, et components/Entraide.tsx pour le flux de claim.
