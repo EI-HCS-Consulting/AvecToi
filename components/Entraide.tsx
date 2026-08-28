@@ -242,6 +242,16 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [pickingPhoto, setPickingPhoto] = useState(false);
   const [taskSaving, setTaskSaving] = useState(false);
 
+  // Assistant "Publier" (création uniquement) — un seul Modal dont le
+  // contenu varie selon publishStep, jamais plusieurs Modal enchaînés : sur
+  // Android, fermer un Modal natif puis en ouvrir un autre juste après est
+  // peu fiable (même contrainte déjà rencontrée sur le flux checklist, voir
+  // checklistWizardList plus bas). Catégories pas encore migrées vers ce
+  // nouvel assistant : repli sur l'ancien taskForm (voir choosePublishCategory).
+  type PublishStep = "category" | "generic" | "autres_options";
+  const [publishWizardOpen, setPublishWizardOpen] = useState(false);
+  const [publishStep, setPublishStep] = useState<PublishStep>("category");
+
   // Popup "Choisis la source de la photo" (caméra / galerie), partagé entre
   // les 3 flux photo du mur d'entraide — pickerTarget route le choix vers le
   // bon état (formulaire besoin / preuve "fait" / prise en charge).
@@ -857,15 +867,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     return () => clearInterval(interval);
   }, [spaceId]);
 
-  function openCreateTask() {
-    if (capped) {
-      Alert.alert(
-        "Limite atteinte",
-        "Vous avez atteint la limite de votre espace. Consultez l'email envoyé à votre adresse pour en savoir plus.",
-      );
-      return;
-    }
-    setEditTask(null);
+  // Reset complet du brouillon de besoin — partagé entre openCreateTask
+  // (ouverture de l'assistant) et cancelPublishWizard (Annuler), pour ne pas
+  // dupliquer la liste en deux endroits qui pourraient diverger.
+  function resetPublishDraft() {
     autoTitleRef.current = CATEGORY_AUTO_TITLES.autre;
     setFTitle(autoTitleRef.current); setFDesc(""); setFCat("autre");
     setFPhotoUri(null); setFExistingPhoto(null);
@@ -883,7 +888,50 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setFCourseItems([]); setFCourseItemDraft("");
     setFRelaisStartDate(""); setFRelaisVisibleTo("all"); setFRelaisSelectedKeys(new Set());
     autoRelaisMsgRef.current = "";
-    setTaskForm(true);
+  }
+
+  function openCreateTask() {
+    if (capped) {
+      Alert.alert(
+        "Limite atteinte",
+        "Vous avez atteint la limite de votre espace. Consultez l'email envoyé à votre adresse pour en savoir plus.",
+      );
+      return;
+    }
+    setEditTask(null);
+    resetPublishDraft();
+    setPublishStep("category");
+    setPublishWizardOpen(true);
+  }
+
+  // Catégories couvertes par le nouvel assistant "Publier" — les autres
+  // (Repas/Courses/Transport/Administratif) ouvrent encore l'ancien
+  // formulaire taskForm en attendant leur propre PR, pour ne jamais publier
+  // un besoin mal formé (ex. transport sans date) pendant la transition.
+  const WIZARD_READY_CATEGORIES: TaskCategory[] = ["affaires", "autre"];
+
+  function choosePublishCategory(cat: TaskCategory) {
+    if (!WIZARD_READY_CATEGORIES.includes(cat)) {
+      setPublishWizardOpen(false);
+      setFCat(cat);
+      const title = CATEGORY_AUTO_TITLES[cat];
+      autoTitleRef.current = title;
+      setFTitle(title);
+      if (cat === "courses") openCoursesListModal();
+      setTaskForm(true);
+      return;
+    }
+    setFCat(cat);
+    const title = CATEGORY_AUTO_TITLES[cat];
+    autoTitleRef.current = title;
+    setFTitle(title);
+    setPublishStep("generic");
+  }
+
+  function cancelPublishWizard() {
+    setPublishWizardOpen(false);
+    setPublishStep("category");
+    resetPublishDraft();
   }
 
   // Candidats pour le ciblage "Certains proches seulement" d'un besoin de
@@ -1503,6 +1551,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const claimOnCreateReady = !claimOnCreate
     || (claimPrenom.trim() && claimNom.trim() && (isAdmin || claimPin.length >= 4));
 
+  // Assistant "Publier" : le titre n'est jamais vide (auto-rempli par
+  // choosePublishCategory), donc pas besoin du garde !fTitle.trim() ici.
+  const publishWizardReady = claimOnCreateReady;
+
   // Un besoin ne doit jamais être publié en double (titre identique, encore
   // ouvert) — que ce soit via le formulaire classique ou une checklist
   // suggérée. Les checklists suggérées couvrant désormais plusieurs
@@ -1716,7 +1768,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       showToast(claimOnCreate ? "Besoin créé — tu t'en occupes déjà ✓" : "Besoin créé ✓");
     }
     setTaskSaving(false);
-    setTaskForm(false);
+    if (editTask) setTaskForm(false); else setPublishWizardOpen(false);
     loadTasks();
   }
 
@@ -3570,6 +3622,249 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               </TouchableOpacity>
             </ScrollView>
           </TouchableOpacity>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ── ASSISTANT "PUBLIER" (création) — un seul Modal, contenu piloté par
+          publishStep. Voir choosePublishCategory pour le repli vers l'ancien
+          taskForm sur les catégories pas encore migrées. ────────────────── */}
+      <Modal
+        visible={publishWizardOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (taskSaving) return;
+          if (publishStep === "autres_options") { setPublishStep("generic"); return; }
+          if (publishStep === "generic") { setPublishStep("category"); return; }
+          cancelPublishWizard();
+        }}
+      >
+        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
+          <View style={styles.centeredOverlay}>
+            <TouchableOpacity
+              style={StyleSheet.absoluteFill}
+              activeOpacity={1}
+              onPress={() => { if (!taskSaving) cancelPublishWizard(); }}
+            />
+            <ScrollView contentContainerStyle={styles.centeredOverlayScroll} keyboardShouldPersistTaps="handled">
+              <TouchableOpacity activeOpacity={1}>
+
+                {publishStep === "category" && (
+                  <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
+                    <Text style={[styles.sheetTitle, { color: C.text }]}>Catégorie</Text>
+                    <View style={[styles.catGrid, { marginTop: 12, marginBottom: 8 }]}>
+                      {(Object.keys(CATEGORY_ICONS) as TaskCategory[]).filter((cat) => cat !== "relais").map((cat) => (
+                        <TouchableOpacity
+                          key={cat}
+                          style={[styles.catOption, { backgroundColor: C.bg, borderColor: C.border }]}
+                          onPress={() => choosePublishCategory(cat)}
+                          activeOpacity={0.75}
+                        >
+                          <Text style={styles.catOptionIcon}>{CATEGORY_ICONS[cat]}</Text>
+                          <Text style={[styles.catOptionLabel, { color: C.text }]}>{CATEGORY_LABELS[cat]}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                    <View style={styles.sheetBtns}>
+                      <TouchableOpacity onPress={cancelPublishWizard} style={[styles.btnSecondary, { borderColor: C.border, flex: 1 }]}>
+                        <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
+                {publishStep === "generic" && (
+                  <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
+                    <Text style={[styles.sheetTitle, { color: C.text }]}>
+                      {fCat === "repas" ? "Besoin Repas" : fCat === "affaires" ? "Besoin Affaires" : "Autre besoin"}
+                    </Text>
+
+                    {fCat === "repas" && !!allergies && (
+                      <View style={[styles.allergyBanner, { backgroundColor: "rgba(233,69,96,0.1)", borderColor: "rgba(233,69,96,0.35)" }]}>
+                        <Text style={[styles.allergyBannerText, { color: C.danger }]}>
+                          ⚠️ Allergies du patient : {allergies}
+                        </Text>
+                      </View>
+                    )}
+
+                    <TextInput
+                      style={[styles.input, styles.descArea, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 8 }]}
+                      placeholder="Description (optionnelle)"
+                      placeholderTextColor={C.muted}
+                      value={fDesc}
+                      onChangeText={setFDesc}
+                      multiline
+                      numberOfLines={3}
+                      textAlignVertical="top"
+                    />
+
+                    <TouchableOpacity
+                      onPress={() => setPublishStep("autres_options")}
+                      style={[styles.claimOnCreateBtn, { backgroundColor: C.bg, borderColor: C.border }]}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.claimOnCreateText, { color: C.text }]}>⚙️ Autres options</Text>
+                    </TouchableOpacity>
+
+                    <View style={styles.sheetBtns}>
+                      <TouchableOpacity onPress={cancelPublishWizard} disabled={taskSaving} style={[styles.btnSecondary, { borderColor: C.border }]}>
+                        <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={saveTask}
+                        disabled={!publishWizardReady || taskSaving}
+                        style={[styles.btnPrimary, { backgroundColor: C.accent }, (!publishWizardReady || taskSaving) && { opacity: 0.5 }]}
+                      >
+                        {taskSaving
+                          ? <ActivityIndicator color="#fff" size="small" />
+                          : <Text style={styles.btnPrimaryText}>Publier</Text>
+                        }
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
+                {publishStep === "autres_options" && (
+                  <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.accent, maxHeight: "82%" }]}>
+                    <Text style={[styles.sheetTitle, { color: C.text }]}>Autres options</Text>
+
+                    <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 8 }]}>Photo (optionnelle)</Text>
+                    {(fPhotoUri || fExistingPhoto) ? (
+                      <View style={styles.photoPreviewRow}>
+                        <Image
+                          source={{ uri: fPhotoUri ?? taskPhotoUrl(spaceId, fExistingPhoto!) }}
+                          style={styles.photoPreviewImg}
+                          resizeMode="cover"
+                        />
+                        <TouchableOpacity
+                          style={[styles.photoPickRemove, { backgroundColor: C.danger }]}
+                          onPress={removeTaskPhoto}
+                        >
+                          <Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>✕</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
+                        onPress={openTaskPhotoPicker}
+                        disabled={pickingPhoto}
+                      >
+                        {pickingPhoto
+                          ? <ActivityIndicator color={C.accent} size="small" />
+                          : <Text style={[styles.photoPickAddText, { color: C.muted }]}>📷 Ajouter une photo</Text>
+                        }
+                      </TouchableOpacity>
+                    )}
+
+                    <TouchableOpacity
+                      style={[
+                        styles.claimOnCreateBtn,
+                        { backgroundColor: fDLPickerOpen ? `${C.accent}22` : C.bg, borderColor: fDLPickerOpen ? C.accent : C.border },
+                      ]}
+                      onPress={() => {
+                        if (fDLPickerOpen) setFDateLimite("");
+                        setFDLPickerOpen((v) => !v);
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.claimOnCreateText, { color: fDLPickerOpen ? C.accent : C.text }]}>
+                        {fDLPickerOpen ? "📅 Retirer la date" : "📅 Ajouter une échéance (optionnel)"}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {fDLPickerOpen && (
+                      <>
+                        <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 12 }]}>
+                          Le besoin se fermera automatiquement passé cette date s'il n'est pas pris en charge
+                        </Text>
+                        <MiniCalendar
+                          selDate={fDateLimite}
+                          onSelect={setFDateLimite}
+                          calMonth={fDLCalMonth}
+                          onMonthChange={setFDLCalMonth}
+                          startDate={new Date()}
+                          C={C}
+                          size="lg"
+                        />
+                      </>
+                    )}
+
+                    <TouchableOpacity
+                      style={[
+                        styles.claimOnCreateBtn,
+                        { backgroundColor: fUrgent ? C.danger : C.bg, borderColor: fUrgent ? C.danger : C.border, marginTop: 14 },
+                      ]}
+                      onPress={() => setFUrgent((v) => !v)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.claimOnCreateText, { color: fUrgent ? "#fff" : C.text }]}>
+                        {fUrgent ? "🔴 Besoin urgent" : "⚪ Marquer comme urgent"}
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[
+                        styles.claimOnCreateBtn,
+                        {
+                          backgroundColor: claimOnCreate ? `${C.accent}22` : C.bg,
+                          borderColor: claimOnCreate ? C.accent : C.border,
+                        },
+                      ]}
+                      onPress={toggleClaimOnCreate}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.claimOnCreateText, { color: claimOnCreate ? C.accent : C.text }]}>
+                        {claimOnCreate ? "🙋 Tu t'en occupes déjà" : "🙋 Je vais me débrouiller"}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {claimOnCreate && (
+                      <>
+                        <Text style={[styles.claimOnCreateHint, { color: C.muted }]}>
+                          Le besoin apparaîtra directement comme "Pris en charge" par toi.
+                        </Text>
+
+                        {!(claimPrenom.trim() && claimNom.trim()) && (
+                          <View style={{ flexDirection: "row", gap: 8, marginBottom: 10 }}>
+                            <TextInput
+                              style={[styles.input, { flex: 1, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                              placeholder="Prénom *"
+                              placeholderTextColor={C.muted}
+                              value={claimPrenom}
+                              onChangeText={setClaimPrenom}
+                              autoCapitalize="words"
+                            />
+                            <TextInput
+                              style={[styles.input, { flex: 1, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                              placeholder="Nom *"
+                              placeholderTextColor={C.muted}
+                              value={claimNom}
+                              onChangeText={setClaimNom}
+                              autoCapitalize="words"
+                            />
+                          </View>
+                        )}
+
+                        {!isAdmin && (
+                          <>
+                            <Text style={[styles.fieldLabel, { color: C.gold }]}>
+                              🔐 Code PIN (pour te désinscrire si besoin)
+                            </Text>
+                            <PinPad value={claimPin} onChange={setClaimPin} theme={C} />
+                          </>
+                        )}
+                      </>
+                    )}
+
+                    <TouchableOpacity onPress={() => setPublishStep("generic")} style={{ marginTop: 16, alignItems: "center" }}>
+                      <Text style={[styles.btnSecondaryText, { color: C.muted }]}>‹ Retour</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+              </TouchableOpacity>
+            </ScrollView>
+          </View>
         </KeyboardAvoidingView>
       </Modal>
 
