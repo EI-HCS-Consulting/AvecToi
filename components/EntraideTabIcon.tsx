@@ -30,7 +30,7 @@ export default function EntraideTabIcon({
     <View style={{ width: size, height: size }}>
       <Ionicons name="people-outline" size={size} color={color} />
       {(urgentUnclaimed || newFromOthers) && (
-        <View style={{ position: "absolute", top: -3, right: -5, gap: 2 }}>
+        <View style={{ position: "absolute", top: 0, bottom: 0, right: -5, justifyContent: "center", gap: 2 }}>
           {urgentUnclaimed && <View style={dotStyle} />}
           {newFromOthers && <View style={dotStyle} />}
         </View>

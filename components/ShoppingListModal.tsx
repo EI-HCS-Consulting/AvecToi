@@ -257,11 +257,11 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin, 
                     <View style={[styles.checkbox, { marginRight: 0, borderColor: selected ? C.danger : C.border, backgroundColor: selected ? C.danger : "transparent" }]}>
                       {selected && <Text style={styles.checkboxMark}>✓</Text>}
                     </View>
-                  ) : (
+                  ) : canManageList ? (
                     <TouchableOpacity onPress={() => removeItem(item)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
                       <Text style={{ color: C.muted, fontSize: 16, marginLeft: 8 }}>✕</Text>
                     </TouchableOpacity>
-                  )}
+                  ) : null}
                 </View>
                 );
               })

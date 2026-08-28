@@ -4088,7 +4088,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             <TouchableOpacity
               onPress={closeCoursesListModal}
               activeOpacity={0.85}
-              style={[styles.btnPrimary, { backgroundColor: C.gold, marginTop: 14 }]}
+              style={{ width: "100%", height: 48, borderRadius: 10, backgroundColor: C.gold, alignItems: "center", justifyContent: "center", marginTop: 14 }}
             >
               <Text style={styles.btnPrimaryText}>Valider</Text>
             </TouchableOpacity>
