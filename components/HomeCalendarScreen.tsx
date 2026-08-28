@@ -644,6 +644,7 @@ export default function HomeCalendarScreen({
             reservationLabel="visite"
             title="Autres visites planifiées"
             includePast
+            chronological
             excludeUpToDate={periodEndIso}
             onPressRow={(_date, r) => openVisiteActions(r)}
           />
