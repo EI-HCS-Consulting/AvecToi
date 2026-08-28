@@ -459,20 +459,16 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [customChecklistItemDraft, setCustomChecklistItemDraft] = useState("");
   const [customChecklistSaving, setCustomChecklistSaving] = useState(false);
 
-  // Lots de checklist "en attente de publication" — pour toujours repasser
-  // par le popup "Besoin Administratif" (étape "generic" de l'assistant
-  // Publier) avant l'insertion réelle, afin de pouvoir ajouter "Autres
-  // options" (description/échéance/urgent) au lot entier. Un seul des deux
-  // est non-null à la fois selon l'origine (checklist perso "Créer une
-  // checklist" vs checklist suggérée par templates) — voir
-  // stageCustomChecklist / checklistWizardNext et le bouton "Publier" de
-  // l'étape "generic".
+  // Checklist perso "Créer une checklist" en attente de publication — pour
+  // toujours repasser par le popup "Besoin Administratif" (étape "generic"
+  // de l'assistant Publier) avant l'insertion réelle, afin de pouvoir
+  // ajouter "Autres options" (description/échéance/urgent) au lot entier.
+  // Les checklists suggérées (par templates), elles, publient directement à
+  // la fin de leur propre wizard séquentiel : l'échéance et l'urgent y sont
+  // déjà choisis par item dans l'enchaînement des popups, donc repasser par
+  // "Besoin Administratif" serait redondant — voir stageCustomChecklist et
+  // le bouton "Publier" de l'étape "generic".
   const [pendingChecklistBatch, setPendingChecklistBatch] = useState<{ items: string[] } | null>(null);
-  const [pendingSuggestedChecklist, setPendingSuggestedChecklist] = useState<{
-    list: ChecklistWizardEntry[];
-    data: Record<string, ChecklistWizardFields>;
-    context: ChecklistContext;
-  } | null>(null);
 
   // Annulation d'un lot ajouté d'un coup (checklist admin dédiée ou sélecteur
   // repliable ci-dessus) — capture les id insérés pour pouvoir tout supprimer
@@ -963,7 +959,6 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setPublishStep("category");
     resetPublishDraft();
     setPendingChecklistBatch(null);
-    setPendingSuggestedChecklist(null);
   }
 
   // Candidats pour le ciblage "Certains proches seulement" d'un besoin de
@@ -1176,34 +1171,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     }));
   }
 
-  // Fige la checklist suggérée (liste + réglages par item déjà saisis) en
-  // lot "en attente" et rouvre l'étape "generic" de l'assistant Publier
-  // (catégorie Administratif) au lieu de publier directement — même logique
-  // que stageCustomChecklist, pour toujours repasser par ce popup avant le
-  // vrai "Publier". checklistContext/checklistWizardList sont vidés pour
-  // fermer ce <Modal> (sa visibilité en dépend) ; checklistPublishToWall/Mine
-  // restent en l'état, ils ne changent plus une fois cette étape passée.
-  function stageChecklistWizard() {
-    if (!checklistWizardList.length || !checklistContext) return;
-    if (!checklistPublishToWall && !checklistPublishToMine) return;
-    setPendingSuggestedChecklist({ list: checklistWizardList, data: checklistWizardData, context: checklistContext });
-    setChecklistContext(null);
-    setChecklistWizardList([]);
-    setChecklistWizardStep(0);
-    setChecklistPicker(false);
-    setFCat("administratif");
-    const title = CATEGORY_AUTO_TITLES.administratif;
-    autoTitleRef.current = title;
-    setFTitle(title);
-    setTimeout(() => { setPublishStep("generic"); setPublishWizardOpen(true); }, 300);
-  }
-
   function checklistWizardNext() {
     if (checklistWizardStep < checklistWizardList.length - 1) {
       setChecklistWizardStep((s) => s + 1);
       return;
     }
-    stageChecklistWizard();
+    if (!checklistContext) return;
+    publishChecklistWizard({ list: checklistWizardList, data: checklistWizardData, context: checklistContext });
   }
 
   function checklistWizardBack() {
@@ -1218,14 +1192,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setChecklistWizardStep((s) => s - 1);
   }
 
-  // Publie un lot de checklist suggérée déjà figé (stageChecklistWizard) —
-  // par défaut celui en attente (pendingSuggestedChecklist), puisque c'est
-  // désormais le seul appelant (bouton "Publier" de l'étape "generic" de
-  // l'assistant Publier, catégorie Administratif).
+  // Publie directement la checklist suggérée à la fin de son propre wizard
+  // séquentiel (checklistWizardNext) — pas de passage par "Besoin
+  // Administratif" ici : échéance et urgent sont déjà choisis par item dans
+  // l'enchaînement des popups du wizard, donc ce serait redondant.
   async function publishChecklistWizard(
-    pending: { list: ChecklistWizardEntry[]; data: Record<string, ChecklistWizardFields>; context: ChecklistContext } | null = pendingSuggestedChecklist,
+    pending: { list: ChecklistWizardEntry[]; data: Record<string, ChecklistWizardFields>; context: ChecklistContext },
   ) {
-    if (!pending || !pending.list.length) return;
+    if (!pending.list.length) return;
     if (!checklistPublishToWall && !checklistPublishToMine) return;
     setChecklistSaving(true);
     const author = await currentAuthor();
@@ -1314,9 +1288,6 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     }
 
     setChecklistSaving(false);
-    setPendingSuggestedChecklist(null);
-    setPublishWizardOpen(false);
-    resetPublishDraft();
     setChecklistContext(null);
     setChecklistPicker(false);
     setChecklistCustomItems([]);
@@ -1645,15 +1616,15 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // choosePublishCategory), donc pas besoin du garde !fTitle.trim() ici.
   const publishWizardReady = claimOnCreateReady;
 
-  // Un lot de checklist (perso "Créer une checklist" ou suggérée) en attente
-  // de publication — l'étape "generic"/"Autres options" masque alors ce qui
-  // ne s'applique qu'à un seul besoin (photo, "Je vais me débrouiller") et
-  // le bouton "Publier" finalise le lot au lieu d'appeler saveTask.
-  const pendingChecklistActive = !!pendingChecklistBatch || !!pendingSuggestedChecklist;
+  // Checklist perso "Créer une checklist" en attente de publication —
+  // l'étape "generic"/"Autres options" masque alors ce qui ne s'applique
+  // qu'à un seul besoin (photo, "Je vais me débrouiller") et le bouton
+  // "Publier" finalise le lot au lieu d'appeler saveTask. Les checklists
+  // suggérées ne passent jamais par ce chemin (voir checklistWizardNext).
+  const pendingChecklistActive = !!pendingChecklistBatch;
 
   function handleWizardPublish() {
     if (pendingChecklistBatch) { publishPendingChecklistBatch(); return; }
-    if (pendingSuggestedChecklist) { publishChecklistWizard(pendingSuggestedChecklist); return; }
     saveTask();
   }
 
@@ -3770,22 +3741,20 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                       </View>
                     )}
 
-                    {!pendingSuggestedChecklist && (
-                      <TextInput
-                        style={[styles.input, styles.descArea, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 8 }]}
-                        placeholder={pendingChecklistBatch ? "Description commune à tous les items (optionnelle)" : "Description (optionnelle)"}
-                        placeholderTextColor={C.muted}
-                        value={fDesc}
-                        onChangeText={setFDesc}
-                        multiline
-                        numberOfLines={3}
-                        textAlignVertical="top"
-                      />
-                    )}
+                    <TextInput
+                      style={[styles.input, styles.descArea, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 8 }]}
+                      placeholder={pendingChecklistBatch ? "Description commune à tous les items (optionnelle)" : "Description (optionnelle)"}
+                      placeholderTextColor={C.muted}
+                      value={fDesc}
+                      onChangeText={setFDesc}
+                      multiline
+                      numberOfLines={3}
+                      textAlignVertical="top"
+                    />
 
                     {pendingChecklistActive && (
                       <Text style={[styles.publicNoticeText, { color: C.muted, marginTop: 8 }]}>
-                        🗂️ Checklist de {(pendingChecklistBatch?.items.length ?? pendingSuggestedChecklist?.list.length ?? 0)} item(s) prête à publier.
+                        🗂️ Checklist de {pendingChecklistBatch?.items.length ?? 0} item(s) prête à publier.
                       </Text>
                     )}
 
@@ -3861,55 +3830,51 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                       </>
                     )}
 
-                    {!pendingSuggestedChecklist && (
+                    <TouchableOpacity
+                      style={[
+                        styles.claimOnCreateBtn,
+                        { backgroundColor: fDLPickerOpen ? `${C.accent}22` : C.bg, borderColor: fDLPickerOpen ? C.accent : C.border },
+                      ]}
+                      onPress={() => {
+                        if (fDLPickerOpen) setFDateLimite("");
+                        setFDLPickerOpen((v) => !v);
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.claimOnCreateText, { color: fDLPickerOpen ? C.accent : C.text }]}>
+                        {fDLPickerOpen ? "📅 Retirer la date" : pendingChecklistBatch ? "📅 Ajouter une échéance commune (optionnel)" : "📅 Ajouter une échéance (optionnel)"}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {fDLPickerOpen && (
                       <>
-                        <TouchableOpacity
-                          style={[
-                            styles.claimOnCreateBtn,
-                            { backgroundColor: fDLPickerOpen ? `${C.accent}22` : C.bg, borderColor: fDLPickerOpen ? C.accent : C.border },
-                          ]}
-                          onPress={() => {
-                            if (fDLPickerOpen) setFDateLimite("");
-                            setFDLPickerOpen((v) => !v);
-                          }}
-                          activeOpacity={0.8}
-                        >
-                          <Text style={[styles.claimOnCreateText, { color: fDLPickerOpen ? C.accent : C.text }]}>
-                            {fDLPickerOpen ? "📅 Retirer la date" : pendingChecklistBatch ? "📅 Ajouter une échéance commune (optionnel)" : "📅 Ajouter une échéance (optionnel)"}
-                          </Text>
-                        </TouchableOpacity>
-
-                        {fDLPickerOpen && (
-                          <>
-                            <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 12 }]}>
-                              Le besoin se fermera automatiquement passé cette date s'il n'est pas pris en charge
-                            </Text>
-                            <MiniCalendar
-                              selDate={fDateLimite}
-                              onSelect={setFDateLimite}
-                              calMonth={fDLCalMonth}
-                              onMonthChange={setFDLCalMonth}
-                              startDate={new Date()}
-                              C={C}
-                              size="lg"
-                            />
-                          </>
-                        )}
-
-                        <TouchableOpacity
-                          style={[
-                            styles.claimOnCreateBtn,
-                            { backgroundColor: fUrgent ? C.danger : C.bg, borderColor: fUrgent ? C.danger : C.border, marginTop: 14 },
-                          ]}
-                          onPress={() => setFUrgent((v) => !v)}
-                          activeOpacity={0.8}
-                        >
-                          <Text style={[styles.claimOnCreateText, { color: fUrgent ? "#fff" : C.text }]}>
-                            {fUrgent ? "🔴 Besoin urgent" : "⚪ Marquer comme urgent"}
-                          </Text>
-                        </TouchableOpacity>
+                        <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 12 }]}>
+                          Le besoin se fermera automatiquement passé cette date s'il n'est pas pris en charge
+                        </Text>
+                        <MiniCalendar
+                          selDate={fDateLimite}
+                          onSelect={setFDateLimite}
+                          calMonth={fDLCalMonth}
+                          onMonthChange={setFDLCalMonth}
+                          startDate={new Date()}
+                          C={C}
+                          size="lg"
+                        />
                       </>
                     )}
+
+                    <TouchableOpacity
+                      style={[
+                        styles.claimOnCreateBtn,
+                        { backgroundColor: fUrgent ? C.danger : C.bg, borderColor: fUrgent ? C.danger : C.border, marginTop: 14 },
+                      ]}
+                      onPress={() => setFUrgent((v) => !v)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.claimOnCreateText, { color: fUrgent ? "#fff" : C.text }]}>
+                        {fUrgent ? "🔴 Besoin urgent" : "⚪ Marquer comme urgent"}
+                      </Text>
+                    </TouchableOpacity>
 
                     {!pendingChecklistActive && (
                       <>
