@@ -323,6 +323,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     return `${joined} ${names.length > 1 ? "s'en occupent" : "s'en occupe"}${partial}`;
   }
 
+  // Vrai pour un besoin "courses" pris en charge tant qu'il reste au moins un
+  // article non coché — sert à ajouter la 2ème ligne "partiellement" sur le
+  // tag de statut (voir renderTask), en plus du suffixe déjà présent sur
+  // courseContributorsLabel.
+  function coursePartial(t: Task): boolean {
+    return t.category === "courses" && t.status === "pris_en_charge" && courseListComplete[t.id] === false;
+  }
+
   // ── Checklists administratives suggérées (MVP) — voir CHECKLIST_TEMPLATES.
   // Popup accessible à l'admin comme aux visiteurs, depuis le bouton
   // "Créer une checklist" du formulaire Publier (catégorie Administratif) —
@@ -2232,6 +2240,17 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     return new Date().toISOString().slice(0, 10);
   }
 
+  // Vrai pour un besoin "fermé" (statut différent de "ouvert" — pris en
+  // charge, fait ou fermé) dont la date effective est déjà passée (ou
+  // inconnue) — même critère que le sous-bloc "Historique" du mur (voir
+  // visibleClosedHistory). Sert à retirer la corbeille et les boutons "Se
+  // désinscrire" une fois qu'il n'y a plus d'action utile à mener dessus.
+  function isTaskClosedPast(t: Task): boolean {
+    if (t.status === "ouvert") return false;
+    const d = taskEffectiveDate(t);
+    return !d || d < todayIso();
+  }
+
   // Vrai si dateIso tombe aujourd'hui, demain ou après-demain (J+2) — sert à
   // cocher automatiquement "Urgent" à la création d'un besoin, que ce soit
   // via le formulaire Publier (voir l'effet fUrgent plus haut) ou un item du
@@ -2384,12 +2403,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     const statusColors = STATUS_COLORS(C);
     const highlighted = highlightId === t.id;
     // Sélection multiple : admin sur tout besoin, visiteur seulement sur ceux
-    // qu'il a lui-même publiés (voir isAuthor) — même périmètre que la
+    // qu'il a lui-même publiés (voir isAuthor) et pas encore fermés depuis
+    // trop longtemps (voir isTaskClosedPast) — même périmètre que la
     // suppression unitaire (icône 🗑️ juste au-dessus). Les besoins "fait"
     // restent hors du champ (même règle que la suppression simple, voir
     // deleteTask), ainsi que ceux déjà "supprimés en douceur" par l'admin
     // (deleted_by_admin, géré par un autre bouton — voir setSelfDeleteTaskTarget).
-    const selectable = t.status !== "fait" && !t.deleted_by_admin && (isAdmin || isAuthor(t));
+    const selectable = t.status !== "fait" && !t.deleted_by_admin
+      && (isAdmin || (isAuthor(t) && !isTaskClosedPast(t)));
     const selected = selectedTaskIds.has(t.id);
     const modifiedByLabel = [t.modified_by_prenom, t.modified_by_nom].filter(Boolean).join(" ");
     return (
@@ -2409,10 +2430,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         style={[
           styles.taskCard,
           { backgroundColor: C.card, borderColor: highlighted ? C.gold : (t.status === "fait" ? "rgba(122,143,166,0.2)" : C.border) },
-          // Cadre rouge autour du bloc dès que le tag Urgent est activé —
-          // reste visible quel que soit le statut, sauf priorité visuelle du
-          // surlignage (deep-link) ou de la sélection multiple ci-dessous.
-          t.urgent && { borderColor: C.danger, borderWidth: 2 },
+          // Cadre rouge autour du bloc tant que le tag Urgent est actif — ne
+          // s'affiche que si le besoin est encore "ouvert" (voir le tag
+          // Urgent plus bas), sauf priorité visuelle du surlignage (deep-link)
+          // ou de la sélection multiple ci-dessous.
+          t.urgent && t.status === "ouvert" && { borderColor: C.danger, borderWidth: 2 },
           highlighted && { borderWidth: 2 },
           selected && { borderColor: C.accent, borderWidth: 2, backgroundColor: `${C.accent}11` },
         ]}
@@ -2427,36 +2449,32 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             <Text style={styles.catIcon}>{CATEGORY_ICONS[t.category]}</Text>
             <Text style={[styles.catLabel, { color: C.accent }]}>{CATEGORY_LABELS[t.category]}</Text>
           </View>
-          {t.urgent && (
+          {/* Urgent ne s'affiche (tag + cadre rouge, voir plus haut) que tant
+              que le besoin reste "ouvert" — une fois pris en charge / fait /
+              fermé, l'urgence n'a plus de sens à signaler. */}
+          {t.urgent && t.status === "ouvert" && (
             <View style={[styles.catBadge, { backgroundColor: `${C.danger}22` }]}>
               <Text style={[styles.catLabel, { color: C.danger }]}>🔴 Urgent</Text>
             </View>
           )}
-          <View style={[styles.statusBadge, { borderColor: transportOverdue(t) ? statusColors.fait : statusColors[t.status] }]}>
+          <View style={[
+            styles.statusBadge,
+            { borderColor: transportOverdue(t) ? statusColors.fait : statusColors[t.status] },
+            coursePartial(t) && { alignItems: "center" },
+          ]}>
             <Text style={[styles.statusLabel, { color: transportOverdue(t) ? statusColors.fait : statusColors[t.status] }]}>
               {transportOverdue(t) ? STATUS_LABELS.fait : STATUS_LABELS[t.status]}
             </Text>
+            {/* Besoin "courses" pris en charge par certains articles seulement
+                (voir courseListComplete) — même tag que "Pris en charge",
+                juste complété d'une 2ème ligne plutôt qu'un tag distinct. */}
+            {coursePartial(t) && (
+              <Text style={[styles.statusLabel, { color: statusColors[t.status] }]}>partiellement</Text>
+            )}
           </View>
           {isAdmin && (
-            <View style={{ flexDirection: "row", gap: 4 }}>
-              <TouchableOpacity onPress={() => openEditTask(t)} style={[styles.iconBtn, { borderColor: C.border }]}>
-                <Text style={{ fontSize: 13 }}>✏️</Text>
-              </TouchableOpacity>
-              {t.status !== "fait" && (
-                <TouchableOpacity onPress={() => deleteTask(t)} style={[styles.iconBtn, { borderColor: "rgba(233,69,96,0.3)" }]}>
-                  <Text style={{ fontSize: 13, color: C.danger }}>🗑️</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          )}
-          {!isAdmin && t.deleted_by_admin && isAuthor(t) && (
-            <TouchableOpacity onPress={() => setSelfDeleteTaskTarget(t)} style={[styles.iconBtn, { borderColor: "rgba(233,69,96,0.3)" }]}>
-              <Text style={{ fontSize: 13, color: C.danger }}>🗑️</Text>
-            </TouchableOpacity>
-          )}
-          {!isAdmin && !t.deleted_by_admin && isAuthor(t) && t.status !== "fait" && (
-            <TouchableOpacity onPress={() => deleteTask(t)} style={[styles.iconBtn, { borderColor: "rgba(233,69,96,0.3)" }]}>
-              <Text style={{ fontSize: 13, color: C.danger }}>🗑️</Text>
+            <TouchableOpacity onPress={() => openEditTask(t)} style={[styles.iconBtn, { borderColor: C.border }]}>
+              <Text style={{ fontSize: 13 }}>✏️</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -2467,10 +2485,34 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           </Text>
         )}
 
-        <Text style={[styles.taskTitle, { color: t.status === "fait" ? C.muted : C.text }]}>{t.title}</Text>
+        {/* Titre + corbeille sur la même ligne, la corbeille toujours à droite
+            du titre — position fixe quel que soit le nombre de badges
+            affichés au-dessus (Urgent, statut...), contrairement à avant où
+            elle vivait dans la ligne des badges et se déplaçait avec eux. */}
+        <View style={{ flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+          <Text style={[styles.taskTitle, { color: t.status === "fait" ? C.muted : C.text, flex: 1 }]}>{t.title}</Text>
+          {isAdmin && t.status !== "fait" && (
+            <TouchableOpacity onPress={() => deleteTask(t)} style={[styles.iconBtn, { borderColor: "rgba(233,69,96,0.3)" }]}>
+              <Text style={{ fontSize: 13, color: C.danger }}>🗑️</Text>
+            </TouchableOpacity>
+          )}
+          {!isAdmin && t.deleted_by_admin && isAuthor(t) && !isTaskClosedPast(t) && (
+            <TouchableOpacity onPress={() => setSelfDeleteTaskTarget(t)} style={[styles.iconBtn, { borderColor: "rgba(233,69,96,0.3)" }]}>
+              <Text style={{ fontSize: 13, color: C.danger }}>🗑️</Text>
+            </TouchableOpacity>
+          )}
+          {!isAdmin && !t.deleted_by_admin && isAuthor(t) && t.status !== "fait" && !isTaskClosedPast(t) && (
+            <TouchableOpacity onPress={() => deleteTask(t)} style={[styles.iconBtn, { borderColor: "rgba(233,69,96,0.3)" }]}>
+              <Text style={{ fontSize: 13, color: C.danger }}>🗑️</Text>
+            </TouchableOpacity>
+          )}
+        </View>
         {t.description ? (
           <Text style={[styles.taskDesc, { color: C.muted }]}>{t.description}</Text>
         ) : null}
+        <Text style={[styles.taskDesc, { color: C.muted }]}>
+          🗓️ Publié le {toFrShort(new Date(t.created_at))}
+        </Text>
         {(() => {
           // Lien officiel re-dérivé du template d'origine (tasks n'a pas de
           // colonne dédiée) — reste affiché après publication, pas seulement
@@ -2624,7 +2666,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                 {cov.claimed_photo && (
                   <Image source={{ uri: taskPhotoUrl(spaceId, cov.claimed_photo) }} style={styles.claimedPhoto} resizeMode="cover" />
                 )}
-                {!isAdmin && samePerson(cov.prenom, cov.nom, cov.pin) && (
+                {!isAdmin && samePerson(cov.prenom, cov.nom, cov.pin) && !isTaskClosedPast(t) && (
                   <TouchableOpacity
                     style={[styles.actionSmall, { borderColor: C.border, marginTop: 4, alignSelf: "flex-start" }]}
                     onPress={() => openRelaisCoverageUnclaim(t, cov)}
@@ -2688,13 +2730,18 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
         {t.status === "pris_en_charge" && !isAdmin && myTransportLegs(t).length > 0 && (
           <View style={{ flexDirection: "row", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-            <TouchableOpacity
-              style={[styles.actionSmall, { borderColor: C.success, backgroundColor: `${C.success}18` }]}
-              onPress={() => openDone(t)}
-            >
-              <Text style={[styles.actionSmallText, { color: C.success }]}>✓ C'est fait</Text>
-            </TouchableOpacity>
-            {myTransportLegs(t).length > 1 ? (
+            {/* "C'est fait" n'a plus lieu d'être une fois que la carte affiche
+                déjà "Fait" (voir transportOverdue) — évite le doublon visuel
+                d'un bouton d'action à côté d'un tag qui dit déjà que c'est fait. */}
+            {!transportOverdue(t) && (
+              <TouchableOpacity
+                style={[styles.actionSmall, { borderColor: C.success, backgroundColor: `${C.success}18` }]}
+                onPress={() => openDone(t)}
+              >
+                <Text style={[styles.actionSmallText, { color: C.success }]}>✓ C'est fait</Text>
+              </TouchableOpacity>
+            )}
+            {!isTaskClosedPast(t) && (myTransportLegs(t).length > 1 ? (
               <>
                 <TouchableOpacity
                   style={[styles.actionSmall, { borderColor: C.border }]}
@@ -2716,7 +2763,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               >
                 <Text style={[styles.actionSmallText, { color: C.muted }]}>Se désinscrire</Text>
               </TouchableOpacity>
-            )}
+            ))}
             {t.category === "transport" && (
               <TouchableOpacity
                 style={[styles.actionSmall, { borderColor: C.gold, backgroundColor: `${C.gold}18` }]}
