@@ -1,6 +1,14 @@
 # PRD — AvecToi
-## Product Requirements Document v1.15
+## Product Requirements Document v1.16
 *Préparé pour Claude Code — Juin 2026, synchronisé avec l'application livrée en Juillet/Août 2026*
+
+> **Changelog v1.15 → v1.16**
+> - **Entraide : tri des besoins ouverts et regroupement des besoins fermés** *(27/08/2026, PR #310)* : les besoins ouverts sont triés Urgent en tête puis du plus proche au plus éloigné dans le temps ; un besoin pris en charge rejoint désormais les besoins fermés, répartis en « À venir » et « Historique » ; le tag Urgent (cadre rouge) se coche automatiquement si l'échéance tombe à J+2 ou moins — voir §5.9
+> - **Entraide : cycle de vie des tags contextuels, corbeille fixe, date de publication** *(28/08/2026, PR #315)* : le tag Urgent et son cadre rouge disparaissent dès que le besoin n'est plus ouvert ; le bouton « ✓ C'est fait » (transport) disparaît une fois déjà affiché comme « Fait » ; un besoin fermé et passé ne peut plus être supprimé ni désinscrit par son auteur ; l'icône de suppression est déplacée en face du titre (position fixe) ; une ligne « 🗓️ Publié le … » est ajoutée à chaque besoin — voir §5.9
+> - **Accueil : tri chronologique des visites planifiées** *(28/08/2026, PR #316, corrigé #318)* : le bloc « Autres visites planifiées » (visites à venir) est trié de la plus proche à la plus éloignée dans le temps ; son pendant « Autres visites réalisées » (passées) reste trié du plus récent au plus ancien — voir §5.2
+> - **Entraide : catalogue de produits récurrents pour les listes de courses** *(28/08/2026, PR #317)* : la création d'une liste de courses passe par une popup dédiée ; un catalogue « 🔁 Produits récurrents » par espace se construit automatiquement au fil des articles saisis et permet de les rajouter en un tap — voir §5.9
+> - **Corrections d'irritants remontés sur device** *(28/08/2026, PR #318)* : bouton « Valider » illisible corrigé, pastilles de notification de l'onglet Entraide recentrées à côté du pictogramme, croix de suppression rapide d'un article de liste de courses restreinte à l'auteur du besoin ou à l'admin — voir §3.3, §5.9
+> - Détail exhaustif écran par écran : `Documentation/Documentation Fonctionnalités.docx` (généré depuis le code, mis à jour à chaque handoff)
 
 > **Changelog v1.14 → v1.15**
 > - **Suppression multiple d'un besoin par son propre auteur (visiteur)** *(28/08/2026, PR #311)* : un appui long sur un besoin publié par le visiteur lui-même permet désormais de sélectionner plusieurs de ses propres besoins pour les supprimer en masse — même mécanique que celle déjà réservée à l'admin, mais strictement limitée aux besoins dont ce visiteur est l'auteur — voir §2, §3.8
