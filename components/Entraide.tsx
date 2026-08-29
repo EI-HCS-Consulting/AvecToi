@@ -18,7 +18,7 @@ import SegmentedSwitch from "@/components/SegmentedSwitch";
 import TimeClockPicker from "@/components/TimeClockPicker";
 import ConfirmModal from "@/components/ConfirmModal";
 import ShoppingListModal from "@/components/ShoppingListModal";
-import { toFrShort } from "@/lib/slotUtils";
+import { toFrShort, toISO } from "@/lib/slotUtils";
 import { googleMapsSearchUrl, joinAddress, resolvePlaceFromMapsUrl } from "@/lib/address";
 import { addGenericEventToNativeCalendar } from "@/lib/calendarSync";
 import type { Task, TransportProposal, TaskRelaisCoverage } from "@/lib/types";
@@ -224,7 +224,15 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const isForPerson = (t: Task) => !!myFullName && !!t.transport_for_prenom && !!t.transport_for_nom
     && myFullName.prenom.trim().toLowerCase() === t.transport_for_prenom.trim().toLowerCase()
     && myFullName.nom.trim().toLowerCase() === t.transport_for_nom.trim().toLowerCase();
-  const canManageTransport = (t: Task) => isAdmin || isAuthor(t) || isForPerson(t);
+  // Seul habilité à valider une proposition, décliner "Aucune ne convient"
+  // ou répondre — la liste des propositions elle-même est visible par tous
+  // (voir le bouton "Propositions" sur la carte du besoin), mais un admin
+  // qui n'a ni publié ni n'est le bénéficiaire n'a pas ces droits. mySession
+  // reste toujours null côté admin (voir plus haut), donc isAuthor() seul
+  // ne détecterait jamais un besoin publié par l'admin lui-même — même
+  // contournement que isMine (~ligne 2014) via author_pin === "ADMIN".
+  const canValidateTransport = (t: Task) =>
+    (isAdmin && t.author_pin === "ADMIN") || isAuthor(t) || isForPerson(t);
   // Vrai dès qu'au moins une jambe (aller ou retour) a déjà un preneur —
   // sert à masquer "Je m'en occupe" (qui prendrait les deux jambes d'un
   // coup) une fois qu'une jambe a été attribuée séparément via une
@@ -534,9 +542,19 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // deux curseurs aient la même taille.
   const [transportThumbWidth, setTransportThumbWidth] = useState(0);
 
+  // MiniCalendar (startDate={new Date()}) empêche déjà de choisir un jour
+  // antérieur à aujourd'hui pour transport_calendar, mais autoriserait
+  // encore une heure d'aller déjà passée si le jour choisi est aujourd'hui
+  // même — vérifié ici en heure locale (fTDate/toISO sont en heure locale,
+  // pas UTC, contrairement à todayIso() plus bas qui sert à un usage différent).
+  const transportNow = new Date();
+  const transportTimeAlreadyPast = fTDate.trim() === toISO(transportNow) && fTOutTime.length === 5
+    && fTOutTime <= `${String(transportNow.getHours()).padStart(2, "0")}:${String(transportNow.getMinutes()).padStart(2, "0")}`;
+
   const transportFormReady = fTDate.trim() && fTOutTime.length === 5 && fTHomeAddress.trim()
     && (!fTRoundTrip || fTReturnTime.length === 5)
-    && (!fTForSomeoneElse || (fTForPrenom.trim() && fTForNom.trim()));
+    && (!fTForSomeoneElse || (fTForPrenom.trim() && fTForNom.trim()))
+    && !transportTimeAlreadyPast;
 
   const relaisFormReady = !!fRelaisStartDate && !!fDateLimite
     && (fRelaisVisibleTo === "all" || fRelaisSelectedKeys.size > 0);
@@ -699,6 +717,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [proposalReplyId, setProposalReplyId] = useState<string | null>(null);
   const [proposalReplyText, setProposalReplyText] = useState("");
   const [proposalReplySaving, setProposalReplySaving] = useState(false);
+  // Confirmation inline avant "Aucune ne convient" (pas de nouveau Modal,
+  // même contrainte Android qu'au-dessus) — remise à zéro à chaque
+  // changement de besoin affiché pour ne pas rester coincée ouverte.
+  const [confirmRejectAll, setConfirmRejectAll] = useState(false);
+  useEffect(() => { setConfirmRejectAll(false); }, [proposalsTarget?.id]);
 
   // ── Modale "Proposition" (aidant propose un autre horaire sur un besoin
   // Transport ouvert, sans le prendre en charge directement) ──
@@ -1919,6 +1942,24 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       if (fCat === "transport") {
         const homeAddr = fTHomeAddress.trim();
         const careAddr = hospitalName ?? "";
+        // Ne jamais enregistrer un lien généré à partir de l'adresse seule
+        // (sans CP/ville) — ça donne plusieurs destinations possibles sur
+        // Google Maps. Si le lien en state n'est pas un vrai lien collé par
+        // l'utilisateur (vide, ou reconnaissable comme notre propre lien de
+        // recherche généré via regenerateTransportMapsUrl), on le regénère
+        // ici avec les valeurs finales des champs — robuste même si l'ordre
+        // de saisie/blur des champs a laissé un lien généré trop tôt (avant
+        // que CP/ville soient remplis). Un vrai lien Google Maps collé par
+        // l'utilisateur (place précise) n'est en revanche jamais modifié.
+        const pastedOrStaleMapsUrl = fTHomeMapsUrl.trim();
+        const finalHomeMapsUrl = homeAddr && (!pastedOrStaleMapsUrl || pastedOrStaleMapsUrl.startsWith("https://www.google.com/maps/search/?api=1&query="))
+          ? googleMapsSearchUrl(joinAddress({
+              street: homeAddr, line2: null,
+              postalCode: fTHomePostalCode.trim() || null,
+              city: fTHomeCity.trim() || null,
+              country: fTHomeCountry.trim() || null,
+            }))
+          : (pastedOrStaleMapsUrl || null);
         transportFields = {
           transport_date: fTDate,
           transport_out_time: fTOutTime,
@@ -1930,7 +1971,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           transport_home_postal_code: fTHomePostalCode.trim() || null,
           transport_home_city: fTHomeCity.trim() || null,
           transport_home_country: fTHomeCountry.trim() || null,
-          transport_home_maps_url: fTHomeMapsUrl.trim() || null,
+          transport_home_maps_url: finalHomeMapsUrl,
           transport_home_is_arrival: fTSwapped,
           transport_for_prenom: fTForSomeoneElse ? fTForPrenom.trim() : null,
           transport_for_nom: fTForSomeoneElse ? fTForNom.trim() : null,
@@ -2592,14 +2633,35 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     return t.date_limite;
   }
 
-  // Plus proche → plus éloigné dans le temps ; un besoin sans date connue
-  // passe toujours après ceux qui en ont une (on ne peut pas juger de sa
+  // Horaire "utile" d'un besoin transport, pour départager deux besoins du
+  // même jour dans le tri chronologique — celui du premier trajet (aller),
+  // confirmé sinon demandé, jamais le retour. null pour les autres
+  // catégories ou si aucun horaire n'est connu. Volontairement séparé de
+  // taskEffectiveDate (qui doit rester une date pure AAAA-MM-JJ, comparée
+  // telle quelle ailleurs — voir isTaskClosedPast et les filtres Historique).
+  function taskEffectiveTime(t: Task): string | null {
+    if (t.category !== "transport") return null;
+    return t.transport_confirmed_out_time || t.transport_out_time || null;
+  }
+
+  // Plus proche → plus éloigné dans le temps ; à date égale, l'horaire de
+  // l'aller départage (transport uniquement, les autres catégories n'ont pas
+  // d'horaire donc gardent l'égalité) ; un besoin sans date connue passe
+  // toujours après ceux qui en ont une (on ne peut pas juger de sa
   // proximité), les besoins sans date entre eux gardent l'ordre de création
   // le plus récent en premier (comportement historique du mur).
   function compareSoonestFirst(a: Task, b: Task): number {
     const da = taskEffectiveDate(a);
     const db = taskEffectiveDate(b);
-    if (da && db) return da < db ? -1 : da > db ? 1 : 0;
+    if (da && db) {
+      if (da !== db) return da < db ? -1 : 1;
+      const ta = taskEffectiveTime(a);
+      const tb = taskEffectiveTime(b);
+      if (ta && tb) return ta < tb ? -1 : ta > tb ? 1 : 0;
+      if (ta) return -1;
+      if (tb) return 1;
+      return 0;
+    }
     if (da) return -1;
     if (db) return 1;
     return b.created_at.localeCompare(a.created_at);
@@ -2618,7 +2680,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   function compareMostRecentFirst(a: Task, b: Task): number {
     const ka = taskEffectiveDate(a) ?? a.created_at.slice(0, 10);
     const kb = taskEffectiveDate(b) ?? b.created_at.slice(0, 10);
-    return ka < kb ? 1 : ka > kb ? -1 : 0;
+    if (ka !== kb) return ka < kb ? 1 : -1;
+    const ta = taskEffectiveTime(a);
+    const tb = taskEffectiveTime(b);
+    if (ta && tb) return ta < tb ? 1 : ta > tb ? -1 : 0;
+    if (ta) return -1;
+    if (tb) return 1;
+    return 0;
   }
 
   // Aujourd'hui en ISO (YYYY-MM-DD), pour séparer les besoins fermés entre
@@ -2693,6 +2761,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       created_at: new Date().toISOString(),
       response: null,
       response_seen: false,
+      declined: false,
     };
     // Relit transport_proposals juste avant d'écrire pour limiter le risque
     // d'écraser une proposition envoyée entre-temps par quelqu'un d'autre
@@ -2754,10 +2823,28 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     loadTasks();
   }
 
+  // Marque toutes les propositions actuelles comme déclinées (jamais
+  // supprimées : elles restent visibles avec un tag "Déclinée", voir la
+  // boucle de la modale "Propositions reçues"). Relit transport_proposals
+  // juste avant d'écrire, même précaution anti-écrasement que
+  // submitTransportProposal.
   async function rejectTransportProposals(t: Task) {
-    await supabase.from("tasks").update({ transport_proposals: [] }).eq("id", t.id);
+    const { data, error: selectError } = await supabase
+      .from("tasks").select("transport_proposals").eq("id", t.id).single();
+    if (selectError) {
+      Alert.alert("Erreur", "Impossible de charger le besoin : " + selectError.message);
+      return;
+    }
+    const current: TransportProposal[] = data?.transport_proposals ?? t.transport_proposals ?? [];
+    const updated = current.map((p) => ({ ...p, declined: true }));
+    const { error: updateError } = await supabase
+      .from("tasks").update({ transport_proposals: updated }).eq("id", t.id);
+    if (updateError) {
+      Alert.alert("Erreur", "Les propositions n'ont pas pu être déclinées : " + updateError.message);
+      return;
+    }
     setProposalsTarget(null);
-    showToast("Propositions écartées");
+    showToast("Propositions déclinées");
     loadTasks();
   }
 
@@ -3559,6 +3646,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
                       <Text style={[styles.fieldLabel, { color: C.gold }]}>Heure aller *</Text>
                       <TimeClockPicker value={fTOutTime} onChange={setFTOutTime} C={C} />
+                      {transportTimeAlreadyPast && (
+                        <Text style={[styles.claimerText, { color: C.danger, marginTop: 4 }]}>
+                          Cet horaire est déjà passé aujourd'hui — choisissez une heure à venir.
+                        </Text>
+                      )}
 
                       {fTRoundTrip && (
                         <>
@@ -4139,7 +4231,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                       <TouchableOpacity
                         onPress={() => setPublishStep("transport_trip")}
                         disabled={!fTHomeAddress.trim()}
-                        style={[styles.btnPrimary, { backgroundColor: C.accent }, !fTHomeAddress.trim() && { opacity: 0.5 }]}
+                        style={[styles.btnPrimary, { flex: 1, backgroundColor: C.accent }, !fTHomeAddress.trim() && { opacity: 0.5 }]}
                       >
                         <Text style={styles.btnPrimaryText}>Suivant</Text>
                       </TouchableOpacity>
@@ -4179,7 +4271,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                       </TouchableOpacity>
                       <TouchableOpacity
                         onPress={() => setPublishStep("transport_calendar")}
-                        style={[styles.btnPrimary, { backgroundColor: C.accent }]}
+                        style={[styles.btnPrimary, { flex: 1, backgroundColor: C.accent }]}
                       >
                         <Text style={styles.btnPrimaryText}>Suivant</Text>
                       </TouchableOpacity>
@@ -4208,7 +4300,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                       <TouchableOpacity
                         onPress={() => setPublishStep("transport_time")}
                         disabled={!fTDate.trim()}
-                        style={[styles.btnPrimary, { backgroundColor: C.accent }, !fTDate.trim() && { opacity: 0.5 }]}
+                        style={[styles.btnPrimary, { flex: 1, backgroundColor: C.accent }, !fTDate.trim() && { opacity: 0.5 }]}
                       >
                         <Text style={styles.btnPrimaryText}>Suivant</Text>
                       </TouchableOpacity>
@@ -4222,6 +4314,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
                     <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 8 }]}>Heure aller *</Text>
                     <TimeClockPicker value={fTOutTime} onChange={setFTOutTime} C={C} />
+                    {transportTimeAlreadyPast && (
+                      <Text style={[styles.claimerText, { color: C.danger, marginTop: 4 }]}>
+                        Cet horaire est déjà passé aujourd'hui — choisissez une heure à venir.
+                      </Text>
+                    )}
 
                     {fTRoundTrip && (
                       <>
@@ -4283,7 +4380,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                       <TouchableOpacity
                         onPress={handleWizardPublish}
                         disabled={!publishWizardReady || taskSaving}
-                        style={[styles.btnPrimary, { backgroundColor: C.accent }, (!publishWizardReady || taskSaving) && { opacity: 0.5 }]}
+                        style={[styles.btnPrimary, { flex: 1, backgroundColor: C.accent }, (!publishWizardReady || taskSaving) && { opacity: 0.5 }]}
                       >
                         {taskSaving
                           ? <ActivityIndicator color="#fff" size="small" />
@@ -5511,7 +5608,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                       disabled={!proposeFormReady || proposeSaving}
                       style={[
                         styles.btnPrimary,
-                        { backgroundColor: C.accent },
+                        { flex: 1, backgroundColor: C.accent },
                         (!proposeFormReady || proposeSaving) && { opacity: 0.5 },
                       ]}
                     >
@@ -5546,19 +5643,19 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                   )}
 
                   {proposalsTarget?.transport_proposals.map((p) => {
-                    const canManage = canManageTransport(proposalsTarget);
+                    const canManage = canValidateTransport(proposalsTarget) && !confirmRejectAll;
                     const offersOut = p.offers_out ?? true;
                     const offersReturn = p.offers_return ?? !!p.return_time;
                     const outDone = !!proposalsTarget.claimed_by_prenom;
                     const returnDone = !!proposalsTarget.transport_return_claimed_by_prenom;
                     const menuOpen = canManage && proposalMenuId === p.id;
                     const replying = canManage && proposalReplyId === p.id;
-                    const openLegs: ("out" | "return")[] = [
+                    const openLegs: ("out" | "return")[] = p.declined ? [] : [
                       ...(offersOut && !outDone ? (["out"] as const) : []),
                       ...(proposalsTarget.transport_round_trip && offersReturn && !returnDone ? (["return"] as const) : []),
                     ];
                     return (
-                      <Pressable key={p.id} onLongPress={canManage ? () => { setProposalMenuId(p.id); setProposalReplyId(null); } : undefined}>
+                      <Pressable key={p.id} onLongPress={canManage && !p.declined ? () => { setProposalMenuId(p.id); setProposalReplyId(null); } : undefined}>
                         <View style={[styles.proposalRow, { borderColor: C.border }]}>
                           <Text style={[styles.proposalText, { color: C.text }]}>👤 {p.prenom} {p.nom}</Text>
                           {offersOut && (
@@ -5573,7 +5670,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                           )}
                           {p.note && <Text style={[styles.proposalNote, { color: C.muted }]}>{p.note}</Text>}
                           {p.response && <Text style={[styles.proposalNote, { color: C.gold }]}>↩️ Réponse : {p.response}</Text>}
-                          {canManage && (
+                          {p.declined && <Text style={[styles.proposalNote, { color: C.danger, fontFamily: "DM_Sans_700Bold" }]}>❌ Déclinée</Text>}
+                          {canManage && !p.declined && (
                           <View style={{ flexDirection: "row", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
                             {!menuOpen && !replying && (offersOut && !outDone) && (
                               <TouchableOpacity
@@ -5659,21 +5757,45 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                     );
                   })}
 
-                  {proposalsTarget && canManageTransport(proposalsTarget) && proposalsTarget.transport_proposals.length > 0 && (
-                    <TouchableOpacity
-                      style={[styles.actionSmall, { borderColor: C.border, marginTop: 10, alignSelf: "flex-start" }]}
-                      onPress={() => rejectTransportProposals(proposalsTarget)}
-                    >
-                      <Text style={[styles.actionSmallText, { color: C.muted }]}>Aucune ne convient</Text>
-                    </TouchableOpacity>
+                  {proposalsTarget && canValidateTransport(proposalsTarget) && proposalsTarget.transport_proposals.some((p) => !p.declined) && (
+                    confirmRejectAll ? (
+                      <View style={{ marginTop: 10, padding: 12, borderRadius: 10, borderWidth: 1, borderColor: C.danger, backgroundColor: `${C.danger}10` }}>
+                        <Text style={[styles.sheetSub, { color: C.text, marginBottom: 10, textAlign: "left" }]}>
+                          "Aucune ne convient" va décliner toutes les propositions actuelles — elles resteront visibles avec le tag "Déclinée".
+                        </Text>
+                        <View style={{ flexDirection: "row", gap: 8 }}>
+                          <TouchableOpacity
+                            style={[styles.actionSmall, { flex: 1, borderColor: C.border, alignItems: "center" }]}
+                            onPress={() => setConfirmRejectAll(false)}
+                          >
+                            <Text style={[styles.actionSmallText, { color: C.muted }]}>Annuler</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.actionSmall, { flex: 1, borderColor: C.danger, backgroundColor: `${C.danger}18`, alignItems: "center" }]}
+                            onPress={() => { rejectTransportProposals(proposalsTarget); setConfirmRejectAll(false); }}
+                          >
+                            <Text style={[styles.actionSmallText, { color: C.danger }]}>Confirmer</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ) : (
+                      <TouchableOpacity
+                        style={[styles.actionSmall, { borderColor: C.border, marginTop: 10, alignSelf: "flex-start" }]}
+                        onPress={() => setConfirmRejectAll(true)}
+                      >
+                        <Text style={[styles.actionSmallText, { color: C.muted }]}>Aucune ne convient</Text>
+                      </TouchableOpacity>
+                    )
                   )}
 
-                  <TouchableOpacity
-                    onPress={() => { const t = proposalsTarget; setProposalsTarget(null); if (t) openTransportPropose(t); }}
-                    style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.accent, alignItems: "center", justifyContent: "center", marginTop: 14 }}
-                  >
-                    <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.accent }}>🕐 Proposer un horaire</Text>
-                  </TouchableOpacity>
+                  {proposalsTarget && !isAuthor(proposalsTarget) && (
+                    <TouchableOpacity
+                      onPress={() => { const t = proposalsTarget; setProposalsTarget(null); if (t) openTransportPropose(t); }}
+                      style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.accent, alignItems: "center", justifyContent: "center", marginTop: 14 }}
+                    >
+                      <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.accent }}>🕐 Proposer un horaire</Text>
+                    </TouchableOpacity>
+                  )}
 
                   <TouchableOpacity
                     onPress={() => setProposalsTarget(null)}
