@@ -3143,20 +3143,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               </TouchableOpacity>
             )}
             <TouchableOpacity
-              style={[
-                styles.claimBtn,
-                canManageTransport(t)
-                  ? { backgroundColor: C.accent }
-                  : { backgroundColor: C.card, borderWidth: 1, borderColor: C.accent },
-                { flex: 1, marginTop: 0 },
-              ]}
-              onPress={() => canManageTransport(t) ? setProposalsTarget(t) : openTransportPropose(t)}
+              style={[styles.claimBtn, { backgroundColor: C.accent, flex: 1, marginTop: 0 }]}
+              onPress={() => setProposalsTarget(t)}
               activeOpacity={0.85}
             >
-              <Text style={[styles.claimBtnText, canManageTransport(t) ? null : { color: C.accent }]}>
-                {canManageTransport(t)
-                  ? `🕐 Propositions${t.transport_proposals.length ? ` (${t.transport_proposals.length})` : ""}`
-                  : "🕐 Proposition"}
+              <Text style={styles.claimBtnText}>
+                🕐 Propositions{t.transport_proposals.length ? ` (${t.transport_proposals.length})` : ""}
               </Text>
             </TouchableOpacity>
           </View>
@@ -5434,39 +5426,46 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                     size="lg"
                   />
 
-                  {proposeTarget?.transport_round_trip && (
-                    <View style={{ flexDirection: "row", gap: 8, marginBottom: 4 }}>
-                      <TouchableOpacity
-                        onPress={() => setPIncludeOut((v) => !v)}
-                        style={[styles.legToggle, { borderColor: pIncludeOut ? C.accent : C.border, backgroundColor: pIncludeOut ? `${C.accent}22` : "transparent" }]}
-                      >
-                        <Text style={{ color: pIncludeOut ? C.accent : C.muted, fontFamily: "DM_Sans_600SemiBold", fontSize: 13 }}>
-                          {pIncludeOut ? "☑" : "☐"} Aller
-                        </Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        onPress={() => setPIncludeReturn((v) => !v)}
-                        style={[styles.legToggle, { borderColor: pIncludeReturn ? C.accent : C.border, backgroundColor: pIncludeReturn ? `${C.accent}22` : "transparent" }]}
-                      >
-                        <Text style={{ color: pIncludeReturn ? C.accent : C.muted, fontFamily: "DM_Sans_600SemiBold", fontSize: 13 }}>
-                          {pIncludeReturn ? "☑" : "☐"} Retour
-                        </Text>
-                      </TouchableOpacity>
+                  {proposeTarget?.transport_round_trip ? (
+                    <View style={{ flexDirection: "row", gap: 12, marginTop: 6 }}>
+                      <View style={{ flex: 1, alignItems: "center" }}>
+                        <TouchableOpacity
+                          onPress={() => setPIncludeOut((v) => !v)}
+                          style={[styles.legToggle, { alignSelf: "stretch", alignItems: "center", borderColor: pIncludeOut ? C.accent : C.border, backgroundColor: pIncludeOut ? `${C.accent}22` : "transparent" }]}
+                        >
+                          <Text style={{ color: pIncludeOut ? C.accent : C.muted, fontFamily: "DM_Sans_600SemiBold", fontSize: 13 }}>
+                            {pIncludeOut ? "☑" : "☐"} Aller
+                          </Text>
+                        </TouchableOpacity>
+                        {pIncludeOut && (
+                          <View style={{ marginTop: 8 }}>
+                            <TimeClockPicker value={pOutTime} onChange={setPOutTime} C={C} />
+                          </View>
+                        )}
+                      </View>
+                      <View style={{ flex: 1, alignItems: "center" }}>
+                        <TouchableOpacity
+                          onPress={() => setPIncludeReturn((v) => !v)}
+                          style={[styles.legToggle, { alignSelf: "stretch", alignItems: "center", borderColor: pIncludeReturn ? C.accent : C.border, backgroundColor: pIncludeReturn ? `${C.accent}22` : "transparent" }]}
+                        >
+                          <Text style={{ color: pIncludeReturn ? C.accent : C.muted, fontFamily: "DM_Sans_600SemiBold", fontSize: 13 }}>
+                            {pIncludeReturn ? "☑" : "☐"} Retour
+                          </Text>
+                        </TouchableOpacity>
+                        {pIncludeReturn && (
+                          <View style={{ marginTop: 8 }}>
+                            <TimeClockPicker value={pReturnTime} onChange={setPReturnTime} C={C} />
+                          </View>
+                        )}
+                      </View>
                     </View>
-                  )}
-
-                  {pIncludeOut && (
-                    <>
-                      <Text style={[styles.fieldLabel, { color: C.gold }]}>Heure aller</Text>
-                      <TimeClockPicker value={pOutTime} onChange={setPOutTime} C={C} />
-                    </>
-                  )}
-
-                  {proposeTarget?.transport_round_trip && pIncludeReturn && (
-                    <>
-                      <Text style={[styles.fieldLabel, { color: C.gold }]}>Heure retour</Text>
-                      <TimeClockPicker value={pReturnTime} onChange={setPReturnTime} C={C} />
-                    </>
+                  ) : (
+                    pIncludeOut && (
+                      <>
+                        <Text style={[styles.fieldLabel, { color: C.gold }]}>Heure aller</Text>
+                        <TimeClockPicker value={pOutTime} onChange={setPOutTime} C={C} />
+                      </>
+                    )
                   )}
 
                   <TextInput
@@ -5547,18 +5546,19 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                   )}
 
                   {proposalsTarget?.transport_proposals.map((p) => {
+                    const canManage = canManageTransport(proposalsTarget);
                     const offersOut = p.offers_out ?? true;
                     const offersReturn = p.offers_return ?? !!p.return_time;
                     const outDone = !!proposalsTarget.claimed_by_prenom;
                     const returnDone = !!proposalsTarget.transport_return_claimed_by_prenom;
-                    const menuOpen = proposalMenuId === p.id;
-                    const replying = proposalReplyId === p.id;
+                    const menuOpen = canManage && proposalMenuId === p.id;
+                    const replying = canManage && proposalReplyId === p.id;
                     const openLegs: ("out" | "return")[] = [
                       ...(offersOut && !outDone ? (["out"] as const) : []),
                       ...(proposalsTarget.transport_round_trip && offersReturn && !returnDone ? (["return"] as const) : []),
                     ];
                     return (
-                      <Pressable key={p.id} onLongPress={() => { setProposalMenuId(p.id); setProposalReplyId(null); }}>
+                      <Pressable key={p.id} onLongPress={canManage ? () => { setProposalMenuId(p.id); setProposalReplyId(null); } : undefined}>
                         <View style={[styles.proposalRow, { borderColor: C.border }]}>
                           <Text style={[styles.proposalText, { color: C.text }]}>👤 {p.prenom} {p.nom}</Text>
                           {offersOut && (
@@ -5573,6 +5573,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                           )}
                           {p.note && <Text style={[styles.proposalNote, { color: C.muted }]}>{p.note}</Text>}
                           {p.response && <Text style={[styles.proposalNote, { color: C.gold }]}>↩️ Réponse : {p.response}</Text>}
+                          {canManage && (
                           <View style={{ flexDirection: "row", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
                             {!menuOpen && !replying && (offersOut && !outDone) && (
                               <TouchableOpacity
@@ -5591,6 +5592,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                               </TouchableOpacity>
                             )}
                           </View>
+                          )}
 
                           {menuOpen && (
                             <View style={{ flexDirection: "row", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
@@ -5657,7 +5659,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                     );
                   })}
 
-                  {proposalsTarget && proposalsTarget.transport_proposals.length > 0 && (
+                  {proposalsTarget && canManageTransport(proposalsTarget) && proposalsTarget.transport_proposals.length > 0 && (
                     <TouchableOpacity
                       style={[styles.actionSmall, { borderColor: C.border, marginTop: 10, alignSelf: "flex-start" }]}
                       onPress={() => rejectTransportProposals(proposalsTarget)}
@@ -5667,8 +5669,15 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                   )}
 
                   <TouchableOpacity
+                    onPress={() => { const t = proposalsTarget; setProposalsTarget(null); if (t) openTransportPropose(t); }}
+                    style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.accent, alignItems: "center", justifyContent: "center", marginTop: 14 }}
+                  >
+                    <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.accent }}>🕐 Proposer un horaire</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
                     onPress={() => setProposalsTarget(null)}
-                    style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", marginTop: 14 }}
+                    style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", marginTop: 8 }}
                   >
                     <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.muted }}>Fermer</Text>
                   </TouchableOpacity>
