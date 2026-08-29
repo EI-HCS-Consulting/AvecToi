@@ -415,6 +415,7 @@ export interface Task {
   transport_home_postal_code: string | null;
   transport_home_city: string | null;
   transport_home_country: string | null;
+  transport_home_maps_url: string | null;
   transport_home_is_arrival: boolean;
   // Horaire retenu, une fois pris en charge directement ou une proposition validée
   transport_confirmed_date: string | null;

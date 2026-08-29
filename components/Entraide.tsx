@@ -19,7 +19,7 @@ import TimeClockPicker from "@/components/TimeClockPicker";
 import ConfirmModal from "@/components/ConfirmModal";
 import ShoppingListModal from "@/components/ShoppingListModal";
 import { toFrShort } from "@/lib/slotUtils";
-import { googleMapsSearchUrl, joinAddress } from "@/lib/address";
+import { googleMapsSearchUrl, joinAddress, resolvePlaceFromMapsUrl } from "@/lib/address";
 import { addGenericEventToNativeCalendar } from "@/lib/calendarSync";
 import type { Task, TransportProposal, TaskRelaisCoverage } from "@/lib/types";
 import { CHECKLIST_COLORS, type Theme } from "@/lib/themes";
@@ -507,6 +507,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [fTHomePostalCode, setFTHomePostalCode] = useState("");
   const [fTHomeCity, setFTHomeCity] = useState("");
   const [fTHomeCountry, setFTHomeCountry] = useState("");
+  // Lien Google Maps du domicile — synchronisation bidirectionnelle avec les
+  // 4 champs ci-dessus, uniquement sur onBlur (pas de useEffect live) pour
+  // éviter toute boucle d'écrasement entre les deux sens : coller un lien
+  // remplit l'adresse (handleTransportMapsUrlBlur), modifier l'adresse
+  // régénère le lien (regenerateTransportMapsUrl). Même fonctions que
+  // app/(admin)/settings.tsx (handleHomeMapsUrlBlur) pour le sens lien→adresse.
+  const [fTHomeMapsUrl, setFTHomeMapsUrl] = useState("");
+  const [fTHomeMapsResolving, setFTHomeMapsResolving] = useState(false);
   // "Publier pour quelqu'un d'autre" (ex. un proche âgé) — distinct de
   // l'auteur (author_prenom/nom), qui reste toujours la personne connectée.
   const [fTForSomeoneElse, setFTForSomeoneElse] = useState(false);
@@ -558,6 +566,34 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setFTSwapped((v) => !v);
   }
 
+  // Régénère le lien Google Maps du domicile depuis l'adresse tapée à la
+  // main — appelé au blur des 4 champs adresse/CP/ville/pays. N'écrase rien
+  // si l'adresse est encore vide (évite un lien de recherche creux).
+  function regenerateTransportMapsUrl() {
+    if (!fTHomeAddress.trim()) return;
+    setFTHomeMapsUrl(googleMapsSearchUrl(joinAddress({
+      street: fTHomeAddress, line2: null,
+      postalCode: fTHomePostalCode, city: fTHomeCity, country: fTHomeCountry,
+    })));
+  }
+
+  // Sens inverse : coller un lien Google Maps remplit l'adresse/CP/ville/pays
+  // — même principe que handleHomeMapsUrlBlur (app/(admin)/settings.tsx), sans
+  // écraser une saisie manuelle en cours si la résolution ne trouve rien.
+  async function handleTransportMapsUrlBlur() {
+    const url = fTHomeMapsUrl.trim();
+    if (!url) return;
+    setFTHomeMapsResolving(true);
+    const place = await resolvePlaceFromMapsUrl(url);
+    setFTHomeMapsResolving(false);
+    if (place.street) setFTHomeAddress(place.street);
+    if (place.postalCode) setFTHomePostalCode(place.postalCode);
+    if (place.city) setFTHomeCity(place.city);
+    if (place.country) setFTHomeCountry(place.country);
+    const gotAddress = !!(place.street || place.postalCode || place.city);
+    if (gotAddress) showToast("Adresse récupérée depuis le lien ✓");
+  }
+
   // Bloc domicile (adresse éditable + CP/ville/pays) — affiché du côté
   // Départ ou Arrivée selon fTSwapped, jamais dupliqué ni figé (contrairement
   // au lieu de soin, affiché à part via renderFixedCareLocation()).
@@ -570,10 +606,24 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           placeholderTextColor={C.muted}
           value={fTHomeAddress}
           onChangeText={setFTHomeAddress}
+          onBlur={regenerateTransportMapsUrl}
         />
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 0 }]}>🗺️ Lien Google Maps</Text>
+          {fTHomeMapsResolving && <ActivityIndicator color={C.accent} size="small" />}
+        </View>
         <Text style={[styles.transportHint, { color: C.muted }]}>
-          Pour générer un lien Google Maps du domicile, à l'usage de la personne qui prend en charge le trajet :
+          Colle ici un lien copié depuis Google Maps pour remplir l'adresse automatiquement — ou laisse-le se générer tout seul depuis l'adresse ci-dessus/ci-dessous, à l'usage de la personne qui prend en charge le trajet.
         </Text>
+        <TextInput
+          style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+          placeholder="Colle ici le lien copié depuis Google Maps"
+          placeholderTextColor={C.muted}
+          value={fTHomeMapsUrl}
+          onChangeText={setFTHomeMapsUrl}
+          onBlur={handleTransportMapsUrlBlur}
+          autoCapitalize="none"
+        />
         <View style={{ flexDirection: "row", gap: 8 }}>
           <View style={{ flex: 1 }}>
             <Text style={[styles.fieldLabel, { color: C.gold }]}>Code postal</Text>
@@ -583,6 +633,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               placeholderTextColor={C.muted}
               value={fTHomePostalCode}
               onChangeText={setFTHomePostalCode}
+              onBlur={regenerateTransportMapsUrl}
               keyboardType="number-pad"
             />
           </View>
@@ -594,6 +645,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               placeholderTextColor={C.muted}
               value={fTHomeCity}
               onChangeText={setFTHomeCity}
+              onBlur={regenerateTransportMapsUrl}
             />
           </View>
         </View>
@@ -604,6 +656,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           placeholderTextColor={C.muted}
           value={fTHomeCountry}
           onChangeText={setFTHomeCountry}
+          onBlur={regenerateTransportMapsUrl}
         />
       </>
     );
@@ -914,7 +967,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setFTRoundTrip(false); setFTFlexible(true);
     setFTHomeAddress("");
     setFTSwapped(false);
-    setFTHomePostalCode(""); setFTHomeCity(""); setFTHomeCountry("");
+    setFTHomePostalCode(""); setFTHomeCity(""); setFTHomeCountry(""); setFTHomeMapsUrl("");
     setFTForSomeoneElse(false); setFTForPrenom(""); setFTForNom("");
     setFTCalMonth(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
     setFDateLimite(""); setFDLPickerOpen(false); setFUrgent(false); autoUrgentDateRef.current = null;
@@ -1845,6 +1898,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           transport_home_postal_code: fTHomePostalCode.trim() || null,
           transport_home_city: fTHomeCity.trim() || null,
           transport_home_country: fTHomeCountry.trim() || null,
+          transport_home_maps_url: fTHomeMapsUrl.trim() || null,
           transport_home_is_arrival: fTSwapped,
           transport_for_prenom: fTForSomeoneElse ? fTForPrenom.trim() : null,
           transport_for_nom: fTForSomeoneElse ? fTForNom.trim() : null,
@@ -2892,7 +2946,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             {(t.transport_home_is_arrival ? t.transport_to : t.transport_from) ? (
               <TouchableOpacity
                 onPress={() => {
-                  const url = googleMapsSearchUrl(joinAddress({
+                  const url = t.transport_home_maps_url || googleMapsSearchUrl(joinAddress({
                     street: t.transport_home_is_arrival ? t.transport_to : t.transport_from, line2: null,
                     postalCode: t.transport_home_postal_code, city: t.transport_home_city, country: t.transport_home_country,
                   }));
