@@ -263,7 +263,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // peu fiable (même contrainte déjà rencontrée sur le flux checklist, voir
   // checklistWizardList plus bas). Catégories pas encore migrées vers ce
   // nouvel assistant : repli sur l'ancien taskForm (voir choosePublishCategory).
-  type PublishStep = "category" | "generic" | "courses" | "courses_recurring" | "autres_options";
+  type PublishStep =
+    | "category" | "generic" | "courses" | "courses_recurring"
+    | "transport_addr" | "transport_trip" | "transport_calendar" | "transport_time"
+    | "autres_options";
   const [publishWizardOpen, setPublishWizardOpen] = useState(false);
   const [publishStep, setPublishStep] = useState<PublishStep>("category");
   // Sélection multiple pour l'étape "Produits récurrents" du nouvel assistant
@@ -935,11 +938,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setPublishWizardOpen(true);
   }
 
-  // Catégories couvertes par le nouvel assistant "Publier" — les autres
-  // (Transport) ouvrent encore l'ancien formulaire taskForm en attendant sa
-  // propre PR, pour ne jamais publier un besoin mal formé (ex. transport
-  // sans date) pendant la transition.
-  const WIZARD_READY_CATEGORIES: TaskCategory[] = ["affaires", "autre", "repas", "administratif", "courses"];
+  // Toutes les catégories créables (relais exclu de cette grille, voir plus
+  // bas) sont désormais couvertes par le nouvel assistant "Publier" — le
+  // repli sur l'ancien taskForm ci-dessous ne sert plus qu'en théorie et
+  // reste en place pour ne rien casser tant que le nettoyage des blocs
+  // `!editTask &&` de taskForm (voir Documentation) n'a pas eu lieu.
+  const WIZARD_READY_CATEGORIES: TaskCategory[] = ["affaires", "autre", "repas", "administratif", "courses", "transport"];
 
   function choosePublishCategory(cat: TaskCategory) {
     if (!WIZARD_READY_CATEGORIES.includes(cat)) {
@@ -955,7 +959,9 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     const title = CATEGORY_AUTO_TITLES[cat];
     autoTitleRef.current = title;
     setFTitle(title);
-    setPublishStep(cat === "courses" ? "courses" : "generic");
+    if (cat === "courses") { setPublishStep("courses"); return; }
+    if (cat === "transport") { setPublishStep("transport_addr"); return; }
+    setPublishStep("generic");
   }
 
   function cancelPublishWizard() {
@@ -1660,7 +1666,9 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
   // Assistant "Publier" : le titre n'est jamais vide (auto-rempli par
   // choosePublishCategory), donc pas besoin du garde !fTitle.trim() ici.
-  const publishWizardReady = claimOnCreateReady;
+  // transportFormReady (adresses/date/heures, défini plus haut avec le reste
+  // du state transport) ne s'applique qu'à la catégorie Transport.
+  const publishWizardReady = claimOnCreateReady && (fCat !== "transport" || transportFormReady);
 
   // Checklist perso "Créer une checklist" en attente de publication —
   // l'étape "generic"/"Autres options" masque alors ce qui ne s'applique
@@ -3734,9 +3742,15 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         animationType="fade"
         onRequestClose={() => {
           if (taskSaving) return;
-          if (publishStep === "autres_options") { setPublishStep(fCat === "courses" ? "courses" : "generic"); return; }
+          if (publishStep === "autres_options") {
+            setPublishStep(fCat === "courses" ? "courses" : fCat === "transport" ? "transport_time" : "generic");
+            return;
+          }
           if (publishStep === "courses_recurring") { setWizardRecurringPicked(new Set()); setPublishStep("courses"); return; }
-          if (publishStep === "courses" || publishStep === "generic") { setPublishStep("category"); return; }
+          if (publishStep === "transport_time") { setPublishStep("transport_calendar"); return; }
+          if (publishStep === "transport_calendar") { setPublishStep("transport_trip"); return; }
+          if (publishStep === "transport_trip") { setPublishStep("transport_addr"); return; }
+          if (publishStep === "courses" || publishStep === "generic" || publishStep === "transport_addr") { setPublishStep("category"); return; }
           cancelPublishWizard();
         }}
       >
@@ -3978,6 +3992,186 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                   </View>
                 )}
 
+                {publishStep === "transport_addr" && (
+                  <View>
+                    <Text style={[styles.sheetTitle, { color: C.text }]}>🚗 Départ / Arrivée</Text>
+
+                    <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 8 }]}>Départ *</Text>
+                    {fTSwapped ? renderFixedCareLocation() : renderHomeAddressFields()}
+                    <Text style={[styles.fieldLabel, { color: C.gold }]}>Arrivée *</Text>
+                    {fTSwapped ? renderHomeAddressFields() : renderFixedCareLocation()}
+                    <View style={styles.swapBtnRow}>
+                      <TouchableOpacity
+                        style={[styles.swapBtn, { backgroundColor: C.gold }]}
+                        onPress={swapTransportDirection}
+                        activeOpacity={0.85}
+                      >
+                        <Text style={styles.swapBtnText}>⇄ Intervertir départ / arrivée</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.sheetBtns}>
+                      <TouchableOpacity onPress={cancelPublishWizard} style={[styles.btnSecondary, { borderColor: C.border }]}>
+                        <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => setPublishStep("transport_trip")}
+                        disabled={!fTHomeAddress.trim()}
+                        style={[styles.btnPrimary, { backgroundColor: C.accent }, !fTHomeAddress.trim() && { opacity: 0.5 }]}
+                      >
+                        <Text style={styles.btnPrimaryText}>Suivant</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
+                {publishStep === "transport_trip" && (
+                  <View>
+                    <Text style={[styles.sheetTitle, { color: C.text }]}>🔁 Type de trajet</Text>
+
+                    <View style={{ marginTop: 12 }}>
+                      <SegmentedSwitch
+                        value={fTRoundTrip}
+                        onChange={setFTRoundTrip}
+                        leftLabel="➡️ Aller simple"
+                        rightLabel="🔁 Aller-retour"
+                        C={C}
+                        onThumbWidth={setTransportThumbWidth}
+                      />
+                    </View>
+
+                    <View style={{ marginTop: 10 }}>
+                      <SegmentedSwitch
+                        value={!fTFlexible}
+                        onChange={(v) => setFTFlexible(!v)}
+                        leftLabel="🕊️ Flexible"
+                        rightLabel="Horaire fixe"
+                        C={C}
+                        thumbWidth={transportThumbWidth || undefined}
+                      />
+                    </View>
+
+                    <View style={styles.sheetBtns}>
+                      <TouchableOpacity onPress={cancelPublishWizard} style={[styles.btnSecondary, { borderColor: C.border }]}>
+                        <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => setPublishStep("transport_calendar")}
+                        style={[styles.btnPrimary, { backgroundColor: C.accent }]}
+                      >
+                        <Text style={styles.btnPrimaryText}>Suivant</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
+                {publishStep === "transport_calendar" && (
+                  <View>
+                    <Text style={[styles.sheetTitle, { color: C.text }]}>📅 Date souhaitée</Text>
+
+                    <MiniCalendar
+                      selDate={fTDate}
+                      onSelect={handleTransportDateSelect}
+                      calMonth={fTCalMonth}
+                      onMonthChange={setFTCalMonth}
+                      startDate={new Date()}
+                      C={C}
+                      size="lg"
+                    />
+
+                    <View style={styles.sheetBtns}>
+                      <TouchableOpacity onPress={cancelPublishWizard} style={[styles.btnSecondary, { borderColor: C.border }]}>
+                        <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={() => setPublishStep("transport_time")}
+                        disabled={!fTDate.trim()}
+                        style={[styles.btnPrimary, { backgroundColor: C.accent }, !fTDate.trim() && { opacity: 0.5 }]}
+                      >
+                        <Text style={styles.btnPrimaryText}>Suivant</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
+                {publishStep === "transport_time" && (
+                  <View>
+                    <Text style={[styles.sheetTitle, { color: C.text }]}>🕐 Horaires</Text>
+
+                    <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 8 }]}>Heure aller *</Text>
+                    <TimeClockPicker value={fTOutTime} onChange={setFTOutTime} C={C} />
+
+                    {fTRoundTrip && (
+                      <>
+                        <Text style={[styles.fieldLabel, { color: C.gold }]}>Heure retour *</Text>
+                        <TimeClockPicker value={fTReturnTime} onChange={setFTReturnTime} C={C} />
+                      </>
+                    )}
+
+                    <TouchableOpacity
+                      style={[
+                        styles.claimOnCreateBtn,
+                        {
+                          backgroundColor: fTForSomeoneElse ? `${C.accent}22` : C.bg,
+                          borderColor: fTForSomeoneElse ? C.accent : C.border,
+                          marginTop: 12,
+                        },
+                      ]}
+                      onPress={() => setFTForSomeoneElse((v) => !v)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.claimOnCreateText, { color: fTForSomeoneElse ? C.accent : C.text }]}>
+                        {fTForSomeoneElse ? "👤 Pour une autre personne" : "👤 Publier pour quelqu'un d'autre"}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {fTForSomeoneElse && (
+                      <View style={{ flexDirection: "row", gap: 8, marginTop: 10 }}>
+                        <TextInput
+                          style={[styles.input, { flex: 1, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                          placeholder="Son prénom *"
+                          placeholderTextColor={C.muted}
+                          value={fTForPrenom}
+                          onChangeText={setFTForPrenom}
+                          autoCapitalize="words"
+                        />
+                        <TextInput
+                          style={[styles.input, { flex: 1, backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                          placeholder="Son nom *"
+                          placeholderTextColor={C.muted}
+                          value={fTForNom}
+                          onChangeText={setFTForNom}
+                          autoCapitalize="words"
+                        />
+                      </View>
+                    )}
+
+                    <TouchableOpacity
+                      onPress={() => setPublishStep("autres_options")}
+                      style={[styles.claimOnCreateBtn, { backgroundColor: C.bg, borderColor: C.border, marginTop: 12 }]}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.claimOnCreateText, { color: C.text }]}>⚙️ Autres options</Text>
+                    </TouchableOpacity>
+
+                    <View style={styles.sheetBtns}>
+                      <TouchableOpacity onPress={cancelPublishWizard} disabled={taskSaving} style={[styles.btnSecondary, { borderColor: C.border }]}>
+                        <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        onPress={handleWizardPublish}
+                        disabled={!publishWizardReady || taskSaving}
+                        style={[styles.btnPrimary, { backgroundColor: C.accent }, (!publishWizardReady || taskSaving) && { opacity: 0.5 }]}
+                      >
+                        {taskSaving
+                          ? <ActivityIndicator color="#fff" size="small" />
+                          : <Text style={styles.btnPrimaryText}>Publier</Text>
+                        }
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
                 {publishStep === "autres_options" && (
                   <View>
                     <Text style={[styles.sheetTitle, { color: C.text }]}>Autres options</Text>
@@ -4014,36 +4208,40 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                       </>
                     )}
 
-                    <TouchableOpacity
-                      style={[
-                        styles.claimOnCreateBtn,
-                        { backgroundColor: fDLPickerOpen ? `${C.accent}22` : C.bg, borderColor: fDLPickerOpen ? C.accent : C.border },
-                      ]}
-                      onPress={() => {
-                        if (fDLPickerOpen) setFDateLimite("");
-                        setFDLPickerOpen((v) => !v);
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <Text style={[styles.claimOnCreateText, { color: fDLPickerOpen ? C.accent : C.text }]}>
-                        {fDLPickerOpen ? "📅 Retirer la date" : pendingChecklistBatch ? "📅 Ajouter une échéance commune (optionnel)" : "📅 Ajouter une échéance (optionnel)"}
-                      </Text>
-                    </TouchableOpacity>
-
-                    {fDLPickerOpen && (
+                    {fCat !== "transport" && (
                       <>
-                        <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 12 }]}>
-                          Le besoin se fermera automatiquement passé cette date s'il n'est pas pris en charge
-                        </Text>
-                        <MiniCalendar
-                          selDate={fDateLimite}
-                          onSelect={setFDateLimite}
-                          calMonth={fDLCalMonth}
-                          onMonthChange={setFDLCalMonth}
-                          startDate={new Date()}
-                          C={C}
-                          size="lg"
-                        />
+                        <TouchableOpacity
+                          style={[
+                            styles.claimOnCreateBtn,
+                            { backgroundColor: fDLPickerOpen ? `${C.accent}22` : C.bg, borderColor: fDLPickerOpen ? C.accent : C.border },
+                          ]}
+                          onPress={() => {
+                            if (fDLPickerOpen) setFDateLimite("");
+                            setFDLPickerOpen((v) => !v);
+                          }}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={[styles.claimOnCreateText, { color: fDLPickerOpen ? C.accent : C.text }]}>
+                            {fDLPickerOpen ? "📅 Retirer la date" : pendingChecklistBatch ? "📅 Ajouter une échéance commune (optionnel)" : "📅 Ajouter une échéance (optionnel)"}
+                          </Text>
+                        </TouchableOpacity>
+
+                        {fDLPickerOpen && (
+                          <>
+                            <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 12 }]}>
+                              Le besoin se fermera automatiquement passé cette date s'il n'est pas pris en charge
+                            </Text>
+                            <MiniCalendar
+                              selDate={fDateLimite}
+                              onSelect={setFDateLimite}
+                              calMonth={fDLCalMonth}
+                              onMonthChange={setFDLCalMonth}
+                              startDate={new Date()}
+                              C={C}
+                              size="lg"
+                            />
+                          </>
+                        )}
                       </>
                     )}
 
@@ -4060,7 +4258,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                       </Text>
                     </TouchableOpacity>
 
-                    {!pendingChecklistActive && (
+                    {!pendingChecklistActive && fCat !== "transport" && (
                       <>
                         <TouchableOpacity
                           style={[
@@ -4119,7 +4317,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                     )}
 
                     <TouchableOpacity
-                      onPress={() => setPublishStep(fCat === "courses" ? "courses" : "generic")}
+                      onPress={() => setPublishStep(fCat === "courses" ? "courses" : fCat === "transport" ? "transport_time" : "generic")}
                       activeOpacity={0.85}
                       style={{ width: "100%", borderRadius: 10, paddingVertical: 14, alignItems: "center", justifyContent: "center", backgroundColor: C.accent, marginTop: 16 }}
                     >
