@@ -345,6 +345,11 @@ export interface TransportProposal {
   offers_return: boolean;
   note: string | null;
   created_at: string;
+  // Réponse de l'auteur/bénéficiaire à cette proposition précise (distincte
+  // de note, qui vient du proposant) — visible sur le besoin, et déclenche
+  // une alerte au proposant tant que response_seen est faux.
+  response: string | null;
+  response_seen: boolean;
 }
 
 export interface Task {

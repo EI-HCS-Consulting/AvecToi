@@ -176,6 +176,14 @@ function extractPlaceSegments(url: string): string[] {
  * ajoute le pays comme dernier segment ("..., 8001 Zürich, Suisse") — on
  * cherche donc le segment "<CP> <ville>" n'importe où, pas seulement en
  * dernière position, et tout ce qui suit devient le pays.
+ *
+ * Le segment 0 est traité comme un nom d'établissement (ex. "Hôpital
+ * Michallon") seulement s'il y a au moins un segment entre lui et le
+ * CP+ville. Pour un lien qui pointe sur une adresse simple sans
+ * établissement nommé (cas fréquent d'un domicile : "12 Rue des Lilas,
+ * 38000 Grenoble"), le CP+ville arrive juste après le segment 0 — celui-ci
+ * est alors la rue elle-même, pas un nom, sinon la rue resterait vide alors
+ * que CP/ville se remplissent (bug constaté en usage réel).
  */
 function parseAddressFromSegments(segments: string[]): { street: string | null; postalCode: string | null; city: string | null; country: string | null } {
   const rest = segments.slice(1);
@@ -185,7 +193,8 @@ function parseAddressFromSegments(segments: string[]): { street: string | null; 
     return { street: rest.join(", ") || null, postalCode: null, city: null, country: null };
   }
   const cpMatch = rest[cpIndex].match(/^(\d{4,6})\s+(.+)$/)!;
-  const street = rest.slice(0, cpIndex).join(", ") || null;
+  const streetSegments = rest.slice(0, cpIndex);
+  const street = streetSegments.length > 0 ? streetSegments.join(", ") : (segments[0] ?? null);
   const country = rest.slice(cpIndex + 1).join(", ") || null;
   return { street, postalCode: cpMatch[1], city: cpMatch[2], country };
 }

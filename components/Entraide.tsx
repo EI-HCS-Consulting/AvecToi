@@ -218,7 +218,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // Le créateur d'un besoin Transport — seul lui (ou l'admin) peut valider
   // une proposition d'horaire.
   const isAuthor = (t: Task) => samePerson(t.author_prenom, t.author_nom, t.author_pin);
-  const canManageTransport = (t: Task) => isAdmin || isAuthor(t);
+  // Le bénéficiaire d'un besoin Transport publié "pour quelqu'un d'autre" —
+  // pas de PIN dédié à ce rôle, identifié par prénom/nom de session comme
+  // courseContributedByMe (myFullName), pas par samePerson.
+  const isForPerson = (t: Task) => !!myFullName && !!t.transport_for_prenom && !!t.transport_for_nom
+    && myFullName.prenom.trim().toLowerCase() === t.transport_for_prenom.trim().toLowerCase()
+    && myFullName.nom.trim().toLowerCase() === t.transport_for_nom.trim().toLowerCase();
+  const canManageTransport = (t: Task) => isAdmin || isAuthor(t) || isForPerson(t);
   // Vrai dès qu'au moins une jambe (aller ou retour) a déjà un preneur —
   // sert à masquer "Je m'en occupe" (qui prendrait les deux jambes d'un
   // coup) une fois qu'une jambe a été attribuée séparément via une
@@ -682,6 +688,17 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // propositions d'un besoin Transport et valide aller et/ou retour,
   // éventuellement depuis deux propositions différentes) ──
   const [proposalsTarget, setProposalsTarget] = useState<Task | null>(null);
+  // Menu Accepter/Répondre déployé sous une proposition après un clic
+  // prolongé (id de la proposition, pas un booléen — un seul menu ouvert à
+  // la fois). proposalReplyId/proposalReplyText gèrent l'étape suivante,
+  // la saisie de la réponse libre. États inline (pas de nouveau Modal) : la
+  // modale "Propositions reçues" est déjà ouverte, et Android n'aime pas
+  // les Modal imbriqués (voir renderHomeAddressFields et les autres popups
+  // de ce fichier, toujours un seul <Modal> actif à la fois).
+  const [proposalMenuId, setProposalMenuId] = useState<string | null>(null);
+  const [proposalReplyId, setProposalReplyId] = useState<string | null>(null);
+  const [proposalReplyText, setProposalReplyText] = useState("");
+  const [proposalReplySaving, setProposalReplySaving] = useState(false);
 
   // ── Modale "Proposition" (aidant propose un autre horaire sur un besoin
   // Transport ouvert, sans le prendre en charge directement) ──
@@ -706,6 +723,21 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     && (!proposeTarget?.transport_round_trip || !pIncludeReturn || pReturnTime.length === 5)
     && (!proposeTarget?.transport_round_trip || pIncludeOut || pIncludeReturn)
     && (isAdmin || pPin.length >= 4);
+
+  // Alerte "on t'a répondu" pour le proposant — pas d'infrastructure globale
+  // de notification (BookingProposalAlertModal est indexée sur un
+  // intervenant_profile_id stable, absent ici) : on scanne simplement les
+  // tasks déjà chargées à chaque rendu de l'écran Entraide pour la première
+  // proposition de MOI (samePerson, donc PIN requis — pas myFullName) qui a
+  // une réponse pas encore vue.
+  const myUnseenProposalResponse = (() => {
+    for (const t of tasks) {
+      for (const p of t.transport_proposals ?? []) {
+        if (p.response && !p.response_seen && samePerson(p.prenom, p.nom, p.pin)) return { task: t, proposal: p };
+      }
+    }
+    return null;
+  })();
 
   // Case à cocher "je m'en occupe déjà" dans le formulaire de création (pas
   // en édition) — le besoin est alors créé directement en "pris_en_charge"
@@ -2659,6 +2691,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       offers_return: includeReturn,
       note: pNote.trim() || null,
       created_at: new Date().toISOString(),
+      response: null,
+      response_seen: false,
     };
     // Relit transport_proposals juste avant d'écrire pour limiter le risque
     // d'écraser une proposition envoyée entre-temps par quelqu'un d'autre
@@ -2724,6 +2758,48 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     await supabase.from("tasks").update({ transport_proposals: [] }).eq("id", t.id);
     setProposalsTarget(null);
     showToast("Propositions écartées");
+    loadTasks();
+  }
+
+  // Réponse de l'auteur/bénéficiaire à une proposition précise — relit
+  // transport_proposals juste avant d'écrire, même précaution anti-écrasement
+  // que submitTransportProposal ci-dessus.
+  async function submitProposalResponse(t: Task, p: TransportProposal) {
+    const text = proposalReplyText.trim();
+    if (!text) return;
+    setProposalReplySaving(true);
+    const { data, error: selectError } = await supabase
+      .from("tasks").select("transport_proposals").eq("id", t.id).single();
+    if (selectError) {
+      setProposalReplySaving(false);
+      Alert.alert("Erreur", "Impossible de charger le besoin : " + selectError.message);
+      return;
+    }
+    const current: TransportProposal[] = data?.transport_proposals ?? t.transport_proposals ?? [];
+    const updated = current.map((entry) => entry.id === p.id
+      ? { ...entry, response: text, response_seen: false }
+      : entry);
+    const { error: updateError } = await supabase
+      .from("tasks").update({ transport_proposals: updated }).eq("id", t.id);
+    setProposalReplySaving(false);
+    if (updateError) {
+      Alert.alert("Erreur", "La réponse n'a pas pu être envoyée : " + updateError.message);
+      return;
+    }
+    setProposalReplyId(null);
+    setProposalReplyText("");
+    showToast("Réponse envoyée ✓");
+    loadTasks();
+  }
+
+  // Marque la réponse comme vue par le proposant — referme l'alerte pour de
+  // bon (contrairement à une simple fermeture de popup, voir
+  // avectoi_alerts_close_marks_seen_gotcha : ici c'est un clic explicite
+  // "OK" dédié, pas une fermeture générique de la modale).
+  async function markProposalResponseSeen(t: Task, p: TransportProposal) {
+    const current = t.transport_proposals ?? [];
+    const updated = current.map((entry) => entry.id === p.id ? { ...entry, response_seen: true } : entry);
+    await supabase.from("tasks").update({ transport_proposals: updated }).eq("id", t.id);
     loadTasks();
   }
 
@@ -5475,39 +5551,109 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                     const offersReturn = p.offers_return ?? !!p.return_time;
                     const outDone = !!proposalsTarget.claimed_by_prenom;
                     const returnDone = !!proposalsTarget.transport_return_claimed_by_prenom;
+                    const menuOpen = proposalMenuId === p.id;
+                    const replying = proposalReplyId === p.id;
+                    const openLegs: ("out" | "return")[] = [
+                      ...(offersOut && !outDone ? (["out"] as const) : []),
+                      ...(proposalsTarget.transport_round_trip && offersReturn && !returnDone ? (["return"] as const) : []),
+                    ];
                     return (
-                      <View key={p.id} style={[styles.proposalRow, { borderColor: C.border }]}>
-                        <Text style={[styles.proposalText, { color: C.text }]}>👤 {p.prenom} {p.nom}</Text>
-                        {offersOut && (
-                          <Text style={[styles.proposalText, { color: C.text }]}>
-                            Aller : {p.out_time ? slotLabel(p.date, p.out_time) : "—"}
-                          </Text>
-                        )}
-                        {offersReturn && (
-                          <Text style={[styles.proposalText, { color: C.text }]}>
-                            Retour : {p.return_time ? p.return_time.replace(":", "h") : "—"}
-                          </Text>
-                        )}
-                        {p.note && <Text style={[styles.proposalNote, { color: C.muted }]}>{p.note}</Text>}
-                        <View style={{ flexDirection: "row", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
-                          {offersOut && !outDone && (
-                            <TouchableOpacity
-                              style={[styles.actionSmall, { borderColor: C.success, backgroundColor: `${C.success}18` }]}
-                              onPress={() => validateTransportLeg(proposalsTarget, p, "out")}
-                            >
-                              <Text style={[styles.actionSmallText, { color: C.success }]}>✓ Valider l'aller</Text>
-                            </TouchableOpacity>
+                      <Pressable key={p.id} onLongPress={() => { setProposalMenuId(p.id); setProposalReplyId(null); }}>
+                        <View style={[styles.proposalRow, { borderColor: C.border }]}>
+                          <Text style={[styles.proposalText, { color: C.text }]}>👤 {p.prenom} {p.nom}</Text>
+                          {offersOut && (
+                            <Text style={[styles.proposalText, { color: C.text }]}>
+                              Aller : {p.out_time ? slotLabel(p.date, p.out_time) : "—"}
+                            </Text>
                           )}
-                          {proposalsTarget.transport_round_trip && offersReturn && !returnDone && (
-                            <TouchableOpacity
-                              style={[styles.actionSmall, { borderColor: C.success, backgroundColor: `${C.success}18` }]}
-                              onPress={() => validateTransportLeg(proposalsTarget, p, "return")}
-                            >
-                              <Text style={[styles.actionSmallText, { color: C.success }]}>✓ Valider le retour</Text>
-                            </TouchableOpacity>
+                          {offersReturn && (
+                            <Text style={[styles.proposalText, { color: C.text }]}>
+                              Retour : {p.return_time ? p.return_time.replace(":", "h") : "—"}
+                            </Text>
+                          )}
+                          {p.note && <Text style={[styles.proposalNote, { color: C.muted }]}>{p.note}</Text>}
+                          {p.response && <Text style={[styles.proposalNote, { color: C.gold }]}>↩️ Réponse : {p.response}</Text>}
+                          <View style={{ flexDirection: "row", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+                            {!menuOpen && !replying && (offersOut && !outDone) && (
+                              <TouchableOpacity
+                                style={[styles.actionSmall, { borderColor: C.success, backgroundColor: `${C.success}18` }]}
+                                onPress={() => validateTransportLeg(proposalsTarget, p, "out")}
+                              >
+                                <Text style={[styles.actionSmallText, { color: C.success }]}>✓ Valider l'aller</Text>
+                              </TouchableOpacity>
+                            )}
+                            {!menuOpen && !replying && (proposalsTarget.transport_round_trip && offersReturn && !returnDone) && (
+                              <TouchableOpacity
+                                style={[styles.actionSmall, { borderColor: C.success, backgroundColor: `${C.success}18` }]}
+                                onPress={() => validateTransportLeg(proposalsTarget, p, "return")}
+                              >
+                                <Text style={[styles.actionSmallText, { color: C.success }]}>✓ Valider le retour</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+
+                          {menuOpen && (
+                            <View style={{ flexDirection: "row", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                              {openLegs.length > 0 && (
+                                <TouchableOpacity
+                                  style={[styles.actionSmall, { borderColor: C.success, backgroundColor: `${C.success}18` }]}
+                                  onPress={() => {
+                                    setProposalMenuId(null);
+                                    // Une seule jambe restante : on valide directement. Deux
+                                    // jambes ouvertes : referme juste le menu pour révéler les
+                                    // deux boutons "Valider l'aller"/"Valider le retour"
+                                    // existants — pas de choix supplémentaire à inventer ici.
+                                    if (openLegs.length === 1) validateTransportLeg(proposalsTarget, p, openLegs[0]);
+                                  }}
+                                >
+                                  <Text style={[styles.actionSmallText, { color: C.success }]}>✓ Accepter</Text>
+                                </TouchableOpacity>
+                              )}
+                              <TouchableOpacity
+                                style={[styles.actionSmall, { borderColor: C.gold, backgroundColor: `${C.gold}18` }]}
+                                onPress={() => { setProposalReplyId(p.id); setProposalReplyText(p.response ?? ""); setProposalMenuId(null); }}
+                              >
+                                <Text style={[styles.actionSmallText, { color: C.gold }]}>✏️ Répondre</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                style={[styles.actionSmall, { borderColor: C.border }]}
+                                onPress={() => setProposalMenuId(null)}
+                              >
+                                <Text style={[styles.actionSmallText, { color: C.muted }]}>Annuler</Text>
+                              </TouchableOpacity>
+                            </View>
+                          )}
+
+                          {replying && (
+                            <View style={{ marginTop: 8 }}>
+                              <TextInput
+                                style={[styles.groupAddInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text, marginTop: 0 }]}
+                                placeholder="Ta réponse à cette proposition..."
+                                placeholderTextColor={C.muted}
+                                value={proposalReplyText}
+                                onChangeText={setProposalReplyText}
+                                multiline
+                              />
+                              <View style={{ flexDirection: "row", gap: 8, marginTop: 6 }}>
+                                <TouchableOpacity
+                                  style={[styles.groupAddBtn, { flex: 1, borderColor: C.gold, opacity: proposalReplyText.trim() && !proposalReplySaving ? 1 : 0.5 }]}
+                                  onPress={() => submitProposalResponse(proposalsTarget, p)}
+                                  disabled={!proposalReplyText.trim() || proposalReplySaving}
+                                >
+                                  <Text style={[styles.groupAddBtnText, { color: C.gold }]}>{proposalReplySaving ? "Envoi..." : "Envoyer"}</Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={[styles.groupAddBtn, { flex: 1, borderColor: C.border }]}
+                                  onPress={() => { setProposalReplyId(null); setProposalReplyText(""); }}
+                                  disabled={proposalReplySaving}
+                                >
+                                  <Text style={[styles.groupAddBtnText, { color: C.muted }]}>Annuler</Text>
+                                </TouchableOpacity>
+                              </View>
+                            </View>
                           )}
                         </View>
-                      </View>
+                      </Pressable>
                     );
                   })}
 
@@ -5527,6 +5673,43 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                     <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.muted }}>Fermer</Text>
                   </TouchableOpacity>
             </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── Alerte "on t'a répondu" (proposition Transport) ────────────── */}
+      {/* Repli volontaire tant qu'un autre Modal de cet écran est ouvert —
+          contrainte Android "un seul <Modal> à la fois" : cette alerte
+          n'attend pas, elle se réaffichera au prochain rendu une fois
+          l'autre popup fermé. */}
+      <Modal
+        visible={!!myUnseenProposalResponse && !taskForm && !publishWizardOpen && !proposalsTarget && !proposeTarget}
+        transparent
+        animationType="fade"
+        onRequestClose={() => myUnseenProposalResponse && markProposalResponseSeen(myUnseenProposalResponse.task, myUnseenProposalResponse.proposal)}
+      >
+        <View style={styles.centeredOverlay}>
+          <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.gold }]}>
+            <View style={{ alignItems: "center", marginBottom: 14 }}>
+              <Text style={{ fontSize: 32, marginBottom: 6 }}>🕐</Text>
+              <Text style={[styles.sheetTitle, { color: C.text }]}>On t'a répondu</Text>
+            </View>
+            {myUnseenProposalResponse && (
+              <>
+                <Text style={[styles.sheetSub, { color: C.text, textAlign: "center", marginBottom: 8 }]}>
+                  À propos de ta proposition pour « {myUnseenProposalResponse.task.title} »
+                </Text>
+                <Text style={[styles.proposalNote, { color: C.gold, textAlign: "center", fontStyle: "normal" }]}>
+                  {myUnseenProposalResponse.proposal.response}
+                </Text>
+              </>
+            )}
+            <TouchableOpacity
+              onPress={() => myUnseenProposalResponse && markProposalResponseSeen(myUnseenProposalResponse.task, myUnseenProposalResponse.proposal)}
+              style={{ width: "100%", height: 48, borderRadius: 10, backgroundColor: C.gold, alignItems: "center", justifyContent: "center", marginTop: 16 }}
+            >
+              <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: "#fff" }}>OK</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
