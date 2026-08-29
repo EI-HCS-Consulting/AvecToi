@@ -350,6 +350,10 @@ export interface TransportProposal {
   // une alerte au proposant tant que response_seen est faux.
   response: string | null;
   response_seen: boolean;
+  // Vrai quand l'auteur/bénéficiaire a cliqué "Aucune ne convient" — la
+  // proposition reste visible (jamais supprimée du tableau) mais affichée
+  // avec un tag "Déclinée" et sans bouton de validation.
+  declined: boolean;
 }
 
 export interface Task {
