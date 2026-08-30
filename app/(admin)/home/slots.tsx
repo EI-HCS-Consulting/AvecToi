@@ -3,12 +3,13 @@ import { View, Text, TouchableOpacity, ScrollView, StyleSheet } from "react-nati
 import { useLocalSearchParams } from "expo-router";
 import { useSpace } from "@/lib/SpaceContext";
 import { supabase } from "@/lib/supabase";
-import { getSlotOccupancy, getNightReservation, toISO, toFrLong, toFrShort, addDays, nightStartSlot, nightRangeLabel } from "@/lib/slotUtils";
+import { getSlotOccupancy, getNightReservation, isReservationDatePast, toISO, toFrLong, toFrShort, addDays, nightStartSlot, nightRangeLabel } from "@/lib/slotUtils";
 import { deleteLinkedCalendarEvent } from "@/lib/calendarSync";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import SpaceHeader from "@/components/SpaceHeader";
 import AdminAddReservation, { type AdminAddReservationHandle } from "@/components/AdminAddReservation";
 import AdminEditReservation, { type AdminEditReservationHandle } from "@/components/AdminEditReservation";
+import AdminReservationDetail, { type AdminReservationDetailHandle } from "@/components/AdminReservationDetail";
 import DeleteReservationConfirm, { type DeleteReservationConfirmHandle } from "@/components/DeleteReservationConfirm";
 import AdminSlotsList from "@/components/AdminSlotsList";
 import { isSpaceCapped } from "@/lib/freemiumCap";
@@ -26,6 +27,7 @@ export default function AdminSlotsScreen() {
   const { theme: C } = useDisplayMode();
   const addRef = useRef<AdminAddReservationHandle>(null);
   const editRef = useRef<AdminEditReservationHandle>(null);
+  const detailRef = useRef<AdminReservationDetailHandle>(null);
   const deleteRef = useRef<DeleteReservationConfirmHandle>(null);
 
   const startDate = space ? new Date(space.start_date + "T00:00:00") : new Date();
@@ -54,14 +56,16 @@ export default function AdminSlotsScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusDate]);
 
-  // Rouvre directement la modale de modification sur la réservation ciblée
-  // depuis "Mon compte → Mes réservations" — même mécanisme que côté visiteur
-  // (VisitorContext.pendingEditReservationId).
+  // Rouvre l'étape "détail" (même enchaînement que côté visiteur) sur la
+  // réservation ciblée depuis "Mon compte → Mes réservations" — même
+  // mécanisme que côté visiteur (VisitorContext.pendingEditReservationId).
   useEffect(() => {
     if (!pendingEditReservationId) return;
     const r = reservations.find((x) => x.id === pendingEditReservationId);
     if (!r) return;
-    editRef.current?.open(r);
+    // Filet de sécurité : une réservation passée n'est plus modifiable, même
+    // via ce mécanisme de lien profond — on reste juste sur le jour.
+    if (!isReservationDatePast(r.date)) detailRef.current?.open(r);
     setPendingEditReservationId(null);
   }, [pendingEditReservationId, reservations, setPendingEditReservationId]);
 
@@ -182,6 +186,15 @@ export default function AdminSlotsScreen() {
       <AdminEditReservation
         ref={editRef}
         onSaved={async () => { await refreshReservations(); showToast("Réservation modifiée ✓"); }}
+        onDelete={handleDeleteResa}
+        C={C}
+      />
+
+      <AdminReservationDetail
+        ref={detailRef}
+        space={space}
+        slotConfig={slotConfig}
+        onEdit={(r) => editRef.current?.open(r)}
         onDelete={handleDeleteResa}
         C={C}
       />

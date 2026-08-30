@@ -44,6 +44,31 @@ const CAT_LABELS: Record<Task["category"], string> = {
 };
 const CAT_ORDER: Task["category"][] = ["repas", "affaires", "courses", "transport", "administratif", "relais", "autre"];
 
+// Tri "Planifié" : chronologique sur la date propre au besoin (date du
+// transport pour la catégorie transport, échéance sinon) — pas la date de
+// création, sinon les transports ressortaient dans le désordre.
+function sortTasksPlanifie(tasks: Task[]): Task[] {
+  const key = (t: Task) => (t.category === "transport" && t.transport_date ? t.transport_date : t.date_limite) || "";
+  return [...tasks].sort((a, b) => {
+    const ka = key(a), kb = key(b);
+    if (!ka && !kb) return 0;
+    if (!ka) return 1;
+    if (!kb) return -1;
+    return ka.localeCompare(kb);
+  });
+}
+
+// Tri "Historique" : antichronologique sur la date de publication, avec
+// l'échéance comme critère secondaire pour départager les besoins publiés le
+// même jour.
+function sortTasksHistorique(tasks: Task[]): Task[] {
+  return [...tasks].sort((a, b) => {
+    const ca = a.created_at.slice(0, 10), cb = b.created_at.slice(0, 10);
+    if (ca !== cb) return cb.localeCompare(ca);
+    return (b.date_limite || "").localeCompare(a.date_limite || "");
+  });
+}
+
 type ContribKey = "resv" | "news" | "soutien" | "besoins";
 // Libellés harmonisés avec SECTION_META côté visiteur (app/(visitor)/account.tsx)
 // — même vocabulaire des deux côtés de l'App.
@@ -112,12 +137,12 @@ export default function AdminAccountScreen() {
   const myTasksHistorique = useMemo(() => allMyTasks.filter((t) => t.status === "fait" || t.status === "ferme"), [allMyTasks]);
   const myTasksByCategoryPlanifie = useMemo(() => {
     const groups = new Map<Task["category"], Task[]>();
-    for (const t of myTasksPlanifie) { const arr = groups.get(t.category); if (arr) arr.push(t); else groups.set(t.category, [t]); }
+    for (const t of sortTasksPlanifie(myTasksPlanifie)) { const arr = groups.get(t.category); if (arr) arr.push(t); else groups.set(t.category, [t]); }
     return CAT_ORDER.map((cat) => ({ cat, tasks: groups.get(cat) || [] })).filter((g) => g.tasks.length > 0);
   }, [myTasksPlanifie]);
   const myTasksByCategoryHistorique = useMemo(() => {
     const groups = new Map<Task["category"], Task[]>();
-    for (const t of myTasksHistorique) { const arr = groups.get(t.category); if (arr) arr.push(t); else groups.set(t.category, [t]); }
+    for (const t of sortTasksHistorique(myTasksHistorique)) { const arr = groups.get(t.category); if (arr) arr.push(t); else groups.set(t.category, [t]); }
     return CAT_ORDER.map((cat) => ({ cat, tasks: groups.get(cat) || [] })).filter((g) => g.tasks.length > 0);
   }, [myTasksHistorique]);
   async function confirmDesengage() {
@@ -526,7 +551,10 @@ export default function AdminAccountScreen() {
   // : rouvre directement la modale AdminEditReservation sur cette réservation
   // précise, au lieu de se contenter d'amener sur le jour/l'écran générique.
   function handleOpenReservation(r: Reservation) {
-    setPendingEditReservationId(r.id);
+    // Une réservation passée (Historique) n'est plus modifiable/annulable,
+    // même par l'admin — on renvoie juste vers le jour avec les créneaux,
+    // sans ouvrir le popup de modification.
+    if (!isReservationDatePast(r.date)) setPendingEditReservationId(r.id);
     if (r.type === "Nuit") {
       router.push({ pathname: "/(admin)/home/nights", params: { focusDate: r.date } } as any);
     } else {
@@ -586,6 +614,11 @@ export default function AdminAccountScreen() {
               <Text style={[styles.activityRowSub, { color: C.muted }]}>
                 🗓️ Publié le {toFrShort(new Date(t.created_at))}
               </Text>
+              {(t.author_prenom || t.author_nom) && (
+                <Text style={[styles.activityRowSub, { color: C.muted }]}>
+                  👤 Publié par {[t.author_prenom, t.author_nom].filter(Boolean).join(" ")}
+                </Text>
+              )}
               {t.date_limite && (
                 <Text style={[styles.activityRowSub, { color: C.muted }]}>
                   📅 Échéance : {toFrShort(new Date(t.date_limite + "T12:00:00"))}
@@ -806,7 +839,7 @@ export default function AdminAccountScreen() {
                             <Text style={[styles.recurringBtnText, { color: C.accent }]}>🔁 Réservations récurrentes</Text>
                           </TouchableOpacity>
 
-                          <Text style={[styles.catHeader, { color: C.gold }]}>📅 À venir ({reservationGroupsUpcoming.length})</Text>
+                          <Text style={[styles.catHeader, { color: C.gold }]}>📅 Planifié ({reservationGroupsUpcoming.length})</Text>
                           <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
                             {reservationGroupsUpcoming.length === 0 ? (
                               <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucune réservation à venir.</Text>
@@ -839,7 +872,7 @@ export default function AdminAccountScreen() {
                             <TouchableOpacity
                               key={entry.id}
                               style={styles.activityRow}
-                              onPress={() => router.push("/(admin)/news" as any)}
+                              onPress={() => router.push(`/(admin)/news?focusEntryId=${entry.id}` as any)}
                               activeOpacity={0.7}
                             >
                               <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
@@ -859,7 +892,7 @@ export default function AdminAccountScreen() {
                             <TouchableOpacity
                               key={m.id}
                               style={styles.activityRow}
-                              onPress={() => router.push("/(admin)/soutien" as any)}
+                              onPress={() => router.push(`/(admin)/soutien?focusMessageId=${m.id}` as any)}
                               activeOpacity={0.7}
                             >
                               <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
@@ -1287,7 +1320,7 @@ const styles = StyleSheet.create({
   },
   contribHeaderText: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },
   contribCard: { marginTop: 10 },
-  recurringBtn: { borderWidth: 1, borderRadius: 10, paddingVertical: 12, alignItems: "center", marginTop: 6 },
+  recurringBtn: { borderWidth: 1, borderRadius: 10, paddingVertical: 12, alignItems: "center", marginTop: 6, marginBottom: 14 },
   recurringBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 13 },
 
   activityEmpty: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },

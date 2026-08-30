@@ -9,6 +9,7 @@ import { useDisplayMode } from "@/lib/DisplayModeContext";
 import SpaceHeader from "@/components/SpaceHeader";
 import AdminAddReservation, { type AdminAddReservationHandle } from "@/components/AdminAddReservation";
 import AdminEditReservation, { type AdminEditReservationHandle } from "@/components/AdminEditReservation";
+import AdminReservationDetail, { type AdminReservationDetailHandle } from "@/components/AdminReservationDetail";
 import DeleteReservationConfirm, { type DeleteReservationConfirmHandle } from "@/components/DeleteReservationConfirm";
 import type { Reservation } from "@/lib/types";
 
@@ -18,6 +19,7 @@ export default function AdminNightsScreen() {
   const { theme: C } = useDisplayMode();
   const addRef = useRef<AdminAddReservationHandle>(null);
   const editRef = useRef<AdminEditReservationHandle>(null);
+  const detailRef = useRef<AdminReservationDetailHandle>(null);
   const deleteRef = useRef<DeleteReservationConfirmHandle>(null);
 
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
@@ -29,14 +31,16 @@ export default function AdminNightsScreen() {
     setTimeout(() => setToast(""), 3000);
   }
 
-  // Rouvre directement la modale de modification sur la réservation ciblée
-  // depuis "Mon compte → Mes réservations" — même mécanisme que côté visiteur
-  // (VisitorContext.pendingEditReservationId).
+  // Rouvre l'étape "détail" (même enchaînement que côté visiteur) sur la
+  // nuitée ciblée depuis "Mon compte → Mes réservations" — même mécanisme
+  // que côté visiteur (VisitorContext.pendingEditReservationId).
   useEffect(() => {
     if (!pendingEditReservationId) return;
     const r = reservations.find((x) => x.id === pendingEditReservationId);
     if (!r) return;
-    editRef.current?.open(r);
+    // Filet de sécurité : une nuitée passée n'est plus modifiable, même via
+    // ce mécanisme de lien profond — on reste juste sur l'écran.
+    if (!isReservationDatePast(r.date)) detailRef.current?.open(r);
     setPendingEditReservationId(null);
   }, [pendingEditReservationId, reservations, setPendingEditReservationId]);
 
@@ -210,6 +214,15 @@ export default function AdminNightsScreen() {
       <AdminEditReservation
         ref={editRef}
         onSaved={async () => { await refreshReservations(); showToast("Nuitée modifiée ✓"); }}
+        onDelete={handleDelete}
+        C={C}
+      />
+
+      <AdminReservationDetail
+        ref={detailRef}
+        space={space}
+        slotConfig={slotConfig}
+        onEdit={handleEdit}
         onDelete={handleDelete}
         C={C}
       />
