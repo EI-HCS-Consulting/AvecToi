@@ -13,10 +13,11 @@ import { supabase } from "@/lib/supabase";
 import { blobToArrayBuffer } from "@/lib/blobToArrayBuffer";
 import { downloadAndShare, downloadAndShareMultiple, logSavedMedia, isShareAvailable } from "@/lib/mediaShare";
 import { getVisitorSession, rememberAuthorPin } from "@/lib/visitorSession";
+import { useWallUnread, useWallVisibility } from "@/lib/wallUnread";
 import PinPad from "@/components/PinPad";
 import VisitorProfileModal from "@/components/VisitorProfileModal";
 import type { SupportMessage, SupportMessageReply } from "@/lib/types";
-import type { Theme } from "@/lib/themes";
+import { UNREAD_WALL_FILL, type Theme } from "@/lib/themes";
 
 // Section "Mur de soutien" extraite de l'ancien EntraideSoutien.tsx — voir
 // components/Entraide.tsx pour l'autre moitié (Besoins).
@@ -664,6 +665,13 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
   // supabase/migrations/20260811_content_deleted_by_admin.sql.
   const visibleMessages = messages.filter((m) => !m.deleted_by_admin || (!isAdmin && isOwnMessage(m)));
 
+  // Fond pastel orange tant qu'un message publié par quelqu'un d'autre n'a
+  // pas défilé dans la zone visible du ScrollView (voir lib/wallUnread.ts,
+  // mécanisme partagé avec Entraide/Nouvelles).
+  const { unreadIds, markSeen } = useWallUnread("soutien", spaceId, isAdmin, msgsLoading ? null : visibleMessages);
+  const { onScroll: onMsgsScroll, onScrollViewLayout: onMsgsScrollLayout, registerItemLayout: registerMsgLayout } =
+    useWallVisibility(unreadIds, markSeen);
+
   // Liste aplatie des médias pour la vue "Médias" (bouton du sous-header) —
   // uniquement les photos des messages, pas des réponses (voir plan).
   const mediaItems = visibleMessages
@@ -788,7 +796,15 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
           )}
         </>
       ) : (
-      <ScrollView key="feed-list" ref={scrollRef} contentContainerStyle={styles.listPad} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        key="feed-list"
+        ref={scrollRef}
+        contentContainerStyle={styles.listPad}
+        keyboardShouldPersistTaps="handled"
+        onScroll={onMsgsScroll}
+        onLayout={onMsgsScrollLayout}
+        scrollEventThrottle={100}
+      >
         {msgsLoading ? (
           <ActivityIndicator color={C.accent} style={{ marginTop: 24 }} />
         ) : visibleMessages.length === 0 ? (
@@ -810,13 +826,18 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
             // seul son auteur le voit encore, donc plus aucune conversation
             // à préserver, et "Supprimer définitivement" doit rester possible.
             const canDeleteMessage = isAdmin || (own && (m.deleted_by_admin || !replies[m.id]?.length));
+            const unread = unreadIds.has(m.id);
             return (
             <View
               key={m.id}
-              onLayout={(e) => { msgOffsets.current[m.id] = e.nativeEvent.layout.y; }}
+              onLayout={(e) => {
+                msgOffsets.current[m.id] = e.nativeEvent.layout.y;
+                registerMsgLayout(m.id)(e);
+              }}
               style={[
                 styles.msgCard,
                 { backgroundColor: C.card, borderColor: highlighted ? C.gold : C.border },
+                unread && { backgroundColor: UNREAD_WALL_FILL },
                 highlighted && { borderWidth: 2 },
               ]}
             >

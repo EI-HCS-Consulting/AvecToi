@@ -19,6 +19,7 @@ import BirthdayAlertModal from "@/components/BirthdayAlertModal";
 import DeletedContentAlertModal from "@/components/DeletedContentAlertModal";
 import IntervenantOnboardingFlow from "@/components/IntervenantOnboardingFlow";
 import EntraideTabIcon from "@/components/EntraideTabIcon";
+import UnreadDotIcon from "@/components/UnreadDotIcon";
 
 function VisitorTabs() {
   const { space, token, loading } = useVisitorSpace();
@@ -316,7 +317,9 @@ function VisitorTabs() {
         name="news"
         options={{
           title: "Nouvelles",
-          tabBarIcon: ({ color, size }) => <Ionicons name="newspaper-outline" size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => (
+            <UnreadDotIcon scope="news" table="news_entries" spaceId={space?.id ?? null} isAdmin={false} iconName="newspaper-outline" color={color} size={size} theme={C} />
+          ),
           href: role === "intervenant" ? null : undefined,
         }}
       />
@@ -354,7 +357,9 @@ function VisitorTabs() {
         name="soutien"
         options={{
           title: "Soutien",
-          tabBarIcon: ({ color, size }) => <Ionicons name="heart-outline" size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => (
+            <UnreadDotIcon scope="soutien" table="support_messages" spaceId={space?.id ?? null} isAdmin={false} iconName="heart-outline" color={color} size={size} theme={C} />
+          ),
           href: role === "intervenant" ? null : undefined,
         }}
       />

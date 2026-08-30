@@ -11,7 +11,7 @@ import * as Crypto from "expo-crypto";
 import { File } from "expo-file-system";
 import { supabase } from "@/lib/supabase";
 import { getVisitorSession, rememberAuthorPin, sessionPinMatches } from "@/lib/visitorSession";
-import { markEntraideSeen } from "@/lib/entraideBadges";
+import { useWallUnread, useWallVisibility } from "@/lib/wallUnread";
 import PinPad from "@/components/PinPad";
 import MiniCalendar from "@/components/MiniCalendar";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
@@ -22,7 +22,7 @@ import { toFrShort, toISO } from "@/lib/slotUtils";
 import { googleMapsSearchUrl, joinAddress, resolvePlaceFromMapsUrl } from "@/lib/address";
 import { addGenericEventToNativeCalendar } from "@/lib/calendarSync";
 import type { Task, TransportProposal, TaskRelaisCoverage } from "@/lib/types";
-import { CHECKLIST_COLORS, type Theme } from "@/lib/themes";
+import { CHECKLIST_COLORS, UNREAD_WALL_FILL, type Theme } from "@/lib/themes";
 import { CHECKLIST_TEMPLATES, addDaysIso, checklistItemDescription, findTemplateItemByTitle, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
 import { isRelaisFullyCovered, computeRelaisGaps, type RelaisCoverageRange } from "@/lib/relaisCoverage";
 
@@ -952,13 +952,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
   useEffect(() => { loadTasks(); }, [loadTasks]);
 
-  // Marque "vu" à chaque affichage de la liste (y compris rechargements
-  // realtime pendant que l'écran est déjà ouvert) — référence utilisée par
-  // la cloche rouge de la barre d'onglets, voir lib/entraideBadges.ts.
-  useEffect(() => {
-    if (tasksLoading) return;
-    markEntraideSeen(spaceId, isAdmin);
-  }, [tasksLoading, tasks, spaceId, isAdmin]);
+  // Fond pastel orange tant qu'un besoin publié par quelqu'un d'autre n'a
+  // pas défilé dans la zone visible du ScrollView (voir lib/wallUnread.ts) —
+  // remplace l'ancien marquage "vu" immédiat au chargement (référence encore
+  // utilisée par la cloche rouge de la barre d'onglets, voir EntraideTabIcon).
+  const { unreadIds, markSeen } = useWallUnread("entraide", spaceId, isAdmin, tasksLoading ? null : tasks);
+  const { onScroll: onTasksScroll, onScrollViewLayout: onTasksScrollLayout, registerItemLayout: registerTaskLayout } =
+    useWallVisibility(unreadIds, markSeen);
 
   // Arrivée depuis "Mon compte" via un lien profond (?focusTaskId=...) —
   // à chaque nouvelle navigation (même écran déjà monté, cas des Tabs qui
@@ -2998,6 +2998,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   function renderTask(t: Task) {
     const statusColors = STATUS_COLORS(C);
     const highlighted = highlightId === t.id;
+    const unread = unreadIds.has(t.id);
     // Sélection multiple : admin sur tout besoin, visiteur seulement sur ceux
     // qu'il a lui-même publiés (voir isAuthor) et pas encore fermés depuis
     // trop longtemps (voir isTaskClosedPast) — même périmètre que la
@@ -3022,7 +3023,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     return (
       <AnimatedPressable
         key={t.id}
-        onLayout={(e) => { taskOffsets.current[t.id] = e.nativeEvent.layout.y; }}
+        onLayout={(e) => {
+          taskOffsets.current[t.id] = e.nativeEvent.layout.y;
+          registerTaskLayout(t.id)(e);
+        }}
         onLongPress={() => {
           if (selectable && !selectionMode) enterSelection(t.id);
           // Sur un besoin "fait", la sélection multiple est désactivée (voir
@@ -3036,6 +3040,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         style={[
           styles.taskCard,
           { backgroundColor: C.card, borderColor: restingColor, borderWidth: restingWidth },
+          unread && { backgroundColor: UNREAD_WALL_FILL },
           highlighted && { borderColor: animBorderColor, borderWidth: animBorderWidth },
           selected && { borderColor: C.accent, borderWidth: 2, backgroundColor: `${C.accent}11` },
         ]}
@@ -3584,7 +3589,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           </Text>
         </View>
       ) : (
-        <ScrollView ref={scrollRef} contentContainerStyle={styles.listPad}>
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={styles.listPad}
+          onScroll={onTasksScroll}
+          onLayout={onTasksScrollLayout}
+          scrollEventThrottle={100}
+        >
           {visibleOpen.map(renderTask)}
           {(visibleClosedUpcoming.length > 0 || visibleClosedHistory.length > 0) && visibleOpen.length > 0 && (
             <Text style={[styles.listSectionHeader, { color: C.gold }]}>🔒 Fermés</Text>
