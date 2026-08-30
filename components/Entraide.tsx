@@ -22,7 +22,7 @@ import { toFrShort, toISO } from "@/lib/slotUtils";
 import { googleMapsSearchUrl, joinAddress, resolvePlaceFromMapsUrl } from "@/lib/address";
 import { addGenericEventToNativeCalendar } from "@/lib/calendarSync";
 import type { Task, TransportProposal, TaskRelaisCoverage } from "@/lib/types";
-import { CHECKLIST_COLORS, UNREAD_WALL_FILL, type Theme } from "@/lib/themes";
+import { CHECKLIST_COLORS, type Theme } from "@/lib/themes";
 import { CHECKLIST_TEMPLATES, addDaysIso, checklistItemDescription, findTemplateItemByTitle, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
 import { isRelaisFullyCovered, computeRelaisGaps, type RelaisCoverageRange } from "@/lib/relaisCoverage";
 
@@ -3040,11 +3040,19 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         style={[
           styles.taskCard,
           { backgroundColor: C.card, borderColor: restingColor, borderWidth: restingWidth },
-          unread && { backgroundColor: UNREAD_WALL_FILL },
+          // Besoin non urgent : le bord orange remplace directement le bord
+          // au repos. Besoin urgent (déjà cerné de rouge) : un simple
+          // remplacement masquerait l'urgence, donc un 2e cadre orange est
+          // superposé à l'intérieur (voir unreadInnerRing plus bas) au lieu
+          // de toucher au bord existant.
+          unread && !urgentOpen && { borderColor: C.orange, borderWidth: 2 },
           highlighted && { borderColor: animBorderColor, borderWidth: animBorderWidth },
           selected && { borderColor: C.accent, borderWidth: 2, backgroundColor: `${C.accent}11` },
         ]}
       >
+        {unread && urgentOpen && (
+          <View pointerEvents="none" style={[styles.unreadInnerRing, { borderColor: C.orange }]} />
+        )}
         <View style={styles.taskHeader}>
           {selectable && selectionMode && (
             <View style={[styles.selectDot, { borderColor: C.accent, backgroundColor: selected ? C.accent : "transparent" }]}>
@@ -6373,6 +6381,10 @@ const styles = StyleSheet.create({
   listSubsectionHeader: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", marginTop: 10, marginBottom: 6 },
 
   taskCard: { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 },
+  // 2e cadre (non lu) affiché à l'intérieur du cadre rouge d'un besoin urgent
+  // — voir renderTask, styles.taskCard ne peut porter qu'une seule couleur
+  // de bord à la fois.
+  unreadInnerRing: { position: "absolute", top: 4, left: 4, right: 4, bottom: 4, borderWidth: 2, borderRadius: 10 },
   taskHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" },
   selectDot: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: "center", justifyContent: "center" },
   selectDotCheck: { color: "#fff", fontSize: 13, fontFamily: "DM_Sans_700Bold" },
