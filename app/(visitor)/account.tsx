@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, ActivityIndicator, Image, Alert, Modal,
@@ -33,6 +33,7 @@ import MyRelaisCommitments from "@/components/MyRelaisCommitments";
 import MyAlertsModal from "@/components/MyAlertsModal";
 import { fetchOpenRelaisAlerts, fetchMyRelaisCoverageHistory, type RelaisCoverageSummary } from "@/lib/relaisAlerts";
 import type { Reservation, ReservationChangeHistoryEntry, NewsEntry, SupportMessage, Task } from "@/lib/types";
+import { TASK_CATEGORY_COLORS } from "@/lib/themes";
 
 function visitorPhotoUrl(spaceId: string, filename: string) {
   const { data } = supabase.storage.from("visitor-photos").getPublicUrl(`${spaceId}/${filename}`);
@@ -81,6 +82,11 @@ interface LinkedIntervenantSpace {
 const CAT_ICONS: Record<Task["category"], string> = {
   repas: "🍽️", affaires: "🧳", courses: "🛒", transport: "🚗", administratif: "🗂️", autre: "📌", relais: "🆘",
 };
+const CAT_LABELS: Record<Task["category"], string> = {
+  repas: "Repas", affaires: "Affaires", courses: "Courses", transport: "Transport",
+  administratif: "Administratif", autre: "Autre", relais: "Relais",
+};
+const CAT_ORDER: Task["category"][] = ["repas", "affaires", "courses", "transport", "administratif", "relais", "autre"];
 
 type AccountSectionKey = "info" | "patients" | "mes_soins" | "resv" | "news" | "soutien" | "besoins";
 // Ordre d'affichage de la grille = ordre des clés ci-dessous : Infos/
@@ -213,6 +219,26 @@ export default function VisitorAccountScreen() {
     }, []),
   );
   const identityMissing = !prenom.trim() || !nom.trim();
+
+  // Fusionne "pris en charge" (myTasks) et "publiés" (myPublishedTasks) en
+  // une seule liste dédupliquée — un besoin publié ET auto-pris-en-charge
+  // (claimOnCreate) ressortait sinon des deux requêtes Supabase et
+  // s'affichait deux fois (voir Entraide.tsx > saveTask > claimOnCreate).
+  const claimedTaskIds = useMemo(() => new Set(myTasks.map((t) => t.id)), [myTasks]);
+  const allMyTasks = useMemo(() => {
+    const byId = new Map<string, Task>();
+    for (const t of myPublishedTasks) byId.set(t.id, t);
+    for (const t of myTasks) byId.set(t.id, t);
+    return [...byId.values()];
+  }, [myTasks, myPublishedTasks]);
+  const myTasksByCategory = useMemo(() => {
+    const groups = new Map<Task["category"], Task[]>();
+    for (const t of allMyTasks) {
+      const arr = groups.get(t.category);
+      if (arr) arr.push(t); else groups.set(t.category, [t]);
+    }
+    return CAT_ORDER.map((cat) => ({ cat, tasks: groups.get(cat) || [] })).filter((g) => g.tasks.length > 0);
+  }, [allMyTasks]);
 
   function showToast(msg: string) {
     setToast(msg);
@@ -880,15 +906,18 @@ export default function VisitorAccountScreen() {
     }
   }
 
-  // Ouvre le créneau concerné sur l'écran Créneaux (Visite) ou Nuitées
-  // (Nuit) — simple navigation, jamais de modale PIN automatique : la
-  // modification/annulation reste une action volontaire (bouton "Modifier"),
-  // à faire depuis le créneau lui-même.
+  // Ouvre pile la réservation concernée sur l'écran Créneaux (Visite) ou
+  // Nuitées (Nuit) — même mécanisme que RebookingAlertModal
+  // (pendingEditReservationId) : rouvre directement la modale PIN/modification
+  // sur cette réservation précise, au lieu de se contenter d'amener sur le
+  // jour/l'écran générique.
   function handleOpenReservation(r: Reservation) {
     if (r.type === "Nuit") {
+      setPendingEditReservationId(r.id);
       router.push("/(visitor)/home/nights" as any);
     } else {
       setSelectedDay(new Date(r.date + "T12:00:00"));
+      setPendingEditReservationId(r.id);
       router.push("/(visitor)/home/slots" as any);
     }
   }
@@ -1057,7 +1086,7 @@ export default function VisitorAccountScreen() {
             : key === "resv" ? `${myReservations.length} réservation(s)`
             : key === "news" ? `${myNews.length} nouvelle(s)`
             : key === "soutien" ? `${myMessages.length} message(s)`
-            : `${myTasks.length + myPublishedTasks.length} besoin(s)`;
+            : `${allMyTasks.length} besoin(s)`;
           return (
             <View key={key}>
               <TouchableOpacity
@@ -1415,63 +1444,52 @@ export default function VisitorAccountScreen() {
                 activityLoading ? (
                   <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
                 ) : identityMissing ? missingIdentityCard : (
-                  <>
+                  allMyTasks.length === 0 ? (
                     <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
-                      {myTasks.length === 0 ? (
-                        <Text style={[styles.activityEmpty, { color: C.muted }]}>Tu n'as pris en charge aucun besoin pour le moment.</Text>
-                      ) : myTasks.map((t) => (
-                        <TouchableOpacity
-                          key={t.id}
-                          style={styles.activityRow}
-                          onPress={() => router.push(`/(visitor)/entraide?focusTaskId=${t.id}` as any)}
-                          onLongPress={() => disengageTask(t)}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
-                            {CAT_ICONS[t.category]} {t.title}
-                          </Text>
-                          <View style={[styles.activityStatusBadge, { borderColor: t.status === "fait" ? C.success : C.orange }]}>
-                            <Text style={[styles.activityStatusText, { color: t.status === "fait" ? C.success : C.orange }]}>
-                              {t.status === "fait" ? "✓ Fait" : "⏳ En attente"}
-                            </Text>
-                          </View>
-                          <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
-                        </TouchableOpacity>
-                      ))}
+                      <Text style={[styles.activityEmpty, { color: C.muted }]}>Tu n'as ni pris en charge ni publié de besoin pour le moment.</Text>
                     </View>
-
-                    <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
-                      {myPublishedTasks.length === 0 ? (
-                        <Text style={[styles.activityEmpty, { color: C.muted }]}>Tu n'as publié aucun besoin pour le moment.</Text>
-                      ) : myPublishedTasks.map((t) => (
-                        <TouchableOpacity
-                          key={t.id}
-                          style={styles.activityRow}
-                          onPress={() => router.push(`/(visitor)/entraide?focusTaskId=${t.id}` as any)}
-                          activeOpacity={0.7}
+                  ) : (
+                    <>
+                      {myTasksByCategory.map(({ cat, tasks: catTasks }) => (
+                        <View
+                          key={cat}
+                          style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: TASK_CATEGORY_COLORS[cat] }]}
                         >
-                          <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
-                            {CAT_ICONS[t.category]} {t.title}
+                          <Text style={[styles.mesSoinsSubtitle, { color: TASK_CATEGORY_COLORS[cat] }]}>
+                            {CAT_ICONS[cat]} {CAT_LABELS[cat]}
                           </Text>
-                          <View style={[
-                            styles.activityStatusBadge,
-                            { borderColor: t.status === "fait" ? C.success : t.status === "ferme" ? C.danger : C.orange },
-                          ]}>
-                            <Text style={[
-                              styles.activityStatusText,
-                              { color: t.status === "fait" ? C.success : t.status === "ferme" ? C.danger : C.orange },
-                            ]}>
-                              {t.status === "fait" ? "✓ Fait"
-                                : t.status === "pris_en_charge" ? "🤝 Pris en charge"
-                                : t.status === "ferme" ? "🔒 Fermé"
-                                : "⏳ Ouvert"}
-                            </Text>
-                          </View>
-                          <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
-                        </TouchableOpacity>
+                          {catTasks.map((t) => (
+                            <TouchableOpacity
+                              key={t.id}
+                              style={styles.activityRow}
+                              onPress={() => router.push(`/(visitor)/entraide?focusTaskId=${t.id}` as any)}
+                              onLongPress={() => { if (claimedTaskIds.has(t.id)) disengageTask(t); }}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
+                                {t.title}
+                              </Text>
+                              <View style={[
+                                styles.activityStatusBadge,
+                                { borderColor: t.status === "fait" ? C.success : t.status === "ferme" ? C.danger : C.orange },
+                              ]}>
+                                <Text style={[
+                                  styles.activityStatusText,
+                                  { color: t.status === "fait" ? C.success : t.status === "ferme" ? C.danger : C.orange },
+                                ]}>
+                                  {t.status === "fait" ? "✓ Fait"
+                                    : t.status === "pris_en_charge" ? "🤝 Pris en charge"
+                                    : t.status === "ferme" ? "🔒 Fermé"
+                                    : "⏳ Ouvert"}
+                                </Text>
+                              </View>
+                              <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
                       ))}
-                    </View>
-                  </>
+                    </>
+                  )
                 )
               )}
             </View>

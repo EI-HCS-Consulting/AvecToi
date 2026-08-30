@@ -643,7 +643,13 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
   }
 
   async function requestEdit(entry: NewsEntryWithUrls) {
-    if (isAdmin || (await sessionPinMatches(entry.author_pin, { prenom: entry.author_prenom, nom: entry.author_nom }))) {
+    if (isAdmin) {
+      // L'admin ne modifie que ses propres publications, jamais celles d'un
+      // visiteur — la suppression reste possible (modération), pas l'édition.
+      if (entry.author_pin === "ADMIN") openEdit(entry);
+      return;
+    }
+    if (await sessionPinMatches(entry.author_pin, { prenom: entry.author_prenom, nom: entry.author_nom })) {
       openEdit(entry);
       return;
     }
@@ -789,7 +795,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
           </View>
           {canModify && (
             <View style={styles.cardActions}>
-              {!entry.deleted_by_admin && (
+              {!entry.deleted_by_admin && (!isAdmin || entry.author_pin === "ADMIN") && (
                 <TouchableOpacity onPress={() => requestEdit(entry)} style={[styles.actionBtn, { borderColor: C.border }]}>
                   <Text style={[styles.actionBtnText, { color: C.muted }]}>✏️</Text>
                 </TouchableOpacity>

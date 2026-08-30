@@ -26,6 +26,7 @@ import ConfirmModal from "@/components/ConfirmModal";
 import RecurringBookingModal from "@/components/RecurringBookingModal";
 import { fetchOpenRelaisAlerts, fetchMyRelaisCoverageHistory, type RelaisCoverageSummary } from "@/lib/relaisAlerts";
 import type { Reservation, ReservationChangeHistoryEntry, NewsEntry, SupportMessage, Task } from "@/lib/types";
+import { TASK_CATEGORY_COLORS } from "@/lib/themes";
 
 const CAT_ICONS: Record<Task["category"], string> = {
   repas: "🍽️",
@@ -36,6 +37,11 @@ const CAT_ICONS: Record<Task["category"], string> = {
   autre: "💡",
   relais: "🆘",
 };
+const CAT_LABELS: Record<Task["category"], string> = {
+  repas: "Repas", affaires: "Affaires", courses: "Courses", transport: "Transport",
+  administratif: "Administratif", autre: "Autre", relais: "Relais",
+};
+const CAT_ORDER: Task["category"][] = ["repas", "affaires", "courses", "transport", "administratif", "relais", "autre"];
 
 type ContribKey = "resv" | "news" | "soutien" | "besoins";
 // Libellés harmonisés avec SECTION_META côté visiteur (app/(visitor)/account.tsx)
@@ -85,6 +91,26 @@ export default function AdminAccountScreen() {
   const [relaisCoverageHistory, setRelaisCoverageHistory] = useState<RelaisCoverageSummary[]>([]);
   const [desengageTarget, setDesengageTarget] = useState<Task | null>(null);
   const [desengageSaving, setDesengageSaving] = useState(false);
+
+  // Fusionne "pris en charge" (myClaimedTasks) et "publiés" (tasks) en une
+  // seule liste dédupliquée — un besoin publié ET auto-pris-en-charge par
+  // l'admin (claimOnCreate) ressortait sinon des deux requêtes et
+  // s'affichait deux fois (même bug que côté visiteur, voir account.tsx).
+  const claimedTaskIds = useMemo(() => new Set(myClaimedTasks.map((t) => t.id)), [myClaimedTasks]);
+  const allMyTasks = useMemo(() => {
+    const byId = new Map<string, Task>();
+    for (const t of tasks) byId.set(t.id, t);
+    for (const t of myClaimedTasks) byId.set(t.id, t);
+    return [...byId.values()];
+  }, [tasks, myClaimedTasks]);
+  const myTasksByCategory = useMemo(() => {
+    const groups = new Map<Task["category"], Task[]>();
+    for (const t of allMyTasks) {
+      const arr = groups.get(t.category);
+      if (arr) arr.push(t); else groups.set(t.category, [t]);
+    }
+    return CAT_ORDER.map((cat) => ({ cat, tasks: groups.get(cat) || [] })).filter((g) => g.tasks.length > 0);
+  }, [allMyTasks]);
   async function confirmDesengage() {
     if (!desengageTarget) return;
     setDesengageSaving(true);
@@ -620,7 +646,7 @@ export default function AdminAccountScreen() {
                   const count = key === "resv" ? reservationGroups.length
                     : key === "news" ? news.length
                     : key === "soutien" ? messages.length
-                    : tasks.length;
+                    : allMyTasks.length;
                   const isOpen = activeContrib === key;
                   return (
                     <View key={key}>
@@ -712,73 +738,62 @@ export default function AdminAccountScreen() {
                       )}
 
                       {isOpen && key === "besoins" && (
-                        <>
+                        allMyTasks.length === 0 ? (
                           <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
-                            {myClaimedTasks.length === 0 ? (
-                              <Text style={[styles.activityEmpty, { color: C.muted }]}>Tu n'as pris en charge aucun besoin pour le moment.</Text>
-                            ) : myClaimedTasks.map((t) => (
-                              <TouchableOpacity
-                                key={t.id}
-                                style={styles.activityRow}
-                                onPress={() => router.push("/(admin)/entraide" as any)}
-                                onLongPress={() => setDesengageTarget(t)}
-                                activeOpacity={0.7}
-                              >
-                                <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
-                                  {CAT_ICONS[t.category]} {t.title}
-                                </Text>
-                                <View style={[styles.activityStatusBadge, { borderColor: t.status === "fait" ? C.success : C.orange }]}>
-                                  <Text style={[styles.activityStatusText, { color: t.status === "fait" ? C.success : C.orange }]}>
-                                    {t.status === "fait" ? "✓ Fait" : "⏳ En attente"}
-                                  </Text>
-                                </View>
-                                <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
-                              </TouchableOpacity>
-                            ))}
+                            <Text style={[styles.activityEmpty, { color: C.muted }]}>Tu n'as ni pris en charge ni publié de besoin pour le moment.</Text>
                           </View>
-
-                          <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
-                            {tasks.length === 0 ? (
-                              <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucun besoin publié pour le moment.</Text>
-                            ) : tasks.map((t) => (
-                              <TouchableOpacity
-                                key={t.id}
-                                style={styles.activityRow}
-                                onPress={() => router.push("/(admin)/entraide" as any)}
-                                activeOpacity={0.7}
+                        ) : (
+                          <>
+                            {myTasksByCategory.map(({ cat, tasks: catTasks }) => (
+                              <View
+                                key={cat}
+                                style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: TASK_CATEGORY_COLORS[cat] }]}
                               >
-                                <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={1}>
-                                  {CAT_ICONS[t.category]} {t.title}
+                                <Text style={[styles.catHeader, { color: TASK_CATEGORY_COLORS[cat] }]}>
+                                  {CAT_ICONS[cat]} {CAT_LABELS[cat]}
                                 </Text>
-                                <View style={[
-                                  styles.activityStatusBadge,
-                                  {
-                                    borderColor: t.status === "fait" ? C.success
-                                      : t.status === "pris_en_charge" ? C.accent
-                                      : t.status === "ferme" ? C.danger
-                                      : C.orange,
-                                  },
-                                ]}>
-                                  <Text style={[
-                                    styles.activityStatusText,
-                                    {
-                                      color: t.status === "fait" ? C.success
-                                        : t.status === "pris_en_charge" ? C.accent
-                                        : t.status === "ferme" ? C.danger
-                                        : C.orange,
-                                    },
-                                  ]}>
-                                    {t.status === "fait" ? "✓ Fait"
-                                      : t.status === "pris_en_charge" ? "⏳ Pris en charge"
-                                      : t.status === "ferme" ? "🔒 Fermé"
-                                      : "🔓 Ouvert"}
-                                  </Text>
-                                </View>
-                                <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
-                              </TouchableOpacity>
+                                {catTasks.map((t) => (
+                                  <TouchableOpacity
+                                    key={t.id}
+                                    style={styles.activityRow}
+                                    onPress={() => router.push(`/(admin)/entraide?focusTaskId=${t.id}` as any)}
+                                    onLongPress={() => { if (claimedTaskIds.has(t.id)) setDesengageTarget(t); }}
+                                    activeOpacity={0.7}
+                                  >
+                                    <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
+                                      {t.title}
+                                    </Text>
+                                    <View style={[
+                                      styles.activityStatusBadge,
+                                      {
+                                        borderColor: t.status === "fait" ? C.success
+                                          : t.status === "pris_en_charge" ? C.accent
+                                          : t.status === "ferme" ? C.danger
+                                          : C.orange,
+                                      },
+                                    ]}>
+                                      <Text style={[
+                                        styles.activityStatusText,
+                                        {
+                                          color: t.status === "fait" ? C.success
+                                            : t.status === "pris_en_charge" ? C.accent
+                                            : t.status === "ferme" ? C.danger
+                                            : C.orange,
+                                        },
+                                      ]}>
+                                        {t.status === "fait" ? "✓ Fait"
+                                          : t.status === "pris_en_charge" ? "⏳ Pris en charge"
+                                          : t.status === "ferme" ? "🔒 Fermé"
+                                          : "🔓 Ouvert"}
+                                      </Text>
+                                    </View>
+                                    <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
+                                  </TouchableOpacity>
+                                ))}
+                              </View>
                             ))}
-                          </View>
-                        </>
+                          </>
+                        )
                       )}
                     </View>
                   );
@@ -1168,6 +1183,7 @@ const styles = StyleSheet.create({
   recurringBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 13 },
 
   activityEmpty: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
+  catHeader: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 8 },
   activityRow: { paddingVertical: 6, flexDirection: "row", alignItems: "center", gap: 8 },
   activityRowText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 19 },
   activityRowSub: { fontFamily: "DM_Sans_400Regular", fontSize: 11.5, lineHeight: 16, marginTop: 1 },
