@@ -978,8 +978,11 @@ export default function VisitorAccountScreen() {
   // Ligne d'une réservation dans "Mes réservations" (À venir / Historique) —
   // factorisé pour être rendu identiquement dans les deux vues.
   function renderReservationRow(r: Reservation) {
+    // Un accompagnant dont le jour/créneau a divergé (modifié séparément,
+    // sans cascade) n'est plus "avec" cette réservation-ci — sinon "Avec X"
+    // resterait affiché ici sur la base d'un horaire qui n'est plus le sien.
     const companionNames = (r.group_id ? companionsByGroup[r.group_id] : undefined)
-      ?.filter((c) => c.id !== r.id)
+      ?.filter((c) => c.id !== r.id && c.date === r.date && c.creneau === r.creneau)
       .map((c) => `${c.prenom} ${c.nom}`) ?? [];
     const history = myChangeHistory.filter((h) => h.reservation_id === r.id);
     return (

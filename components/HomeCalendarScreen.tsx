@@ -230,11 +230,18 @@ export default function HomeCalendarScreen({
   // pas au visiteur sélectionné dans la légende. Sert à fusionner leur
   // affichage dans le bloc de la ligne principale (Planning du jour +
   // Planning Mensuel/Hebdo) plutôt que de les lister comme des lignes
-  // séparées et déconnectées.
+  // séparées et déconnectées. Un accompagnant dont la date/créneau a divergé
+  // de la ligne principale (modifié séparément, sans cascade) n'est plus
+  // rattaché : il redevient une visite à part, affichée sur son propre jour/
+  // créneau plutôt que de rester collé — à tort — à l'ancien horaire.
   const visitesAll = reservations.filter((r) => r.type === "Visite");
+  const visitesById: Record<string, Reservation> = {};
+  for (const r of visitesAll) visitesById[r.id] = r;
   const companionsByMainId: Record<string, Reservation[]> = {};
   for (const r of visitesAll) {
-    if (r.group_id && r.group_id !== r.id) {
+    if (!r.group_id || r.group_id === r.id) continue;
+    const main = visitesById[r.group_id];
+    if (main && main.date === r.date && main.creneau === r.creneau) {
       (companionsByMainId[r.group_id] ??= []).push(r);
     }
   }
@@ -256,7 +263,10 @@ export default function HomeCalendarScreen({
   // (visitesPanelReservations ci-dessus, chaque accompagnant sur sa propre
   // ligne) et n'a pas ce problème.
   const visitesMainRows = visitesAll
-    .filter((r) => !r.group_id || r.group_id === r.id)
+    // Un accompagnant devient sa propre ligne principale dès que sa date/
+    // créneau diverge de celle du groupe (voir companionsByMainId) : sinon
+    // il disparaîtrait purement et simplement du planning.
+    .filter((r) => !r.group_id || r.group_id === r.id || !companionsByMainId[r.group_id]?.some((c) => c.id === r.id))
     .filter((r) => {
       if (!selectedVisiteurKey) return true;
       if (visiteurIdentityKey(r.prenom, r.nom) === selectedVisiteurKey) return true;
