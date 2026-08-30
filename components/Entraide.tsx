@@ -163,6 +163,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const taskOffsets = useRef<Record<string, number>>({});
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const focusedRef = useRef(false);
+  // Cible du scroll/surlignage : soit le focusTaskId venu d'un lien profond
+  // (Mon compte, RelaisAlertModal...), soit — une fois saveTask() a inséré
+  // une nouvelle ligne — l'id du besoin qu'on vient de créer, pour amener
+  // l'utilisateur pile dessus au lieu de le laisser en haut de liste.
+  const [focusTarget, setFocusTarget] = useState<string | null>(focusTaskId ?? null);
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState(true);
@@ -592,9 +597,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
   // Régénère le lien Google Maps du domicile depuis l'adresse tapée à la
   // main — appelé au blur des 4 champs adresse/CP/ville/pays. N'écrase rien
-  // si l'adresse est encore vide (évite un lien de recherche creux).
+  // tant que l'adresse n'est pas complète (rue + CP + ville), pour éviter
+  // d'afficher un lien trompeur avant la fin de la saisie.
   function regenerateTransportMapsUrl() {
-    if (!fTHomeAddress.trim()) return;
+    if (!fTHomeAddress.trim() || !fTHomePostalCode.trim() || !fTHomeCity.trim()) return;
     setFTHomeMapsUrl(googleMapsSearchUrl(joinAddress({
       street: fTHomeAddress, line2: null,
       postalCode: fTHomePostalCode, city: fTHomeCity, country: fTHomeCountry,
@@ -921,24 +927,25 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // scrolle jusqu'à sa carte et on la surligne brièvement. focusedRef évite
   // de re-déclencher le scroll à chaque rechargement realtime de tasks.
   useEffect(() => {
-    if (!focusTaskId || focusedRef.current || tasksLoading) return;
-    const target = tasks.find((t) => t.id === focusTaskId);
+    if (!focusTarget || focusedRef.current || tasksLoading) return;
+    const target = tasks.find((t) => t.id === focusTarget);
     if (!target) return;
     focusedRef.current = true;
     if (activeCat && activeCat !== target.category) setActiveCat(null);
     if (openOnlyFilter && target.status !== "ouvert") setOpenOnlyFilter(false);
     if (closedOnlyFilter && target.status === "ouvert") setClosedOnlyFilter(false);
-    setHighlightId(focusTaskId);
+    setHighlightId(focusTarget);
     setTimeout(() => {
-      const y = taskOffsets.current[focusTaskId];
+      const y = taskOffsets.current[focusTarget];
       if (y != null) scrollRef.current?.scrollTo({ y: Math.max(y - 12, 0), animated: true });
     }, 300);
     setTimeout(() => setHighlightId(null), 2500);
     // Depuis RelaisAlertModal ("🙋 Je m'en occupe") : ouvre directement la
     // sheet de prise en charge sur ce besoin plutôt que de dupliquer la
-    // logique de claim (PIN, etc.).
-    if (openClaimParam === "1" && target.status === "ouvert") openClaim(target);
-  }, [focusTaskId, openClaimParam, tasks, tasksLoading, activeCat, openOnlyFilter, closedOnlyFilter]);
+    // logique de claim (PIN, etc.). Ne s'applique qu'au lien profond
+    // d'origine (pas à la cible re-pointée après création d'un besoin).
+    if (focusTarget === focusTaskId && openClaimParam === "1" && target.status === "ouvert") openClaim(target);
+  }, [focusTarget, focusTaskId, openClaimParam, tasks, tasksLoading, activeCat, openOnlyFilter, closedOnlyFilter]);
 
   // Arrivée depuis "Mon compte" (?openRelais=1) : ouvre le formulaire Publier
   // pré-rempli sur la catégorie "relais". Attend que l'identité (admin ou
@@ -1923,6 +1930,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         await supabase.storage.from(PHOTO_BUCKET).remove([`${spaceId}/${removedFilename}`]);
       }
       showToast("Besoin modifié ✓");
+      focusedRef.current = false;
+      setFocusTarget(editTask.id);
     } else {
       // Identité de l'auteur — utile pour toutes les catégories (section
       // "Mes besoins publiés" de Mon compte), pas seulement Transport où
@@ -2025,6 +2034,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       }
       if (claimOnCreate && !isAdmin) await rememberAuthorPin(claimPrenom.trim(), claimNom.trim(), claimPin);
       showToast(claimOnCreate ? "Besoin créé — tu t'en occupes déjà ✓" : "Besoin créé ✓");
+      if (insertedTask) {
+        focusedRef.current = false;
+        setFocusTarget(insertedTask.id);
+      }
     }
     setTaskSaving(false);
     if (editTask) setTaskForm(false); else setPublishWizardOpen(false);
@@ -2942,7 +2955,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           // `selectable`) — ce clic prolongé libéré ouvre directement
           // "Modifier le besoin" pour l'admin (accès au bouton "Je m'en
           // occupe", voir plus bas).
-          else if (isAdmin && !selectable) openEditTask(t);
+          else if (isAdmin && !selectable && t.author_pin === "ADMIN") openEditTask(t);
         }}
         onPress={() => { if (selectable && selectionMode) toggleTaskSelected(t.id); }}
         pointerEvents={selectable && selectionMode ? "box-only" : "auto"}
@@ -2991,7 +3004,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               <Text style={[styles.statusLabel, { color: statusColors[t.status] }]}>partiellement</Text>
             )}
           </View>
-          {isAdmin && (
+          {isAdmin && t.author_pin === "ADMIN" && (
             <TouchableOpacity onPress={() => openEditTask(t)} style={[styles.iconBtn, { borderColor: C.border }]}>
               <Text style={{ fontSize: 13 }}>✏️</Text>
             </TouchableOpacity>

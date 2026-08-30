@@ -118,3 +118,19 @@ export function getPatientColor(index: number): string {
   if (index < PATIENT_PALETTE.length) return PATIENT_PALETTE[index];
   return STRIPE_FALLBACK_COLORS[(index - PATIENT_PALETTE.length) % STRIPE_FALLBACK_COLORS.length];
 }
+
+// Couleur de contour par catégorie de besoin (Entraide) — fixe, indépendante
+// du thème, utilisée pour regrouper visuellement "Mes besoins" (Mon compte)
+// par catégorie sans dupliquer les blocs "pris en charge"/"publiés".
+export const TASK_CATEGORY_COLORS: Record<
+  "repas" | "affaires" | "courses" | "transport" | "administratif" | "autre" | "relais",
+  string
+> = {
+  repas: LOGO_ORANGE,
+  affaires: LOGO_PURPLE,
+  courses: LOGO_GREEN,
+  transport: LOGO_NAVY,
+  administratif: LOGO_SKYBLUE,
+  relais: PATIENT_ROSE,
+  autre: "#8C8C8C",
+};

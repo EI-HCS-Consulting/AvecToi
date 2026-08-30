@@ -133,10 +133,9 @@ export default function SlotsScreen() {
   }, [role, pendingBookingSlot, selectedDay, setPendingBookingSlot]);
 
   // Arrivée via RebookingAlertModal (recasage/annulation suite à un
-  // changement de règles admin) : rouvre la modale PIN/modification
-  // directement sur la réservation visée, une fois les réservations
-  // chargées dans le contexte. Ne concerne pas "Mon compte" > "Mes
-  // réservations", qui ne fait qu'une navigation simple (pas de pendingEditReservationId).
+  // changement de règles admin) ou via "Mon compte" > "Mes réservations" :
+  // rouvre la modale PIN/modification directement sur la réservation visée,
+  // une fois les réservations chargées dans le contexte.
   useEffect(() => {
     if (!pendingEditReservationId) return;
     const r = reservations.find((x) => x.id === pendingEditReservationId);
