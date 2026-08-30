@@ -10,6 +10,7 @@ import RgpdAlertModal from "@/components/RgpdAlertModal";
 import RelaisAlertModal from "@/components/RelaisAlertModal";
 import BirthdayAlertModal from "@/components/BirthdayAlertModal";
 import EntraideTabIcon from "@/components/EntraideTabIcon";
+import UnreadDotIcon from "@/components/UnreadDotIcon";
 
 // Sits inside AdminSpaceProvider — shows the onboarding form instead of the
 // tabs until the admin has an active patient_spaces row. Renders the Tabs
@@ -68,7 +69,9 @@ function AdminGate() {
           name="news"
           options={{
             title: "Nouvelles",
-            tabBarIcon: ({ color, size }) => <Ionicons name="newspaper-outline" size={size} color={color} />,
+            tabBarIcon: ({ color, size }) => (
+              <UnreadDotIcon scope="news" table="news_entries" spaceId={space?.id ?? null} isAdmin iconName="newspaper-outline" color={color} size={size} theme={C} />
+            ),
           }}
         />
         <Tabs.Screen
@@ -88,7 +91,9 @@ function AdminGate() {
           name="soutien"
           options={{
             title: "Soutien",
-            tabBarIcon: ({ color, size }) => <Ionicons name="heart-outline" size={size} color={color} />,
+            tabBarIcon: ({ color, size }) => (
+              <UnreadDotIcon scope="soutien" table="support_messages" spaceId={space?.id ?? null} isAdmin iconName="heart-outline" color={color} size={size} theme={C} />
+            ),
           }}
         />
         <Tabs.Screen

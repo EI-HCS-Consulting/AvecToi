@@ -83,6 +83,12 @@ export const LOGO_PURPLE_SOFT = "#9A76C2";
 export const VISITES_ORANGE_FILL = "#FFDFBA";
 export const VISITES_DANGER_FILL = "#FFB3BA";
 
+// Fond des publications non lues sur les murs Entraide/Soutien/Nouvelles
+// (voir lib/wallUnread.ts) — beaucoup plus léger que VISITES_ORANGE_FILL
+// ci-dessus (fond de case pleine journée) puisqu'il s'agit ici de teinter une
+// carte de contenu sans gêner la lecture du texte par-dessus.
+export const UNREAD_WALL_FILL = "rgba(232,146,60,0.12)";
+
 // Rose utilisé à la place de LOGO_PURPLE dans PATIENT_PALETTE ci-dessous : un
 // trait violet serait quasi invisible sur le fond violet des jours de soin.
 const PATIENT_ROSE = "#EF87B0";

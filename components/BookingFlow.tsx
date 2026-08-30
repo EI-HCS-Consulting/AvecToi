@@ -455,24 +455,36 @@ function BookingFlow(
     // réservation resterait à l'ancien horaire alors que la sienne a changé
     // (voir "Avec ..." dans Mes réservations/Planning, filtré sur ce même
     // jour/créneau — un accompagnant non coché divergera donc volontairement).
-    const cascadeIds = editModal.group_id
-      ? reservations
-          .filter((r) => r.group_id === editModal.group_id && r.id !== editModal.id && editCascade[r.id])
-          .map((r) => r.id)
+    // Une alerte est posée sur chaque réservation déplacée (même mécanisme
+    // que apply_slot_rule_change côté SQL : alert_message/alert_type/
+    // alert_seen) : elle apparaît au prochain login (RebookingAlertModal) et
+    // dans Mes alertes, avec qui a fait le changement et le nouvel horaire —
+    // l'accompagnant sera toujours avec l'éditeur sur ce nouveau créneau
+    // puisque la cascade lui applique exactement la même valeur.
+    const cascadeTargets = editModal.group_id
+      ? reservations.filter((r) => r.group_id === editModal.group_id && r.id !== editModal.id && editCascade[r.id])
       : [];
-    if (cascadeIds.length > 0) {
-      await supabase
-        .from("reservations")
-        .update({
-          date: editDate,
-          creneau: editModal.type === "Nuit" ? "🌙 Nuit" : editSlot,
-          alert_message: null,
-          alert_type: null,
-          alert_seen: true,
-          previous_date: null,
-          previous_creneau: null,
-        })
-        .in("id", cascadeIds);
+    if (cascadeTargets.length > 0) {
+      const newCreneau = editModal.type === "Nuit" ? "🌙 Nuit" : (editSlot ?? editModal.creneau);
+      const newWhen = `le ${toFrLong(new Date(editDate + "T12:00:00"))}`;
+      await Promise.all(cascadeTargets.map((c) => {
+        const oldWhen = toFrLong(new Date(c.date + "T12:00:00"));
+        const message = editModal.type === "Nuit"
+          ? `${editModal.prenom} ${editModal.nom} a déplacé votre nuitée du ${oldWhen} vers ${newWhen}. Vous serez avec ${editModal.prenom} sur cette nouvelle nuitée.`
+          : `${editModal.prenom} ${editModal.nom} a déplacé votre créneau du ${oldWhen} à ${c.creneau} vers ${newWhen} à ${newCreneau}. Vous serez avec ${editModal.prenom} sur ce nouveau créneau.`;
+        return supabase
+          .from("reservations")
+          .update({
+            date: editDate,
+            creneau: newCreneau,
+            previous_date: c.date,
+            previous_creneau: c.creneau,
+            alert_type: "rebooked",
+            alert_message: message,
+            alert_seen: false,
+          })
+          .eq("id", c.id);
+      }));
     }
 
     updateLinkedCalendarEvent(

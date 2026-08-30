@@ -11,12 +11,13 @@ import { File } from "expo-file-system";
 import { supabase } from "@/lib/supabase";
 import { getVisitorSession, rememberAuthorPin, sessionPinMatches } from "@/lib/visitorSession";
 import { downloadAndShare, downloadAndShareMultiple, logSavedMedia, isShareAvailable } from "@/lib/mediaShare";
+import { useWallUnread } from "@/lib/wallUnread";
 import PinPad from "@/components/PinPad";
 import VisitorProfileModal from "@/components/VisitorProfileModal";
 import ConfirmModal from "@/components/ConfirmModal";
 import type { NewsEntry, NewsEntryReply } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
-import { LOGO_PURPLE } from "@/lib/themes";
+import { LOGO_PURPLE, UNREAD_WALL_FILL } from "@/lib/themes";
 
 const { width: SCREEN_W } = Dimensions.get("window");
 const PHOTO_BUCKET = "news-photos";
@@ -267,6 +268,25 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
       (effectiveRole !== "visiteur" || isNewsEntryVisibleToVisitor(e)) &&
       (!e.deleted_by_admin || (!isAdmin && e.author_pin === sessionPin)),
   );
+
+  // Fond pastel orange tant qu'une nouvelle publiée par quelqu'un d'autre
+  // n'a pas défilé dans la zone visible du FlatList (voir lib/wallUnread.ts,
+  // mécanisme partagé avec Entraide/Soutien). Le FlatList (contrairement aux
+  // ScrollView+.map() des deux autres murs) expose nativement la visibilité
+  // par élément via onViewableItemsChanged, sans suivi manuel du layout.
+  const { unreadIds, markSeen } = useWallUnread("news", spaceId, isAdmin, loading ? null : visibleEntries);
+  const unreadIdsRef = useRef(unreadIds);
+  unreadIdsRef.current = unreadIds;
+  const markSeenRef = useRef(markSeen);
+  markSeenRef.current = markSeen;
+  const onViewableItemsChanged = useRef(
+    ({ viewableItems }: { viewableItems: { item: NewsEntryWithUrls }[] }) => {
+      viewableItems.forEach(({ item }) => {
+        if (unreadIdsRef.current.has(item.id)) markSeenRef.current(item.id);
+      });
+    },
+  ).current;
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 20 }).current;
 
   // Liste aplatie des médias pour la vue "Médias" (bouton du sous-header) —
   // dérivée de visibleEntries (déjà filtrée), pas de nouvelle requête.
@@ -775,11 +795,13 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
     const entryAccentColor = isAdmin
       ? entry.author_role === "visiteur" ? C.orange : entry.author_role === "intervenant" ? LOGO_PURPLE : C.border
       : C.border;
+    const unread = unreadIds.has(entry.id);
     return (
       <View
         style={[
           styles.card,
           { backgroundColor: C.card, borderColor: highlighted ? C.gold : entryAccentColor },
+          unread && { backgroundColor: UNREAD_WALL_FILL },
           highlighted && { borderWidth: 2 },
         ]}
       >
@@ -1042,6 +1064,8 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
           onScrollToIndexFailed={(info) => {
             listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true });
           }}
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={viewabilityConfig}
         />
       )}
 
