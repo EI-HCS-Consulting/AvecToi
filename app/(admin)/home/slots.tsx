@@ -20,6 +20,7 @@ export default function AdminSlotsScreen() {
   const {
     space, slotConfig, reservations, selectedDay, setSelectedDay, refreshReservations,
     pendingBookingSlot, setPendingBookingSlot, getConfigForDate,
+    pendingEditReservationId, setPendingEditReservationId,
   } = useSpace();
   const { focusDate } = useLocalSearchParams<{ focusDate?: string }>();
   const { theme: C } = useDisplayMode();
@@ -52,6 +53,17 @@ export default function AdminSlotsScreen() {
     if (focusDate) setSelectedDay(new Date(focusDate + "T00:00:00"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusDate]);
+
+  // Rouvre directement la modale de modification sur la réservation ciblée
+  // depuis "Mon compte → Mes réservations" — même mécanisme que côté visiteur
+  // (VisitorContext.pendingEditReservationId).
+  useEffect(() => {
+    if (!pendingEditReservationId) return;
+    const r = reservations.find((x) => x.id === pendingEditReservationId);
+    if (!r) return;
+    editRef.current?.open(r);
+    setPendingEditReservationId(null);
+  }, [pendingEditReservationId, reservations, setPendingEditReservationId]);
 
   function handleDeleteResa(r: Reservation) {
     deleteRef.current?.open(r);

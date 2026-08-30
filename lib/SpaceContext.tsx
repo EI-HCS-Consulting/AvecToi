@@ -19,6 +19,11 @@ interface SpaceContextValue {
   // sets this so the Créneaux screen auto-opens the add-reservation modal.
   pendingBookingSlot: string | null;
   setPendingBookingSlot: (slot: string | null) => void;
+  // Même mécanisme que VisitorContext : "Mon compte → Mes réservations"
+  // renseigne ceci pour que l'écran Créneaux/Nuitées rouvre directement la
+  // modale AdminEditReservation sur cette réservation précise.
+  pendingEditReservationId: string | null;
+  setPendingEditReservationId: (id: string | null) => void;
   refreshReservations: () => Promise<void>;
   refreshSpace: () => Promise<void>;
   refreshSlotConfig: () => Promise<void>;
@@ -50,6 +55,8 @@ const SpaceContext = createContext<SpaceContextValue>({
   setSelectedDay: () => {},
   pendingBookingSlot: null,
   setPendingBookingSlot: () => {},
+  pendingEditReservationId: null,
+  setPendingEditReservationId: () => {},
   refreshReservations: async () => {},
   refreshSpace: async () => {},
   refreshSlotConfig: async () => {},
@@ -79,6 +86,7 @@ export function AdminSpaceProvider({ adminId, children }: { adminId: string; chi
     return d;
   });
   const [pendingBookingSlot, setPendingBookingSlot] = useState<string | null>(null);
+  const [pendingEditReservationId, setPendingEditReservationId] = useState<string | null>(null);
 
   const fetchSpace = useCallback(async () => {
     const { data: spaceData } = await supabase
@@ -303,8 +311,8 @@ export function AdminSpaceProvider({ adminId, children }: { adminId: string; chi
   // useSpace() dans l'app (dont les grilles de calendrier, coûteuses) à
   // re-render même quand rien qui les concerne n'a changé.
   const value = useMemo<SpaceContextValue>(
-    () => ({ space, slotConfig, slots, reservations, intervenantProfiles, loading, hasSpace: !!space, selectedDay, setSelectedDay, pendingBookingSlot, setPendingBookingSlot, refreshReservations, refreshSpace, refreshSlotConfig, patchSpace, getConfigForDate, getSlotsForDate }),
-    [space, slotConfig, slots, reservations, intervenantProfiles, loading, selectedDay, pendingBookingSlot, refreshReservations, refreshSpace, refreshSlotConfig, patchSpace, getConfigForDate, getSlotsForDate],
+    () => ({ space, slotConfig, slots, reservations, intervenantProfiles, loading, hasSpace: !!space, selectedDay, setSelectedDay, pendingBookingSlot, setPendingBookingSlot, pendingEditReservationId, setPendingEditReservationId, refreshReservations, refreshSpace, refreshSlotConfig, patchSpace, getConfigForDate, getSlotsForDate }),
+    [space, slotConfig, slots, reservations, intervenantProfiles, loading, selectedDay, pendingBookingSlot, pendingEditReservationId, refreshReservations, refreshSpace, refreshSlotConfig, patchSpace, getConfigForDate, getSlotsForDate],
   );
 
   return (

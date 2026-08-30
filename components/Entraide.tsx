@@ -842,8 +842,21 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // "Mes besoins" (filtre du mur) : vrai si j'ai publié ce besoin OU si je m'y
   // suis engagé, quelle que soit la forme que prend l'engagement selon la
   // catégorie (claim direct, bénéficiaire Transport, contribution Courses,
-  // couverture Relais).
+  // couverture Relais). Côté admin, mySession reste toujours null (pas de
+  // PIN d'appareil) — isAuthor/isMine/isMineReturn (basés sur samePerson)
+  // ne peuvent donc jamais matcher un besoin publié/pris en charge par
+  // l'admin lui-même, repéré uniquement par author_pin/claimed_by_pin =
+  // "ADMIN" (même contournement que canValidateTransport et confirmSelfDeleteTask).
   function isMyBesoin(t: Task): boolean {
+    if (isAdmin) {
+      if (t.author_pin === "ADMIN" || t.claimed_by_pin === "ADMIN" || t.transport_return_claimed_by_pin === "ADMIN") return true;
+      if (isForPerson(t)) return true;
+      if (t.category === "courses" && courseContributedByMe(t)) return true;
+      if (t.category === "relais") {
+        return (relaisCoverage[t.id] ?? []).some((c) => c.pin === "ADMIN");
+      }
+      return false;
+    }
     if (isAuthor(t) || isMine(t) || isMineReturn(t) || isForPerson(t)) return true;
     if (t.category === "courses" && courseContributedByMe(t)) return true;
     if (t.category === "relais") {
