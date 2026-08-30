@@ -967,7 +967,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     // logique de claim (PIN, etc.). Ne s'applique qu'au lien profond
     // d'origine (pas à la cible re-pointée après création d'un besoin).
     if (focusTarget === focusTaskId && openClaimParam === "1" && target.status === "ouvert") openClaim(target);
-  }, [focusTarget, focusTaskId, openClaimParam, tasks, tasksLoading, activeCat, openOnlyFilter, closedOnlyFilter]);
+    // focusTaskId volontairement absent des deps : cet effet ne doit se
+    // redéclencher que sur un changement de focusTarget, pas de focusTaskId
+    // (mis à jour dans l'effet ci-dessus) — sinon les deux effets tournent
+    // dans le même commit avec un focusTarget pas encore rafraîchi et on
+    // traite la cible précédente (bug de décalage d'une demande de retard).
+  }, [focusTarget, openClaimParam, tasks, tasksLoading, activeCat, openOnlyFilter, closedOnlyFilter]);
 
   // Arrivée depuis "Mon compte" (?openRelais=1) : ouvre le formulaire Publier
   // pré-rempli sur la catégorie "relais". Attend que l'identité (admin ou

@@ -1478,6 +1478,12 @@ export default function VisitorAccountScreen() {
                                     📅 Échéance : {toFrShort(new Date(t.date_limite + "T12:00:00"))}
                                   </Text>
                                 )}
+                                {t.category === "transport" && t.transport_date && t.transport_out_time && (
+                                  <Text style={[styles.activityRowSub, { color: C.muted }]}>
+                                    🕐 Demandé : {toFrShort(new Date(t.transport_date + "T12:00:00"))} à {t.transport_out_time.replace(":", "h")}
+                                    {t.transport_round_trip && t.transport_return_time ? ` · Retour ${t.transport_return_time.replace(":", "h")}` : ""}
+                                  </Text>
+                                )}
                               </View>
                               <View style={[
                                 styles.activityStatusBadge,

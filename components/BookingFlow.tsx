@@ -173,6 +173,14 @@ function BookingFlow(
     setPinCalendarAdded(false);
     getLinkedCalendarEvent(r.id).then((eventId) => setPinCalendarAdded(!!eventId));
 
+    // Depuis "Mon compte > Mes réservations", la liste est déjà celle du
+    // visiteur connecté (isMine) : redemander le PIN n'apporte rien, on va
+    // directement aux actions modifier/annuler/ajouter au calendrier.
+    if (fromAccount) {
+      setPinEntry(r.pin); setPinError(false); setPinStep("actions");
+      return;
+    }
+
     if (await sessionPinMatches(r.pin, { prenom: r.prenom, nom: r.nom })) {
       setPinEntry(r.pin); setPinError(false); setPinStep("actions");
     } else {
