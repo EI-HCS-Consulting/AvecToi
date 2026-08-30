@@ -774,10 +774,19 @@ export default function AdminAccountScreen() {
                                         </Text>
                                       )}
                                       {t.category === "transport" && t.transport_date && t.transport_out_time && (
-                                        <Text style={[styles.activityRowSub, { color: C.muted }]}>
-                                          🕐 Demandé : {toFrShort(new Date(t.transport_date + "T12:00:00"))} à {t.transport_out_time.replace(":", "h")}
-                                          {t.transport_round_trip && t.transport_return_time ? ` · Retour ${t.transport_return_time.replace(":", "h")}` : ""}
-                                        </Text>
+                                        <>
+                                          <Text style={[styles.activityRowSub, { color: C.muted }]}>
+                                            🕐 Demandé : {toFrShort(new Date(t.transport_date + "T12:00:00"))}
+                                          </Text>
+                                          <Text style={[styles.activityRowSub, { color: C.muted }]}>
+                                            à {t.transport_out_time.replace(":", "h")}
+                                          </Text>
+                                          {t.transport_round_trip && t.transport_return_time && (
+                                            <Text style={[styles.activityRowSub, { color: C.muted }]}>
+                                              Retour {t.transport_return_time.replace(":", "h")}
+                                            </Text>
+                                          )}
+                                        </>
                                       )}
                                     </View>
                                     <View style={[

@@ -1,4 +1,5 @@
 import type { SlotConfig, Reservation, SlotConfigHistoryEntry } from "./types";
+import { INTERVENANT_ROLE_ENABLED } from "./featureFlags";
 
 // Défauts de secours tant que la migration night_start_hour/night_end_hour
 // n'a pas tourné en prod (colonnes absentes -> valeurs undefined en DB) —
@@ -275,7 +276,12 @@ export function findNextAvailableSlot(
       // ever filters out today's already-gone slots — kept in sync with the
       // exact same check used when rendering the slots list.
       if (isSlotPast(iso, slot)) continue;
-      if (getInterventionOverlap(reservations, iso, slot, config.slot_duration_minutes)) continue;
+      // Rôle Intervenant désactivé en V1 (lib/featureFlags.ts) — d'éventuels
+      // soins déjà en base (créés avant ce retrait) ne doivent plus bloquer
+      // un créneau de visite ici non plus (même garde que VisitorSlotsList/
+      // AdminSlotsList, jusque-là absente et qui faisait sauter "Prochaine
+      // disponibilité" par-dessus des créneaux en réalité libres).
+      if (INTERVENANT_ROLE_ENABLED && getInterventionOverlap(reservations, iso, slot, config.slot_duration_minutes)) continue;
 
       const occ = getSlotOccupancy(reservations, iso, slot);
       if (occ.length < config.max_visitors_per_slot) {

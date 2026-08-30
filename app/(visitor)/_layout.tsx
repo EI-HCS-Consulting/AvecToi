@@ -16,6 +16,7 @@ import RebookingAlertModal from "@/components/RebookingAlertModal";
 import BookingProposalAlertModal from "@/components/BookingProposalAlertModal";
 import RelaisAlertModal from "@/components/RelaisAlertModal";
 import BirthdayAlertModal from "@/components/BirthdayAlertModal";
+import DeletedContentAlertModal from "@/components/DeletedContentAlertModal";
 import IntervenantOnboardingFlow from "@/components/IntervenantOnboardingFlow";
 import EntraideTabIcon from "@/components/EntraideTabIcon";
 
@@ -274,6 +275,10 @@ function VisitorTabs() {
 
       {identityKnown === true && (role !== "intervenant" || !!intervenantProfileId) && consentGiven === true && !!space && (
         <BirthdayAlertModal spaceId={space.id} birthdate={space.patient_birthdate} patientFirstname={space.patient_firstname} />
+      )}
+
+      {identityKnown === true && (role !== "intervenant" || !!intervenantProfileId) && consentGiven === true && !!space && (
+        <DeletedContentAlertModal spaceId={space.id} />
       )}
 
     <Tabs

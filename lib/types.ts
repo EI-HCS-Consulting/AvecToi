@@ -304,6 +304,9 @@ export interface NewsEntry {
   // reste visible avec un bandeau rouge pour l'auteur uniquement, masqué pour
   // tous les autres. Voir supabase/migrations/20260811_content_deleted_by_admin.sql.
   deleted_by_admin: boolean;
+  // Passe à true une fois l'alerte de connexion (DeletedContentAlertModal)
+  // traitée par l'auteur — voir 20260830_deleted_content_seen.sql.
+  deleted_seen: boolean;
 }
 
 // Réponse à une nouvelle ("Nouvelles du jour") — même principe que
@@ -435,6 +438,9 @@ export interface Task {
   // reste visible avec un bandeau rouge pour l'auteur uniquement, masqué pour
   // tous les autres. Voir supabase/migrations/20260811_content_deleted_by_admin.sql.
   deleted_by_admin: boolean;
+  // Passe à true une fois l'alerte de connexion (DeletedContentAlertModal)
+  // traitée par l'auteur — voir 20260830_deleted_content_seen.sql.
+  deleted_seen: boolean;
   // Catégorie "relais" uniquement (besoin de relais ponctuel, publié depuis
   // Mon compte — voir components/Entraide.tsx et RelaisAlertModal.tsx). La
   // date de fin réutilise date_limite ci-dessus, seule la date de début est
@@ -603,6 +609,9 @@ export interface SupportMessage {
   // reste visible avec un bandeau rouge pour l'auteur uniquement, masqué pour
   // tous les autres. Voir supabase/migrations/20260811_content_deleted_by_admin.sql.
   deleted_by_admin: boolean;
+  // Passe à true une fois l'alerte de connexion (DeletedContentAlertModal)
+  // traitée par l'auteur — voir 20260830_deleted_content_seen.sql.
+  deleted_seen: boolean;
 }
 
 // Photo de profil visiteur, synchronisée depuis "Mon compte" (voir

@@ -1403,9 +1403,16 @@ export default function VisitorAccountScreen() {
                         {entry.photos?.[0] && (
                           <Image source={{ uri: newsPhotoUrl(space.id, entry.photos[0]) }} style={styles.activityMsgThumb} resizeMode="cover" />
                         )}
-                        <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
-                          {new Date(entry.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} — {entry.content}
-                        </Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.activityRowText, { color: C.text }]} numberOfLines={2}>
+                            {new Date(entry.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} — {entry.content}
+                          </Text>
+                          {entry.deleted_by_admin && (
+                            <Text style={[styles.activityRowSub, { color: C.danger }]}>
+                              🗑️ Supprimée par l'administrateur
+                            </Text>
+                          )}
+                        </View>
                         <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
                       </TouchableOpacity>
                     ))}
@@ -1430,9 +1437,16 @@ export default function VisitorAccountScreen() {
                         {m.photo && (
                           <Image source={{ uri: supportPhotoUrl(space.id, m.photo) }} style={styles.activityMsgThumb} resizeMode="cover" />
                         )}
-                        <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
-                          {new Date(m.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} — {m.message}
-                        </Text>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.activityRowText, { color: C.text }]} numberOfLines={2}>
+                            {new Date(m.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} — {m.message}
+                          </Text>
+                          {m.deleted_by_admin && (
+                            <Text style={[styles.activityRowSub, { color: C.danger }]}>
+                              🗑️ Supprimé par l'administrateur
+                            </Text>
+                          )}
+                        </View>
                         <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
                       </TouchableOpacity>
                     ))}
@@ -1479,9 +1493,23 @@ export default function VisitorAccountScreen() {
                                   </Text>
                                 )}
                                 {t.category === "transport" && t.transport_date && t.transport_out_time && (
-                                  <Text style={[styles.activityRowSub, { color: C.muted }]}>
-                                    🕐 Demandé : {toFrShort(new Date(t.transport_date + "T12:00:00"))} à {t.transport_out_time.replace(":", "h")}
-                                    {t.transport_round_trip && t.transport_return_time ? ` · Retour ${t.transport_return_time.replace(":", "h")}` : ""}
+                                  <>
+                                    <Text style={[styles.activityRowSub, { color: C.muted }]}>
+                                      🕐 Demandé : {toFrShort(new Date(t.transport_date + "T12:00:00"))}
+                                    </Text>
+                                    <Text style={[styles.activityRowSub, { color: C.muted }]}>
+                                      à {t.transport_out_time.replace(":", "h")}
+                                    </Text>
+                                    {t.transport_round_trip && t.transport_return_time && (
+                                      <Text style={[styles.activityRowSub, { color: C.muted }]}>
+                                        Retour {t.transport_return_time.replace(":", "h")}
+                                      </Text>
+                                    )}
+                                  </>
+                                )}
+                                {t.deleted_by_admin && (
+                                  <Text style={[styles.activityRowSub, { color: C.danger }]}>
+                                    🗑️ Supprimé par l'administrateur
                                   </Text>
                                 )}
                               </View>

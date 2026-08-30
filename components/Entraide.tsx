@@ -273,6 +273,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [activeCat, setActiveCat] = useState<TaskCategory | null>(null);
   const [openOnlyFilter, setOpenOnlyFilter] = useState(false);
   const [closedOnlyFilter, setClosedOnlyFilter] = useState(false);
+  // Filtre additionnel (se combine avec activeCat et openOnlyFilter/
+  // closedOnlyFilter) : n'affiche que les besoins publiés par moi ou sur
+  // lesquels je me suis engagé.
+  const [myOnlyFilter, setMyOnlyFilter] = useState(false);
 
   const [taskForm, setTaskForm] = useState(false);
   const [editTask, setEditTask] = useState<Task | null>(null);
@@ -834,6 +838,19 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   useEffect(() => {
     loadRelaisCoverage(tasks.filter((t) => t.category === "relais").map((t) => t.id));
   }, [tasks, loadRelaisCoverage]);
+
+  // "Mes besoins" (filtre du mur) : vrai si j'ai publié ce besoin OU si je m'y
+  // suis engagé, quelle que soit la forme que prend l'engagement selon la
+  // catégorie (claim direct, bénéficiaire Transport, contribution Courses,
+  // couverture Relais).
+  function isMyBesoin(t: Task): boolean {
+    if (isAuthor(t) || isMine(t) || isMineReturn(t) || isForPerson(t)) return true;
+    if (t.category === "courses" && courseContributedByMe(t)) return true;
+    if (t.category === "relais") {
+      return (relaisCoverage[t.id] ?? []).some((c) => samePerson(c.prenom, c.nom, c.pin));
+    }
+    return false;
+  }
 
   function closeClaim() {
     setClaimTarget(null);
@@ -3378,7 +3395,9 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // mélangé avec "pris_en_charge" comme c'était le cas auparavant.
   const isOpenStatus = (t: Task) => t.status === "ouvert";
   const isClosedStatus = (t: Task) => t.status !== "ouvert";
-  const catFiltered = undeletedTasks.filter((t) => !activeCat || t.category === activeCat);
+  const catFiltered = undeletedTasks
+    .filter((t) => !activeCat || t.category === activeCat)
+    .filter((t) => !myOnlyFilter || isMyBesoin(t));
   const today = todayIso();
   const visibleOpen = catFiltered
     .filter((t) => !closedOnlyFilter && isOpenStatus(t))
@@ -3444,6 +3463,20 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           <Text style={styles.catTabIcon}>📋</Text>
           <Text style={[styles.catTabLabel, { color: activeCat === null ? "#fff" : C.text }]}>Tous</Text>
         </TouchableOpacity>
+        {/* Filtre additionnel, pas une catégorie : se combine avec les
+            onglets ci-dessus et avec Ouvert/Fermé (ex. "Repas" + "ouvert" +
+            "mes besoins"). */}
+        <TouchableOpacity
+          style={[
+            styles.catTab,
+            { backgroundColor: myOnlyFilter ? C.accent : "transparent", borderColor: myOnlyFilter ? C.accent : C.border },
+          ]}
+          onPress={() => setMyOnlyFilter((prev) => !prev)}
+          activeOpacity={0.75}
+        >
+          <Text style={styles.catTabIcon}>🙋</Text>
+          <Text style={[styles.catTabLabel, { color: myOnlyFilter ? "#fff" : C.text }]}>Mes besoins</Text>
+        </TouchableOpacity>
       </View>
 
       {isAdmin && activeCat === "administratif" && (
@@ -3508,7 +3541,15 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         <View style={styles.centered}>
           <Text style={{ fontSize: 36, marginBottom: 12 }}>🤝</Text>
           <Text style={[styles.emptyText, { color: C.muted }]}>
-            {openOnlyFilter
+            {myOnlyFilter
+              ? openOnlyFilter
+                ? "Aucun de tes besoins ouverts pour l'instant."
+                : closedOnlyFilter
+                ? "Aucun de tes besoins fermés pour l'instant."
+                : activeCat
+                ? `Aucun de tes besoins dans ${CATEGORY_LABELS[activeCat]} pour l'instant.`
+                : "Tu n'as publié ni pris en charge aucun besoin pour l'instant."
+              : openOnlyFilter
               ? "Aucun besoin ouvert pour l'instant."
               : closedOnlyFilter
               ? "Aucun besoin fermé pour l'instant."
