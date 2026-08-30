@@ -1,4 +1,4 @@
-import { useRef, useMemo, useState } from "react";
+import { useRef, useMemo, useState, useEffect } from "react";
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import { useSpace } from "@/lib/SpaceContext";
@@ -13,7 +13,7 @@ import DeleteReservationConfirm, { type DeleteReservationConfirmHandle } from "@
 import type { Reservation } from "@/lib/types";
 
 export default function AdminNightsScreen() {
-  const { space, slotConfig, reservations, hasSpace, refreshReservations } = useSpace();
+  const { space, slotConfig, reservations, hasSpace, refreshReservations, pendingEditReservationId, setPendingEditReservationId } = useSpace();
   const { focusDate } = useLocalSearchParams<{ focusDate?: string }>();
   const { theme: C } = useDisplayMode();
   const addRef = useRef<AdminAddReservationHandle>(null);
@@ -28,6 +28,17 @@ export default function AdminNightsScreen() {
     setToast(msg);
     setTimeout(() => setToast(""), 3000);
   }
+
+  // Rouvre directement la modale de modification sur la réservation ciblée
+  // depuis "Mon compte → Mes réservations" — même mécanisme que côté visiteur
+  // (VisitorContext.pendingEditReservationId).
+  useEffect(() => {
+    if (!pendingEditReservationId) return;
+    const r = reservations.find((x) => x.id === pendingEditReservationId);
+    if (!r) return;
+    editRef.current?.open(r);
+    setPendingEditReservationId(null);
+  }, [pendingEditReservationId, reservations, setPendingEditReservationId]);
 
   if (!hasSpace || !space || !slotConfig) return null;
 

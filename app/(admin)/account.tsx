@@ -21,7 +21,7 @@ import MyAlertsModal from "@/components/MyAlertsModal";
 import PatientProfileModal from "@/components/PatientProfileModal";
 import VisitorsListModal from "@/components/VisitorsListModal";
 import { isRgpdAlertActive, rgpdAlertMessage, prolongSpace } from "@/lib/rgpd";
-import { toFrShort } from "@/lib/slotUtils";
+import { toFrShort, isReservationDatePast } from "@/lib/slotUtils";
 import { disengageTask as performDisengage } from "@/lib/taskDisengage";
 import ConfirmModal from "@/components/ConfirmModal";
 import RecurringBookingModal from "@/components/RecurringBookingModal";
@@ -61,6 +61,7 @@ export default function AdminAccountScreen() {
   const {
     space, loading, hasSpace, getConfigForDate, patchSpace,
     slotConfig, slots, reservations: allReservations, refreshReservations,
+    setSelectedDay, setPendingEditReservationId,
   } = useSpace();
   const { mode, theme: C, setMode } = useDisplayMode();
 
@@ -104,14 +105,21 @@ export default function AdminAccountScreen() {
     for (const t of myClaimedTasks) byId.set(t.id, t);
     return [...byId.values()];
   }, [tasks, myClaimedTasks]);
-  const myTasksByCategory = useMemo(() => {
+  // "Planifié" (encore actif : ouvert/pris en charge) vs "Historique" (fait/
+  // fermé) — même regroupement par catégorie qu'avant la scission en deux vues
+  // (voir account.tsx visiteur).
+  const myTasksPlanifie = useMemo(() => allMyTasks.filter((t) => t.status !== "fait" && t.status !== "ferme"), [allMyTasks]);
+  const myTasksHistorique = useMemo(() => allMyTasks.filter((t) => t.status === "fait" || t.status === "ferme"), [allMyTasks]);
+  const myTasksByCategoryPlanifie = useMemo(() => {
     const groups = new Map<Task["category"], Task[]>();
-    for (const t of allMyTasks) {
-      const arr = groups.get(t.category);
-      if (arr) arr.push(t); else groups.set(t.category, [t]);
-    }
+    for (const t of myTasksPlanifie) { const arr = groups.get(t.category); if (arr) arr.push(t); else groups.set(t.category, [t]); }
     return CAT_ORDER.map((cat) => ({ cat, tasks: groups.get(cat) || [] })).filter((g) => g.tasks.length > 0);
-  }, [allMyTasks]);
+  }, [myTasksPlanifie]);
+  const myTasksByCategoryHistorique = useMemo(() => {
+    const groups = new Map<Task["category"], Task[]>();
+    for (const t of myTasksHistorique) { const arr = groups.get(t.category); if (arr) arr.push(t); else groups.set(t.category, [t]); }
+    return CAT_ORDER.map((cat) => ({ cat, tasks: groups.get(cat) || [] })).filter((g) => g.tasks.length > 0);
+  }, [myTasksHistorique]);
   async function confirmDesengage() {
     if (!desengageTarget) return;
     setDesengageSaving(true);
@@ -153,6 +161,10 @@ export default function AdminAccountScreen() {
 
   const [toast, setToast] = useState("");
   const [activeContrib, setActiveContrib] = useState<ContribKey | null>(null);
+  // Repliage des sous-sections "Historique" (Mes réservations / Entraide) —
+  // seule cette partie se déplie/replie, "À venir"/"Planifié" reste toujours visible.
+  const [resvHistoryOpen, setResvHistoryOpen] = useState(false);
+  const [besoinsHistoryOpen, setBesoinsHistoryOpen] = useState(false);
   const [headerHeight, setHeaderHeight] = useState(0);
   const [pinTileOpen, setPinTileOpen] = useState(false);
   const [tempEmail, setTempEmail] = useState("");
@@ -485,6 +497,20 @@ export default function AdminAccountScreen() {
       return { leader, companions: rows.filter((r) => r.id !== leader.id) };
     });
   }, [reservations]);
+  // "À venir" (chronologique) vs "Historique" (antichronologique) — même
+  // distinction passé/futur que côté visiteur et que nights.tsx.
+  const reservationGroupsUpcoming = useMemo(
+    () => reservationGroups
+      .filter((g) => !isReservationDatePast(g.leader.date))
+      .sort((a, b) => (a.leader.date === b.leader.date ? a.leader.creneau.localeCompare(b.leader.creneau) : a.leader.date.localeCompare(b.leader.date))),
+    [reservationGroups],
+  );
+  const reservationGroupsHistory = useMemo(
+    () => reservationGroups
+      .filter((g) => isReservationDatePast(g.leader.date))
+      .sort((a, b) => (a.leader.date === b.leader.date ? b.leader.creneau.localeCompare(a.leader.creneau) : b.leader.date.localeCompare(a.leader.date))),
+    [reservationGroups],
+  );
 
   function handleLogout() {
     setConfirmModal("logout");
@@ -496,12 +522,120 @@ export default function AdminAccountScreen() {
     router.replace("/");
   }
 
+  // Même mécanisme que côté visiteur (VisitorContext.pendingEditReservationId)
+  // : rouvre directement la modale AdminEditReservation sur cette réservation
+  // précise, au lieu de se contenter d'amener sur le jour/l'écran générique.
   function handleOpenReservation(r: Reservation) {
+    setPendingEditReservationId(r.id);
     if (r.type === "Nuit") {
       router.push({ pathname: "/(admin)/home/nights", params: { focusDate: r.date } } as any);
     } else {
+      setSelectedDay(new Date(r.date + "T12:00:00"));
       router.push({ pathname: "/(admin)/home/slots", params: { focusDate: r.date } } as any);
     }
+  }
+
+  // Ligne d'un groupe de réservations dans "Mes réservations" (À venir /
+  // Historique) — factorisé pour être rendu identiquement dans les deux vues.
+  function renderReservationGroupRow({ leader, companions }: { leader: Reservation; companions: Reservation[] }) {
+    return (
+      <TouchableOpacity
+        key={leader.id}
+        style={styles.activityRow}
+        onPress={() => handleOpenReservation(leader)}
+        activeOpacity={0.7}
+      >
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.activityRowText, { color: C.text }]}>
+            {leader.type === "Nuit" ? "🌙" : "☀️"}{" "}
+            {new Date(leader.date).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} · {leader.type === "Nuit" ? "Nuit" : leader.creneau}
+          </Text>
+          <Text style={[styles.activityRowSub, { color: C.muted }]} numberOfLines={1}>
+            {leader.prenom} {leader.nom}
+            {companions.length > 0 ? ` · Avec ${companions.map((c) => `${c.prenom} ${c.nom}`).join(", ")}` : ""}
+          </Text>
+        </View>
+        <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
+      </TouchableOpacity>
+    );
+  }
+
+  // Carte d'une catégorie de besoins dans "Entraide" (Planifié / Historique)
+  // — factorisé pour être rendu identiquement dans les deux vues.
+  function renderTaskCategoryCard(cat: Task["category"], catTasks: Task[]) {
+    return (
+      <View
+        key={cat}
+        style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: TASK_CATEGORY_COLORS[cat] }]}
+      >
+        <Text style={[styles.catHeader, { color: TASK_CATEGORY_COLORS[cat] }]}>
+          {CAT_ICONS[cat]} {CAT_LABELS[cat]}
+        </Text>
+        {catTasks.map((t) => (
+          <TouchableOpacity
+            key={t.id}
+            style={styles.activityRow}
+            onPress={() => router.push(`/(admin)/entraide?focusTaskId=${t.id}` as any)}
+            onLongPress={() => { if (claimedTaskIds.has(t.id)) setDesengageTarget(t); }}
+            activeOpacity={0.7}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.activityRowText, { color: C.text }]} numberOfLines={2}>
+                {t.title}
+              </Text>
+              <Text style={[styles.activityRowSub, { color: C.muted }]}>
+                🗓️ Publié le {toFrShort(new Date(t.created_at))}
+              </Text>
+              {t.date_limite && (
+                <Text style={[styles.activityRowSub, { color: C.muted }]}>
+                  📅 Échéance : {toFrShort(new Date(t.date_limite + "T12:00:00"))}
+                </Text>
+              )}
+              {t.category === "transport" && t.transport_date && t.transport_out_time && (
+                <>
+                  <Text style={[styles.activityRowSub, { color: C.muted }]}>
+                    🕐 Demandé : {toFrShort(new Date(t.transport_date + "T12:00:00"))}
+                  </Text>
+                  <Text style={[styles.activityRowSub, { color: C.muted }]}>
+                    à {t.transport_out_time.replace(":", "h")}
+                  </Text>
+                  {t.transport_round_trip && t.transport_return_time && (
+                    <Text style={[styles.activityRowSub, { color: C.muted }]}>
+                      Retour {t.transport_return_time.replace(":", "h")}
+                    </Text>
+                  )}
+                </>
+              )}
+            </View>
+            <View style={[
+              styles.activityStatusBadge,
+              {
+                borderColor: t.status === "fait" ? C.success
+                  : t.status === "pris_en_charge" ? C.accent
+                  : t.status === "ferme" ? C.danger
+                  : C.orange,
+              },
+            ]}>
+              <Text style={[
+                styles.activityStatusText,
+                {
+                  color: t.status === "fait" ? C.success
+                    : t.status === "pris_en_charge" ? C.accent
+                    : t.status === "ferme" ? C.danger
+                    : C.orange,
+                },
+              ]}>
+                {t.status === "fait" ? "✓ Fait"
+                  : t.status === "pris_en_charge" ? "⏳ Pris en charge"
+                  : t.status === "ferme" ? "🔒 Fermé"
+                  : "🔓 Ouvert"}
+              </Text>
+            </View>
+            <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    );
   }
 
   if (loading) {
@@ -671,30 +805,29 @@ export default function AdminAccountScreen() {
                           >
                             <Text style={[styles.recurringBtnText, { color: C.accent }]}>🔁 Réservations récurrentes</Text>
                           </TouchableOpacity>
-                        <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
-                          {reservationGroups.length === 0 ? (
-                            <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucune réservation pour le moment.</Text>
-                          ) : reservationGroups.map(({ leader, companions }) => (
-                            <TouchableOpacity
-                              key={leader.id}
-                              style={styles.activityRow}
-                              onPress={() => handleOpenReservation(leader)}
-                              activeOpacity={0.7}
-                            >
-                              <View style={{ flex: 1 }}>
-                                <Text style={[styles.activityRowText, { color: C.text }]}>
-                                  {leader.type === "Nuit" ? "🌙" : "☀️"}{" "}
-                                  {new Date(leader.date).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} · {leader.type === "Nuit" ? "Nuit" : leader.creneau}
-                                </Text>
-                                <Text style={[styles.activityRowSub, { color: C.muted }]} numberOfLines={1}>
-                                  {leader.prenom} {leader.nom}
-                                  {companions.length > 0 ? ` · Avec ${companions.map((c) => `${c.prenom} ${c.nom}`).join(", ")}` : ""}
-                                </Text>
-                              </View>
-                              <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
-                            </TouchableOpacity>
-                          ))}
-                        </View>
+
+                          <Text style={[styles.catHeader, { color: C.gold }]}>📅 À venir ({reservationGroupsUpcoming.length})</Text>
+                          <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
+                            {reservationGroupsUpcoming.length === 0 ? (
+                              <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucune réservation à venir.</Text>
+                            ) : reservationGroupsUpcoming.map(renderReservationGroupRow)}
+                          </View>
+
+                          <TouchableOpacity
+                            onPress={() => setResvHistoryOpen((v) => !v)}
+                            activeOpacity={0.75}
+                            style={styles.historyToggle}
+                          >
+                            <Text style={[styles.catHeader, { color: C.gold, marginBottom: 0 }]}>📜 Historique ({reservationGroupsHistory.length})</Text>
+                            <Text style={[styles.tileChevron, { color: C.muted }]}>{resvHistoryOpen ? "▲" : "▼"}</Text>
+                          </TouchableOpacity>
+                          {resvHistoryOpen && (
+                            <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
+                              {reservationGroupsHistory.length === 0 ? (
+                                <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucun historique pour le moment.</Text>
+                              ) : reservationGroupsHistory.map(renderReservationGroupRow)}
+                            </View>
+                          )}
                         </>
                       )}
 
@@ -745,79 +878,28 @@ export default function AdminAccountScreen() {
                           </View>
                         ) : (
                           <>
-                            {myTasksByCategory.map(({ cat, tasks: catTasks }) => (
-                              <View
-                                key={cat}
-                                style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: TASK_CATEGORY_COLORS[cat] }]}
-                              >
-                                <Text style={[styles.catHeader, { color: TASK_CATEGORY_COLORS[cat] }]}>
-                                  {CAT_ICONS[cat]} {CAT_LABELS[cat]}
-                                </Text>
-                                {catTasks.map((t) => (
-                                  <TouchableOpacity
-                                    key={t.id}
-                                    style={styles.activityRow}
-                                    onPress={() => router.push(`/(admin)/entraide?focusTaskId=${t.id}` as any)}
-                                    onLongPress={() => { if (claimedTaskIds.has(t.id)) setDesengageTarget(t); }}
-                                    activeOpacity={0.7}
-                                  >
-                                    <View style={{ flex: 1 }}>
-                                      <Text style={[styles.activityRowText, { color: C.text }]} numberOfLines={2}>
-                                        {t.title}
-                                      </Text>
-                                      <Text style={[styles.activityRowSub, { color: C.muted }]}>
-                                        🗓️ Publié le {toFrShort(new Date(t.created_at))}
-                                      </Text>
-                                      {t.date_limite && (
-                                        <Text style={[styles.activityRowSub, { color: C.muted }]}>
-                                          📅 Échéance : {toFrShort(new Date(t.date_limite + "T12:00:00"))}
-                                        </Text>
-                                      )}
-                                      {t.category === "transport" && t.transport_date && t.transport_out_time && (
-                                        <>
-                                          <Text style={[styles.activityRowSub, { color: C.muted }]}>
-                                            🕐 Demandé : {toFrShort(new Date(t.transport_date + "T12:00:00"))}
-                                          </Text>
-                                          <Text style={[styles.activityRowSub, { color: C.muted }]}>
-                                            à {t.transport_out_time.replace(":", "h")}
-                                          </Text>
-                                          {t.transport_round_trip && t.transport_return_time && (
-                                            <Text style={[styles.activityRowSub, { color: C.muted }]}>
-                                              Retour {t.transport_return_time.replace(":", "h")}
-                                            </Text>
-                                          )}
-                                        </>
-                                      )}
-                                    </View>
-                                    <View style={[
-                                      styles.activityStatusBadge,
-                                      {
-                                        borderColor: t.status === "fait" ? C.success
-                                          : t.status === "pris_en_charge" ? C.accent
-                                          : t.status === "ferme" ? C.danger
-                                          : C.orange,
-                                      },
-                                    ]}>
-                                      <Text style={[
-                                        styles.activityStatusText,
-                                        {
-                                          color: t.status === "fait" ? C.success
-                                            : t.status === "pris_en_charge" ? C.accent
-                                            : t.status === "ferme" ? C.danger
-                                            : C.orange,
-                                        },
-                                      ]}>
-                                        {t.status === "fait" ? "✓ Fait"
-                                          : t.status === "pris_en_charge" ? "⏳ Pris en charge"
-                                          : t.status === "ferme" ? "🔒 Fermé"
-                                          : "🔓 Ouvert"}
-                                      </Text>
-                                    </View>
-                                    <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
-                                  </TouchableOpacity>
-                                ))}
+                            <Text style={[styles.catHeader, { color: C.gold }]}>📋 Planifié ({myTasksPlanifie.length})</Text>
+                            {myTasksByCategoryPlanifie.length === 0 ? (
+                              <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
+                                <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucun besoin planifié pour le moment.</Text>
                               </View>
-                            ))}
+                            ) : myTasksByCategoryPlanifie.map(({ cat, tasks: catTasks }) => renderTaskCategoryCard(cat, catTasks))}
+
+                            <TouchableOpacity
+                              onPress={() => setBesoinsHistoryOpen((v) => !v)}
+                              activeOpacity={0.75}
+                              style={styles.historyToggle}
+                            >
+                              <Text style={[styles.catHeader, { color: C.gold, marginBottom: 0 }]}>📜 Historique ({myTasksHistorique.length})</Text>
+                              <Text style={[styles.tileChevron, { color: C.muted }]}>{besoinsHistoryOpen ? "▲" : "▼"}</Text>
+                            </TouchableOpacity>
+                            {besoinsHistoryOpen && (
+                              myTasksByCategoryHistorique.length === 0 ? (
+                                <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
+                                  <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucun historique pour le moment.</Text>
+                                </View>
+                              ) : myTasksByCategoryHistorique.map(({ cat, tasks: catTasks }) => renderTaskCategoryCard(cat, catTasks))
+                            )}
                           </>
                         )
                       )}
@@ -1210,6 +1292,7 @@ const styles = StyleSheet.create({
 
   activityEmpty: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
   catHeader: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 0.6, textTransform: "uppercase", marginBottom: 8 },
+  historyToggle: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 4 },
   activityRow: { paddingVertical: 6, flexDirection: "row", alignItems: "center", gap: 8 },
   activityRowText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, lineHeight: 19 },
   activityRowSub: { fontFamily: "DM_Sans_400Regular", fontSize: 11.5, lineHeight: 16, marginTop: 1 },
