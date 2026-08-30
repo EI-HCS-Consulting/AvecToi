@@ -260,6 +260,10 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
     const target = messages.find((m) => m.id === focusMessageId);
     if (!target) return;
     focusedRef.current = true;
+    // scrollRef ne cible que la vue "feed" — si l'onglet était resté sur
+    // "Médias" (état conservé par les Tabs), scrollTo s'appliquait à un ref
+    // qui n'était plus monté et on atterrissait toujours en haut.
+    setViewMode("feed");
     setHighlightId(focusMessageId);
     setTimeout(() => {
       const y = msgOffsets.current[focusMessageId];

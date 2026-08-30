@@ -88,6 +88,31 @@ const CAT_LABELS: Record<Task["category"], string> = {
 };
 const CAT_ORDER: Task["category"][] = ["repas", "affaires", "courses", "transport", "administratif", "relais", "autre"];
 
+// Tri "Planifié" : chronologique sur la date propre au besoin (date du
+// transport pour la catégorie transport, échéance sinon) — pas la date de
+// création, sinon les transports ressortaient dans le désordre.
+function sortTasksPlanifie(tasks: Task[]): Task[] {
+  const key = (t: Task) => (t.category === "transport" && t.transport_date ? t.transport_date : t.date_limite) || "";
+  return [...tasks].sort((a, b) => {
+    const ka = key(a), kb = key(b);
+    if (!ka && !kb) return 0;
+    if (!ka) return 1;
+    if (!kb) return -1;
+    return ka.localeCompare(kb);
+  });
+}
+
+// Tri "Historique" : antichronologique sur la date de publication, avec
+// l'échéance comme critère secondaire pour départager les besoins publiés le
+// même jour.
+function sortTasksHistorique(tasks: Task[]): Task[] {
+  return [...tasks].sort((a, b) => {
+    const ca = a.created_at.slice(0, 10), cb = b.created_at.slice(0, 10);
+    if (ca !== cb) return cb.localeCompare(ca);
+    return (b.date_limite || "").localeCompare(a.date_limite || "");
+  });
+}
+
 type AccountSectionKey = "info" | "patients" | "mes_soins" | "resv" | "news" | "soutien" | "besoins";
 // Ordre d'affichage de la grille = ordre des clés ci-dessous : Infos/
 // Réservations, Nouvelles, Entraide/Soutien. Le PIN n'a plus sa propre tuile
@@ -241,12 +266,12 @@ export default function VisitorAccountScreen() {
   const myTasksHistorique = useMemo(() => allMyTasks.filter((t) => t.status === "fait" || t.status === "ferme"), [allMyTasks]);
   const myTasksByCategoryPlanifie = useMemo(() => {
     const groups = new Map<Task["category"], Task[]>();
-    for (const t of myTasksPlanifie) { const arr = groups.get(t.category); if (arr) arr.push(t); else groups.set(t.category, [t]); }
+    for (const t of sortTasksPlanifie(myTasksPlanifie)) { const arr = groups.get(t.category); if (arr) arr.push(t); else groups.set(t.category, [t]); }
     return CAT_ORDER.map((cat) => ({ cat, tasks: groups.get(cat) || [] })).filter((g) => g.tasks.length > 0);
   }, [myTasksPlanifie]);
   const myTasksByCategoryHistorique = useMemo(() => {
     const groups = new Map<Task["category"], Task[]>();
-    for (const t of myTasksHistorique) { const arr = groups.get(t.category); if (arr) arr.push(t); else groups.set(t.category, [t]); }
+    for (const t of sortTasksHistorique(myTasksHistorique)) { const arr = groups.get(t.category); if (arr) arr.push(t); else groups.set(t.category, [t]); }
     return CAT_ORDER.map((cat) => ({ cat, tasks: groups.get(cat) || [] })).filter((g) => g.tasks.length > 0);
   }, [myTasksHistorique]);
   // "À venir" (chronologique) vs "Historique" (antichronologique) pour Mes
@@ -936,12 +961,16 @@ export default function VisitorAccountScreen() {
   // sur cette réservation précise, au lieu de se contenter d'amener sur le
   // jour/l'écran générique.
   function handleOpenReservation(r: Reservation) {
+    // Une réservation passée (Historique) n'est plus modifiable/annulable —
+    // on renvoie juste vers le jour avec les créneaux, sans ouvrir le popup
+    // de modification.
+    const past = isReservationDatePast(r.date);
     if (r.type === "Nuit") {
-      setPendingEditReservationId(r.id);
+      if (!past) setPendingEditReservationId(r.id);
       router.push("/(visitor)/home/nights" as any);
     } else {
       setSelectedDay(new Date(r.date + "T12:00:00"));
-      setPendingEditReservationId(r.id);
+      if (!past) setPendingEditReservationId(r.id);
       router.push("/(visitor)/home/slots" as any);
     }
   }
@@ -1011,6 +1040,11 @@ export default function VisitorAccountScreen() {
               <Text style={[styles.activityRowSub, { color: C.muted }]}>
                 🗓️ Publié le {toFrShort(new Date(t.created_at))}
               </Text>
+              {(t.author_prenom || t.author_nom) && (
+                <Text style={[styles.activityRowSub, { color: C.muted }]}>
+                  👤 Publié par {[t.author_prenom, t.author_nom].filter(Boolean).join(" ")}
+                </Text>
+              )}
               {t.date_limite && (
                 <Text style={[styles.activityRowSub, { color: C.muted }]}>
                   📅 Échéance : {toFrShort(new Date(t.date_limite + "T12:00:00"))}
@@ -1479,7 +1513,7 @@ export default function VisitorAccountScreen() {
                       <Text style={[styles.recurringBtnText, { color: C.accent }]}>🔁 Réservations récurrentes</Text>
                     </TouchableOpacity>
 
-                    <Text style={[styles.mesSoinsSubtitle, { color: C.gold }]}>📅 À venir ({myReservationsUpcoming.length})</Text>
+                    <Text style={[styles.mesSoinsSubtitle, { color: C.gold }]}>📅 Planifié ({myReservationsUpcoming.length})</Text>
                     <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
                       {myReservationsUpcoming.length === 0 ? (
                         <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucune réservation à venir.</Text>
@@ -1934,7 +1968,7 @@ const styles = StyleSheet.create({
   },
   contribHeaderText: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },
   contribCard: { marginTop: 10 },
-  recurringBtn: { borderWidth: 1, borderRadius: 10, paddingVertical: 12, alignItems: "center", marginTop: 6 },
+  recurringBtn: { borderWidth: 1, borderRadius: 10, paddingVertical: 12, alignItems: "center", marginTop: 6, marginBottom: 14 },
   recurringBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 13 },
 
   sectionTitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 1, textTransform: "uppercase", marginBottom: 10, marginTop: 8 },

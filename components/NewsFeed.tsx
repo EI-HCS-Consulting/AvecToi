@@ -356,6 +356,10 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
     const index = visibleEntries.findIndex((e) => e.id === focusEntryId);
     if (index === -1) return;
     focusedRef.current = true;
+    // La liste ciblée par listRef n'est montée qu'en vue "feed" — si l'onglet
+    // était resté sur "Médias" (état conservé par les Tabs), scrollToIndex
+    // s'appliquait à un ref null et on atterrissait toujours en haut.
+    setViewMode("feed");
     setHighlightId(focusEntryId);
     setTimeout(() => {
       listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.2 });

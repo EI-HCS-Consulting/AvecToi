@@ -5,7 +5,7 @@ import { getVisitorSession } from "@/lib/visitorSession";
 import SpaceHeader from "@/components/SpaceHeader";
 import BookingFlow, { type BookingFlowHandle } from "@/components/BookingFlow";
 import NightInterventionBookingFlow, { type NightInterventionBookingFlowHandle } from "@/components/NightInterventionBookingFlow";
-import { findNextAvailableNight, toISO, toFrLong, nightStartSlot } from "@/lib/slotUtils";
+import { findNextAvailableNight, isReservationDatePast, toISO, toFrLong, nightStartSlot } from "@/lib/slotUtils";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { isVisitorAuthorizedForNight } from "@/lib/nightVisitorAuth";
 import { isIntervenantAuthorizedForNight } from "@/lib/nightIntervenantAuth";
@@ -85,7 +85,9 @@ export default function VisitorNightsScreen() {
     if (!pendingEditReservationId) return;
     const r = reservations.find((x) => x.id === pendingEditReservationId && x.type === "Nuit");
     if (!r) return;
-    flowRef.current?.openPinModal(r, true);
+    // Filet de sécurité : une nuitée passée n'est plus modifiable, même via
+    // ce mécanisme de lien profond — on reste juste sur l'écran.
+    if (!isReservationDatePast(r.date)) flowRef.current?.openPinModal(r, true);
     setPendingEditReservationId(null);
   }, [pendingEditReservationId, reservations, setPendingEditReservationId]);
 
