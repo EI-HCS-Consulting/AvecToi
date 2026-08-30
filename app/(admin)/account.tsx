@@ -516,11 +516,21 @@ export default function AdminAccountScreen() {
       }
       byGroup.get(key)!.push(r);
     }
-    return order.map((key) => {
+    const result: { leader: Reservation; companions: Reservation[] }[] = [];
+    for (const key of order) {
       const rows = byGroup.get(key)!;
       const leader = rows.find((r) => r.id === r.group_id) ?? rows[0];
-      return { leader, companions: rows.filter((r) => r.id !== leader.id) };
-    });
+      // Un accompagnant dont le jour/créneau a divergé de celui du chef de
+      // file (modifié séparément, sans cascade) n'est plus "avec" lui — sa
+      // propre entrée est ajoutée séparément ci-dessous plutôt que de le
+      // laisser disparaître de la liste ou l'afficher à tort sous "Avec X".
+      const companions = rows.filter((r) => r.id !== leader.id && r.date === leader.date && r.creneau === leader.creneau);
+      result.push({ leader, companions });
+      for (const r of rows) {
+        if (r.id !== leader.id && !companions.includes(r)) result.push({ leader: r, companions: [] });
+      }
+    }
+    return result;
   }, [reservations]);
   // "À venir" (chronologique) vs "Historique" (antichronologique) — même
   // distinction passé/futur que côté visiteur et que nights.tsx.

@@ -124,6 +124,11 @@ function BookingFlow(
   const [editSlot, setEditSlot] = useState<string | null>(null);
   const [editCalMonth, setEditCalMonth] = useState({ year: today.getFullYear(), month: today.getMonth() });
   const [editSaving, setEditSaving] = useState(false);
+  // Accompagnant(s) dont on propose aussi de déplacer le jour/créneau, cochés
+  // par id (même logique que AdminEditReservation.tsx) — décoché par défaut :
+  // sans cascade, la réservation de l'accompagnant resterait à l'ancien
+  // horaire alors que celle-ci a changé (voir editCompanions/handleSaveEdit).
+  const [editCascade, setEditCascade] = useState<Record<string, boolean>>({});
 
   const [toast, setToast] = useState("");
   function showToast(msg: string) {
@@ -400,8 +405,13 @@ function BookingFlow(
     setEditDate(r.date);
     setEditSlot(r.type === "Nuit" ? null : r.creneau);
     setEditCalMonth({ year: d.getFullYear(), month: d.getMonth() });
+    setEditCascade({});
     setPinModal(null);
     setEditModal(r);
+  }
+
+  function toggleEditCascade(id: string) {
+    setEditCascade((prev) => ({ ...prev, [id]: !prev[id] }));
   }
 
   async function handleSaveEdit() {
@@ -441,6 +451,30 @@ function BookingFlow(
       return;
     }
 
+    // Accompagnant(s) cochés : déplacés sur le même jour/créneau, sinon leur
+    // réservation resterait à l'ancien horaire alors que la sienne a changé
+    // (voir "Avec ..." dans Mes réservations/Planning, filtré sur ce même
+    // jour/créneau — un accompagnant non coché divergera donc volontairement).
+    const cascadeIds = editModal.group_id
+      ? reservations
+          .filter((r) => r.group_id === editModal.group_id && r.id !== editModal.id && editCascade[r.id])
+          .map((r) => r.id)
+      : [];
+    if (cascadeIds.length > 0) {
+      await supabase
+        .from("reservations")
+        .update({
+          date: editDate,
+          creneau: editModal.type === "Nuit" ? "🌙 Nuit" : editSlot,
+          alert_message: null,
+          alert_type: null,
+          alert_seen: true,
+          previous_date: null,
+          previous_creneau: null,
+        })
+        .in("id", cascadeIds);
+    }
+
     updateLinkedCalendarEvent(
       editModal.id,
       editDate,
@@ -475,11 +509,15 @@ function BookingFlow(
     if (!pinModal) return;
     const session = await getVisitorSession();
     const slotForEvent = pinModal.type === "Nuit" ? nightStartSlot(slotConfig) : pinModal.creneau;
-    // Accompagnants : réservations liées par group_id (nouveau modèle) —
+    // Accompagnants : réservations liées par group_id (nouveau modèle), à
+    // condition qu'elles soient toujours sur le même jour/créneau (une
+    // modification non cascadée les a fait diverger, voir handleSaveEdit) —
     // repli sur companion_firstnames pour les réservations créées avant ce
     // changement (texte libre, pas de lignes séparées).
     const pinCompanions = pinModal.group_id
-      ? reservations.filter((r) => r.group_id === pinModal.group_id && r.id !== pinModal.id).map((r) => r.prenom)
+      ? reservations
+          .filter((r) => r.group_id === pinModal.group_id && r.id !== pinModal.id && r.date === pinModal.date && r.creneau === pinModal.creneau)
+          .map((r) => r.prenom)
       : (pinModal.companion_firstnames ?? "").split(",").map((c) => c.trim()).filter(Boolean);
     const result = await addToNativeCalendar(space, slotConfig, pinModal.date, slotForEvent, pinModal.type, session?.email || null, pinCompanions);
     if (result.ok) {
@@ -496,6 +534,13 @@ function BookingFlow(
   // proposés. Sans objet pour les nuitées (une seule réservation par nuit).
   const bookingOcc = bookingTarget && type === "Visite" ? getSlotOccupancy(reservations, bookingTarget.iso, bookingTarget.slot) : [];
   const maxCompanions = Math.max(0, slotConfig.max_visitors_per_slot - 1 - bookingOcc.length);
+
+  // Accompagnant(s) de la réservation en cours d'édition, liés par group_id
+  // (cf. AdminEditReservation.tsx) — proposés en case à cocher pour déplacer
+  // aussi leur jour/créneau.
+  const editCompanions = editModal?.group_id
+    ? reservations.filter((r) => r.group_id === editModal.group_id && r.id !== editModal.id)
+    : [];
 
   return (
     <>
@@ -848,6 +893,22 @@ function BookingFlow(
                       </View>
                     </>
                   )}
+
+                  {editCompanions.length > 0 && (
+                    <View style={[styles.editCompanionBox, { borderColor: C.border }]}>
+                      <Text style={[styles.editCompanionLabel, { color: C.gold }]}>Réservation liée</Text>
+                      {editCompanions.map((c) => (
+                        <TouchableOpacity key={c.id} style={styles.editCompanionRow} onPress={() => toggleEditCascade(c.id)} activeOpacity={0.7}>
+                          <View style={[styles.editCheckbox, { borderColor: C.accent }, editCascade[c.id] && { backgroundColor: C.accent }]}>
+                            {editCascade[c.id] && <Text style={styles.editCheckboxMark}>✓</Text>}
+                          </View>
+                          <Text style={[styles.editCompanionText, { color: C.text }]}>
+                            Modifier aussi le créneau de {c.prenom} {c.nom}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
                 </ScrollView>
 
                 <View style={styles.sheetBtns}>
@@ -936,6 +997,13 @@ const styles = StyleSheet.create({
   removeCompanionBtn: { paddingHorizontal: 6 },
   removeCompanionBtnText: { fontSize: 16 },
   addCompanionBtn: { alignSelf: "flex-start", paddingVertical: 6, marginBottom: 10 },
+
+  editCompanionBox: { width: "100%", borderTopWidth: 1, marginTop: 8, paddingTop: 12 },
+  editCompanionLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 10 },
+  editCompanionRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 4 },
+  editCheckbox: { width: 20, height: 20, borderRadius: 5, borderWidth: 1.5, alignItems: "center", justifyContent: "center" },
+  editCheckboxMark: { color: "#fff", fontSize: 13, fontFamily: "DM_Sans_700Bold" },
+  editCompanionText: { fontFamily: "DM_Sans_400Regular", fontSize: 14, flexShrink: 1 },
   addCompanionBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
 
   pinLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 6, marginTop: 4 },
