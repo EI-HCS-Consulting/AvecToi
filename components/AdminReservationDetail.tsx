@@ -1,6 +1,6 @@
 import { useState, forwardRef, useImperativeHandle } from "react";
 import { View, Text, TouchableOpacity, Modal, StyleSheet } from "react-native";
-import { router } from "expo-router";
+import { useRouter } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { toFrShort, isReservationDatePast, nightStartSlot } from "@/lib/slotUtils";
 import { addToNativeCalendar, linkCalendarEvent, getLinkedCalendarEvent } from "@/lib/calendarSync";
@@ -29,6 +29,7 @@ interface Props {
 }
 
 function AdminReservationDetail({ space, slotConfig, onEdit, onDelete, C }: Props, ref: React.Ref<AdminReservationDetailHandle>) {
+  const router = useRouter();
   const [target, setTarget] = useState<Reservation | null>(null);
   const [calendarAdded, setCalendarAdded] = useState(false);
   const [addingToCalendar, setAddingToCalendar] = useState(false);
@@ -111,7 +112,15 @@ function AdminReservationDetail({ space, slotConfig, onEdit, onDelete, C }: Prop
           )}
 
           <TouchableOpacity
-            onPress={() => { close(); router.back(); }}
+            onPress={() => {
+              close();
+              // router.back() dépend de l'état de la pile interne du Stack
+              // "home" (Calendrier/Créneaux/Nuitées) au moment du push depuis
+              // Mon Compte — pas fiable pour revenir précisément à l'onglet
+              // Compte. On y navigue explicitement, comme le fait déjà le
+              // tabPress de l'onglet "home" dans _layout.tsx.
+              router.push("/(admin)/account" as any);
+            }}
             style={[styles.closeBtn, { borderColor: C.border }]}
           >
             <Text style={[styles.closeBtnText, { color: C.muted }]}>Fermer</Text>
