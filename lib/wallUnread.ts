@@ -225,10 +225,26 @@ export function useWallVisibility(unreadIds: Set<string>, markSeen: (id: string)
     });
   }, []);
 
+  // Les murs sont triés du plus récent au plus ancien, donc l'élément non lu
+  // le plus probable atterrit tout en haut — pile la zone déjà visible sans
+  // le moindre scroll à l'ouverture de l'écran. Sans délai ici, check()
+  // (déclenché par les onLayout de mesure ci-dessous) le marquait "vu" dans
+  // le même cycle que son premier affichage : le cadre orange n'avait
+  // littéralement aucune chance d'être perçu avant de disparaître. Un vrai
+  // scroll de l'utilisateur (onScroll ci-dessous) reste marqué au plus vite,
+  // lui, car il prouve une attention réelle portée à l'élément.
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleCheck = useCallback(() => {
+    if (settleTimer.current) clearTimeout(settleTimer.current);
+    settleTimer.current = setTimeout(check, 1200);
+  }, [check]);
+
+  useEffect(() => () => { if (settleTimer.current) clearTimeout(settleTimer.current); }, []);
+
   // Ré-évalue dès que la liste des non-lus change (ex. chargement initial
   // terminé) : un élément déjà déposé/mesuré peut alors se retrouver
   // immédiatement visible sans qu'aucun scroll ne se produise.
-  useEffect(() => { check(); }, [unreadIds, check]);
+  useEffect(() => { scheduleCheck(); }, [unreadIds, scheduleCheck]);
 
   const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     scrollY.current = e.nativeEvent.contentOffset.y;
@@ -237,14 +253,14 @@ export function useWallVisibility(unreadIds: Set<string>, markSeen: (id: string)
 
   const onScrollViewLayout = useCallback((e: LayoutChangeEvent) => {
     viewportH.current = e.nativeEvent.layout.height;
-    check();
-  }, [check]);
+    scheduleCheck();
+  }, [scheduleCheck]);
 
   const registerItemLayout = useCallback((id: string) => (e: LayoutChangeEvent) => {
     offsets.current[id] = e.nativeEvent.layout.y;
     heights.current[id] = e.nativeEvent.layout.height;
-    check();
-  }, [check]);
+    scheduleCheck();
+  }, [scheduleCheck]);
 
   return { onScroll, onScrollViewLayout, registerItemLayout };
 }

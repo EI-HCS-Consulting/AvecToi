@@ -17,7 +17,7 @@ import { useWallUnread, useWallVisibility } from "@/lib/wallUnread";
 import PinPad from "@/components/PinPad";
 import VisitorProfileModal from "@/components/VisitorProfileModal";
 import type { SupportMessage, SupportMessageReply } from "@/lib/types";
-import { UNREAD_WALL_FILL, type Theme } from "@/lib/themes";
+import type { Theme } from "@/lib/themes";
 
 // Section "Mur de soutien" extraite de l'ancien EntraideSoutien.tsx — voir
 // components/Entraide.tsx pour l'autre moitié (Besoins).
@@ -665,8 +665,8 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
   // supabase/migrations/20260811_content_deleted_by_admin.sql.
   const visibleMessages = messages.filter((m) => !m.deleted_by_admin || (!isAdmin && isOwnMessage(m)));
 
-  // Fond pastel orange tant qu'un message publié par quelqu'un d'autre n'a
-  // pas défilé dans la zone visible du ScrollView (voir lib/wallUnread.ts,
+  // Bord orange tant qu'un message publié par quelqu'un d'autre n'a pas
+  // défilé dans la zone visible du ScrollView (voir lib/wallUnread.ts,
   // mécanisme partagé avec Entraide/Nouvelles).
   const { unreadIds, markSeen } = useWallUnread("soutien", spaceId, isAdmin, msgsLoading ? null : visibleMessages);
   const { onScroll: onMsgsScroll, onScrollViewLayout: onMsgsScrollLayout, registerItemLayout: registerMsgLayout } =
@@ -837,7 +837,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
               style={[
                 styles.msgCard,
                 { backgroundColor: C.card, borderColor: highlighted ? C.gold : C.border },
-                unread && { backgroundColor: UNREAD_WALL_FILL },
+                unread && { borderColor: C.orange, borderWidth: 2 },
                 highlighted && { borderWidth: 2 },
               ]}
             >
