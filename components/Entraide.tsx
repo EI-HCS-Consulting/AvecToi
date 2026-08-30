@@ -1052,24 +1052,21 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     return () => { supabase.removeChannel(ch); };
   }, [spaceId, loadTasks]);
 
-  // Un besoin jamais pris en charge ("ouvert") dont la date est dépassée
-  // passe automatiquement en "fermé" — évite qu'il traîne indéfiniment en
-  // attente de réponse. En revanche un besoin "pris en charge" reste tel
-  // quel tant que "Fait" n'a pas été cliqué (voir openClaim : un rappel est
-  // affiché à la prise en charge pour limiter l'oubli). Seule la catégorie
-  // Transport porte aujourd'hui une date structurée (taskOverdueUnclaimed) ;
-  // la vérification reste générique pour couvrir les autres catégories le
-  // jour où elles en auront une. Vérifié au montage puis toutes les 60s via
-  // tasksRef (évite de dépendre de `tasks` pour ne pas réinitialiser
-  // l'intervalle à chaque rechargement).
+  // Un besoin dont la date/heure est dépassée passe automatiquement en
+  // "fermé" — qu'il ait été pris en charge ou non, et même si "Fait" n'a
+  // jamais été cliqué : une fois l'échéance passée, le besoin est considéré
+  // terminé et ne doit plus traîner en attente de réponse ou d'action (voir
+  // taskOverdue). Vérifié au montage puis toutes les 60s via tasksRef (évite
+  // de dépendre de `tasks` pour ne pas réinitialiser l'intervalle à chaque
+  // rechargement).
   useEffect(() => {
-    async function closeOverdueUnclaimed() {
-      const overdue = tasksRef.current.filter(taskOverdueUnclaimed);
+    async function closeOverdue() {
+      const overdue = tasksRef.current.filter(taskOverdue);
       if (overdue.length === 0) return;
       await Promise.all(overdue.map((t) => supabase.from("tasks").update({ status: "ferme" }).eq("id", t.id)));
     }
-    closeOverdueUnclaimed();
-    const interval = setInterval(closeOverdueUnclaimed, 60000);
+    closeOverdue();
+    const interval = setInterval(closeOverdue, 60000);
     return () => clearInterval(interval);
   }, [spaceId]);
 
@@ -2672,14 +2669,15 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     return new Date(`${t.transport_confirmed_date}T${time}:00`) < new Date();
   }
 
-  // Besoin jamais pris en charge (status toujours "ouvert") et dont la date
-  // demandée est déjà passée — fermé automatiquement (voir l'effet plus
-  // haut) pour ne pas rester affiché indéfiniment comme "en attente de
-  // réponse". Transport a sa propre date/heure structurée ; les autres
+  // Date/heure limite d'un besoin dépassée par rapport à maintenant,
+  // indépendamment de son statut actuel. Transport a sa propre date/heure
+  // structurée (confirmée si elle existe, sinon demandée) ; les autres
   // catégories utilisent l'échéance générique optionnelle (date_limite) —
-  // absente = jamais fermé automatiquement pour ce besoin.
-  function taskOverdueUnclaimed(t: Task): boolean {
-    if (t.status !== "ouvert") return false;
+  // absente = jamais considéré dépassé. Sert à la fois à la fermeture
+  // automatique (taskOverdue ci-dessous) et à interdire la réouverture d'un
+  // besoin déjà clos une fois son échéance passée (voir le bouton
+  // "Réouvrir" : au-delà de l'échéance, on ne revient plus dessus).
+  function taskPastDeadline(t: Task): boolean {
     if (t.category === "transport") {
       const date = t.transport_confirmed_date || t.transport_date;
       if (!date) return false;
@@ -2689,6 +2687,15 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     }
     if (!t.date_limite) return false;
     return new Date(`${t.date_limite}T23:59:59`) < new Date();
+  }
+
+  // Besoin encore "actif" (jamais pris en charge, ou pris en charge mais pas
+  // encore marqué "Fait") dont l'échéance est déjà passée — fermé
+  // automatiquement (voir l'effet plus haut) pour ne pas rester affiché
+  // indéfiniment comme "en attente de réponse" ou "en attente de Fait".
+  function taskOverdue(t: Task): boolean {
+    if (t.status !== "ouvert" && t.status !== "pris_en_charge") return false;
+    return taskPastDeadline(t);
   }
 
   // Date "utile" d'un besoin pour le tri temporel du mur — Transport a sa
@@ -3376,7 +3383,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           <Image source={{ uri: taskPhotoUrl(spaceId, t.done_photo) }} style={styles.claimedPhoto} resizeMode="cover" />
         )}
 
-        {(t.status === "fait" || t.status === "ferme") && isAdmin && (
+        {(t.status === "fait" || t.status === "ferme") && isAdmin && !taskPastDeadline(t) && (
           <TouchableOpacity
             style={[styles.actionSmall, { borderColor: C.border, marginTop: 10, alignSelf: "flex-start" }]}
             onPress={() => adminSetStatus(t, "ouvert")}
@@ -3427,8 +3434,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     .filter((t) => { const d = taskEffectiveDate(t); return !d || d < today; })
     .sort(compareMostRecentFirst);
   const visibleTasksCount = visibleOpen.length + visibleClosedUpcoming.length + visibleClosedHistory.length;
-  const openCount = undeletedTasks.filter(isOpenStatus).length;
-  const closedCount = undeletedTasks.filter(isClosedStatus).length;
+  const openCount = catFiltered.filter(isOpenStatus).length;
+  const closedCount = catFiltered.filter(isClosedStatus).length;
 
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
