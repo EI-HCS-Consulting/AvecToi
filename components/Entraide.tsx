@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, Pressable, ScrollView,
   Modal, StyleSheet, Alert, ActivityIndicator, Image,
-  KeyboardAvoidingView, Platform, Linking, useWindowDimensions,
+  KeyboardAvoidingView, Platform, Linking, useWindowDimensions, Animated,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
@@ -27,6 +27,10 @@ import { CHECKLIST_TEMPLATES, addDaysIso, checklistItemDescription, findTemplate
 import { isRelaisFullyCovered, computeRelaisGaps, type RelaisCoverageRange } from "@/lib/relaisCoverage";
 
 const PHOTO_BUCKET = "entraide-photos";
+
+// Support de l'anim de surlignage (cadre rouge qui s'estompe) sur les cartes
+// besoin — voir renderTask/highlightAnim ci-dessous.
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 
 // Assistant de publication de checklist (voir checklistWizardList) — un item
 // gabarit (key = index dans le modèle) ou un item libre ajouté à la volée
@@ -162,12 +166,16 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const scrollRef = useRef<ScrollView>(null);
   const taskOffsets = useRef<Record<string, number>>({});
   const [highlightId, setHighlightId] = useState<string | null>(null);
+  // Progression du cadre rouge de surlignage : 1 = cadre épais tout juste
+  // arrivé, 0 = fondu terminé (repos). Piloté par Animated.timing dans
+  // l'effet de focus ci-dessous ; voir renderTask pour l'interpolation.
+  const highlightAnim = useRef(new Animated.Value(0)).current;
   const focusedRef = useRef(false);
   // Cible du scroll/surlignage : soit le focusTaskId venu d'un lien profond
   // (Mon compte, RelaisAlertModal...), soit — une fois saveTask() a inséré
   // une nouvelle ligne — l'id du besoin qu'on vient de créer, pour amener
   // l'utilisateur pile dessus au lieu de le laisser en haut de liste.
-  const [focusTarget, setFocusTarget] = useState<string | null>(focusTaskId ?? null);
+  const [focusTarget, setFocusTarget] = useState<string | null>(null);
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState(true);
@@ -922,24 +930,38 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     markEntraideSeen(spaceId, isAdmin);
   }, [tasksLoading, tasks, spaceId, isAdmin]);
 
-  // Arrivée depuis "Mon compte" via un lien profond (?focusTaskId=...) :
-  // on retire un éventuel filtre de catégorie qui cacherait le besoin, on
-  // scrolle jusqu'à sa carte et on la surligne brièvement. focusedRef évite
-  // de re-déclencher le scroll à chaque rechargement realtime de tasks.
+  // Arrivée depuis "Mon compte" via un lien profond (?focusTaskId=...) —
+  // à chaque nouvelle navigation (même écran déjà monté, cas des Tabs qui
+  // gardent Entraide en mémoire), on repointe focusTarget et on réarme
+  // focusedRef pour que le focus ci-dessous se redéclenche.
+  useEffect(() => {
+    if (!focusTaskId) return;
+    focusedRef.current = false;
+    setFocusTarget(focusTaskId);
+  }, [focusTaskId]);
+
+  // Sélectionne la catégorie du besoin visé (pour qu'il soit bien affiché,
+  // pas masqué par un autre filtre de catégorie), scrolle jusqu'à sa carte et
+  // l'entoure d'un cadre rouge épais qui s'estompe en 1s (voir highlightAnim/
+  // renderTask) — sauf s'il est "Urgent" et ouvert, auquel cas le cadre rouge
+  // reste après le fondu (c'est son état normal, voir renderTask). focusedRef
+  // évite de re-déclencher le scroll à chaque rechargement realtime de tasks.
   useEffect(() => {
     if (!focusTarget || focusedRef.current || tasksLoading) return;
     const target = tasks.find((t) => t.id === focusTarget);
     if (!target) return;
     focusedRef.current = true;
-    if (activeCat && activeCat !== target.category) setActiveCat(null);
+    if (activeCat !== target.category) setActiveCat(target.category);
     if (openOnlyFilter && target.status !== "ouvert") setOpenOnlyFilter(false);
     if (closedOnlyFilter && target.status === "ouvert") setClosedOnlyFilter(false);
     setHighlightId(focusTarget);
+    highlightAnim.setValue(1);
     setTimeout(() => {
       const y = taskOffsets.current[focusTarget];
       if (y != null) scrollRef.current?.scrollTo({ y: Math.max(y - 12, 0), animated: true });
+      Animated.timing(highlightAnim, { toValue: 0, duration: 1000, useNativeDriver: false })
+        .start(() => setHighlightId(null));
     }, 300);
-    setTimeout(() => setHighlightId(null), 2500);
     // Depuis RelaisAlertModal ("🙋 Je m'en occupe") : ouvre directement la
     // sheet de prise en charge sur ce besoin plutôt que de dupliquer la
     // logique de claim (PIN, etc.). Ne s'applique qu'au lien profond
@@ -2945,8 +2967,18 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       && (isAdmin || (isAuthor(t) && !isTaskClosedPast(t)));
     const selected = selectedTaskIds.has(t.id);
     const modifiedByLabel = [t.modified_by_prenom, t.modified_by_nom].filter(Boolean).join(" ");
+    // Cadre "au repos" : rouge fin tant que le tag Urgent est actif (et le
+    // besoin encore "ouvert"), sinon gris normal/estompé (fait). Le
+    // surlignage d'arrivée (deep-link/création, voir highlightAnim) part
+    // toujours d'un rouge plus épais que ce repos, pour qu'un fondu soit
+    // visible même sur un besoin déjà Urgent.
+    const urgentOpen = t.urgent && t.status === "ouvert";
+    const restingColor = urgentOpen ? C.danger : (t.status === "fait" ? "rgba(122,143,166,0.2)" : C.border);
+    const restingWidth = urgentOpen ? 2 : 1;
+    const animBorderColor = highlightAnim.interpolate({ inputRange: [0, 1], outputRange: [restingColor, C.danger] });
+    const animBorderWidth = highlightAnim.interpolate({ inputRange: [0, 1], outputRange: [restingWidth, 3] });
     return (
-      <Pressable
+      <AnimatedPressable
         key={t.id}
         onLayout={(e) => { taskOffsets.current[t.id] = e.nativeEvent.layout.y; }}
         onLongPress={() => {
@@ -2961,13 +2993,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         pointerEvents={selectable && selectionMode ? "box-only" : "auto"}
         style={[
           styles.taskCard,
-          { backgroundColor: C.card, borderColor: highlighted ? C.gold : (t.status === "fait" ? "rgba(122,143,166,0.2)" : C.border) },
-          // Cadre rouge autour du bloc tant que le tag Urgent est actif — ne
-          // s'affiche que si le besoin est encore "ouvert" (voir le tag
-          // Urgent plus bas), sauf priorité visuelle du surlignage (deep-link)
-          // ou de la sélection multiple ci-dessous.
-          t.urgent && t.status === "ouvert" && { borderColor: C.danger, borderWidth: 2 },
-          highlighted && { borderWidth: 2 },
+          { backgroundColor: C.card, borderColor: restingColor, borderWidth: restingWidth },
+          highlighted && { borderColor: animBorderColor, borderWidth: animBorderWidth },
           selected && { borderColor: C.accent, borderWidth: 2, backgroundColor: `${C.accent}11` },
         ]}
       >
@@ -3322,7 +3349,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             <Text style={[styles.actionSmallText, { color: C.muted }]}>↩ Réouvrir</Text>
           </TouchableOpacity>
         )}
-      </Pressable>
+      </AnimatedPressable>
     );
   }
 

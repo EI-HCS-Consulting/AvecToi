@@ -340,6 +340,13 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
       : "Erreur lors du partage");
   }
 
+  // Réarme focusedRef à chaque nouvelle valeur de focusEntryId (même écran
+  // déjà monté, cas des Tabs qui gardent NewsFeed en mémoire — sinon un 2e
+  // clic depuis Mon compte/Souvenirs sur une autre nouvelle ne refait rien).
+  useEffect(() => {
+    focusedRef.current = false;
+  }, [focusEntryId]);
+
   // Arrivée depuis Souvenirs ("Voir l'original") via un lien profond
   // (?focusEntryId=...) : on scrolle jusqu'à la carte et on la surligne
   // brièvement. focusedRef évite de re-déclencher le scroll à chaque

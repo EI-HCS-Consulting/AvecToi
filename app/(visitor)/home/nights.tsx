@@ -85,7 +85,7 @@ export default function VisitorNightsScreen() {
     if (!pendingEditReservationId) return;
     const r = reservations.find((x) => x.id === pendingEditReservationId && x.type === "Nuit");
     if (!r) return;
-    flowRef.current?.openPinModal(r);
+    flowRef.current?.openPinModal(r, true);
     setPendingEditReservationId(null);
   }, [pendingEditReservationId, reservations, setPendingEditReservationId]);
 

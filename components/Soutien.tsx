@@ -244,6 +244,13 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
 
   useEffect(() => { loadReplies(); }, [loadReplies]);
 
+  // Réarme focusedRef à chaque nouvelle valeur de focusMessageId (même écran
+  // déjà monté, cas des Tabs qui gardent Soutien en mémoire — sinon un 2e
+  // clic depuis Mon compte sur un autre message ne refait rien).
+  useEffect(() => {
+    focusedRef.current = false;
+  }, [focusMessageId]);
+
   // Arrivée depuis "Mon compte" via un lien profond (?focusMessageId=...) :
   // on scrolle jusqu'à la carte du message et on la surligne brièvement.
   // focusedRef évite de re-déclencher le scroll à chaque rechargement
