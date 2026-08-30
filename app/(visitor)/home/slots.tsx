@@ -140,8 +140,8 @@ export default function SlotsScreen() {
     if (!pendingEditReservationId) return;
     const r = reservations.find((x) => x.id === pendingEditReservationId);
     if (!r) return;
-    if (r.type === "Nuit") nightFlowRef.current?.openPinModal(r);
-    else flowRef.current?.openPinModal(r);
+    if (r.type === "Nuit") nightFlowRef.current?.openPinModal(r, true);
+    else flowRef.current?.openPinModal(r, true);
     setPendingEditReservationId(null);
   }, [pendingEditReservationId, reservations, setPendingEditReservationId]);
 

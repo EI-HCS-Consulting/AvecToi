@@ -17,7 +17,7 @@ import { enterByDossierCode } from "@/lib/visitorEntry";
 import { normalizePhone } from "@/lib/phone";
 import { metierLabel } from "@/lib/metiers";
 import { relationLabel } from "@/lib/relations";
-import { isSlotFullyPast } from "@/lib/slotUtils";
+import { isSlotFullyPast, toFrShort } from "@/lib/slotUtils";
 import { disengageTask as performDisengage } from "@/lib/taskDisengage";
 import ConfirmModal from "@/components/ConfirmModal";
 import PinPad from "@/components/PinPad";
@@ -1466,9 +1466,19 @@ export default function VisitorAccountScreen() {
                               onLongPress={() => { if (claimedTaskIds.has(t.id)) disengageTask(t); }}
                               activeOpacity={0.7}
                             >
-                              <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
-                                {t.title}
-                              </Text>
+                              <View style={{ flex: 1 }}>
+                                <Text style={[styles.activityRowText, { color: C.text }]} numberOfLines={2}>
+                                  {t.title}
+                                </Text>
+                                <Text style={[styles.activityRowSub, { color: C.muted }]}>
+                                  🗓️ Publié le {toFrShort(new Date(t.created_at))}
+                                </Text>
+                                {t.date_limite && (
+                                  <Text style={[styles.activityRowSub, { color: C.muted }]}>
+                                    📅 Échéance : {toFrShort(new Date(t.date_limite + "T12:00:00"))}
+                                  </Text>
+                                )}
+                              </View>
                               <View style={[
                                 styles.activityStatusBadge,
                                 { borderColor: t.status === "fait" ? C.success : t.status === "ferme" ? C.danger : C.orange },

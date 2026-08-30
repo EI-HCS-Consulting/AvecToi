@@ -21,6 +21,7 @@ import MyAlertsModal from "@/components/MyAlertsModal";
 import PatientProfileModal from "@/components/PatientProfileModal";
 import VisitorsListModal from "@/components/VisitorsListModal";
 import { isRgpdAlertActive, rgpdAlertMessage, prolongSpace } from "@/lib/rgpd";
+import { toFrShort } from "@/lib/slotUtils";
 import { disengageTask as performDisengage } from "@/lib/taskDisengage";
 import ConfirmModal from "@/components/ConfirmModal";
 import RecurringBookingModal from "@/components/RecurringBookingModal";
@@ -760,9 +761,19 @@ export default function AdminAccountScreen() {
                                     onLongPress={() => { if (claimedTaskIds.has(t.id)) setDesengageTarget(t); }}
                                     activeOpacity={0.7}
                                   >
-                                    <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
-                                      {t.title}
-                                    </Text>
+                                    <View style={{ flex: 1 }}>
+                                      <Text style={[styles.activityRowText, { color: C.text }]} numberOfLines={2}>
+                                        {t.title}
+                                      </Text>
+                                      <Text style={[styles.activityRowSub, { color: C.muted }]}>
+                                        🗓️ Publié le {toFrShort(new Date(t.created_at))}
+                                      </Text>
+                                      {t.date_limite && (
+                                        <Text style={[styles.activityRowSub, { color: C.muted }]}>
+                                          📅 Échéance : {toFrShort(new Date(t.date_limite + "T12:00:00"))}
+                                        </Text>
+                                      )}
+                                    </View>
                                     <View style={[
                                       styles.activityStatusBadge,
                                       {

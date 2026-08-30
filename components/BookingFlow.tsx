@@ -28,7 +28,7 @@ import type { Theme } from "@/lib/themes";
 
 export interface BookingFlowHandle {
   openBooking: (iso: string, slot: string, prefill?: { prenom: string; nom: string }) => void;
-  openPinModal: (r: Reservation) => void;
+  openPinModal: (r: Reservation, fromAccount?: boolean) => void;
 }
 
 interface Props {
@@ -105,6 +105,11 @@ function BookingFlow(
   const [calendarAdded, setCalendarAdded] = useState(false);
 
   const [pinModal, setPinModal] = useState<Reservation | null>(null);
+  // true quand la modale a été ouverte depuis "Mon compte > Mes réservations"
+  // (lien profond, voir pendingEditReservationId) plutôt que par un clic
+  // normal dans l'écran Créneaux/Nuitées — pilote le bouton "Fermer" plus bas,
+  // qui doit alors ramener sur Mon compte au lieu de rester sur cet écran.
+  const [pinModalFromAccount, setPinModalFromAccount] = useState(false);
   const [pinEntry, setPinEntry] = useState("");
   const [pinError, setPinError] = useState(false);
   const [pinStep, setPinStep] = useState<"enter" | "actions">("enter");
@@ -162,8 +167,9 @@ function BookingFlow(
     setCompanions((prev) => prev.filter((_, i) => i !== index));
   }
 
-  async function openPinModal(r: Reservation) {
+  async function openPinModal(r: Reservation, fromAccount?: boolean) {
     setPinModal(r);
+    setPinModalFromAccount(!!fromAccount);
     setPinCalendarAdded(false);
     getLinkedCalendarEvent(r.id).then((eventId) => setPinCalendarAdded(!!eventId));
 
@@ -757,7 +763,13 @@ function BookingFlow(
                 )}
 
                 <TouchableOpacity
-                  onPress={() => setPinModal(null)}
+                  onPress={() => {
+                    setPinModal(null);
+                    // Ouverte depuis "Mon compte > Mes réservations" : on y
+                    // revient (router.back(), l'écran garde son scroll)
+                    // plutôt que de laisser sur Créneaux/Nuitées.
+                    if (pinModalFromAccount) { setPinModalFromAccount(false); router.back(); }
+                  }}
                   style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", marginTop: 8 }}
                 >
                   <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.muted }}>Fermer</Text>
