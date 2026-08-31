@@ -1,6 +1,10 @@
 # PRD — AvecToi
-## Product Requirements Document v1.18
+## Product Requirements Document v1.19
 *Préparé pour Claude Code — Juin 2026, synchronisé avec l'application livrée en Juillet/Août 2026*
+
+> **Changelog v1.18 → v1.19**
+> - **Murs Entraide/Soutien/Nouvelles : cadre orange non-lu + délai de perception** *(30/08/2026, PR #344)* : corrige l'absence de point rouge (onglets Nouvelles/Soutien) et de mise en avant visuelle des publications non lues à la connexion/navigation — les murs étant triés du plus récent au plus ancien, l'élément non lu le plus probable était déjà visible sans scroll à l'ouverture, marqué « vu » dans le même cycle de rendu que son premier affichage ; un délai d'environ 1,2s est désormais laissé avant tout marquage automatique déclenché par la seule présence à l'écran (un vrai scroll utilisateur reste marqué immédiatement) ; le fond pastel orange est remplacé par un cadre orange sur chaque publication non lue, plus lisible ; sur un besoin Urgent (déjà cerné de rouge), le cadre orange se superpose à l'intérieur du cadre rouge plutôt que de le remplacer — voir §4
+> - Détail exhaustif écran par écran : `Documentation/Documentation Fonctionnalités.docx` (généré depuis le code, mis à jour à chaque handoff)
 
 > **Changelog v1.17 → v1.18**
 > - **Entraide/Nouvelles : droits d'édition admin restreints + lien Maps non prématuré** *(30/08/2026, PR #334)* : l'admin ne peut plus éditer un besoin ou une nouvelle qu'il n'a pas publié lui-même (la suppression reste possible via la modération douce) ; le lien Google Maps du besoin Transport ne se génère plus tant que rue/CP/ville ne sont pas tous saisis ; Mon Compte/Entraide ne montre plus en double un besoin publié ET auto-pris-en-charge — voir §5.9, §5.7, §5.11/§6.4
