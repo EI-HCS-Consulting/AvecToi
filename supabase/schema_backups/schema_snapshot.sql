@@ -1287,6 +1287,9 @@ DECLARE
     v_limit INT;
     v_prefix TEXT;
     v_prefix_lower TEXT;
+    v_prefix_len INT;
+    v_prefix_start INT;
+    v_combined_levels INT;
     v_is_asc BOOLEAN;
     v_order_by TEXT;
     v_sort_order TEXT;
@@ -1307,6 +1310,9 @@ BEGIN
     v_limit := LEAST(coalesce(limits, 100), 1500);
     v_prefix := coalesce(prefix, '') || coalesce(search, '');
     v_prefix_lower := lower(v_prefix);
+    v_prefix_len := length(coalesce(prefix, ''));
+    v_prefix_start := coalesce(array_length(string_to_array(coalesce(prefix, ''), v_delimiter), 1), 1);
+    v_combined_levels := coalesce(array_length(string_to_array(v_prefix, v_delimiter), 1), 1);
     v_is_asc := lower(coalesce(sortorder, 'asc')) = 'asc';
     v_file_batch_size := LEAST(GREATEST(v_limit * 2, 100), 1000);
 
@@ -1322,17 +1328,17 @@ BEGIN
     v_sort_order := CASE WHEN v_is_asc THEN 'asc' ELSE 'desc' END;
 
     -- ========================================================================
-    -- NON-NAME SORTING: Use path_tokens approach (unchanged)
+    -- NON-NAME SORTING: Use path_tokens approach
     -- ========================================================================
     IF v_order_by != 'name' THEN
         RETURN QUERY EXECUTE format(
             $sql$
             WITH folders AS (
-                SELECT path_tokens[$1] AS folder
+                SELECT array_to_string(path_tokens[$1:$2], '/') AS folder
                 FROM storage.objects
-                WHERE objects.name ILIKE $2 || '%%'
-                  AND bucket_id = $3
-                  AND array_length(objects.path_tokens, 1) <> $1
+                WHERE objects.name ILIKE $3 || '%%'
+                  AND bucket_id = $4
+                  AND array_length(objects.path_tokens, 1) <> $2
                 GROUP BY folder
                 ORDER BY folder %s
             )
@@ -1343,16 +1349,16 @@ BEGIN
                    NULL::timestamptz AS last_accessed_at,
                    NULL::jsonb AS metadata FROM folders)
             UNION ALL
-            (SELECT path_tokens[$1] AS "name",
+            (SELECT array_to_string(path_tokens[$1:$2], '/') AS "name",
                    id, updated_at, created_at, last_accessed_at, metadata
              FROM storage.objects
-             WHERE objects.name ILIKE $2 || '%%'
-               AND bucket_id = $3
-               AND array_length(objects.path_tokens, 1) = $1
+             WHERE objects.name ILIKE $3 || '%%'
+               AND bucket_id = $4
+               AND array_length(objects.path_tokens, 1) = $2
              ORDER BY %I %s)
-            LIMIT $4 OFFSET $5
+            LIMIT $5 OFFSET $6
             $sql$, v_sort_order, v_order_by, v_sort_order
-        ) USING levels, v_prefix, bucketname, v_limit, offsets;
+        ) USING v_prefix_start, v_combined_levels, v_prefix, bucketname, v_limit, offsets;
         RETURN;
     END IF;
 
@@ -1462,7 +1468,7 @@ BEGIN
             IF v_skipped < offsets THEN
                 v_skipped := v_skipped + 1;
             ELSE
-                name := split_part(rtrim(storage.get_common_prefix(v_peek_name, v_prefix, v_delimiter), v_delimiter), v_delimiter, levels);
+                name := substring(rtrim(storage.get_common_prefix(v_peek_name, v_prefix, v_delimiter), v_delimiter) from v_prefix_len + 1);
                 id := NULL;
                 updated_at := NULL;
                 created_at := NULL;
@@ -1499,7 +1505,7 @@ BEGIN
                     v_skipped := v_skipped + 1;
                 ELSE
                     -- Emit file
-                    name := split_part(v_current.name, v_delimiter, levels);
+                    name := substring(v_current.name from v_prefix_len + 1);
                     id := v_current.id;
                     updated_at := v_current.updated_at;
                     created_at := v_current.created_at;
@@ -1534,10 +1540,26 @@ DECLARE
     v_cursor_op text;
     v_query text;
     v_prefix text;
+    v_sort_order text;
+    v_sort_column text;
 BEGIN
     v_prefix := coalesce(p_prefix, '');
 
-    IF p_sort_order = 'asc' THEN
+    -- Defense-in-depth: this function is independently reachable and must
+    -- not trust p_sort_order/p_sort_column to already be validated by a
+    -- caller. Normalize to the same strict allow-list storage.search_v2
+    -- uses before interpolating anything into dynamic SQL below.
+    v_sort_order := lower(coalesce(p_sort_order, 'asc'));
+    IF v_sort_order NOT IN ('asc', 'desc') THEN
+        v_sort_order := 'asc';
+    END IF;
+
+    v_sort_column := lower(coalesce(p_sort_column, 'updated_at'));
+    IF v_sort_column NOT IN ('updated_at', 'created_at') THEN
+        v_sort_column := 'updated_at';
+    END IF;
+
+    IF v_sort_order = 'asc' THEN
         v_cursor_op := '>';
     ELSE
         v_cursor_op := '<';
@@ -1617,11 +1639,11 @@ BEGIN
             name COLLATE "C" %s
         LIMIT $4
     $sql$,
-        p_sort_column,
+        v_sort_column,
         v_cursor_op,
-        p_sort_column,
-        p_sort_order,
-        p_sort_order
+        v_sort_column,
+        v_sort_order,
+        v_sort_order
     );
 
     RETURN QUERY EXECUTE v_query
@@ -1924,6 +1946,17 @@ CREATE TABLE IF NOT EXISTS "public"."personal_documents" (
 ALTER TABLE "public"."personal_documents" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."recurring_shopping_items" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "space_id" "uuid" NOT NULL,
+    "label" "text" NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."recurring_shopping_items" OWNER TO "postgres";
+
+
 CREATE TABLE IF NOT EXISTS "public"."reservation_change_history" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "space_id" "uuid" NOT NULL,
@@ -1938,6 +1971,7 @@ CREATE TABLE IF NOT EXISTS "public"."reservation_change_history" (
     "new_creneau" "text",
     "message" "text" NOT NULL,
     "changed_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "seen" boolean DEFAULT false NOT NULL,
     CONSTRAINT "reservation_change_history_change_type_check" CHECK (("change_type" = ANY (ARRAY['rebooked'::"text", 'night_cancelled'::"text", 'rebooking_failed'::"text", 'day_cap_suspended'::"text"])))
 );
 
@@ -2150,6 +2184,24 @@ CREATE TABLE IF NOT EXISTS "public"."support_messages" (
 ALTER TABLE "public"."support_messages" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."task_relais_coverage" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "task_id" "uuid" NOT NULL,
+    "prenom" "text" NOT NULL,
+    "nom" "text" NOT NULL,
+    "pin" "text" NOT NULL,
+    "start_date" "date" NOT NULL,
+    "end_date" "date" NOT NULL,
+    "full_period" boolean DEFAULT false NOT NULL,
+    "claimed_text" "text",
+    "claimed_photo" "text",
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+);
+
+
+ALTER TABLE "public"."task_relais_coverage" OWNER TO "postgres";
+
+
 CREATE TABLE IF NOT EXISTS "public"."tasks" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "space_id" "uuid" NOT NULL,
@@ -2200,6 +2252,7 @@ CREATE TABLE IF NOT EXISTS "public"."tasks" (
     "relais_visible_to" "text",
     "relais_recipients" "jsonb",
     "relais_dismissed_by" "jsonb" DEFAULT '[]'::"jsonb" NOT NULL,
+    "transport_home_maps_url" "text",
     CONSTRAINT "tasks_category_check" CHECK (("category" = ANY (ARRAY['repas'::"text", 'affaires'::"text", 'courses'::"text", 'transport'::"text", 'administratif'::"text", 'autre'::"text", 'relais'::"text"]))),
     CONSTRAINT "tasks_relais_visible_to_check" CHECK ((("relais_visible_to" IS NULL) OR ("relais_visible_to" = ANY (ARRAY['all'::"text", 'some'::"text"])))),
     CONSTRAINT "tasks_status_check" CHECK (("status" = ANY (ARRAY['ouvert'::"text", 'pris_en_charge'::"text", 'fait'::"text", 'ferme'::"text"])))
@@ -2465,6 +2518,11 @@ ALTER TABLE ONLY "public"."personal_documents"
 
 
 
+ALTER TABLE ONLY "public"."recurring_shopping_items"
+    ADD CONSTRAINT "recurring_shopping_items_pkey" PRIMARY KEY ("id");
+
+
+
 ALTER TABLE ONLY "public"."reservation_change_history"
     ADD CONSTRAINT "reservation_change_history_pkey" PRIMARY KEY ("id");
 
@@ -2517,6 +2575,11 @@ ALTER TABLE ONLY "public"."support_message_replies"
 
 ALTER TABLE ONLY "public"."support_messages"
     ADD CONSTRAINT "support_messages_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."task_relais_coverage"
+    ADD CONSTRAINT "task_relais_coverage_pkey" PRIMARY KEY ("id");
 
 
 
@@ -2616,6 +2679,14 @@ CREATE INDEX "intervenant_checklist_templates_telephone_idx" ON "public"."interv
 
 
 
+CREATE INDEX "recurring_shopping_items_space_id_idx" ON "public"."recurring_shopping_items" USING "btree" ("space_id");
+
+
+
+CREATE UNIQUE INDEX "recurring_shopping_items_space_label_key" ON "public"."recurring_shopping_items" USING "btree" ("space_id", "lower"("label"));
+
+
+
 CREATE INDEX "reservations_space_id_idx" ON "public"."reservations" USING "btree" ("space_id");
 
 
@@ -2625,6 +2696,10 @@ CREATE UNIQUE INDEX "saved_media_identity_idx" ON "public"."saved_media" USING "
 
 
 CREATE INDEX "shopping_list_items_task_id_idx" ON "public"."shopping_list_items" USING "btree" ("task_id");
+
+
+
+CREATE INDEX "task_relais_coverage_task_id_idx" ON "public"."task_relais_coverage" USING "btree" ("task_id");
 
 
 
@@ -2771,6 +2846,11 @@ ALTER TABLE ONLY "public"."personal_documents"
 
 
 
+ALTER TABLE ONLY "public"."recurring_shopping_items"
+    ADD CONSTRAINT "recurring_shopping_items_space_id_fkey" FOREIGN KEY ("space_id") REFERENCES "public"."patient_spaces"("id") ON DELETE CASCADE;
+
+
+
 ALTER TABLE ONLY "public"."reservations"
     ADD CONSTRAINT "reservations_intervenant_profile_id_fkey" FOREIGN KEY ("intervenant_profile_id") REFERENCES "public"."intervenant_profiles"("id") ON DELETE SET NULL;
 
@@ -2813,6 +2893,11 @@ ALTER TABLE ONLY "public"."support_message_replies"
 
 ALTER TABLE ONLY "public"."support_messages"
     ADD CONSTRAINT "support_messages_space_id_fkey" FOREIGN KEY ("space_id") REFERENCES "public"."patient_spaces"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."task_relais_coverage"
+    ADD CONSTRAINT "task_relais_coverage_task_id_fkey" FOREIGN KEY ("task_id") REFERENCES "public"."tasks"("id") ON DELETE CASCADE;
 
 
 
@@ -3036,6 +3121,10 @@ CREATE POLICY "public can update news entry replies" ON "public"."news_entry_rep
 
 
 
+CREATE POLICY "public can update reservation_change_history" ON "public"."reservation_change_history" FOR UPDATE USING (true) WITH CHECK (true);
+
+
+
 CREATE POLICY "public can update reservations" ON "public"."reservations" FOR UPDATE USING (true) WITH CHECK (true);
 
 
@@ -3064,11 +3153,19 @@ CREATE POLICY "public delete personal documents" ON "public"."personal_documents
 
 
 
+CREATE POLICY "public delete recurring shopping items" ON "public"."recurring_shopping_items" FOR DELETE USING (true);
+
+
+
 CREATE POLICY "public delete reservations" ON "public"."reservations" FOR DELETE USING (true);
 
 
 
 CREATE POLICY "public delete shopping list items" ON "public"."shopping_list_items" FOR DELETE USING (true);
+
+
+
+CREATE POLICY "public delete task relais coverage" ON "public"."task_relais_coverage" FOR DELETE USING (true);
 
 
 
@@ -3120,7 +3217,15 @@ CREATE POLICY "public read personal documents" ON "public"."personal_documents" 
 
 
 
+CREATE POLICY "public read recurring shopping items" ON "public"."recurring_shopping_items" FOR SELECT USING (true);
+
+
+
 CREATE POLICY "public read shopping list items" ON "public"."shopping_list_items" FOR SELECT USING (true);
+
+
+
+CREATE POLICY "public read task relais coverage" ON "public"."task_relais_coverage" FOR SELECT USING (true);
 
 
 
@@ -3133,6 +3238,10 @@ CREATE POLICY "public update personal checklist items" ON "public"."personal_che
 
 
 CREATE POLICY "public update shopping list items" ON "public"."shopping_list_items" FOR UPDATE USING (true) WITH CHECK (true);
+
+
+
+CREATE POLICY "public update task relais coverage" ON "public"."task_relais_coverage" FOR UPDATE USING (true) WITH CHECK (true);
 
 
 
@@ -3176,8 +3285,19 @@ CREATE POLICY "public write personal documents" ON "public"."personal_documents"
 
 
 
+CREATE POLICY "public write recurring shopping items" ON "public"."recurring_shopping_items" FOR INSERT WITH CHECK (true);
+
+
+
 CREATE POLICY "public write shopping list items" ON "public"."shopping_list_items" FOR INSERT WITH CHECK (true);
 
+
+
+CREATE POLICY "public write task relais coverage" ON "public"."task_relais_coverage" FOR INSERT WITH CHECK (true);
+
+
+
+ALTER TABLE "public"."recurring_shopping_items" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."reservation_change_history" ENABLE ROW LEVEL SECURITY;
@@ -3208,6 +3328,9 @@ ALTER TABLE "public"."support_message_replies" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."support_messages" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."task_relais_coverage" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."tasks" ENABLE ROW LEVEL SECURITY;
@@ -3478,6 +3601,12 @@ GRANT ALL ON TABLE "public"."personal_documents" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."recurring_shopping_items" TO "anon";
+GRANT ALL ON TABLE "public"."recurring_shopping_items" TO "authenticated";
+GRANT ALL ON TABLE "public"."recurring_shopping_items" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."reservation_change_history" TO "anon";
 GRANT ALL ON TABLE "public"."reservation_change_history" TO "authenticated";
 GRANT ALL ON TABLE "public"."reservation_change_history" TO "service_role";
@@ -3535,6 +3664,12 @@ GRANT ALL ON TABLE "public"."support_message_replies" TO "service_role";
 GRANT ALL ON TABLE "public"."support_messages" TO "anon";
 GRANT ALL ON TABLE "public"."support_messages" TO "authenticated";
 GRANT ALL ON TABLE "public"."support_messages" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."task_relais_coverage" TO "anon";
+GRANT ALL ON TABLE "public"."task_relais_coverage" TO "authenticated";
+GRANT ALL ON TABLE "public"."task_relais_coverage" TO "service_role";
 
 
 
