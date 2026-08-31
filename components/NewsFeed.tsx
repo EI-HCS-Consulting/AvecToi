@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   FlatList, Image, Modal, StyleSheet, Alert, ActivityIndicator,
-  KeyboardAvoidingView, Platform, Dimensions,
+  KeyboardAvoidingView, Platform, Dimensions, AppState,
 } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
@@ -387,6 +387,19 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
       .subscribe();
     return () => { supabase.removeChannel(channel); };
   }, [spaceId, loadEntries]);
+
+  // Filet de sécurité : le socket Realtime peut se couper silencieusement
+  // pendant que l'app est en arrière-plan (suspendu par l'OS) et ne pas se
+  // reconnecter à temps — un visiteur resté ouvert sur cet écran manquait
+  // alors les nouvelles publiées entre-temps par un autre visiteur jusqu'à
+  // un redémarrage complet de l'app. Un retour au premier plan redéclenche
+  // donc un fetch direct, indépendant du canal realtime.
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next === "active") loadEntries();
+    });
+    return () => sub.remove();
+  }, [loadEntries]);
 
   useEffect(() => {
     const ch = supabase
