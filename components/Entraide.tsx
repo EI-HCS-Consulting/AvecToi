@@ -2764,6 +2764,20 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     return compareSoonestFirst(a, b);
   }
 
+  // Section "Ouverts", à la connexion : les besoins encore "New" (badge, voir
+  // useWallNewIds) remontent en bloc au-dessus des besoins déjà connus,
+  // chaque groupe restant trié comme avant (compareOpenSection : Urgent
+  // d'abord, puis chronologique). Un besoin "New" retombe naturellement dans
+  // l'ordre chronologique normal dès qu'il n'est plus New (session
+  // suivante) — aucun état à gérer ici, `newIds` est recalculé à chaque
+  // ouverture de session (voir lib/wallUnread.ts).
+  function compareOpenSectionWithNew(a: Task, b: Task): number {
+    const na = newIds.has(a.id);
+    const nb = newIds.has(b.id);
+    if (na !== nb) return na ? -1 : 1;
+    return compareOpenSection(a, b);
+  }
+
   // Sous-bloc "Historique" (besoins fermés déjà passés, ou sans date) : du
   // plus récent au plus ancien — clé = date effective si connue, sinon date
   // de création, pour que les besoins sans échéance restent triés entre eux.
@@ -3438,7 +3452,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const today = todayIso();
   const visibleOpen = catFiltered
     .filter((t) => !closedOnlyFilter && isOpenStatus(t))
-    .sort(compareOpenSection);
+    .sort(compareOpenSectionWithNew);
   const closedFiltered = catFiltered.filter((t) => !openOnlyFilter && isClosedStatus(t));
   // À venir : besoin fermé (pris en charge / fait / fermé) dont la date
   // effective n'est pas encore passée — trié du plus proche au plus
