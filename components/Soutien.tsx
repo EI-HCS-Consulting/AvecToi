@@ -13,7 +13,7 @@ import { supabase } from "@/lib/supabase";
 import { blobToArrayBuffer } from "@/lib/blobToArrayBuffer";
 import { downloadAndShare, downloadAndShareMultiple, logSavedMedia, isShareAvailable } from "@/lib/mediaShare";
 import { getVisitorSession, rememberAuthorPin } from "@/lib/visitorSession";
-import { useWallUnread, useWallVisibility } from "@/lib/wallUnread";
+import { useWallUnread } from "@/lib/wallUnread";
 import PinPad from "@/components/PinPad";
 import VisitorProfileModal from "@/components/VisitorProfileModal";
 import type { SupportMessage, SupportMessageReply } from "@/lib/types";
@@ -665,12 +665,10 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
   // supabase/migrations/20260811_content_deleted_by_admin.sql.
   const visibleMessages = messages.filter((m) => !m.deleted_by_admin || (!isAdmin && isOwnMessage(m)));
 
-  // Bord orange tant qu'un message publié par quelqu'un d'autre n'a pas
-  // défilé dans la zone visible du ScrollView (voir lib/wallUnread.ts,
-  // mécanisme partagé avec Entraide/Nouvelles).
-  const { unreadIds, markSeen } = useWallUnread("soutien", spaceId, isAdmin, msgsLoading ? null : visibleMessages);
-  const { onScroll: onMsgsScroll, onScrollViewLayout: onMsgsScrollLayout, registerItemLayout: registerMsgLayout } =
-    useWallVisibility(unreadIds, markSeen);
+  // Cadre orange fixe le temps de la connexion sur chaque message publié par
+  // quelqu'un d'autre depuis la dernière réouverture de l'app (voir
+  // lib/wallUnread.ts, mécanisme partagé avec Entraide/Nouvelles).
+  const { unreadIds } = useWallUnread("soutien", spaceId, isAdmin, msgsLoading ? null : visibleMessages);
 
   // Liste aplatie des médias pour la vue "Médias" (bouton du sous-header) —
   // uniquement les photos des messages, pas des réponses (voir plan).
@@ -801,9 +799,6 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
         ref={scrollRef}
         contentContainerStyle={styles.listPad}
         keyboardShouldPersistTaps="handled"
-        onScroll={onMsgsScroll}
-        onLayout={onMsgsScrollLayout}
-        scrollEventThrottle={100}
       >
         {msgsLoading ? (
           <ActivityIndicator color={C.accent} style={{ marginTop: 24 }} />
@@ -832,7 +827,6 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
               key={m.id}
               onLayout={(e) => {
                 msgOffsets.current[m.id] = e.nativeEvent.layout.y;
-                registerMsgLayout(m.id)(e);
               }}
               style={[
                 styles.msgCard,

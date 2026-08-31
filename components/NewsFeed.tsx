@@ -269,29 +269,10 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
       (!e.deleted_by_admin || (!isAdmin && e.author_pin === sessionPin)),
   );
 
-  // Bord orange tant qu'une nouvelle publiée par quelqu'un d'autre n'a pas
-  // défilé dans la zone visible du FlatList (voir lib/wallUnread.ts,
-  // mécanisme partagé avec Entraide/Soutien). Le FlatList (contrairement aux
-  // ScrollView+.map() des deux autres murs) expose nativement la visibilité
-  // par élément via onViewableItemsChanged, sans suivi manuel du layout.
-  const { unreadIds, markSeen } = useWallUnread("news", spaceId, isAdmin, loading ? null : visibleEntries);
-  const unreadIdsRef = useRef(unreadIds);
-  unreadIdsRef.current = unreadIds;
-  const markSeenRef = useRef(markSeen);
-  markSeenRef.current = markSeen;
-  const onViewableItemsChanged = useRef(
-    ({ viewableItems }: { viewableItems: { item: NewsEntryWithUrls }[] }) => {
-      viewableItems.forEach(({ item }) => {
-        if (unreadIdsRef.current.has(item.id)) markSeenRef.current(item.id);
-      });
-    },
-  ).current;
-  // minimumViewTime : les nouvelles sont triées du plus récent au plus
-  // ancien, donc la plus susceptible d'être non lue est déjà visible à
-  // l'ouverture, sans scroll. Sans ce délai, onViewableItemsChanged la
-  // marquait "vue" dans le même cycle que son premier affichage — le cadre
-  // orange n'avait aucune chance d'être perçu avant de disparaître.
-  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 20, minimumViewTime: 1200 }).current;
+  // Cadre orange fixe le temps de la connexion sur chaque nouvelle publiée
+  // par quelqu'un d'autre depuis la dernière réouverture de l'app (voir
+  // lib/wallUnread.ts, mécanisme partagé avec Entraide/Soutien).
+  const { unreadIds } = useWallUnread("news", spaceId, isAdmin, loading ? null : visibleEntries);
 
   // Liste aplatie des médias pour la vue "Médias" (bouton du sous-header) —
   // dérivée de visibleEntries (déjà filtrée), pas de nouvelle requête.
@@ -1069,8 +1050,6 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
           onScrollToIndexFailed={(info) => {
             listRef.current?.scrollToOffset({ offset: info.averageItemLength * info.index, animated: true });
           }}
-          onViewableItemsChanged={onViewableItemsChanged}
-          viewabilityConfig={viewabilityConfig}
         />
       )}
 

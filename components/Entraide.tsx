@@ -11,7 +11,7 @@ import * as Crypto from "expo-crypto";
 import { File } from "expo-file-system";
 import { supabase } from "@/lib/supabase";
 import { getVisitorSession, rememberAuthorPin, sessionPinMatches } from "@/lib/visitorSession";
-import { useWallUnread, useWallVisibility } from "@/lib/wallUnread";
+import { useWallUnread } from "@/lib/wallUnread";
 import PinPad from "@/components/PinPad";
 import MiniCalendar from "@/components/MiniCalendar";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
@@ -952,13 +952,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
   useEffect(() => { loadTasks(); }, [loadTasks]);
 
-  // Fond pastel orange tant qu'un besoin publié par quelqu'un d'autre n'a
-  // pas défilé dans la zone visible du ScrollView (voir lib/wallUnread.ts) —
-  // remplace l'ancien marquage "vu" immédiat au chargement (référence encore
-  // utilisée par la cloche rouge de la barre d'onglets, voir EntraideTabIcon).
-  const { unreadIds, markSeen } = useWallUnread("entraide", spaceId, isAdmin, tasksLoading ? null : tasks);
-  const { onScroll: onTasksScroll, onScrollViewLayout: onTasksScrollLayout, registerItemLayout: registerTaskLayout } =
-    useWallVisibility(unreadIds, markSeen);
+  // Cadre orange fixe le temps de la connexion sur chaque besoin publié par
+  // quelqu'un d'autre depuis la dernière réouverture de l'app (voir
+  // lib/wallUnread.ts) — remplace l'ancien marquage "vu" immédiat au
+  // chargement (référence encore utilisée par la cloche rouge de la barre
+  // d'onglets, voir EntraideTabIcon).
+  const { unreadIds } = useWallUnread("entraide", spaceId, isAdmin, tasksLoading ? null : tasks);
 
   // Arrivée depuis "Mon compte" via un lien profond (?focusTaskId=...) —
   // à chaque nouvelle navigation (même écran déjà monté, cas des Tabs qui
@@ -3025,7 +3024,6 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         key={t.id}
         onLayout={(e) => {
           taskOffsets.current[t.id] = e.nativeEvent.layout.y;
-          registerTaskLayout(t.id)(e);
         }}
         onLongPress={() => {
           if (selectable && !selectionMode) enterSelection(t.id);
@@ -3600,9 +3598,6 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         <ScrollView
           ref={scrollRef}
           contentContainerStyle={styles.listPad}
-          onScroll={onTasksScroll}
-          onLayout={onTasksScrollLayout}
-          scrollEventThrottle={100}
         >
           {visibleOpen.map(renderTask)}
           {(visibleClosedUpcoming.length > 0 || visibleClosedHistory.length > 0) && visibleOpen.length > 0 && (
