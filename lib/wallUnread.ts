@@ -1,19 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent } from "react-native";
+import { AppState } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "@/lib/supabase";
 import { relaisIdentityKey, resolveRelaisIdentity } from "@/lib/relaisAlerts";
 
 // Mécanisme générique de "non lu" partagé par les 3 murs de publications
-// (Entraide/tasks, Soutien/support_messages, Nouvelles/news_entries) : fond
-// pastel orange sur chaque élément publié par quelqu'un d'autre depuis la
-// dernière fois que ce viewer a fait défiler le mur jusqu'à lui (voir
-// registerItemLayout/useWallVisibility plus bas), + point rouge sur le
-// picto de la barre d'onglets tant qu'il en reste au moins un (voir
-// UnreadDotIcon.tsx). Remplace l'ancien mécanisme à un seul horodatage
-// (lib/entraideBadges.ts avant ce fichier) : celui-ci marquait tout "vu" dès
-// l'ouverture de l'écran, avant même que le viewer ait pu lire quoi que ce
-// soit.
+// (Entraide/tasks, Soutien/support_messages, Nouvelles/news_entries) :
+// cadre orange sur chaque élément publié par quelqu'un d'autre depuis la
+// dernière fois que ce viewer a rouvert l'app, + point rouge sur le picto de
+// la barre d'onglets tant qu'il en reste au moins un (voir UnreadDotIcon.tsx).
+// Le cadre reste fixe tout le temps que la connexion dure (pas de marquage
+// "vu" au scroll) et ne disparaît qu'à la prochaine réouverture de l'app
+// après une mise en arrière-plan (fermeture ou écran éteint) — voir le
+// flush sur AppState dans useWallUnread plus bas. Remplace l'ancien
+// mécanisme à un seul horodatage (lib/entraideBadges.ts avant ce fichier) :
+// celui-ci marquait tout "vu" dès l'ouverture de l'écran, avant même que le
+// viewer ait pu lire quoi que ce soit.
 export type WallScope = "entraide" | "soutien" | "news";
 
 export interface WallRow {
@@ -135,17 +137,32 @@ function useWallSeenIds(scope: WallScope, spaceId: string | null, isAdmin: boole
     });
   }, [key]);
 
-  return { seenIds, myKey, markSeen };
+  // Flush de session (voir AppState dans useWallUnread) : marque "vu" tout
+  // un lot d'ids d'un coup plutôt qu'un par un, pour n'écrire qu'une seule
+  // fois en storage à la réouverture de l'app.
+  const markAllSeen = useCallback((ids: Set<string>) => {
+    if (!key || ids.size === 0) return;
+    setSeenIds((prev) => {
+      const base = prev ?? new Set<string>();
+      let changed = false;
+      const next = new Set(base);
+      ids.forEach((id) => {
+        if (!next.has(id)) { next.add(id); changed = true; }
+      });
+      if (!changed) return prev;
+      writeSeenIds(key, next);
+      return next;
+    });
+  }, [key]);
+
+  return { seenIds, myKey, markSeen, markAllSeen };
 }
 
-// À utiliser dans l'écran du mur lui-même (Entraide/Soutien/NewsFeed) :
-// expose les ids "non lus" (fond pastel tant qu'ils y restent) et markSeen,
-// à appeler via useWallVisibility ci-dessous quand un élément défile dans le
-// viewport visible. `rows` doit valoir `null` tant que le chargement initial
-// de l'appelant n'est pas terminé (voir useWallSeenIds ci-dessus) — passer un
-// tableau vide prématurément romprait le bootstrap anti-historique.
-export function useWallUnread(scope: WallScope, spaceId: string | null, isAdmin: boolean, rows: WallRow[] | null) {
-  const { seenIds, myKey, markSeen } = useWallSeenIds(scope, spaceId, isAdmin, rows);
+// Calcul brut des ids "non lus", sans effet de bord — partagé par
+// useWallUnread (écrans, avec flush de session ci-dessous) et useWallBadge
+// (picto d'onglet, qui ne doit jamais flusher lui-même : voir plus bas).
+function useWallUnreadIds(scope: WallScope, spaceId: string | null, isAdmin: boolean, rows: WallRow[] | null) {
+  const { seenIds, myKey, markAllSeen } = useWallSeenIds(scope, spaceId, isAdmin, rows);
   const unreadIds = seenIds === null || myKey === null || rows === null
     ? new Set<string>()
     : new Set(
@@ -153,7 +170,45 @@ export function useWallUnread(scope: WallScope, spaceId: string | null, isAdmin:
           .filter((r) => !r.deleted_by_admin && !isSelfWallAuthor(r, isAdmin, myKey) && !seenIds.has(r.id))
           .map((r) => r.id),
       );
-  return { unreadIds, markSeen };
+  return { unreadIds, markAllSeen };
+}
+
+// À utiliser dans l'écran du mur lui-même (Entraide/Soutien/NewsFeed) :
+// expose les ids "non lus" (cadre orange tant qu'ils y restent). `rows` doit
+// valoir `null` tant que le chargement initial de l'appelant n'est pas
+// terminé (voir useWallSeenIds ci-dessus) — passer un tableau vide
+// prématurément romprait le bootstrap anti-historique.
+export function useWallUnread(scope: WallScope, spaceId: string | null, isAdmin: boolean, rows: WallRow[] | null) {
+  const { unreadIds, markAllSeen } = useWallUnreadIds(scope, spaceId, isAdmin, rows);
+
+  // Cadre fixe le temps de la connexion : contrairement à l'ancien marquage
+  // au scroll, rien n'est marqué "vu" tant que l'app reste au premier plan —
+  // seule une vraie réouverture (retour au premier plan après une mise en
+  // arrière-plan : app fermée ou écran éteint) flushe le lot en cours vers le
+  // storage, ce qui le fait disparaître à cet instant précis et laisse la
+  // place au nouveau lot (ce qui a été publié pendant l'absence, s'il y en
+  // a). `unreadIdsRef` capture la valeur juste avant le flush : l'event
+  // AppState est synchrone, donc aucun refetch réseau ne peut s'être glissé
+  // entre les deux dans le même tick. Volontairement absent de useWallBadge :
+  // le picto d'onglet reste monté même sans jamais visiter le mur, un flush
+  // câblé là-bas éteindrait le point rouge au simple fait de rouvrir l'app,
+  // sans que le viewer ait rien vu.
+  const unreadIdsRef = useRef(unreadIds);
+  unreadIdsRef.current = unreadIds;
+  const markAllSeenRef = useRef(markAllSeen);
+  markAllSeenRef.current = markAllSeen;
+  const appStateRef = useRef(AppState.currentState);
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => {
+      if (/inactive|background/.test(appStateRef.current) && next === "active") {
+        markAllSeenRef.current(unreadIdsRef.current);
+      }
+      appStateRef.current = next;
+    });
+    return () => sub.remove();
+  }, []);
+
+  return { unreadIds };
 }
 
 // À utiliser dans le picto de la barre d'onglets (voir UnreadDotIcon.tsx) :
@@ -186,81 +241,6 @@ export function useWallBadge(scope: WallScope, table: string, spaceId: string | 
     return () => { cancelled = true; supabase.removeChannel(ch); };
   }, [scope, table, spaceId]);
 
-  const { unreadIds } = useWallUnread(scope, spaceId, isAdmin, rows);
+  const { unreadIds } = useWallUnreadIds(scope, spaceId, isAdmin, rows);
   return unreadIds.size > 0;
-}
-
-// Suit, pour un mur rendu en ScrollView + .map() (pas de virtualisation), la
-// position de chaque élément et la fenêtre visible du ScrollView, pour
-// marquer "lu" (markSeen) tout élément non lu dès qu'il apparaît à l'écran —
-// avec ou sans scroll (un élément déjà visible sans avoir besoin de
-// défiler compte aussi comme lu, sinon un mur court resterait orange en
-// permanence). onScroll/onScrollViewLayout se posent sur le ScrollView,
-// registerItemLayout(id) sur le onLayout de chaque carte.
-export function useWallVisibility(unreadIds: Set<string>, markSeen: (id: string) => void) {
-  const offsets = useRef<Record<string, number>>({});
-  const heights = useRef<Record<string, number>>({});
-  const scrollY = useRef(0);
-  const viewportH = useRef(0);
-  const seenLocally = useRef<Set<string>>(new Set());
-  const unreadRef = useRef(unreadIds);
-  unreadRef.current = unreadIds;
-  const markSeenRef = useRef(markSeen);
-  markSeenRef.current = markSeen;
-
-  const check = useCallback(() => {
-    const top = scrollY.current;
-    const bottom = top + viewportH.current;
-    if (viewportH.current <= 0) return;
-    unreadRef.current.forEach((id) => {
-      if (seenLocally.current.has(id)) return;
-      const y = offsets.current[id];
-      const h = heights.current[id];
-      if (y === undefined || h === undefined) return;
-      const overlapsViewport = y < bottom && y + h > top;
-      if (overlapsViewport) {
-        seenLocally.current.add(id);
-        markSeenRef.current(id);
-      }
-    });
-  }, []);
-
-  // Les murs sont triés du plus récent au plus ancien, donc l'élément non lu
-  // le plus probable atterrit tout en haut — pile la zone déjà visible sans
-  // le moindre scroll à l'ouverture de l'écran. Sans délai ici, check()
-  // (déclenché par les onLayout de mesure ci-dessous) le marquait "vu" dans
-  // le même cycle que son premier affichage : le cadre orange n'avait
-  // littéralement aucune chance d'être perçu avant de disparaître. Un vrai
-  // scroll de l'utilisateur (onScroll ci-dessous) reste marqué au plus vite,
-  // lui, car il prouve une attention réelle portée à l'élément.
-  const settleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scheduleCheck = useCallback(() => {
-    if (settleTimer.current) clearTimeout(settleTimer.current);
-    settleTimer.current = setTimeout(check, 1200);
-  }, [check]);
-
-  useEffect(() => () => { if (settleTimer.current) clearTimeout(settleTimer.current); }, []);
-
-  // Ré-évalue dès que la liste des non-lus change (ex. chargement initial
-  // terminé) : un élément déjà déposé/mesuré peut alors se retrouver
-  // immédiatement visible sans qu'aucun scroll ne se produise.
-  useEffect(() => { scheduleCheck(); }, [unreadIds, scheduleCheck]);
-
-  const onScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    scrollY.current = e.nativeEvent.contentOffset.y;
-    check();
-  }, [check]);
-
-  const onScrollViewLayout = useCallback((e: LayoutChangeEvent) => {
-    viewportH.current = e.nativeEvent.layout.height;
-    scheduleCheck();
-  }, [scheduleCheck]);
-
-  const registerItemLayout = useCallback((id: string) => (e: LayoutChangeEvent) => {
-    offsets.current[id] = e.nativeEvent.layout.y;
-    heights.current[id] = e.nativeEvent.layout.height;
-    scheduleCheck();
-  }, [scheduleCheck]);
-
-  return { onScroll, onScrollViewLayout, registerItemLayout };
 }
