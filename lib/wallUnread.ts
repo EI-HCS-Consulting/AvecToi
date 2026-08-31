@@ -4,18 +4,24 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "@/lib/supabase";
 import { relaisIdentityKey, resolveRelaisIdentity } from "@/lib/relaisAlerts";
 
-// Mécanisme générique de "non lu" partagé par les 3 murs de publications
+// Deux mécanismes distincts, partagés par les 3 murs de publications
 // (Entraide/tasks, Soutien/support_messages, Nouvelles/news_entries) :
-// cadre orange sur chaque élément publié par quelqu'un d'autre depuis la
-// dernière fois que ce viewer a rouvert l'app, + point rouge sur le picto de
-// la barre d'onglets tant qu'il en reste au moins un (voir UnreadDotIcon.tsx).
-// Le cadre reste fixe tout le temps que la connexion dure (pas de marquage
-// "vu" au scroll) et ne disparaît qu'à la prochaine réouverture de l'app
-// après une mise en arrière-plan (fermeture ou écran éteint) — voir le
-// flush sur AppState dans useWallUnread plus bas. Remplace l'ancien
-// mécanisme à un seul horodatage (lib/entraideBadges.ts avant ce fichier) :
-// celui-ci marquait tout "vu" dès l'ouverture de l'écran, avant même que le
-// viewer ait pu lire quoi que ce soit.
+//
+// 1. Badge "New" (barre d'accent + chip, voir components/NewIndicator.tsx) :
+//    purement basé sur sessionLoginTimestamp ci-dessous, sans aucune
+//    persistance — un élément est "New" tant que created_at est postérieur
+//    au démarrage de cette session. Voir useWallNewIds plus bas.
+//
+// 2. Point rouge sur le picto de la barre d'onglets (voir UnreadDotIcon.tsx) :
+//    mécanisme historique à seenIds persistés en AsyncStorage (voir
+//    useWallSeenIds), inchangé depuis PR #346 — flush sur AppState câblé
+//    depuis l'écran du mur lui-même (useWallReadTracking), volontairement
+//    absent du badge (useWallBadge) pour ne pas éteindre le point rouge au
+//    simple fait de rouvrir l'app sans avoir visité le mur concerné.
+//
+// Remplace l'ancien mécanisme à un seul horodatage (lib/entraideBadges.ts
+// avant ce fichier) : celui-ci marquait tout "vu" dès l'ouverture de
+// l'écran, avant même que le viewer ait pu lire quoi que ce soit.
 export type WallScope = "entraide" | "soutien" | "news";
 
 export interface WallRow {
@@ -137,7 +143,7 @@ function useWallSeenIds(scope: WallScope, spaceId: string | null, isAdmin: boole
     });
   }, [key]);
 
-  // Flush de session (voir AppState dans useWallUnread) : marque "vu" tout
+  // Flush de session (voir AppState dans useWallReadTracking) : marque "vu" tout
   // un lot d'ids d'un coup plutôt qu'un par un, pour n'écrire qu'une seule
   // fois en storage à la réouverture de l'app.
   const markAllSeen = useCallback((ids: Set<string>) => {
@@ -158,10 +164,11 @@ function useWallSeenIds(scope: WallScope, spaceId: string | null, isAdmin: boole
   return { seenIds, myKey, markSeen, markAllSeen };
 }
 
-// Calcul brut des ids "non lus", sans effet de bord — partagé par
-// useWallUnread (écrans, avec flush de session ci-dessous) et useWallBadge
-// (picto d'onglet, qui ne doit jamais flusher lui-même : voir plus bas).
-function useWallUnreadIds(scope: WallScope, spaceId: string | null, isAdmin: boolean, rows: WallRow[] | null) {
+// Calcul brut des ids "non lus" (seenIds persistés), sans effet de bord —
+// partagé par useWallReadTracking (écrans, avec flush de session ci-dessous)
+// et useWallBadge (picto d'onglet, qui ne doit jamais flusher lui-même :
+// voir plus bas).
+export function useWallUnreadIds(scope: WallScope, spaceId: string | null, isAdmin: boolean, rows: WallRow[] | null) {
   const { seenIds, myKey, markAllSeen } = useWallSeenIds(scope, spaceId, isAdmin, rows);
   const unreadIds = seenIds === null || myKey === null || rows === null
     ? new Set<string>()
@@ -173,26 +180,24 @@ function useWallUnreadIds(scope: WallScope, spaceId: string | null, isAdmin: boo
   return { unreadIds, markAllSeen };
 }
 
-// À utiliser dans l'écran du mur lui-même (Entraide/Soutien/NewsFeed) :
-// expose les ids "non lus" (cadre orange tant qu'ils y restent). `rows` doit
-// valoir `null` tant que le chargement initial de l'appelant n'est pas
-// terminé (voir useWallSeenIds ci-dessus) — passer un tableau vide
-// prématurément romprait le bootstrap anti-historique.
-export function useWallUnread(scope: WallScope, spaceId: string | null, isAdmin: boolean, rows: WallRow[] | null) {
+// À appeler depuis l'écran du mur lui-même (Entraide/Soutien/NewsFeed),
+// purement pour son effet de bord : entretient le flush AsyncStorage qui
+// alimente le point rouge du picto d'onglet (voir useWallBadge). Ne sert
+// plus à l'affichage local du mur — voir useWallNewIds ci-dessous pour le
+// badge "New". `rows` doit valoir `null` tant que le chargement initial de
+// l'appelant n'est pas terminé (voir useWallSeenIds plus haut) — passer un
+// tableau vide prématurément romprait le bootstrap anti-historique.
+export function useWallReadTracking(scope: WallScope, spaceId: string | null, isAdmin: boolean, rows: WallRow[] | null): void {
   const { unreadIds, markAllSeen } = useWallUnreadIds(scope, spaceId, isAdmin, rows);
 
-  // Cadre fixe le temps de la connexion : contrairement à l'ancien marquage
-  // au scroll, rien n'est marqué "vu" tant que l'app reste au premier plan —
-  // seule une vraie réouverture (retour au premier plan après une mise en
-  // arrière-plan : app fermée ou écran éteint) flushe le lot en cours vers le
-  // storage, ce qui le fait disparaître à cet instant précis et laisse la
-  // place au nouveau lot (ce qui a été publié pendant l'absence, s'il y en
-  // a). `unreadIdsRef` capture la valeur juste avant le flush : l'event
-  // AppState est synchrone, donc aucun refetch réseau ne peut s'être glissé
-  // entre les deux dans le même tick. Volontairement absent de useWallBadge :
-  // le picto d'onglet reste monté même sans jamais visiter le mur, un flush
-  // câblé là-bas éteindrait le point rouge au simple fait de rouvrir l'app,
-  // sans que le viewer ait rien vu.
+  // Contrairement à l'ancien marquage au scroll, rien n'est marqué "vu" tant
+  // que l'app reste au premier plan — seule une vraie réouverture (retour au
+  // premier plan après une mise en arrière-plan : app fermée ou écran
+  // éteint) flushe le lot en cours vers le storage, ce qui éteint le point
+  // rouge à cet instant précis et laisse la place au nouveau lot (ce qui a
+  // été publié pendant l'absence, s'il y en a). `unreadIdsRef` capture la
+  // valeur juste avant le flush : l'event AppState est synchrone, donc aucun
+  // refetch réseau ne peut s'être glissé entre les deux dans le même tick.
   const unreadIdsRef = useRef(unreadIds);
   unreadIdsRef.current = unreadIds;
   const markAllSeenRef = useRef(markAllSeen);
@@ -207,8 +212,28 @@ export function useWallUnread(scope: WallScope, spaceId: string | null, isAdmin:
     });
     return () => sub.remove();
   }, []);
+}
 
-  return { unreadIds };
+// Figé une seule fois par démarrage du bundle JS (cold start) — reste stable
+// tant que l'app reste vivante en foreground/arrière-plan, se réinitialise
+// naturellement à la prochaine relance après un vrai kill (pas besoin
+// d'AppState ici, contrairement au flush ci-dessus : un kill relance
+// forcément ce module de zéro).
+const sessionLoginTimestamp = Date.now();
+
+// À utiliser dans l'écran du mur lui-même : ids publiés par quelqu'un
+// d'autre depuis le démarrage de cette session (badge "New", voir
+// components/NewIndicator.tsx). Aucune persistance — contrairement au point
+// rouge du picto d'onglet (useWallBadge), qui reste sur son mécanisme
+// AsyncStorage propre et inchangé.
+export function useWallNewIds(isAdmin: boolean, rows: WallRow[] | null): Set<string> {
+  const myKey = useMyWallKey(isAdmin);
+  if (myKey === null || rows === null) return new Set();
+  return new Set(
+    rows
+      .filter((r) => !r.deleted_by_admin && !isSelfWallAuthor(r, isAdmin, myKey) && new Date(r.created_at).getTime() > sessionLoginTimestamp)
+      .map((r) => r.id),
+  );
 }
 
 // À utiliser dans le picto de la barre d'onglets (voir UnreadDotIcon.tsx) :

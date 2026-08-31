@@ -11,7 +11,8 @@ import { File } from "expo-file-system";
 import { supabase } from "@/lib/supabase";
 import { getVisitorSession, rememberAuthorPin, sessionPinMatches } from "@/lib/visitorSession";
 import { downloadAndShare, downloadAndShareMultiple, logSavedMedia, isShareAvailable } from "@/lib/mediaShare";
-import { useWallUnread } from "@/lib/wallUnread";
+import { useWallReadTracking, useWallNewIds } from "@/lib/wallUnread";
+import { NewIndicator } from "@/components/NewIndicator";
 import PinPad from "@/components/PinPad";
 import VisitorProfileModal from "@/components/VisitorProfileModal";
 import ConfirmModal from "@/components/ConfirmModal";
@@ -269,10 +270,12 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
       (!e.deleted_by_admin || (!isAdmin && e.author_pin === sessionPin)),
   );
 
-  // Cadre orange fixe le temps de la connexion sur chaque nouvelle publiée
-  // par quelqu'un d'autre depuis la dernière réouverture de l'app (voir
-  // lib/wallUnread.ts, mécanisme partagé avec Entraide/Soutien).
-  const { unreadIds } = useWallUnread("news", spaceId, isAdmin, loading ? null : visibleEntries);
+  // Badge "New" sur chaque nouvelle publiée par quelqu'un d'autre depuis le
+  // démarrage de cette session (voir lib/wallUnread.ts, mécanisme partagé
+  // avec Entraide/Soutien). useWallReadTracking n'entretient plus que le
+  // point rouge de la barre d'onglets.
+  useWallReadTracking("news", spaceId, isAdmin, loading ? null : visibleEntries);
+  const newIds = useWallNewIds(isAdmin, loading ? null : visibleEntries);
 
   // Liste aplatie des médias pour la vue "Médias" (bouton du sous-header) —
   // dérivée de visibleEntries (déjà filtrée), pas de nouvelle requête.
@@ -781,16 +784,16 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
     const entryAccentColor = isAdmin
       ? entry.author_role === "visiteur" ? C.orange : entry.author_role === "intervenant" ? LOGO_PURPLE : C.border
       : C.border;
-    const unread = unreadIds.has(entry.id);
+    const isNew = newIds.has(entry.id);
     return (
       <View
         style={[
           styles.card,
           { backgroundColor: C.card, borderColor: highlighted ? C.gold : entryAccentColor },
-          unread && { borderColor: C.orange, borderWidth: 2 },
           highlighted && { borderWidth: 2 },
         ]}
       >
+        {isNew && <NewIndicator />}
         {/* Author + date */}
         <View style={styles.cardHeader}>
           <View style={[styles.avatar, { backgroundColor: C.accent }]}>

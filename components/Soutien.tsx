@@ -13,7 +13,8 @@ import { supabase } from "@/lib/supabase";
 import { blobToArrayBuffer } from "@/lib/blobToArrayBuffer";
 import { downloadAndShare, downloadAndShareMultiple, logSavedMedia, isShareAvailable } from "@/lib/mediaShare";
 import { getVisitorSession, rememberAuthorPin } from "@/lib/visitorSession";
-import { useWallUnread } from "@/lib/wallUnread";
+import { useWallReadTracking, useWallNewIds } from "@/lib/wallUnread";
+import { NewIndicator } from "@/components/NewIndicator";
 import PinPad from "@/components/PinPad";
 import VisitorProfileModal from "@/components/VisitorProfileModal";
 import type { SupportMessage, SupportMessageReply } from "@/lib/types";
@@ -665,10 +666,12 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
   // supabase/migrations/20260811_content_deleted_by_admin.sql.
   const visibleMessages = messages.filter((m) => !m.deleted_by_admin || (!isAdmin && isOwnMessage(m)));
 
-  // Cadre orange fixe le temps de la connexion sur chaque message publié par
-  // quelqu'un d'autre depuis la dernière réouverture de l'app (voir
-  // lib/wallUnread.ts, mécanisme partagé avec Entraide/Nouvelles).
-  const { unreadIds } = useWallUnread("soutien", spaceId, isAdmin, msgsLoading ? null : visibleMessages);
+  // Badge "New" sur chaque message publié par quelqu'un d'autre depuis le
+  // démarrage de cette session (voir lib/wallUnread.ts, mécanisme partagé
+  // avec Entraide/Nouvelles). useWallReadTracking n'entretient plus que le
+  // point rouge de la barre d'onglets.
+  useWallReadTracking("soutien", spaceId, isAdmin, msgsLoading ? null : visibleMessages);
+  const newIds = useWallNewIds(isAdmin, msgsLoading ? null : visibleMessages);
 
   // Liste aplatie des médias pour la vue "Médias" (bouton du sous-header) —
   // uniquement les photos des messages, pas des réponses (voir plan).
@@ -821,7 +824,7 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
             // seul son auteur le voit encore, donc plus aucune conversation
             // à préserver, et "Supprimer définitivement" doit rester possible.
             const canDeleteMessage = isAdmin || (own && (m.deleted_by_admin || !replies[m.id]?.length));
-            const unread = unreadIds.has(m.id);
+            const isNew = newIds.has(m.id);
             return (
             <View
               key={m.id}
@@ -831,10 +834,10 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
               style={[
                 styles.msgCard,
                 { backgroundColor: C.card, borderColor: highlighted ? C.gold : C.border },
-                unread && { borderColor: C.orange, borderWidth: 2 },
                 highlighted && { borderWidth: 2 },
               ]}
             >
+              {isNew && <NewIndicator />}
               <View style={styles.msgCardHeader}>
                 <View style={[styles.msgAvatar, { backgroundColor: `${C.gold}33` }]}>
                   <Text style={[styles.msgAvatarText, { color: C.gold }]}>
