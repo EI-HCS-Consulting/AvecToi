@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView, FlatList,
   StyleSheet, Alert, ActivityIndicator, Image, Modal,
-  KeyboardAvoidingView, Platform, Dimensions,
+  KeyboardAvoidingView, Platform, Dimensions, AppState,
 } from "react-native";
 import { useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
@@ -301,6 +301,19 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [spaceId, loadMessages]);
+
+  // Filet de sécurité : le socket Realtime peut se couper silencieusement
+  // pendant que l'app est en arrière-plan et ne pas se reconnecter à temps —
+  // un visiteur resté ouvert sur ce mur manquait alors les messages publiés
+  // entre-temps jusqu'à un redémarrage complet de l'app. Un retour au
+  // premier plan redéclenche donc un fetch direct, indépendant du canal
+  // realtime (voir le même filet dans NewsFeed.tsx/Entraide.tsx).
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next === "active") loadMessages();
+    });
+    return () => sub.remove();
+  }, [loadMessages]);
 
   useEffect(() => {
     const ch = supabase

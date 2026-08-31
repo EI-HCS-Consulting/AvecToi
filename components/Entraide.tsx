@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, Pressable, ScrollView,
   Modal, StyleSheet, Alert, ActivityIndicator, Image,
-  KeyboardAvoidingView, Platform, Linking, useWindowDimensions, Animated,
+  KeyboardAvoidingView, Platform, Linking, useWindowDimensions, Animated, AppState,
 } from "react-native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
@@ -1051,6 +1051,19 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       .subscribe();
     return () => { supabase.removeChannel(ch); };
   }, [spaceId, loadTasks]);
+
+  // Filet de sécurité : le socket Realtime peut se couper silencieusement
+  // pendant que l'app est en arrière-plan et ne pas se reconnecter à temps —
+  // un visiteur resté ouvert sur ce mur manquait alors les besoins publiés
+  // entre-temps jusqu'à un redémarrage complet de l'app. Un retour au
+  // premier plan redéclenche donc un fetch direct, indépendant du canal
+  // realtime (voir le même filet dans NewsFeed.tsx/Soutien.tsx).
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next === "active") loadTasks();
+    });
+    return () => sub.remove();
+  }, [loadTasks]);
 
   // Un besoin dont la date/heure est dépassée passe automatiquement en
   // "fermé" — qu'il ait été pris en charge ou non, et même si "Fait" n'a
