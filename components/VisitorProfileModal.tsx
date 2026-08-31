@@ -128,6 +128,19 @@ export default function VisitorProfileModal({ visible, onClose, spaceId, C, isAd
     router.push(path as any);
   }
 
+  // Navigue vers le jour de la réservation ciblée plutôt qu'un simple
+  // `/home/slots`/`/home/nights` sans contexte (qui atterrissait sur le jour
+  // déjà sélectionné, pas forcément celui de cette réservation) — focusDate
+  // est lu par les deux écrans (admin et visiteur) pour se repositionner,
+  // voir app/(admin)/home/slots.tsx et app/(visitor)/home/slots.tsx.
+  function goToReservation(r: Reservation) {
+    onClose();
+    router.push({
+      pathname: `${basePath}/home/${r.type === "Nuit" ? "nights" : "slots"}`,
+      params: { focusDate: r.date },
+    } as any);
+  }
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <View style={styles.overlay}>
@@ -171,7 +184,7 @@ export default function VisitorProfileModal({ visible, onClose, spaceId, C, isAd
                     key={r.id}
                     style={styles.row}
                     activeOpacity={0.7}
-                    onPress={() => goTo(`${basePath}/home/${r.type === "Nuit" ? "nights" : "slots"}`)}
+                    onPress={() => goToReservation(r)}
                   >
                     <Text style={[styles.rowText, { color: C.text }]}>
                       {r.type === "Nuit" ? "🌙" : "☀️"} {new Date(r.date).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} · {r.creneau}
