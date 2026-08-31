@@ -421,16 +421,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     const joined = names.length > 1
       ? `${names.slice(0, -1).join(", ")} et ${names[names.length - 1]}`
       : names[0];
-    const partial = courseListComplete[t.id] === false ? " partiellement" : "";
+    // "partiellement" ne s'affiche que tant que personne n'a formellement
+    // cliqué "Je m'en occupe" (status encore "ouvert") : le dispatch libre
+    // des articles peut être incomplet, mais dès qu'une prise en charge
+    // explicite existe, le besoin est simplement "Pris en charge", plus
+    // question de partiel même si la liste n'est pas encore terminée.
+    const partial = t.status === "ouvert" && courseListComplete[t.id] === false ? " partiellement" : "";
     return `${joined} ${names.length > 1 ? "s'en occupent" : "s'en occupe"}${partial}`;
-  }
-
-  // Vrai pour un besoin "courses" pris en charge tant qu'il reste au moins un
-  // article non coché — sert à ajouter la 2ème ligne "partiellement" sur le
-  // tag de statut (voir renderTask), en plus du suffixe déjà présent sur
-  // courseContributorsLabel.
-  function coursePartial(t: Task): boolean {
-    return t.category === "courses" && t.status === "pris_en_charge" && courseListComplete[t.id] === false;
   }
 
   // Vrai si *moi* (myFullName) ai déjà coché au moins un article de cette
@@ -904,6 +901,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // — le popup "Merci" affiche un texte différent pour les besoins relais,
   // mais claimTarget n'existe déjà plus une fois ce popup affiché.
   const [thanksModalCategory, setThanksModalCategory] = useState<Task["category"] | null>(null);
+  // Idem : id du besoin claimé, capturé pour que "J'ai compris" puisse
+  // re-scroller dessus (focusTarget) au lieu de simplement fermer le popup —
+  // voir handleClaim et le bouton "J'ai compris" plus bas.
+  const [thanksModalTaskId, setThanksModalTaskId] = useState<string | null>(null);
 
   // Confirmations de suppression/désinscription — remplacent d'anciens
   // Alert.alert() natifs par ConfirmModal, cohérent avec le reste de l'app.
@@ -2522,6 +2523,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     // bas) : passer de l'un à l'autre dans le même batch ne rouvre jamais de
     // fenêtre native, donc pas de setTimeout nécessaire ici.
     setThanksModalCategory(claimTarget.category);
+    setThanksModalTaskId(claimTarget.id);
     setClaimTarget(null);
     setRelaisClaimStep(null);
     setThanksModal(true);
@@ -3092,17 +3094,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           <View style={[
             styles.statusBadge,
             { borderColor: transportOverdue(t) ? statusColors.fait : statusColors[t.status] },
-            coursePartial(t) && { alignItems: "center" },
           ]}>
             <Text style={[styles.statusLabel, { color: transportOverdue(t) ? statusColors.fait : statusColors[t.status] }]}>
               {transportOverdue(t) ? STATUS_LABELS.fait : STATUS_LABELS[t.status]}
             </Text>
-            {/* Besoin "courses" pris en charge par certains articles seulement
-                (voir courseListComplete) — même tag que "Pris en charge",
-                juste complété d'une 2ème ligne plutôt qu'un tag distinct. */}
-            {coursePartial(t) && (
-              <Text style={[styles.statusLabel, { color: statusColors[t.status] }]}>partiellement</Text>
-            )}
           </View>
           {isAdmin && t.author_pin === "ADMIN" && (
             <TouchableOpacity onPress={() => openEditTask(t)} style={[styles.iconBtn, { borderColor: C.border }]}>
@@ -5366,7 +5361,20 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                       <TouchableOpacity
                         onPress={() => {
                           setThanksModal(false);
-                          router.navigate(isAdmin ? "/(admin)/home/calendar" : "/(visitor)/home/calendar");
+                          // Relais : comportement voulu depuis PR #307, on
+                          // ramène sur l'accueil (la couverture se gère
+                          // plutôt depuis le calendrier). Toute autre
+                          // catégorie : on reste sur Entraide et on re-scrolle
+                          // sur le besoin claimé (même mécanisme que le lien
+                          // profond ?focusTaskId, voir l'effet focusTarget).
+                          if (thanksModalCategory === "relais") {
+                            router.navigate(isAdmin ? "/(admin)/home/calendar" : "/(visitor)/home/calendar");
+                            return;
+                          }
+                          if (thanksModalTaskId) {
+                            focusedRef.current = false;
+                            setFocusTarget(thanksModalTaskId);
+                          }
                         }}
                         style={[styles.btnPrimary, { backgroundColor: C.gold, alignSelf: "stretch", paddingVertical: 18 }]}
                       >

@@ -20,6 +20,7 @@ import PlanningDuJourBlock from "@/components/PlanningDuJourBlock";
 import SoinsPeriodBlock from "@/components/SoinsPeriodBlock";
 import SoinsPlanifiesBlock from "@/components/SoinsPlanifiesBlock";
 import SoinActionModal from "@/components/SoinActionModal";
+import VisiteAutreVisiteurPopup from "@/components/VisiteAutreVisiteurPopup";
 import VisiteEditFlow, { type VisiteEditFlowHandle } from "@/components/VisiteEditFlow";
 import BookingFlow, { type BookingFlowHandle } from "@/components/BookingFlow";
 import type { Reservation, SlotConfig, PatientSpace } from "@/lib/types";
@@ -95,6 +96,10 @@ export default function HomeCalendarScreen({
   // Visite tapée dans un des blocs sous le calendrier — non-null tant que le
   // popup d'action (Modifier / Y Aller / Fermer, SoinActionModal) est ouvert.
   const [pendingVisite, setPendingVisite] = useState<Reservation | null>(null);
+  // Visite d'un AUTRE visiteur tapée dans un des blocs — non-null tant que le
+  // popup Réserver la place restante/Voir la journée (VisiteAutreVisiteurPopup)
+  // est ouvert. Visiteur uniquement, voir openVisiteActions.
+  const [pendingAutreVisite, setPendingAutreVisite] = useState<Reservation | null>(null);
 
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
   const startDate = useMemo(
@@ -294,16 +299,25 @@ export default function HomeCalendarScreen({
         max: (getConfigForDate(pendingVisite.date) ?? slotConfig).max_visitors_per_slot,
       }
     : null;
+  // Même calcul pour la visite d'un autre visiteur ouverte dans
+  // VisiteAutreVisiteurPopup — null tant qu'aucun popup n'est ouvert.
+  const pendingAutreVisiteCapacity = pendingAutreVisite
+    ? {
+        taken: getSlotOccupancy(reservations, pendingAutreVisite.date, pendingAutreVisite.creneau).length,
+        max: (getConfigForDate(pendingAutreVisite.date) ?? slotConfig).max_visitors_per_slot,
+      }
+    : null;
 
   // Tap sur une visite : si elle m'appartient (isMyReservation compare PIN +
   // prénom/nom, et gère le cas d'une réservation "ADMIN" arrangée pour un
   // visiteur précis — voir lib/slotUtils.ts), ouvre le popup Modifier/Y
   // Aller habituel. Sinon (visite d'un autre visiteur, ex. sélectionné dans
-  // la légende) : réservation rapide sur ce même créneau s'il reste une
-  // place ET qu'une session visiteur (token) est disponible pour la porter,
-  // sinon ouverture de l'écran des créneaux de ce jour-là (toujours le cas
-  // côté admin, qui n'a pas de session PIN à rattacher à une réservation
-  // inline). Une visite déjà passée n'ouvre plus rien.
+  // la légende) : ouvre VisiteAutreVisiteurPopup, qui propose de réserver la
+  // place restante s'il en reste une (réservation rapide portée par la
+  // session visiteur, token) ou d'aller voir la journée sinon. Côté admin
+  // (pas de session PIN à rattacher à une réservation inline), toujours
+  // ouverture directe de l'écran des créneaux de ce jour-là, comme avant. Une
+  // visite déjà passée n'ouvre plus rien.
   function openVisiteActions(r: Reservation) {
     if (isSlotFullyPast(r.date, r.creneau)) return;
     if (isMyReservation(r, myPin, null, myPrenom, myNom)) {
@@ -311,13 +325,22 @@ export default function HomeCalendarScreen({
       return;
     }
     if (token) {
-      const dayConfig = getConfigForDate(r.date) ?? slotConfig!;
-      const occupancy = getSlotOccupancy(reservations, r.date, r.creneau);
-      if (occupancy.length < dayConfig.max_visitors_per_slot) {
-        flowRef.current?.openBooking(r.date, r.creneau);
-        return;
-      }
+      setPendingAutreVisite(r);
+      return;
     }
+    setSelectedDay(new Date(r.date + "T00:00:00"));
+    router.navigate(`${basePath}/slots` as any);
+  }
+  function handleReserverAutreVisite() {
+    const r = pendingAutreVisite;
+    setPendingAutreVisite(null);
+    if (!r) return;
+    flowRef.current?.openBooking(r.date, r.creneau);
+  }
+  function handleVoirJourneeAutreVisite() {
+    const r = pendingAutreVisite;
+    setPendingAutreVisite(null);
+    if (!r) return;
     setSelectedDay(new Date(r.date + "T00:00:00"));
     router.navigate(`${basePath}/slots` as any);
   }
@@ -688,6 +711,15 @@ export default function HomeCalendarScreen({
         onAjouterVisite={handleAjouterVisitePress}
         onClose={() => setPendingVisite(null)}
         remaining={pendingVisiteCapacity}
+      />
+      <VisiteAutreVisiteurPopup
+        C={C}
+        visible={!!pendingAutreVisite}
+        reservation={pendingAutreVisite}
+        remaining={pendingAutreVisiteCapacity}
+        onReserver={handleReserverAutreVisite}
+        onVoirJournee={handleVoirJourneeAutreVisite}
+        onClose={() => setPendingAutreVisite(null)}
       />
       <VisiteEditFlow
         ref={visiteEditFlowRef}

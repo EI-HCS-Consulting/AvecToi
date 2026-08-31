@@ -1,5 +1,6 @@
 import { useRef, useMemo, useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert } from "react-native";
+import { useLocalSearchParams } from "expo-router";
 import { useVisitorSpace } from "@/lib/VisitorContext";
 import { getVisitorSession } from "@/lib/visitorSession";
 import SpaceHeader from "@/components/SpaceHeader";
@@ -13,6 +14,10 @@ import type { Reservation } from "@/lib/types";
 
 export default function VisitorNightsScreen() {
   const { space, slotConfig, reservations, token, refreshReservations, pendingEditReservationId, setPendingEditReservationId } = useVisitorSpace();
+  // Arrivée depuis la fiche visiteur (VisitorProfileModal, réservation d'un
+  // autre visiteur) : entoure la nuitée ciblée, même pattern que
+  // app/(admin)/home/nights.tsx.
+  const { focusDate } = useLocalSearchParams<{ focusDate?: string }>();
   const { theme: C } = useDisplayMode();
   const flowRef = useRef<BookingFlowHandle>(null);
   const intervenantFlowRef = useRef<NightInterventionBookingFlowHandle>(null);
@@ -148,7 +153,7 @@ export default function VisitorNightsScreen() {
           </View>
         ) : (
           upcomingNights.map((r) => (
-            <View key={r.id} style={[styles.nightCard, { backgroundColor: C.card, borderColor: C.border }]}>
+            <View key={r.id} style={[styles.nightCard, { backgroundColor: C.card, borderColor: r.date === focusDate ? C.accent : C.border }]}>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.nightDate, { color: C.text }]}>{toFrLong(new Date(r.date + "T12:00:00"))}</Text>
                 <Text style={[styles.nightVisitor, { color: C.success }]}>● {r.prenom} {r.nom}</Text>
@@ -176,7 +181,7 @@ export default function VisitorNightsScreen() {
           </View>
         ) : (
           pastNights.map((r) => (
-            <View key={r.id} style={[styles.nightCard, { backgroundColor: C.card, borderColor: C.border, opacity: 0.7 }]}>
+            <View key={r.id} style={[styles.nightCard, { backgroundColor: C.card, borderColor: r.date === focusDate ? C.accent : C.border, opacity: 0.7 }]}>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.nightDate, { color: C.text }]}>{toFrLong(new Date(r.date + "T12:00:00"))}</Text>
                 <Text style={[styles.nightVisitor, { color: C.success }]}>● {r.prenom} {r.nom}</Text>

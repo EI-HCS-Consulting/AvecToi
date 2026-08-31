@@ -28,7 +28,14 @@ export default function SlotsScreen() {
   // params) — une fois la réservation confirmée, InterventionBookingFlow
   // doit ramener sur l'onglet Planning avec ce patient présélectionné
   // plutôt que sur le calendrier de l'espace (comportement par défaut).
-  const { returnTo, returnSpaceId } = useLocalSearchParams<{ returnTo?: string; returnSpaceId?: string }>();
+  const { returnTo, returnSpaceId, focusDate } = useLocalSearchParams<{ returnTo?: string; returnSpaceId?: string; focusDate?: string }>();
+  // Arrivée depuis la fiche visiteur (VisitorProfileModal, réservation d'un
+  // autre visiteur) : repositionne sur le jour ciblé, même pattern que
+  // app/(admin)/home/slots.tsx.
+  useEffect(() => {
+    if (focusDate) setSelectedDay(new Date(focusDate + "T00:00:00"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focusDate]);
   const returnToPlanning = returnTo === "planning";
   const interventionHomeCalendarPath = returnToPlanning
     ? { pathname: "/(visitor)/soins", params: { focusSpaceId: returnSpaceId ?? "" } }
