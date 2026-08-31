@@ -166,7 +166,8 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
   const [replySaving, setReplySaving] = useState(false);
 
   // Lightbox
-  const [lightbox, setLightbox] = useState<{ urls: string[]; idx: number } | null>(null);
+  const [lightbox, setLightbox] = useState<{ urls: string[]; idx: number; authorPin: string | null; authorPrenom: string; authorNom: string; sourceId: string } | null>(null);
+  const [downloadingLightbox, setDownloadingLightbox] = useState(false);
 
   // Vue "Médias" (photos seules, sans texte ni cadre de publication) — bascule
   // le rendu du fil (voir mediaItems et le sous-header plus bas). Lightbox
@@ -284,10 +285,10 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
   // Trace le téléchargement dans saved_media (Mes Souvenirs) si la photo
   // n'est pas la mienne. Identifie le visiteur par prénom/nom (pas par pin,
   // pas toujours choisi) — voir lib/mediaShare.ts et MesSouvenirs.tsx.
-  async function logDownloadIfNotMine(entry: NewsEntryWithUrls, url: string) {
+  async function logDownloadIfNotMine(author: { pin: string | null; prenom: string; nom: string }, sourceId: string, url: string) {
     if (isAdmin) {
-      if (entry.author_pin !== "ADMIN") {
-        await logSavedMedia({ spaceId, sourceType: "news", sourceId: entry.id, photoUrl: url, savedByPin: "ADMIN", savedByPrenom: "", savedByNom: "" });
+      if (author.pin !== "ADMIN") {
+        await logSavedMedia({ spaceId, sourceType: "news", sourceId, photoUrl: url, savedByPin: "ADMIN", savedByPrenom: "", savedByNom: "" });
       }
       return;
     }
@@ -295,13 +296,23 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
     const prenom = (session?.prenom ?? "").trim();
     const nom = (session?.nom ?? "").trim();
     if (!prenom || !nom) return;
-    const isMine = entry.author_prenom?.trim().toLowerCase() === prenom.toLowerCase()
-      && entry.author_nom?.trim().toLowerCase() === nom.toLowerCase();
+    const isMine = author.prenom?.trim().toLowerCase() === prenom.toLowerCase()
+      && author.nom?.trim().toLowerCase() === nom.toLowerCase();
     if (isMine) return;
     await logSavedMedia({
-      spaceId, sourceType: "news", sourceId: entry.id, photoUrl: url,
+      spaceId, sourceType: "news", sourceId, photoUrl: url,
       savedByPin: session?.pin ?? "", savedByPrenom: prenom, savedByNom: nom,
     });
+  }
+
+  async function downloadLightboxPhoto() {
+    if (!lightbox) return;
+    setDownloadingLightbox(true);
+    const url = lightbox.urls[lightbox.idx];
+    const ok = await downloadAndShare(url, `nouvelles_${Date.now()}.jpg`);
+    if (!ok) showToast("Erreur lors du téléchargement");
+    else await logDownloadIfNotMine({ pin: lightbox.authorPin, prenom: lightbox.authorPrenom, nom: lightbox.authorNom }, lightbox.sourceId, url);
+    setDownloadingLightbox(false);
   }
 
   async function downloadMediaLightboxPhoto() {
@@ -310,7 +321,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
     if (!item) return;
     setDownloadingMediaLightbox(true);
     const ok = await downloadAndShare(item.url, `nouvelles_${Date.now()}.jpg`);
-    if (ok) await logDownloadIfNotMine(item.entry, item.url);
+    if (ok) await logDownloadIfNotMine({ pin: item.entry.author_pin, prenom: item.entry.author_prenom, nom: item.entry.author_nom }, item.entry.id, item.url);
     setDownloadingMediaLightbox(false);
   }
 
@@ -339,7 +350,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
       targets.map((item, i) => ({ url: item.url, filename: `nouvelles_${item.entry.id}_${i}.jpg` })),
     );
     if (success) {
-      for (const item of targets) await logDownloadIfNotMine(item.entry, item.url);
+      for (const item of targets) await logDownloadIfNotMine({ pin: item.entry.author_pin, prenom: item.entry.author_prenom, nom: item.entry.author_nom }, item.entry.id, item.url);
     }
     setBulkDownloadingMedia(false);
     setMediaSelectMode(false);
@@ -861,7 +872,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
             {entry.photoUrls.map((url, i) => (
               <TouchableOpacity
                 key={i}
-                onPress={() => setLightbox({ urls: entry.photoUrls, idx: i })}
+                onPress={() => setLightbox({ urls: entry.photoUrls, idx: i, authorPin: entry.author_pin, authorPrenom: entry.author_prenom, authorNom: entry.author_nom, sourceId: entry.id })}
                 activeOpacity={0.85}
               >
                 <Image source={{ uri: url }} style={[styles.photoThumb, { borderColor: C.border }]} resizeMode="cover" />
@@ -895,7 +906,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
                       <Text style={[styles.replyText, { color: C.text }]}>{r.reply_text}</Text>
                       {r.photo && (
                         <TouchableOpacity
-                          onPress={() => setLightbox({ urls: [newsPhotoUrl(spaceId, r.photo!)], idx: 0 })}
+                          onPress={() => setLightbox({ urls: [newsPhotoUrl(spaceId, r.photo!)], idx: 0, authorPin: r.author_pin, authorPrenom: r.author_prenom, authorNom: r.author_nom, sourceId: r.id })}
                           activeOpacity={0.85}
                         >
                           <Image source={{ uri: newsPhotoUrl(spaceId, r.photo) }} style={[styles.replyPhotoThumb, { borderColor: C.border }]} resizeMode="cover" />
@@ -1469,11 +1480,17 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
         <View style={styles.lightboxBg}>
           {lightbox && (
             <>
-              <Image
-                source={{ uri: lightbox.urls[lightbox.idx] }}
-                style={styles.lightboxImg}
-                resizeMode="contain"
-              />
+              <TouchableOpacity activeOpacity={1} onLongPress={downloadLightboxPhoto} delayLongPress={350}>
+                <Image
+                  source={{ uri: lightbox.urls[lightbox.idx] }}
+                  style={styles.lightboxImg}
+                  resizeMode="contain"
+                />
+              </TouchableOpacity>
+              {downloadingLightbox
+                ? <ActivityIndicator color="#fff" style={styles.lightboxHint} />
+                : <Text style={styles.lightboxHint}>Reste appuyé sur la photo pour la télécharger</Text>
+              }
               {/* Prev / next */}
               {lightbox.urls.length > 1 && (
                 <View style={styles.lightboxNav}>
@@ -1704,6 +1721,7 @@ const styles = StyleSheet.create({
   // Lightbox
   lightboxBg: { flex: 1, backgroundColor: "rgba(0,0,0,0.96)", alignItems: "center", justifyContent: "center" },
   lightboxImg: { width: SCREEN_W, height: SCREEN_W * 1.1 },
+  lightboxHint: { color: "rgba(255,255,255,0.7)", fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 16 },
   lightboxNav: { position: "absolute", bottom: 60, flexDirection: "row", alignItems: "center", gap: 24 },
   lightboxNavBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(255,255,255,0.15)", alignItems: "center", justifyContent: "center" },
   lightboxNavText: { color: "#fff", fontSize: 22, fontWeight: "600" },

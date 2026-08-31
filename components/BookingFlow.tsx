@@ -975,7 +975,7 @@ const styles = StyleSheet.create({
   // (confirmation, PIN, réservation, édition), pour un style homogène avec
   // le reste de l'app plutôt qu'un bottom-sheet ancré en bas de l'écran.
   centeredOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center", padding: 24 },
-  centeredSheet: { width: "88%", maxWidth: 400, maxHeight: "82%", borderRadius: 20, borderWidth: 1, padding: 24 },
+  centeredSheet: { width: "100%", maxWidth: 400, maxHeight: "82%", borderRadius: 20, borderWidth: 1, padding: 24 },
 
   // Variante de centeredSheet pour les modales réservation/édition, dont le
   // contenu (champs + calendrier) peut dépasser la hauteur de l'écran : le
