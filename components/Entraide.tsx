@@ -11,7 +11,8 @@ import * as Crypto from "expo-crypto";
 import { File } from "expo-file-system";
 import { supabase } from "@/lib/supabase";
 import { getVisitorSession, rememberAuthorPin, sessionPinMatches } from "@/lib/visitorSession";
-import { useWallUnread } from "@/lib/wallUnread";
+import { useWallReadTracking, useWallNewIds } from "@/lib/wallUnread";
+import { NewIndicator } from "@/components/NewIndicator";
 import PinPad from "@/components/PinPad";
 import MiniCalendar from "@/components/MiniCalendar";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
@@ -952,12 +953,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
   useEffect(() => { loadTasks(); }, [loadTasks]);
 
-  // Cadre orange fixe le temps de la connexion sur chaque besoin publié par
-  // quelqu'un d'autre depuis la dernière réouverture de l'app (voir
-  // lib/wallUnread.ts) — remplace l'ancien marquage "vu" immédiat au
-  // chargement (référence encore utilisée par la cloche rouge de la barre
-  // d'onglets, voir EntraideTabIcon).
-  const { unreadIds } = useWallUnread("entraide", spaceId, isAdmin, tasksLoading ? null : tasks);
+  // Badge "New" sur chaque besoin publié par quelqu'un d'autre depuis le
+  // démarrage de cette session (voir lib/wallUnread.ts) — useWallReadTracking
+  // n'a plus d'effet sur cet écran, il entretient uniquement le point rouge
+  // de la barre d'onglets (voir EntraideTabIcon).
+  useWallReadTracking("entraide", spaceId, isAdmin, tasksLoading ? null : tasks);
+  const newIds = useWallNewIds(isAdmin, tasksLoading ? null : tasks);
 
   // Arrivée depuis "Mon compte" via un lien profond (?focusTaskId=...) —
   // à chaque nouvelle navigation (même écran déjà monté, cas des Tabs qui
@@ -2997,7 +2998,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   function renderTask(t: Task) {
     const statusColors = STATUS_COLORS(C);
     const highlighted = highlightId === t.id;
-    const unread = unreadIds.has(t.id);
+    const isNew = newIds.has(t.id);
     // Sélection multiple : admin sur tout besoin, visiteur seulement sur ceux
     // qu'il a lui-même publiés (voir isAuthor) et pas encore fermés depuis
     // trop longtemps (voir isTaskClosedPast) — même périmètre que la
@@ -3038,19 +3039,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         style={[
           styles.taskCard,
           { backgroundColor: C.card, borderColor: restingColor, borderWidth: restingWidth },
-          // Besoin non urgent : le bord orange remplace directement le bord
-          // au repos. Besoin urgent (déjà cerné de rouge) : un simple
-          // remplacement masquerait l'urgence, donc un 2e cadre orange est
-          // superposé à l'intérieur (voir unreadInnerRing plus bas) au lieu
-          // de toucher au bord existant.
-          unread && !urgentOpen && { borderColor: C.orange, borderWidth: 2 },
           highlighted && { borderColor: animBorderColor, borderWidth: animBorderWidth },
           selected && { borderColor: C.accent, borderWidth: 2, backgroundColor: `${C.accent}11` },
         ]}
       >
-        {unread && urgentOpen && (
-          <View pointerEvents="none" style={[styles.unreadInnerRing, { borderColor: C.orange }]} />
-        )}
+        {isNew && <NewIndicator urgent={urgentOpen} />}
         <View style={styles.taskHeader}>
           {selectable && selectionMode && (
             <View style={[styles.selectDot, { borderColor: C.accent, backgroundColor: selected ? C.accent : "transparent" }]}>
@@ -6376,10 +6369,6 @@ const styles = StyleSheet.create({
   listSubsectionHeader: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 0.8, textTransform: "uppercase", marginTop: 10, marginBottom: 6 },
 
   taskCard: { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 },
-  // 2e cadre (non lu) affiché à l'intérieur du cadre rouge d'un besoin urgent
-  // — voir renderTask, styles.taskCard ne peut porter qu'une seule couleur
-  // de bord à la fois.
-  unreadInnerRing: { position: "absolute", top: 4, left: 4, right: 4, bottom: 4, borderWidth: 2, borderRadius: 10 },
   taskHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8, flexWrap: "wrap" },
   selectDot: { width: 22, height: 22, borderRadius: 11, borderWidth: 2, alignItems: "center", justifyContent: "center" },
   selectDotCheck: { color: "#fff", fontSize: 13, fontFamily: "DM_Sans_700Bold" },

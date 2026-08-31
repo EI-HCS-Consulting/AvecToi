@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { useWallUnread, type WallRow } from "@/lib/wallUnread";
+import { useWallUnreadIds, type WallRow } from "@/lib/wallUnread";
 
 type BadgeTaskRow = WallRow & {
   urgent: boolean;
@@ -50,7 +50,7 @@ export function useEntraideBadges(spaceId: string | null, isAdmin: boolean): Ent
 
   const visible = (rows ?? []).filter((t) => !t.deleted_by_admin);
   const urgentUnclaimed = visible.some((t) => t.urgent && t.status === "ouvert");
-  const { unreadIds } = useWallUnread("entraide", spaceId, isAdmin, rows);
+  const { unreadIds } = useWallUnreadIds("entraide", spaceId, isAdmin, rows);
 
   return { urgentUnclaimed, newFromOthers: unreadIds.size > 0 };
 }

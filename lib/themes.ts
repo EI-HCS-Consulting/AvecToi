@@ -61,6 +61,11 @@ export const CHECKLIST_COLORS: Record<"accent" | "orange" | "gold", string> = {
   orange: themes.light.orange,
 };
 
+// Barre d'accent + badge "New" (Nouvelles/Entraide/Soutien, voir
+// components/NewIndicator.tsx et lib/wallUnread.ts) — fixe, indépendante du
+// thème, comme les couleurs LOGO_* ci-dessous.
+export const NEW_ACCENT = "#2E75B6";
+
 // Couleurs des bonhommes du logo — fixes, identiques dans les deux thèmes
 // (contrairement à `accent`/`success`/etc. qui varient dark/light).
 export const LOGO_GREEN = "#0DABB6"; // bonhomme turquoise (haut-droite)
