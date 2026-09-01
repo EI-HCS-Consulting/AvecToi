@@ -109,14 +109,14 @@ export default function VisitorIdentifyScreen() {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={styles.linkBtn}
+          style={styles.btnSecondary}
           onPress={() => router.push({
             pathname: "/auth/visitor-create-profile",
             params: { spaceId, token, prenom: prenom.trim(), nom: nom.trim() },
           })}
-          activeOpacity={0.7}
+          activeOpacity={0.85}
         >
-          <Text style={styles.linkText}>Première visite ? Créer mon profil</Text>
+          <Text style={styles.btnSecondaryText}>Première visite ? Créer mon profil</Text>
         </TouchableOpacity>
       </ScrollView>
     </KeyboardAvoidingView>
@@ -128,40 +128,40 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     backgroundColor: C.bg,
     padding: 24,
-    paddingTop: 60,
-    paddingBottom: 48,
+    paddingTop: 32,
+    paddingBottom: 32,
   },
-  back: { marginBottom: 32 },
+  back: { marginBottom: 16 },
   backText: { fontFamily: "DM_Sans_400Regular", color: C.muted, fontSize: 15 },
   title: {
     fontFamily: "PlayfairDisplay_700Bold",
-    fontSize: 28,
+    fontSize: 24,
     color: "#fff",
-    marginBottom: 8,
+    marginBottom: 4,
   },
   subtitle: {
     fontFamily: "DM_Sans_400Regular",
     fontSize: 14,
     color: C.muted,
-    lineHeight: 22,
-    marginBottom: 24,
+    lineHeight: 20,
+    marginBottom: 16,
   },
   sectionLabel: {
     fontFamily: "DM_Sans_700Bold",
     fontSize: 15,
     color: "#fff",
-    marginBottom: 12,
+    marginBottom: 8,
   },
   input: {
     backgroundColor: C.card,
     borderWidth: 1,
     borderColor: C.border,
     borderRadius: 10,
-    padding: 14,
+    padding: 12,
     color: C.text,
     fontFamily: "DM_Sans_400Regular",
     fontSize: 14,
-    marginBottom: 12,
+    marginBottom: 10,
   },
   errorText: {
     fontFamily: "DM_Sans_400Regular",
@@ -183,13 +183,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#fff",
   },
-  linkBtn: {
+  btnSecondary: {
+    backgroundColor: "transparent",
+    borderRadius: 10,
+    paddingVertical: 14,
     alignItems: "center",
-    marginTop: 20,
+    borderWidth: 1,
+    borderColor: C.border,
+    marginTop: 12,
   },
-  linkText: {
+  btnSecondaryText: {
     fontFamily: "DM_Sans_600SemiBold",
     fontSize: 14,
-    color: C.accent,
+    color: C.text,
   },
 });
