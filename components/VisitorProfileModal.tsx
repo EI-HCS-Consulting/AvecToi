@@ -6,6 +6,8 @@ import {
 import { useRouter } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import PatientAvatar from "@/components/PatientAvatar";
+import ConfirmModal from "@/components/ConfirmModal";
+import { adminResetVisitorPin } from "@/lib/visitorProfile";
 import { relationLabel } from "@/lib/relations";
 import type { Reservation, NewsEntry, Task, SupportMessage, SouvenirPhoto } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
@@ -36,11 +38,11 @@ function visitorPhotoUrl(spaceId: string, filename: string) {
 // 20260821_visitor_profiles_relation.sql n'a pas été rejouée manuellement
 // en base — voir le commentaire jumeau dans VisitorsList.tsx.
 async function fetchVisitorProfile(spaceId: string, prenom: string, nom: string) {
-  const full = await supabase.from("visitor_profiles").select("photo, motto, relation").eq("space_id", spaceId)
+  const full = await supabase.from("visitor_profiles").select("id, photo, motto, relation").eq("space_id", spaceId)
     .ilike("prenom", prenom).ilike("nom", nom).maybeSingle();
   if (!full.error) return full;
   console.error("[VisitorProfileModal] select avec relation en échec, repli sans cette colonne:", full.error);
-  const fallback = await supabase.from("visitor_profiles").select("photo, motto").eq("space_id", spaceId)
+  const fallback = await supabase.from("visitor_profiles").select("id, photo, motto").eq("space_id", spaceId)
     .ilike("prenom", prenom).ilike("nom", nom).maybeSingle();
   return { data: fallback.data ? { ...fallback.data, relation: null as string | null } : null, error: fallback.error };
 }
@@ -66,6 +68,10 @@ export default function VisitorProfileModal({ visible, onClose, spaceId, C, isAd
   const [email, setEmail] = useState<string | null>(null);
   const [motto, setMotto] = useState<string | null>(null);
   const [relation, setRelation] = useState<string | null>(null);
+  const [visitorId, setVisitorId] = useState<string | null>(null);
+  const [resetConfirmVisible, setResetConfirmVisible] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetDone, setResetDone] = useState(false);
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [news, setNews] = useState<NewsEntry[]>([]);
   const [tasksClaimed, setTasksClaimed] = useState<Task[]>([]);
@@ -98,6 +104,7 @@ export default function VisitorProfileModal({ visible, onClose, spaceId, C, isAd
     setPhotoUrl(profile.data?.photo ? visitorPhotoUrl(spaceId, profile.data.photo) : null);
     setMotto(profile.data?.motto ?? null);
     setRelation(profile.data?.relation ?? null);
+    setVisitorId((profile.data as { id?: string } | null)?.id ?? null);
     // Coordonnées (admin uniquement) : téléphone/email vivent sur la réservation
     // elle-même (pas de compte visiteur) — on prend la première réservation
     // faite à son propre nom (pas "booked_by") qui en porte une, peu importe
@@ -120,8 +127,20 @@ export default function VisitorProfileModal({ visible, onClose, spaceId, C, isAd
   }, [spaceId, prenom, nom]);
 
   useEffect(() => {
-    if (visible && prenom.trim() && nom.trim()) load();
+    if (visible && prenom.trim() && nom.trim()) {
+      setResetDone(false);
+      load();
+    }
   }, [visible, prenom, nom, load]);
+
+  async function handleResetPin() {
+    if (!visitorId) return;
+    setResetting(true);
+    const ok = await adminResetVisitorPin(spaceId, visitorId);
+    setResetting(false);
+    setResetConfirmVisible(false);
+    if (ok) setResetDone(true);
+  }
 
   function goTo(path: string) {
     onClose();
@@ -179,6 +198,24 @@ export default function VisitorProfileModal({ visible, onClose, spaceId, C, isAd
                 <Section title="☎️ Coordonnées" C={C} empty={false} emptyText="">
                   {telephone && <Text style={[styles.rowText, { color: C.text }]}>📞 {telephone}</Text>}
                   {email && <Text style={[styles.rowText, { color: C.text, marginTop: telephone ? 4 : 0 }]}>✉️ {email}</Text>}
+                </Section>
+              )}
+
+              {isAdmin && !!visitorId && (
+                <Section title="🔑 Code d'accès" C={C} empty={false} emptyText="">
+                  {resetDone ? (
+                    <Text style={[styles.rowText, { color: C.text }]}>
+                      Code réinitialisé. {prenom} pourra recréer un profil (photo, humeur, relation conservées) en repassant par l'écran d'entrée.
+                    </Text>
+                  ) : (
+                    <TouchableOpacity
+                      style={[styles.resetBtn, { borderColor: C.border }]}
+                      onPress={() => setResetConfirmVisible(true)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.resetBtnText, { color: C.text }]}>Réinitialiser le code</Text>
+                    </TouchableOpacity>
+                  )}
                 </Section>
               )}
 
@@ -284,6 +321,19 @@ export default function VisitorProfileModal({ visible, onClose, spaceId, C, isAd
           </TouchableOpacity>
         </Modal>
       )}
+
+      <ConfirmModal
+        visible={resetConfirmVisible}
+        icon="🔑"
+        title="Réinitialiser le code ?"
+        message={`${prenom} devra recréer son code depuis l'écran d'entrée. Son profil (photo, humeur, relation) sera conservé.`}
+        confirmLabel="Réinitialiser"
+        destructive={false}
+        saving={resetting}
+        onCancel={() => setResetConfirmVisible(false)}
+        onConfirm={handleResetPin}
+        C={C}
+      />
     </Modal>
   );
 }
@@ -319,6 +369,8 @@ const styles = StyleSheet.create({
   chevron: { fontFamily: "DM_Sans_700Bold", fontSize: 16 },
   thumbRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   thumb: { width: 64, height: 64, borderRadius: 8 },
+  resetBtn: { borderWidth: 1, borderRadius: 10, paddingVertical: 10, alignItems: "center" },
+  resetBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
 
   lightboxOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.92)", alignItems: "center", justifyContent: "center", padding: 16 },
   lightboxCircle: { width: 280, height: 280, borderRadius: 140, borderWidth: 4, overflow: "hidden" },
