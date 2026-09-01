@@ -6,7 +6,7 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { themes } from "@/lib/themes";
 import PinPad from "@/components/PinPad";
-import { loginVisitorProfile } from "@/lib/visitorProfile";
+import { loginVisitorProfile, claimResetVisitorPin } from "@/lib/visitorProfile";
 import { requestPinReset } from "@/lib/pinResetRequests";
 import { saveVisitorSession } from "@/lib/visitorSession";
 
@@ -60,7 +60,12 @@ export default function VisitorIdentifyScreen() {
     if (!canSubmit) return;
     setLoading(true);
     setErrorMsg("");
-    const row = await loginVisitorProfile(spaceId, prenom.trim(), nom.trim(), pin);
+    let row = await loginVisitorProfile(spaceId, prenom.trim(), nom.trim(), pin);
+    // Si le login échoue et que le profil est en attente de réinitialisation
+    // (pin remis à NULL par l'admin, voir handleRequestPinReset/PinResetAlertModal),
+    // le code saisi ici devient directement le nouveau PIN — plus besoin de
+    // repasser par l'écran "Créer mon profil" pour ça.
+    if (!row) row = await claimResetVisitorPin(spaceId, prenom.trim(), nom.trim(), pin);
     setLoading(false);
 
     if (!row) {

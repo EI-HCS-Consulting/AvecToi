@@ -30,6 +30,27 @@ export async function loginVisitorProfile(
   return data[0] as VisitorProfileRow;
 }
 
+// Récupération de code depuis l'écran de connexion ("Qui êtes-vous ?") après
+// une réinitialisation admin : n'importe quel code saisi devient le nouveau
+// PIN, mais seulement s'il existe bien un profil non réclamé (pin NULL)
+// correspondant exactement au prénom/nom — sinon renvoie null (voir
+// rpc_visitor_claim_reset, 20260901_visitor_claim_reset_pin.sql).
+export async function claimResetVisitorPin(
+  spaceId: string,
+  prenom: string,
+  nom: string,
+  pin: string,
+): Promise<VisitorProfileRow | null> {
+  const { data, error } = await supabase.rpc("rpc_visitor_claim_reset", {
+    p_space_id: spaceId,
+    p_prenom: prenom,
+    p_nom: nom,
+    p_pin: pin,
+  });
+  if (error || !data || data.length === 0) return null;
+  return data[0] as VisitorProfileRow;
+}
+
 export async function claimOrCreateVisitorProfile(
   spaceId: string,
   prenom: string,
