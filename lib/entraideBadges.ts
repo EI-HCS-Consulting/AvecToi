@@ -9,15 +9,15 @@ type BadgeTaskRow = WallRow & {
 
 export interface EntraideBadges {
   urgentUnclaimed: boolean;
-  newFromOthers: boolean;
+  newUnseen: boolean;
 }
 
 // Alimente le pictogramme Entraide de la barre d'onglets ((admin)/_layout.tsx
 // et (visitor)/_layout.tsx) : intérieur rouge s'il existe un besoin Urgent
-// pas encore pris en charge, + petite cloche rouge si un besoin publié par
-// quelqu'un d'autre n'a pas encore défilé dans la zone visible du mur
-// Entraide pour ce viewer (voir lib/wallUnread.ts, mécanisme partagé avec
-// Soutien/Nouvelles).
+// pas encore pris en charge, + un second point rouge si un besoin (le sien
+// inclus, voir lib/wallUnread.ts) n'a pas encore été marqué vu pour ce
+// viewer — même Set que celui qui alimente les badges "New" du mur Entraide
+// lui-même (mécanisme partagé avec Soutien/Nouvelles), volontairement lié.
 export function useEntraideBadges(spaceId: string | null, isAdmin: boolean): EntraideBadges {
   const [rows, setRows] = useState<BadgeTaskRow[] | null>(null);
 
@@ -52,5 +52,5 @@ export function useEntraideBadges(spaceId: string | null, isAdmin: boolean): Ent
   const urgentUnclaimed = visible.some((t) => t.urgent && t.status === "ouvert");
   const { unreadIds } = useWallUnreadIds("entraide", spaceId, isAdmin, rows);
 
-  return { urgentUnclaimed, newFromOthers: unreadIds.size > 0 };
+  return { urgentUnclaimed, newUnseen: unreadIds.size > 0 };
 }

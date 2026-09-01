@@ -369,6 +369,10 @@ export interface Task {
   claimed_by_prenom: string | null;
   claimed_by_nom: string | null;
   claimed_by_pin: string | null;
+  // Rempli au moment du "Je m'en occupe" (ou de la publication directe en
+  // "Pris en charge" via claimOnCreate), vidé au désengagement — affiché sous
+  // "Publié le" dans Mon Compte > Entraide (voir account.tsx, myTakeoverDates).
+  claimed_at: string | null;
   // Pour un besoin Transport aller-retour, l'aller et le retour peuvent être
   // pris en charge par deux personnes différentes suite à des propositions
   // distinctes — claimed_by_prenom/nom/pin ci-dessus désignent alors l'aller,
@@ -465,6 +469,10 @@ export interface ShoppingListItem {
   bought: boolean;
   bought_by_prenom: string | null;
   bought_by_nom: string | null;
+  // Rempli quand l'article passe à coché, vidé quand il est décoché — permet
+  // d'afficher "Pris en charge le" pour une contribution "courses" sans claim
+  // explicite du besoin (voir account.tsx, myTakeoverDates).
+  bought_at: string | null;
   position: number;
   created_at: string;
 }

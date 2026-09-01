@@ -21,7 +21,7 @@ import MyAlertsModal from "@/components/MyAlertsModal";
 import PatientProfileModal from "@/components/PatientProfileModal";
 import VisitorsListModal from "@/components/VisitorsListModal";
 import { isRgpdAlertActive, rgpdAlertMessage, prolongSpace } from "@/lib/rgpd";
-import { toFrShort, isReservationDatePast } from "@/lib/slotUtils";
+import { toFrShort, isReservationFullyPast } from "@/lib/slotUtils";
 import { disengageTask as performDisengage } from "@/lib/taskDisengage";
 import ConfirmModal from "@/components/ConfirmModal";
 import RecurringBookingModal from "@/components/RecurringBookingModal";
@@ -120,6 +120,10 @@ export default function AdminAccountScreen() {
   // claimed_by_*), seule trace dans shopping_list_items.bought_by_* (voir
   // Entraide.tsx > loadCourseContributors et account.tsx visiteur).
   const [myCourseContribTasks, setMyCourseContribTasks] = useState<Task[]>([]);
+  // Date du 1er article coché par l'admin sur chaque besoin de myCourseContribTasks
+  // (bought_at n'existe qu'au niveau de l'article, pas du besoin) — alimente
+  // "Pris en charge le" au même titre que Task.claimed_at, voir myTakeoverDates.
+  const [courseContribDates, setCourseContribDates] = useState<Record<string, string>>({});
   // Besoins de relais ouverts ciblant l'admin — voir lib/relaisAlerts.ts,
   // même source que le popup RelaisAlertModal, ici consultable à tout moment.
   const [relaisAlerts, setRelaisAlerts] = useState<Task[]>([]);
@@ -134,6 +138,15 @@ export default function AdminAccountScreen() {
   // l'admin (claimOnCreate) ressortait sinon des deux requêtes et
   // s'affichait deux fois (même bug que côté visiteur, voir account.tsx).
   const claimedTaskIds = useMemo(() => new Set(myClaimedTasks.map((t) => t.id)), [myClaimedTasks]);
+  // "Pris en charge le" affiché sous "Publié le" (renderTaskCategoryCard) :
+  // claimed_at pour un claim classique ("Je m'en occupe"), sinon la date du
+  // 1er article coché pour une contribution "courses" sans claim explicite.
+  const myTakeoverDates = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const t of myClaimedTasks) if (t.claimed_at) m.set(t.id, t.claimed_at);
+    for (const [id, date] of Object.entries(courseContribDates)) if (!m.has(id)) m.set(id, date);
+    return m;
+  }, [myClaimedTasks, courseContribDates]);
   const allMyTasks = useMemo(() => {
     const byId = new Map<string, Task>();
     for (const t of tasks) byId.set(t.id, t);
@@ -460,10 +473,17 @@ export default function AdminAccountScreen() {
     if (hasIdentity) {
       const { data: courseItemsData } = await supabase
         .from("shopping_list_items")
-        .select("task_id")
+        .select("task_id, bought_at")
         .eq("bought", true)
         .ilike("bought_by_prenom", p.trim())
         .ilike("bought_by_nom", n.trim());
+      const contribDates: Record<string, string> = {};
+      for (const r of (courseItemsData || []) as { task_id: string; bought_at: string | null }[]) {
+        if (r.bought_at && (!contribDates[r.task_id] || r.bought_at < contribDates[r.task_id])) {
+          contribDates[r.task_id] = r.bought_at;
+        }
+      }
+      setCourseContribDates(contribDates);
       const courseTaskIds = [...new Set((courseItemsData || []).map((r: { task_id: string }) => r.task_id))];
       if (courseTaskIds.length > 0) {
         const { data: courseTasksData } = await supabase.from("tasks").select("*")
@@ -473,6 +493,7 @@ export default function AdminAccountScreen() {
         setMyCourseContribTasks([]);
       }
     } else {
+      setCourseContribDates({});
       setMyCourseContribTasks([]);
     }
     setActivityLoading(false);
@@ -593,13 +614,13 @@ export default function AdminAccountScreen() {
   // distinction passé/futur que côté visiteur et que nights.tsx.
   const reservationGroupsUpcoming = useMemo(
     () => reservationGroups
-      .filter((g) => !isReservationDatePast(g.leader.date))
+      .filter((g) => !isReservationFullyPast(g.leader))
       .sort((a, b) => (a.leader.date === b.leader.date ? a.leader.creneau.localeCompare(b.leader.creneau) : a.leader.date.localeCompare(b.leader.date))),
     [reservationGroups],
   );
   const reservationGroupsHistory = useMemo(
     () => reservationGroups
-      .filter((g) => isReservationDatePast(g.leader.date))
+      .filter((g) => isReservationFullyPast(g.leader))
       .sort((a, b) => (a.leader.date === b.leader.date ? b.leader.creneau.localeCompare(a.leader.creneau) : b.leader.date.localeCompare(a.leader.date))),
     [reservationGroups],
   );
@@ -621,7 +642,7 @@ export default function AdminAccountScreen() {
     // Une réservation passée (Historique) n'est plus modifiable/annulable,
     // même par l'admin — on renvoie juste vers le jour avec les créneaux,
     // sans ouvrir le popup de modification.
-    if (!isReservationDatePast(r.date)) setPendingEditReservationId(r.id);
+    if (!isReservationFullyPast(r)) setPendingEditReservationId(r.id);
     if (r.type === "Nuit") {
       router.push({ pathname: "/(admin)/home/nights", params: { focusDate: r.date } } as any);
     } else {
@@ -681,6 +702,11 @@ export default function AdminAccountScreen() {
               <Text style={[styles.activityRowSub, { color: C.muted }]}>
                 🗓️ Publié le {toFrShort(new Date(t.created_at))}
               </Text>
+              {myTakeoverDates.has(t.id) && (
+                <Text style={[styles.activityRowSub, { color: C.muted }]}>
+                  📌 Pris en charge le {toFrShort(new Date(myTakeoverDates.get(t.id)!))}
+                </Text>
+              )}
               {(t.author_prenom || t.author_nom) && (
                 <Text style={[styles.activityRowSub, { color: C.muted }]}>
                   👤 Publié par {[t.author_prenom, t.author_nom].filter(Boolean).join(" ")}

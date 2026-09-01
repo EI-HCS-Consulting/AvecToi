@@ -15,7 +15,7 @@ import { getVisitorSession, saveVisitorSession, sessionPinMatches } from "@/lib/
 import PinPad from "@/components/PinPad";
 import MiniCalendar from "@/components/MiniCalendar";
 import ConfirmModal from "@/components/ConfirmModal";
-import { getSlotOccupancy, isReservationDatePast, isSlotFullyPast, toISO, toFrLong, toFrShort, nightStartSlot, nightRangeLabel } from "@/lib/slotUtils";
+import { getSlotOccupancy, isReservationFullyPast, isSlotFullyPast, toISO, toFrLong, toFrShort, nightStartSlot, nightRangeLabel } from "@/lib/slotUtils";
 import { isSpaceCapped } from "@/lib/freemiumCap";
 import type { Reservation, SlotConfig, PatientSpace } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
@@ -361,7 +361,7 @@ function BookingFlow(
   }
 
   async function handleCancel() {
-    if (!pinModal || isReservationDatePast(pinModal.date)) return;
+    if (!pinModal || isReservationFullyPast(pinModal)) return;
     setPinDeleting(true);
 
     // Annule aussi les accompagnants liés (même group_id) : le visiteur les
@@ -400,7 +400,7 @@ function BookingFlow(
   }
 
   function openEdit(r: Reservation) {
-    if (isReservationDatePast(r.date)) return;
+    if (isReservationFullyPast(r)) return;
     const d = new Date(r.date + "T12:00:00");
     setEditDate(r.date);
     setEditSlot(r.type === "Nuit" ? null : r.creneau);
@@ -804,7 +804,7 @@ function BookingFlow(
                   </Text>
                 </TouchableOpacity>
 
-                {pinModal && isReservationDatePast(pinModal.date) ? (
+                {pinModal && isReservationFullyPast(pinModal) ? (
                   <Text style={[styles.sheetSub, { color: C.muted, marginTop: 12, textAlign: "center" }]}>
                     {pinModal.type === "Nuit" ? "Cette nuitée" : "Cette visite"} est passée, elle ne peut plus être modifiée ni annulée.
                   </Text>

@@ -11,7 +11,7 @@ import * as Crypto from "expo-crypto";
 import { File } from "expo-file-system";
 import { supabase } from "@/lib/supabase";
 import { getVisitorSession, rememberAuthorPin, sessionPinMatches } from "@/lib/visitorSession";
-import { useWallReadTracking, useWallNewIds } from "@/lib/wallUnread";
+import { useWallReadTracking } from "@/lib/wallUnread";
 import { NewIndicator } from "@/components/NewIndicator";
 import PinPad from "@/components/PinPad";
 import MiniCalendar from "@/components/MiniCalendar";
@@ -954,12 +954,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
   useEffect(() => { loadTasks(); }, [loadTasks]);
 
-  // Badge "New" sur chaque besoin publié par quelqu'un d'autre depuis le
-  // démarrage de cette session (voir lib/wallUnread.ts) — useWallReadTracking
-  // n'a plus d'effet sur cet écran, il entretient uniquement le point rouge
-  // de la barre d'onglets (voir EntraideTabIcon).
-  useWallReadTracking("entraide", spaceId, isAdmin, tasksLoading ? null : tasks);
-  const newIds = useWallNewIds(isAdmin, tasksLoading ? null : tasks);
+  // Badge "New" sur chaque besoin non encore vu (voir lib/wallUnread.ts) —
+  // même Set que celui qui alimente le point rouge de la barre d'onglets
+  // (EntraideTabIcon), volontairement liés.
+  const newIds = useWallReadTracking("entraide", spaceId, isAdmin, tasksLoading ? null : tasks);
 
   // Arrivée depuis "Mon compte" via un lien profond (?focusTaskId=...) —
   // à chaque nouvelle navigation (même écran déjà monté, cas des Tabs qui
@@ -2083,6 +2081,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           claimed_by_prenom: claimPrenom.trim(),
           claimed_by_nom: claimNom.trim(),
           claimed_by_pin: claimPin,
+          claimed_at: new Date().toISOString(),
           ...(fCat === "transport" ? {
             transport_confirmed_date: fTDate,
             transport_confirmed_out_time: fTOutTime,
@@ -2498,6 +2497,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         claimed_by_prenom: claimPrenom.trim(),
         claimed_by_nom: claimNom.trim(),
         claimed_by_pin: claimPin,
+        claimed_at: new Date().toISOString(),
         claimed_photo: claimedPhotoFilename,
         claimed_text: claimText.trim() || null,
         ...(claimTarget.category === "transport" ? {
@@ -2554,6 +2554,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         claimed_by_prenom: null,
         claimed_by_nom: null,
         claimed_by_pin: null,
+        claimed_at: null,
         claimed_photo: null,
         claimed_text: null,
         transport_confirmed_out_time: null,
@@ -2567,6 +2568,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         claimed_by_prenom: null,
         claimed_by_nom: null,
         claimed_by_pin: null,
+        claimed_at: null,
         claimed_photo: null,
         claimed_text: null,
         ...(task.category === "transport" ? {
@@ -2766,13 +2768,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     return compareSoonestFirst(a, b);
   }
 
-  // Section "Ouverts", à la connexion : les besoins encore "New" (badge, voir
-  // useWallNewIds) remontent en bloc au-dessus des besoins déjà connus,
+  // Section "Ouverts" : les besoins encore non lus (badge "New", voir
+  // useWallReadTracking) remontent en bloc au-dessus des besoins déjà vus,
   // chaque groupe restant trié comme avant (compareOpenSection : Urgent
-  // d'abord, puis chronologique). Un besoin "New" retombe naturellement dans
-  // l'ordre chronologique normal dès qu'il n'est plus New (session
-  // suivante) — aucun état à gérer ici, `newIds` est recalculé à chaque
-  // ouverture de session (voir lib/wallUnread.ts).
+  // d'abord, puis chronologique). Un besoin retombe naturellement dans
+  // l'ordre chronologique normal dès qu'il est marqué vu — aucun état à
+  // gérer ici, `newIds` reflète directement le storage persisté (voir
+  // lib/wallUnread.ts).
   function compareOpenSectionWithNew(a: Task, b: Task): number {
     const na = newIds.has(a.id);
     const nb = newIds.has(b.id);

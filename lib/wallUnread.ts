@@ -4,24 +4,40 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "@/lib/supabase";
 import { relaisIdentityKey, resolveRelaisIdentity } from "@/lib/relaisAlerts";
 
-// Deux mécanismes distincts, partagés par les 3 murs de publications
-// (Entraide/tasks, Soutien/support_messages, Nouvelles/news_entries) :
+// Un seul mécanisme, partagé par les 3 murs de publications (Entraide/tasks,
+// Soutien/support_messages, Nouvelles/news_entries) et par ses deux
+// affichages :
 //
-// 1. Badge "New" (barre d'accent + chip, voir components/NewIndicator.tsx) :
-//    purement basé sur sessionLoginTimestamp ci-dessous, sans aucune
-//    persistance — un élément est "New" tant que created_at est postérieur
-//    au démarrage de cette session. Voir useWallNewIds plus bas.
+// - Badge "New" (barre d'accent + chip, voir components/NewIndicator.tsx),
+//   posé sur chaque élément individuel du mur, quel que soit son statut
+//   (ouvert/pris en charge/fermé/fait inclus — aucun filtre sur le statut
+//   ici) ;
+// - Point rouge sur le picto de la barre d'onglets (voir UnreadDotIcon.tsx /
+//   EntraideTabIcon.tsx) : allumé dès qu'au moins un élément du mur est
+//   non-lu.
 //
-// 2. Point rouge sur le picto de la barre d'onglets (voir UnreadDotIcon.tsx) :
-//    mécanisme historique à seenIds persistés en AsyncStorage (voir
-//    useWallSeenIds), inchangé depuis PR #346 — flush sur AppState câblé
-//    depuis l'écran du mur lui-même (useWallReadTracking), volontairement
-//    absent du badge (useWallBadge) pour ne pas éteindre le point rouge au
-//    simple fait de rouvrir l'app sans avoir visité le mur concerné.
+// Les deux sont dérivés du même Set (`unreadIds`, voir useWallUnreadIds) —
+// volontairement liés : un badge "New" visible sur le mur implique le point
+// rouge, et réciproquement il ne doit jamais y avoir de point rouge sans au
+// moins un badge "New" quelque part sur le mur correspondant.
 //
-// Remplace l'ancien mécanisme à un seul horodatage (lib/entraideBadges.ts
-// avant ce fichier) : celui-ci marquait tout "vu" dès l'ouverture de
-// l'écran, avant même que le viewer ait pu lire quoi que ce soit.
+// seenIds persistés en AsyncStorage (voir useWallSeenIds), inchangé depuis
+// PR #346 — flush sur AppState câblé depuis l'écran du mur lui-même
+// (useWallReadTracking, qui retourne ce même `unreadIds` pour alimenter
+// aussi bien les badges "New" locaux que le flush).
+//
+// Contrairement à l'ancien mécanisme à un seul horodatage de session
+// (sessionLoginTimestamp, retiré — un élément publié avant le démarrage de
+// l'app n'était jamais "New" même resté non consulté, et un élément publié
+// par le viewer lui-même n'était jamais visible pour lui), et à l'ancien
+// mécanisme "tout marqué vu dès l'ouverture de l'écran" d'avant lib/
+// entraideBadges.ts : "vu" veut dire vu, pas "l'app tournait déjà" ni
+// "l'écran a été ouvert".
+//
+// Un élément publié par le viewer lui-même compte comme non-lu jusqu'à ce
+// qu'il soit marqué vu comme les autres (bootstrap ou flush) : c'est ce qui
+// permet au badge "New" d'apparaître dès la publication, pour l'auteur
+// lui-même.
 export type WallScope = "entraide" | "soutien" | "news";
 
 export interface WallRow {
@@ -68,10 +84,6 @@ function subscribe(key: string, fn: Listener): () => void {
 async function writeSeenIds(key: string, ids: Set<string>) {
   await AsyncStorage.setItem(key, JSON.stringify([...ids]));
   notify(key, ids);
-}
-
-export function isSelfWallAuthor(r: WallRow, isAdmin: boolean, myKey: string): boolean {
-  return isAdmin ? r.author_pin === "ADMIN" : relaisIdentityKey(r.author_prenom ?? "", r.author_nom ?? "") === myKey;
 }
 
 function useMyWallKey(isAdmin: boolean): string | null {
@@ -167,27 +179,30 @@ function useWallSeenIds(scope: WallScope, spaceId: string | null, isAdmin: boole
 // Calcul brut des ids "non lus" (seenIds persistés), sans effet de bord —
 // partagé par useWallReadTracking (écrans, avec flush de session ci-dessous)
 // et useWallBadge (picto d'onglet, qui ne doit jamais flusher lui-même :
-// voir plus bas).
+// voir plus bas). Un élément publié par le viewer lui-même n'est PAS exclu :
+// voir la note en tête de fichier — c'est ce qui fait apparaître le badge
+// "New" dès sa propre publication.
 export function useWallUnreadIds(scope: WallScope, spaceId: string | null, isAdmin: boolean, rows: WallRow[] | null) {
   const { seenIds, myKey, markAllSeen } = useWallSeenIds(scope, spaceId, isAdmin, rows);
   const unreadIds = seenIds === null || myKey === null || rows === null
     ? new Set<string>()
     : new Set(
         rows
-          .filter((r) => !r.deleted_by_admin && !isSelfWallAuthor(r, isAdmin, myKey) && !seenIds.has(r.id))
+          .filter((r) => !r.deleted_by_admin && !seenIds.has(r.id))
           .map((r) => r.id),
       );
   return { unreadIds, markAllSeen };
 }
 
-// À appeler depuis l'écran du mur lui-même (Entraide/Soutien/NewsFeed),
-// purement pour son effet de bord : entretient le flush AsyncStorage qui
-// alimente le point rouge du picto d'onglet (voir useWallBadge). Ne sert
-// plus à l'affichage local du mur — voir useWallNewIds ci-dessous pour le
-// badge "New". `rows` doit valoir `null` tant que le chargement initial de
-// l'appelant n'est pas terminé (voir useWallSeenIds plus haut) — passer un
-// tableau vide prématurément romprait le bootstrap anti-historique.
-export function useWallReadTracking(scope: WallScope, spaceId: string | null, isAdmin: boolean, rows: WallRow[] | null): void {
+// À appeler depuis l'écran du mur lui-même (Entraide/Soutien/NewsFeed) : le
+// Set retourné alimente à la fois le badge "New" local (components/
+// NewIndicator.tsx, sur chaque élément) et, en effet de bord, le flush
+// AsyncStorage qui éteint le point rouge du picto d'onglet (useWallBadge) —
+// les deux sont volontairement dérivés de ce même calcul, voir la note en
+// tête de fichier. `rows` doit valoir `null` tant que le chargement initial
+// de l'appelant n'est pas terminé (voir useWallSeenIds plus haut) — passer
+// un tableau vide prématurément romprait le bootstrap anti-historique.
+export function useWallReadTracking(scope: WallScope, spaceId: string | null, isAdmin: boolean, rows: WallRow[] | null): Set<string> {
   const { unreadIds, markAllSeen } = useWallUnreadIds(scope, spaceId, isAdmin, rows);
 
   // Contrairement à l'ancien marquage au scroll, rien n'est marqué "vu" tant
@@ -212,28 +227,8 @@ export function useWallReadTracking(scope: WallScope, spaceId: string | null, is
     });
     return () => sub.remove();
   }, []);
-}
 
-// Figé une seule fois par démarrage du bundle JS (cold start) — reste stable
-// tant que l'app reste vivante en foreground/arrière-plan, se réinitialise
-// naturellement à la prochaine relance après un vrai kill (pas besoin
-// d'AppState ici, contrairement au flush ci-dessus : un kill relance
-// forcément ce module de zéro).
-const sessionLoginTimestamp = Date.now();
-
-// À utiliser dans l'écran du mur lui-même : ids publiés par quelqu'un
-// d'autre depuis le démarrage de cette session (badge "New", voir
-// components/NewIndicator.tsx). Aucune persistance — contrairement au point
-// rouge du picto d'onglet (useWallBadge), qui reste sur son mécanisme
-// AsyncStorage propre et inchangé.
-export function useWallNewIds(isAdmin: boolean, rows: WallRow[] | null): Set<string> {
-  const myKey = useMyWallKey(isAdmin);
-  if (myKey === null || rows === null) return new Set();
-  return new Set(
-    rows
-      .filter((r) => !r.deleted_by_admin && !isSelfWallAuthor(r, isAdmin, myKey) && new Date(r.created_at).getTime() > sessionLoginTimestamp)
-      .map((r) => r.id),
-  );
+  return unreadIds;
 }
 
 // À utiliser dans le picto de la barre d'onglets (voir UnreadDotIcon.tsx) :

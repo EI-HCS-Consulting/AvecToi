@@ -144,6 +144,17 @@ export function isSlotFullyPast(iso: string, slot: string): boolean {
   return isReservationDatePast(iso) || isSlotPast(iso, slot);
 }
 
+// Bascule "Planifié"/À venir → "Historique" pour une réservation (Mon
+// compte) : pour une Visite/Intervention, à l'heure du créneau près (une
+// réservation du jour dont le créneau est déjà passé doit basculer sans
+// attendre minuit) — comme isSlotFullyPast. Une Nuit occupe toute la nuit
+// (le "créneau" n'est que son heure d'arrivée, pas une fin de présence) :
+// elle ne bascule qu'au changement de jour, pas à l'heure d'arrivée.
+export function isReservationFullyPast(r: Pick<Reservation, "date" | "creneau" | "type">): boolean {
+  if (r.type === "Nuit") return isReservationDatePast(r.date);
+  return isSlotFullyPast(r.date, r.creneau);
+}
+
 // Une réservation "Intervention" est identifiée de façon fiable par
 // intervenant_profile_id (unique par fiche) — contrairement au PIN à 4
 // chiffres, choisi librement par chacun et donc pas garanti unique dans un

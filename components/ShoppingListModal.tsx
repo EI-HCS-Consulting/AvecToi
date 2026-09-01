@@ -106,7 +106,9 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin, 
     if (claimedByOther) return;
     if (itemLockedForMe(item)) return;
     const nextBought = !item.bought;
-    const boughtBy = nextBought ? { bought_by_prenom: myPrenom || null, bought_by_nom: myNom || null } : { bought_by_prenom: null, bought_by_nom: null };
+    const boughtBy = nextBought
+      ? { bought_by_prenom: myPrenom || null, bought_by_nom: myNom || null, bought_at: new Date().toISOString() }
+      : { bought_by_prenom: null, bought_by_nom: null, bought_at: null };
     const nextItems = items.map((it) => (it.id === item.id ? { ...it, bought: nextBought, ...boughtBy } : it));
     setItems(nextItems);
     await supabase.from("shopping_list_items").update({ bought: nextBought, ...boughtBy }).eq("id", item.id);

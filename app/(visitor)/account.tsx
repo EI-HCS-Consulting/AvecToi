@@ -17,7 +17,7 @@ import { enterByDossierCode } from "@/lib/visitorEntry";
 import { normalizePhone } from "@/lib/phone";
 import { metierLabel } from "@/lib/metiers";
 import { relationLabel } from "@/lib/relations";
-import { isSlotFullyPast, isReservationDatePast, toFrShort } from "@/lib/slotUtils";
+import { isSlotFullyPast, isReservationFullyPast, toFrShort } from "@/lib/slotUtils";
 import { disengageTask as performDisengage } from "@/lib/taskDisengage";
 import ConfirmModal from "@/components/ConfirmModal";
 import PinPad from "@/components/PinPad";
@@ -242,6 +242,10 @@ export default function VisitorAccountScreen() {
   // seule trace dans shopping_list_items.bought_by_* (voir Entraide.tsx >
   // loadCourseContributors pour l'équivalent affiché sur la carte du besoin).
   const [myCourseContribTasks, setMyCourseContribTasks] = useState<Task[]>([]);
+  // Date du 1er article coché sur chaque besoin de myCourseContribTasks
+  // (bought_at n'existe qu'au niveau de l'article, pas du besoin) — alimente
+  // "Pris en charge le" au même titre que Task.claimed_at, voir myTakeoverDates.
+  const [courseContribDates, setCourseContribDates] = useState<Record<string, string>>({});
 
   // Section active de la grille de tuiles (null = grille affichée)
   const [activeSection, setActiveSection] = useState<AccountSectionKey | null>(null);
@@ -264,6 +268,15 @@ export default function VisitorAccountScreen() {
   // (claimOnCreate) ressortait sinon des deux requêtes Supabase et
   // s'affichait deux fois (voir Entraide.tsx > saveTask > claimOnCreate).
   const claimedTaskIds = useMemo(() => new Set(myTasks.map((t) => t.id)), [myTasks]);
+  // "Pris en charge le" affiché sous "Publié le" (renderTaskCategoryCard) :
+  // claimed_at pour un claim classique ("Je m'en occupe"), sinon la date du
+  // 1er article coché pour une contribution "courses" sans claim explicite.
+  const myTakeoverDates = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const t of myTasks) if (t.claimed_at) m.set(t.id, t.claimed_at);
+    for (const [id, date] of Object.entries(courseContribDates)) if (!m.has(id)) m.set(id, date);
+    return m;
+  }, [myTasks, courseContribDates]);
   const allMyTasks = useMemo(() => {
     const byId = new Map<string, Task>();
     for (const t of myPublishedTasks) byId.set(t.id, t);
@@ -309,13 +322,13 @@ export default function VisitorAccountScreen() {
   // réservations — même distinction passé/futur que côté admin (nights.tsx).
   const myReservationsUpcoming = useMemo(
     () => myReservations
-      .filter((r) => !isReservationDatePast(r.date))
+      .filter((r) => !isReservationFullyPast(r))
       .sort((a, b) => (a.date === b.date ? a.creneau.localeCompare(b.creneau) : a.date.localeCompare(b.date))),
     [myReservations],
   );
   const myReservationsHistory = useMemo(
     () => myReservations
-      .filter((r) => isReservationDatePast(r.date))
+      .filter((r) => isReservationFullyPast(r))
       .sort((a, b) => (a.date === b.date ? b.creneau.localeCompare(a.creneau) : b.date.localeCompare(a.date))),
     [myReservations],
   );
@@ -369,10 +382,17 @@ export default function VisitorAccountScreen() {
     // shopping_list_items, donc en deux temps comme les accompagnants ci-dessous.
     const { data: courseItemsData } = await supabase
       .from("shopping_list_items")
-      .select("task_id")
+      .select("task_id, bought_at")
       .eq("bought", true)
       .ilike("bought_by_prenom", p.trim())
       .ilike("bought_by_nom", n.trim());
+    const contribDates: Record<string, string> = {};
+    for (const r of (courseItemsData || []) as { task_id: string; bought_at: string | null }[]) {
+      if (r.bought_at && (!contribDates[r.task_id] || r.bought_at < contribDates[r.task_id])) {
+        contribDates[r.task_id] = r.bought_at;
+      }
+    }
+    setCourseContribDates(contribDates);
     const courseTaskIds = [...new Set((courseItemsData || []).map((r: { task_id: string }) => r.task_id))];
     if (courseTaskIds.length > 0) {
       const { data: courseTasksData } = await supabase.from("tasks").select("*")
@@ -1017,7 +1037,7 @@ export default function VisitorAccountScreen() {
     // Une réservation passée (Historique) n'est plus modifiable/annulable —
     // on renvoie juste vers le jour avec les créneaux, sans ouvrir le popup
     // de modification.
-    const past = isReservationDatePast(r.date);
+    const past = isReservationFullyPast(r);
     if (r.type === "Nuit") {
       if (!past) setPendingEditReservationId(r.id);
       router.push("/(visitor)/home/nights" as any);
@@ -1096,6 +1116,11 @@ export default function VisitorAccountScreen() {
               <Text style={[styles.activityRowSub, { color: C.muted }]}>
                 🗓️ Publié le {toFrShort(new Date(t.created_at))}
               </Text>
+              {myTakeoverDates.has(t.id) && (
+                <Text style={[styles.activityRowSub, { color: C.muted }]}>
+                  📌 Pris en charge le {toFrShort(new Date(myTakeoverDates.get(t.id)!))}
+                </Text>
+              )}
               {(t.author_prenom || t.author_nom) && (
                 <Text style={[styles.activityRowSub, { color: C.muted }]}>
                   👤 Publié par {[t.author_prenom, t.author_nom].filter(Boolean).join(" ")}

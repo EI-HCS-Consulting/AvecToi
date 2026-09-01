@@ -11,7 +11,7 @@ import { File } from "expo-file-system";
 import { supabase } from "@/lib/supabase";
 import { getVisitorSession, rememberAuthorPin, sessionPinMatches } from "@/lib/visitorSession";
 import { downloadAndShare, downloadAndShareMultiple, logSavedMedia, isShareAvailable } from "@/lib/mediaShare";
-import { useWallReadTracking, useWallNewIds } from "@/lib/wallUnread";
+import { useWallReadTracking } from "@/lib/wallUnread";
 import { NewIndicator } from "@/components/NewIndicator";
 import PinPad from "@/components/PinPad";
 import VisitorProfileModal from "@/components/VisitorProfileModal";
@@ -273,12 +273,10 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
       (!e.deleted_by_admin || (!isAdmin && e.author_pin === sessionPin)),
   );
 
-  // Badge "New" sur chaque nouvelle publiée par quelqu'un d'autre depuis le
-  // démarrage de cette session (voir lib/wallUnread.ts, mécanisme partagé
-  // avec Entraide/Soutien). useWallReadTracking n'entretient plus que le
-  // point rouge de la barre d'onglets.
-  useWallReadTracking("news", spaceId, isAdmin, loading ? null : visibleEntries);
-  const newIds = useWallNewIds(isAdmin, loading ? null : visibleEntries);
+  // Badge "New" sur chaque nouvelle non encore vue (voir lib/wallUnread.ts,
+  // mécanisme partagé avec Entraide/Soutien) — même Set que celui qui
+  // alimente le point rouge de la barre d'onglets, volontairement liés.
+  const newIds = useWallReadTracking("news", spaceId, isAdmin, loading ? null : visibleEntries);
 
   // Liste aplatie des médias pour la vue "Médias" (bouton du sous-header) —
   // dérivée de visibleEntries (déjà filtrée), pas de nouvelle requête.
