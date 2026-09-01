@@ -14,7 +14,11 @@ import { NEW_ACCENT } from "@/lib/themes";
 export function NewIndicator({ urgent = false }: { urgent?: boolean }) {
   return (
     <>
-      {!urgent && <View pointerEvents="none" style={styles.bar} />}
+      {!urgent && (
+        <View pointerEvents="none" style={styles.barClip}>
+          <View style={styles.bar} />
+        </View>
+      )}
       <View pointerEvents="none" style={styles.badge}>
         <Text style={styles.badgeText}>New</Text>
       </View>
@@ -23,6 +27,22 @@ export function NewIndicator({ urgent = false }: { urgent?: boolean }) {
 }
 
 const styles = StyleSheet.create({
+  // Cale de clip aux dimensions du coin arrondi de la carte parente (rayon
+  // 14, partagé par les cartes Nouvelles/Entraide/Soutien) : overflow
+  // "hidden" ici découpe le liseret droit selon la vraie courbe du cadre.
+  // Donner ce même rayon directement à la barre de 4px (comme avant) produit
+  // un bout en demi-pilule qui ne suit pas du tout l'arrondi du cadre —
+  // un rayon n'a de sens que rapporté à la taille de la boîte qui le porte.
+  barClip: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    width: 14,
+    borderTopLeftRadius: 14,
+    borderBottomLeftRadius: 14,
+    overflow: "hidden",
+  },
   bar: {
     position: "absolute",
     top: 0,
@@ -30,8 +50,6 @@ const styles = StyleSheet.create({
     left: 0,
     width: 4,
     backgroundColor: NEW_ACCENT,
-    borderTopLeftRadius: 14,
-    borderBottomLeftRadius: 14,
   },
   badge: {
     position: "absolute",

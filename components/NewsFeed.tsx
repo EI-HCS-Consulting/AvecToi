@@ -98,16 +98,18 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
     return () => { supabase.removeChannel(channel); };
   }, [spaceId, loadAuthorizedIntervenants]);
 
-  // Une nouvelle d'intervenant/admin est-elle visible des visiteurs ? L'admin
-  // suit la même règle que les intervenants pour ses propres publications
-  // (pas de réglage séparé, voir Props.newsIntervenantMode).
+  // Une nouvelle d'intervenant/admin est-elle visible des visiteurs ? Le
+  // réglage newsIntervenantMode ne gouverne plus que le canal intervenants
+  // (module masqué, voir space.intervenants_enabled) — l'admin reste
+  // toujours visible des visiteurs comme un visiteur, sinon ses publications
+  // n'apparaissaient jamais côté visiteur tant que ce réglage (aujourd'hui
+  // inaccessible depuis les Paramètres) restait à sa valeur par défaut
+  // "disabled".
   function isNewsEntryVisibleToVisitor(e: NewsEntryWithUrls) {
-    if (e.author_role === "visiteur") return true;
+    if (e.author_role === "visiteur" || e.author_role === "admin") return true;
     if (newsIntervenantMode === "all") return true;
     if (newsIntervenantMode === "some") {
-      return e.author_role === "intervenant"
-        ? !!e.intervenant_profile_id && authorizedIntervenantIds.has(e.intervenant_profile_id)
-        : false; // admin en mode "some" : pas de canal individuel pour lui, reste privé
+      return !!e.intervenant_profile_id && authorizedIntervenantIds.has(e.intervenant_profile_id);
     }
     return false;
   }
@@ -942,17 +944,6 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
       {/* Header */}
       <View style={[styles.header, { backgroundColor: C.card, borderBottomColor: C.border }]}>
         <Text style={[styles.headerTitle, { color: C.text }]}>📰 Nouvelles du jour</Text>
-        {effectiveRole !== "visiteur" && (
-          <View style={styles.headerStatusRow}>
-            <Text style={[styles.headerStatusText, { color: newsIntervenantMode !== "disabled" ? C.success : C.muted }]}>
-              {newsIntervenantMode === "all"
-                ? "🔓 Visible aussi par les visiteurs"
-                : newsIntervenantMode === "some"
-                ? "🔓 Visible aussi par les visiteurs (intervenants autorisés)"
-                : "🔒 Dédié aux intervenants et à l'admin"}
-            </Text>
-          </View>
-        )}
       </View>
 
       <View style={[styles.subHeader, { backgroundColor: C.card, borderBottomColor: C.border }]}>
@@ -1630,8 +1621,6 @@ const styles = StyleSheet.create({
 
   header: { paddingHorizontal: 16, paddingTop: 52, paddingBottom: 16, borderBottomWidth: 1 },
   headerTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18 },
-  headerStatusRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: 8 },
-  headerStatusText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12, flex: 1 },
   subHeader: { paddingHorizontal: 14, paddingVertical: 12, borderBottomWidth: 1 },
   subHeaderRow: { flexDirection: "row", gap: 10 },
   addBtn: { flex: 1, minWidth: 0, borderRadius: 10, paddingVertical: 12, alignItems: "center" },
