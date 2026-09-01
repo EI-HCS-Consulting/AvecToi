@@ -76,9 +76,29 @@ interface Props {
   pinResetRequests?: PinResetRequest[];
   onResetPinRequest?: (r: PinResetRequest) => void | Promise<void>;
   onDismissPinResetRequest?: (r: PinResetRequest) => void | Promise<void>;
+  // Demandes déjà traitées (resolved_at non nul) — message symétrique visible
+  // aussi bien côté visiteur (a-t-il fait la demande, quand a-t-elle été
+  // traitée) que côté admin (qui a demandé, quand il/elle l'a traitée).
+  // adminFirstname/adminLastname viennent de patient_spaces, déjà disponibles
+  // chez les deux appelants (space.admin_firstname/admin_lastname).
+  pinResetHistory?: PinResetRequest[];
+  adminFirstname?: string | null;
+  adminLastname?: string | null;
 }
 
-export default function MyAlertsModal({ visible, onClose, C, activeAlerts, history, onModify, onMarkSeen, rgpdAlert, relaisAlerts = [], onClaimRelais, onDismissRelais, relaisCoverageHistory = [], onMarkHistorySeen, pinResetRequests = [], onResetPinRequest, onDismissPinResetRequest }: Props) {
+function frDateTime(iso: string): string {
+  return new Date(iso).toLocaleString("fr-FR", {
+    day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit",
+  });
+}
+
+function pinResetHistoryLine(r: PinResetRequest, adminFirstname?: string | null, adminLastname?: string | null): string {
+  const adminName = [adminFirstname, adminLastname].filter(Boolean).join(" ") || "L'administrateur";
+  const resolved = r.resolved_at ? frDateTime(r.resolved_at) : "";
+  return `${r.prenom} ${r.nom} a demandé la réinitialisation de son code le ${frDateTime(r.created_at)}. ${adminName} a effectué la réinitialisation le ${resolved}.`;
+}
+
+export default function MyAlertsModal({ visible, onClose, C, activeAlerts, history, onModify, onMarkSeen, rgpdAlert, relaisAlerts = [], onClaimRelais, onDismissRelais, relaisCoverageHistory = [], onMarkHistorySeen, pinResetRequests = [], onResetPinRequest, onDismissPinResetRequest, pinResetHistory = [], adminFirstname, adminLastname }: Props) {
   function handleModify(r: Reservation) {
     onClose();
     onModify(r);
@@ -96,7 +116,7 @@ export default function MyAlertsModal({ visible, onClose, C, activeAlerts, histo
           <Text style={[styles.title, { color: C.text }]}>🔔 Mes alertes</Text>
 
           <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: 4 }}>
-            {!rgpdAlert && pinResetRequests.length === 0 && relaisAlerts.length === 0 && activeAlerts.length === 0 && history.length === 0 && relaisCoverageHistory.length === 0 ? (
+            {!rgpdAlert && pinResetRequests.length === 0 && relaisAlerts.length === 0 && activeAlerts.length === 0 && history.length === 0 && relaisCoverageHistory.length === 0 && pinResetHistory.length === 0 ? (
               <Text style={[styles.emptyText, { color: C.muted }]}>Aucune alerte pour l'instant.</Text>
             ) : (
               <>
@@ -201,9 +221,15 @@ export default function MyAlertsModal({ visible, onClose, C, activeAlerts, histo
                   </>
                 )}
 
-                {(history.length > 0 || relaisCoverageHistory.length > 0) && (
+                {(history.length > 0 || relaisCoverageHistory.length > 0 || pinResetHistory.length > 0) && (
                   <>
                     <Text style={[styles.sectionLabel, { color: C.gold, marginTop: (activeAlerts.length > 0 || relaisAlerts.length > 0 || pinResetRequests.length > 0 || rgpdAlert) ? 16 : 0 }]}>Historique</Text>
+                    {pinResetHistory.map((r) => (
+                      <View key={r.id} style={[styles.historyRow, { borderLeftColor: C.gold }]}>
+                        <Text style={[styles.historyType, { color: C.text }]}>🔑 Réinitialisation du code</Text>
+                        <Text style={[styles.historyLine, { color: C.muted }]}>{pinResetHistoryLine(r, adminFirstname, adminLastname)}</Text>
+                      </View>
+                    ))}
                     {relaisCoverageHistory.map((s) => (
                       <View key={s.task.id} style={[styles.historyRow, { borderLeftColor: C.gold }]}>
                         <Text style={[styles.historyType, { color: C.text }]}>🆘 {s.task.title}</Text>

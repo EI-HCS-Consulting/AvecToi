@@ -15,6 +15,7 @@ import { getVisitorSession, saveVisitorSession, clearVisitorSession } from "@/li
 import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
 import { enterByDossierCode } from "@/lib/visitorEntry";
 import { updateVisitorPhoto, updateVisitorMottoRelation } from "@/lib/visitorProfile";
+import { fetchPinResetHistory, type PinResetRequest } from "@/lib/pinResetRequests";
 import { normalizePhone } from "@/lib/phone";
 import { metierLabel } from "@/lib/metiers";
 import { relationLabel } from "@/lib/relations";
@@ -206,6 +207,10 @@ export default function VisitorAccountScreen() {
   // Besoins de relais déjà pris en charge (en tout ou partie) par cette
   // identité — sortis de relaisAlerts ci-dessus, affichés dans "Historique".
   const [relaisCoverageHistory, setRelaisCoverageHistory] = useState<RelaisCoverageSummary[]>([]);
+  // Demandes de réinitialisation de code déjà traitées, faites par ce visiteur
+  // (rattachement par identité, voir requestPinReset) — message d'historique
+  // symétrique visiteur/admin, voir MyAlertsModal (pinResetHistoryLine).
+  const [pinResetHistory, setPinResetHistory] = useState<PinResetRequest[]>([]);
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pinPhase, setPinPhase] = useState<"verify" | "new" | "confirm">("verify");
   const [pinInput, setPinInput] = useState("");
@@ -435,6 +440,12 @@ export default function VisitorAccountScreen() {
       setRelaisCoverageHistory(coverageHistory);
     } catch (e) {
       console.error("[loadRelaisAlerts] fetchMyRelaisCoverageHistory failed:", e);
+    }
+    try {
+      const pinHistory = await fetchPinResetHistory(spaceId, { prenom: p, nom: n });
+      setPinResetHistory(pinHistory);
+    } catch (e) {
+      console.error("[loadRelaisAlerts] fetchPinResetHistory failed:", e);
     }
   }, []);
 
@@ -1953,6 +1964,9 @@ export default function VisitorAccountScreen() {
         onDismissRelais={handleDismissRelais}
         relaisCoverageHistory={relaisCoverageHistory}
         onMarkHistorySeen={handleHistorySeen}
+        pinResetHistory={pinResetHistory}
+        adminFirstname={space?.admin_firstname}
+        adminLastname={space?.admin_lastname}
       />
 
       {space && role === "intervenant" && intervenantProfileId && (

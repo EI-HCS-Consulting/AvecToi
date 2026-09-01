@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, Modal, StyleSheet, ActivityIndicator } from "react-native";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
-import { fetchOpenPinResetRequests, markPinResetRequestSeen, type PinResetRequest } from "@/lib/pinResetRequests";
+import { fetchOpenPinResetRequests, markPinResetRequestSeen, resolvePinResetRequest, type PinResetRequest } from "@/lib/pinResetRequests";
 import { adminResetVisitorPin } from "@/lib/visitorProfile";
 
 // Popup affiché à la connexion admin (voir montage dans (admin)/_layout.tsx),
@@ -31,7 +31,7 @@ export default function PinResetAlertModal({ spaceId }: { spaceId: string }) {
     if (!current) return;
     setActing(true);
     const ok = await adminResetVisitorPin(spaceId, current.visitor_id);
-    if (ok) await markPinResetRequestSeen(current.id);
+    if (ok) await resolvePinResetRequest(current.id);
     setRequests((prev) => prev.filter((r) => r.id !== current.id));
     setActing(false);
   }
