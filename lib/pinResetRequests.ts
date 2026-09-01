@@ -11,6 +11,7 @@ export type PinResetRequest = {
   nom: string;
   created_at: string;
   seen: boolean;
+  resolved_at: string | null;
 };
 
 // Le rattachement se fait par identité (pas de compte visiteur) : si aucun
@@ -65,4 +66,40 @@ export async function fetchOpenPinResetRequests(spaceId: string): Promise<PinRes
 export async function markPinResetRequestSeen(id: string): Promise<void> {
   const { error } = await supabase.from("pin_reset_requests").update({ seen: true }).eq("id", id);
   if (error) console.error("markPinResetRequestSeen", error);
+}
+
+// À la différence de markPinResetRequestSeen ("Ignorer", aucune action), pose
+// aussi resolved_at : c'est ce qui fait apparaître le message d'historique
+// symétrique visiteur/admin dans "Mes alertes" (voir fetchPinResetHistory).
+export async function resolvePinResetRequest(id: string): Promise<void> {
+  const { error } = await supabase
+    .from("pin_reset_requests")
+    .update({ seen: true, resolved_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) console.error("resolvePinResetRequest", error);
+}
+
+// Historique des réinitialisations effectivement traitées — sans filtre
+// prenom/nom pour l'admin (toutes celles de son espace), filtré par identité
+// pour le visiteur (voir requestPinReset : même principe de rattachement par
+// nom, pas de compte visiteur).
+export async function fetchPinResetHistory(
+  spaceId: string,
+  identity?: { prenom: string; nom: string },
+): Promise<PinResetRequest[]> {
+  let query = supabase
+    .from("pin_reset_requests")
+    .select("*")
+    .eq("space_id", spaceId)
+    .not("resolved_at", "is", null)
+    .order("resolved_at", { ascending: false });
+  if (identity) {
+    query = query.ilike("prenom", identity.prenom).ilike("nom", identity.nom);
+  }
+  const { data, error } = await query;
+  if (error) {
+    console.error("fetchPinResetHistory", error);
+    return [];
+  }
+  return data || [];
 }

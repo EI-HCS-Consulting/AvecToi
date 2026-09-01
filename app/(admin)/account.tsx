@@ -26,7 +26,7 @@ import { disengageTask as performDisengage } from "@/lib/taskDisengage";
 import ConfirmModal from "@/components/ConfirmModal";
 import RecurringBookingModal from "@/components/RecurringBookingModal";
 import { fetchOpenRelaisAlerts, fetchMyRelaisCoverageHistory, type RelaisCoverageSummary } from "@/lib/relaisAlerts";
-import { fetchOpenPinResetRequests, markPinResetRequestSeen, type PinResetRequest } from "@/lib/pinResetRequests";
+import { fetchOpenPinResetRequests, markPinResetRequestSeen, resolvePinResetRequest, fetchPinResetHistory, type PinResetRequest } from "@/lib/pinResetRequests";
 import { adminResetVisitorPin } from "@/lib/visitorProfile";
 import type { Reservation, ReservationChangeHistoryEntry, NewsEntry, NewsEntryReply, SupportMessage, Task } from "@/lib/types";
 import { TASK_CATEGORY_COLORS } from "@/lib/themes";
@@ -133,6 +133,9 @@ export default function AdminAccountScreen() {
   // — même source que le popup PinResetAlertModal, consultable ici à tout
   // moment. Voir supabase/migrations/20260901_pin_reset_requests.sql.
   const [pinResetRequests, setPinResetRequests] = useState<PinResetRequest[]>([]);
+  // Demandes déjà traitées — message d'historique symétrique visiteur/admin,
+  // voir MyAlertsModal (pinResetHistoryLine).
+  const [pinResetHistory, setPinResetHistory] = useState<PinResetRequest[]>([]);
   // Besoins de relais déjà pris en charge (en tout ou partie) par l'admin —
   // sortis de relaisAlerts ci-dessus, affichés dans "Historique".
   const [relaisCoverageHistory, setRelaisCoverageHistory] = useState<RelaisCoverageSummary[]>([]);
@@ -521,6 +524,12 @@ export default function AdminAccountScreen() {
     } catch (e) {
       console.error("[loadActivity] fetchOpenPinResetRequests failed:", e);
     }
+    try {
+      const pinHistory = await fetchPinResetHistory(spaceId);
+      setPinResetHistory(pinHistory);
+    } catch (e) {
+      console.error("[loadActivity] fetchPinResetHistory failed:", e);
+    }
   }
 
   // Alertes actives = réservations "Visite"/"Nuit" de l'admin lui-même
@@ -555,7 +564,10 @@ export default function AdminAccountScreen() {
   async function handleResetPinRequest(r: PinResetRequest) {
     if (!space) return;
     const ok = await adminResetVisitorPin(space.id, r.visitor_id);
-    if (ok) await markPinResetRequestSeen(r.id);
+    if (ok) {
+      await resolvePinResetRequest(r.id);
+      setPinResetHistory((prev) => [{ ...r, seen: true, resolved_at: new Date().toISOString() }, ...prev]);
+    }
     setPinResetRequests((prev) => prev.filter((x) => x.id !== r.id));
   }
 
@@ -903,6 +915,9 @@ export default function AdminAccountScreen() {
           pinResetRequests={pinResetRequests}
           onResetPinRequest={handleResetPinRequest}
           onDismissPinResetRequest={handleDismissPinResetRequest}
+          pinResetHistory={pinResetHistory}
+          adminFirstname={space?.admin_firstname}
+          adminLastname={space?.admin_lastname}
         />
 
         {/* Section Mon affichage */}
