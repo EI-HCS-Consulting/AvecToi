@@ -3,6 +3,7 @@ import type { Reservation, ReservationChangeHistoryEntry, Task } from "@/lib/typ
 import type { Theme } from "@/lib/themes";
 import { toFrShort } from "@/lib/slotUtils";
 import type { RelaisCoverageSummary } from "@/lib/relaisAlerts";
+import type { PinResetRequest } from "@/lib/pinResetRequests";
 
 function relaisCoverageLine(s: RelaisCoverageSummary): string {
   const periods = s.ranges.map((r) => `du ${toFrShort(new Date(r.start_date + "T12:00:00"))} au ${toFrShort(new Date(r.end_date + "T12:00:00"))}`).join(", ");
@@ -68,9 +69,16 @@ interface Props {
   // Affichés dans "Historique" plutôt que dans "Besoins de relais", puisqu'il
   // n'y a plus rien à demander à la personne pour ces besoins-là.
   relaisCoverageHistory?: RelaisCoverageSummary[];
+  // Demandes de réinitialisation de code envoyées depuis l'écran "Qui
+  // êtes-vous ?" (visitor-identify.tsx) — admin uniquement. Même popup
+  // source que PinResetAlertModal à l'ouverture de l'app, consultable ici à
+  // tout moment. Voir supabase/migrations/20260901_pin_reset_requests.sql.
+  pinResetRequests?: PinResetRequest[];
+  onResetPinRequest?: (r: PinResetRequest) => void | Promise<void>;
+  onDismissPinResetRequest?: (r: PinResetRequest) => void | Promise<void>;
 }
 
-export default function MyAlertsModal({ visible, onClose, C, activeAlerts, history, onModify, onMarkSeen, rgpdAlert, relaisAlerts = [], onClaimRelais, onDismissRelais, relaisCoverageHistory = [], onMarkHistorySeen }: Props) {
+export default function MyAlertsModal({ visible, onClose, C, activeAlerts, history, onModify, onMarkSeen, rgpdAlert, relaisAlerts = [], onClaimRelais, onDismissRelais, relaisCoverageHistory = [], onMarkHistorySeen, pinResetRequests = [], onResetPinRequest, onDismissPinResetRequest }: Props) {
   function handleModify(r: Reservation) {
     onClose();
     onModify(r);
@@ -88,7 +96,7 @@ export default function MyAlertsModal({ visible, onClose, C, activeAlerts, histo
           <Text style={[styles.title, { color: C.text }]}>🔔 Mes alertes</Text>
 
           <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: 4 }}>
-            {!rgpdAlert && relaisAlerts.length === 0 && activeAlerts.length === 0 && history.length === 0 && relaisCoverageHistory.length === 0 ? (
+            {!rgpdAlert && pinResetRequests.length === 0 && relaisAlerts.length === 0 && activeAlerts.length === 0 && history.length === 0 && relaisCoverageHistory.length === 0 ? (
               <Text style={[styles.emptyText, { color: C.muted }]}>Aucune alerte pour l'instant.</Text>
             ) : (
               <>
@@ -110,9 +118,33 @@ export default function MyAlertsModal({ visible, onClose, C, activeAlerts, histo
                   </>
                 )}
 
+                {pinResetRequests.length > 0 && (
+                  <>
+                    <Text style={[styles.sectionLabel, { color: C.gold, marginTop: rgpdAlert ? 16 : 0 }]}>🔑 Réinitialisations demandées</Text>
+                    {pinResetRequests.map((r) => (
+                      <View
+                        key={r.id}
+                        style={[styles.activeCard, { borderColor: "rgba(233,69,96,0.4)", backgroundColor: "rgba(233,69,96,0.08)" }]}
+                      >
+                        <Text style={[styles.activeMessage, { color: C.text }]}>
+                          {r.prenom} {r.nom} n'arrive plus à se connecter et demande la réinitialisation de son code.
+                        </Text>
+                        <View style={styles.activeRow}>
+                          <TouchableOpacity style={[styles.smallBtn, { borderColor: C.border }]} onPress={() => onDismissPinResetRequest?.(r)}>
+                            <Text style={[styles.smallBtnText, { color: C.muted }]}>Ignorer</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={[styles.smallBtn, { backgroundColor: C.accent }]} onPress={() => onResetPinRequest?.(r)}>
+                            <Text style={styles.smallBtnPrimaryText}>Réinitialiser</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ))}
+                  </>
+                )}
+
                 {relaisAlerts.length > 0 && (
                   <>
-                    <Text style={[styles.sectionLabel, { color: C.gold, marginTop: rgpdAlert ? 16 : 0 }]}>🆘 Besoins de relais</Text>
+                    <Text style={[styles.sectionLabel, { color: C.gold, marginTop: (rgpdAlert || pinResetRequests.length > 0) ? 16 : 0 }]}>🆘 Besoins de relais</Text>
                     {relaisAlerts.map((t) => (
                       <View
                         key={t.id}
@@ -149,7 +181,7 @@ export default function MyAlertsModal({ visible, onClose, C, activeAlerts, histo
 
                 {activeAlerts.length > 0 && (
                   <>
-                    <Text style={[styles.sectionLabel, { color: C.gold, marginTop: (rgpdAlert || relaisAlerts.length > 0) ? 16 : 0 }]}>À traiter</Text>
+                    <Text style={[styles.sectionLabel, { color: C.gold, marginTop: (rgpdAlert || pinResetRequests.length > 0 || relaisAlerts.length > 0) ? 16 : 0 }]}>À traiter</Text>
                     {activeAlerts.map((r) => (
                       <View
                         key={r.id}
@@ -171,7 +203,7 @@ export default function MyAlertsModal({ visible, onClose, C, activeAlerts, histo
 
                 {(history.length > 0 || relaisCoverageHistory.length > 0) && (
                   <>
-                    <Text style={[styles.sectionLabel, { color: C.gold, marginTop: (activeAlerts.length > 0 || relaisAlerts.length > 0 || rgpdAlert) ? 16 : 0 }]}>Historique</Text>
+                    <Text style={[styles.sectionLabel, { color: C.gold, marginTop: (activeAlerts.length > 0 || relaisAlerts.length > 0 || pinResetRequests.length > 0 || rgpdAlert) ? 16 : 0 }]}>Historique</Text>
                     {relaisCoverageHistory.map((s) => (
                       <View key={s.task.id} style={[styles.historyRow, { borderLeftColor: C.gold }]}>
                         <Text style={[styles.historyType, { color: C.text }]}>🆘 {s.task.title}</Text>

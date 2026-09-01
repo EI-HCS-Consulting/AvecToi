@@ -122,6 +122,8 @@ export default function VisitorCreateProfileScreen() {
           hasError={!!errorMsg && pin !== pinConfirm}
         />
 
+        <Text style={styles.noteText}>📝 Note-le quelque part pour ne plus l'oublier.</Text>
+
         {errorMsg ? <Text style={styles.errorText}>{errorMsg}</Text> : null}
 
         <TouchableOpacity
@@ -200,6 +202,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: C.muted,
     marginTop: 4,
+  },
+  noteText: {
+    fontFamily: "DM_Sans_400Regular",
+    fontSize: 13,
+    color: C.muted,
+    textAlign: "center",
+    marginBottom: 12,
+    lineHeight: 18,
   },
   errorText: {
     fontFamily: "DM_Sans_400Regular",
