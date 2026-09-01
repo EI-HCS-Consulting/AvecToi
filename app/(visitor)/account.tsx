@@ -1457,8 +1457,9 @@ export default function VisitorAccountScreen() {
                   </View>
                   <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
                     <Text style={[styles.cardDesc, { color: C.muted }]}>
-                      Pour t'en souvenir — il te sera toujours redemandé pour valider une réservation,
-                      la modifier, l'annuler ou supprimer une photo.
+                      Avec ton prénom et ton nom, c'est ce code qui te permet de retrouver ton profil
+                      si tu changes de téléphone. Il te sera aussi redemandé pour valider une
+                      réservation, la modifier, l'annuler ou supprimer une photo.
                     </Text>
                     <PinPad value={pin} onChange={() => {}} theme={C} reveal={pinRevealed} readOnly />
                     <TouchableOpacity style={[styles.changePinBtn, { borderColor: C.accent }]} onPress={openChangePinModal}>
