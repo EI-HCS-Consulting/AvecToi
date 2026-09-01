@@ -3,7 +3,8 @@ import { View, Text, TouchableOpacity, StyleSheet, Image, ActivityIndicator } fr
 import { useRouter } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { themes } from "@/lib/themes";
-import { getVisitorSession } from "@/lib/visitorSession";
+import { getVisitorSession, saveVisitorSession } from "@/lib/visitorSession";
+import { loginVisitorProfile } from "@/lib/visitorProfile";
 import { INTERVENANT_ROLE_ENABLED } from "@/lib/featureFlags";
 
 const C = themes.dark;
@@ -21,12 +22,48 @@ export default function WelcomeScreen() {
 
       // No admin session — check for a remembered visitor session so a
       // returning visitor lands straight on the calendar instead of
-      // having to paste their invite link again.
+      // having to paste their invite link again. Le rôle intervenant
+      // (intervenant_profiles) n'est pas concerné par la reconnaissance
+      // serveur ci-dessous : hors scope de cette migration.
       const visitor = await getVisitorSession();
       if (visitor) {
+        if (visitor.role === "intervenant") {
+          router.replace({
+            pathname: "/(visitor)/home/calendar",
+            params: { spaceId: visitor.spaceId, token: visitor.token },
+          });
+          return;
+        }
+
+        // Re-validation silencieuse côté serveur : la session locale n'est
+        // plus qu'un cache de confort (voir lib/visitorSession.ts). Si le
+        // profil (prenom/nom/pin déjà connus) matche toujours côté serveur,
+        // rien ne change pour le visiteur. Sinon (profil pas encore migré,
+        // ou jamais de pin local) on renvoie vers l'écran d'identification,
+        // pré-rempli — jamais de blocage silencieux d'un visiteur existant.
+        if (visitor.prenom && visitor.nom && visitor.pin) {
+          const row = await loginVisitorProfile(visitor.spaceId, visitor.prenom, visitor.nom, visitor.pin);
+          if (row) {
+            await saveVisitorSession({
+              token: visitor.token,
+              spaceId: visitor.spaceId,
+              prenom: row.prenom,
+              nom: row.nom,
+              pin: visitor.pin,
+              motto: row.motto ?? "",
+              relation: row.relation ?? "",
+            });
+            router.replace({
+              pathname: "/(visitor)/home/calendar",
+              params: { spaceId: visitor.spaceId, token: visitor.token },
+            });
+            return;
+          }
+        }
+
         router.replace({
-          pathname: "/(visitor)/home/calendar",
-          params: { spaceId: visitor.spaceId, token: visitor.token },
+          pathname: "/auth/visitor-identify",
+          params: { spaceId: visitor.spaceId, token: visitor.token, prenom: visitor.prenom, nom: visitor.nom },
         });
         return;
       }

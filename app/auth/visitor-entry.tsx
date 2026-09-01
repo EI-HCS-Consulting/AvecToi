@@ -5,7 +5,7 @@ import {
 } from "react-native";
 import { useRouter } from "expo-router";
 import { themes } from "@/lib/themes";
-import { enterByToken, completeVisitorEntry } from "@/lib/visitorEntry";
+import { enterByToken } from "@/lib/visitorEntry";
 
 const C = themes.dark;
 
@@ -29,9 +29,8 @@ export default function VisitorEntryScreen() {
       return;
     }
 
-    await completeVisitorEntry(result);
     router.replace({
-      pathname: "/(visitor)/home/calendar",
+      pathname: "/auth/visitor-identify",
       params: { spaceId: result.spaceId, token: result.token },
     });
   }
