@@ -90,8 +90,7 @@ export default function VisitorIdentifyScreen() {
           <Text style={styles.backText}>← Retour</Text>
         </TouchableOpacity>
 
-        <Text style={styles.title}>Qui êtes-vous ?</Text>
-        <Text style={styles.subtitle}>
+        <Text style={[styles.subtitle, styles.subtitleNoTitle]}>
           Entrez votre prénom, nom et code personnel pour retrouver votre profil.
         </Text>
 
@@ -178,18 +177,15 @@ const styles = StyleSheet.create({
   },
   back: { marginBottom: 16 },
   backText: { fontFamily: "DM_Sans_400Regular", color: C.muted, fontSize: 15 },
-  title: {
-    fontFamily: "PlayfairDisplay_700Bold",
-    fontSize: 24,
-    color: "#fff",
-    marginBottom: 4,
-  },
   subtitle: {
     fontFamily: "DM_Sans_400Regular",
     fontSize: 14,
     color: C.muted,
     lineHeight: 20,
     marginBottom: 16,
+  },
+  subtitleNoTitle: {
+    marginTop: 4,
   },
   sectionLabel: {
     fontFamily: "DM_Sans_700Bold",
