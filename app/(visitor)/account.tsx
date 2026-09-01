@@ -14,6 +14,7 @@ import { supabase } from "@/lib/supabase";
 import { getVisitorSession, saveVisitorSession, clearVisitorSession } from "@/lib/visitorSession";
 import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
 import { enterByDossierCode } from "@/lib/visitorEntry";
+import { updateVisitorPhoto, updateVisitorMottoRelation } from "@/lib/visitorProfile";
 import { normalizePhone } from "@/lib/phone";
 import { metierLabel } from "@/lib/metiers";
 import { relationLabel } from "@/lib/relations";
@@ -761,7 +762,7 @@ export default function VisitorAccountScreen() {
       localPhotoUri: persistedUri,
     });
     showToast("Photo enregistrée ✓");
-    syncProfilePhoto(space.id, prenom.trim(), nom.trim(), persistedUri);
+    syncProfilePhoto(space.id, prenom.trim(), nom.trim(), persistedUri, pin);
   }
 
   // Synchronise la photo vers intervenant_profiles — même bucket/convention
@@ -900,8 +901,8 @@ export default function VisitorAccountScreen() {
   // components/VisitorProfileModal.tsx) quand un autre visiteur clique sur
   // le nom de celui-ci dans Nouvelles/Souvenirs/Soutien. Best-effort : un
   // échec ne doit pas bloquer l'enregistrement local, qui a déjà réussi.
-  async function syncProfilePhoto(spaceId: string, p: string, n: string, localUri: string) {
-    if (!p || !n) return;
+  async function syncProfilePhoto(spaceId: string, p: string, n: string, localUri: string, visitorPin: string) {
+    if (!p || !n || !visitorPin) return;
     try {
       const compressed = await ImageManipulator.manipulateAsync(
         localUri,
@@ -917,11 +918,7 @@ export default function VisitorAccountScreen() {
         console.error("[syncProfilePhoto] storage upload failed:", storageErr);
         return;
       }
-      const { error: upsertErr } = await supabase.from("visitor_profiles").upsert(
-        { space_id: spaceId, prenom: p, nom: n, photo: filename, updated_at: new Date().toISOString() },
-        { onConflict: "space_id,prenom,nom" },
-      );
-      if (upsertErr) console.error("[syncProfilePhoto] upsert failed:", upsertErr);
+      await updateVisitorPhoto(spaceId, p, n, visitorPin, filename);
     } catch (e) {
       console.error("[syncProfilePhoto] unexpected error:", e);
     }
@@ -935,14 +932,10 @@ export default function VisitorAccountScreen() {
   // (components/VisitorProfileModal.tsx). Un upsert distinct (colonnes
   // différentes) ne clobber pas la photo déjà enregistrée par ailleurs :
   // PostgREST ne met à jour que les colonnes fournies dans le payload.
-  async function syncProfileMottoAndRelation(spaceId: string, p: string, n: string, mottoValue: string, relationValue: string) {
-    if (!p || !n) return;
+  async function syncProfileMottoAndRelation(spaceId: string, p: string, n: string, mottoValue: string, relationValue: string, visitorPin: string) {
+    if (!p || !n || !visitorPin) return;
     try {
-      const { error } = await supabase.from("visitor_profiles").upsert(
-        { space_id: spaceId, prenom: p, nom: n, motto: mottoValue.trim() || null, relation: relationValue || null, updated_at: new Date().toISOString() },
-        { onConflict: "space_id,prenom,nom" },
-      );
-      if (error) console.error("[syncProfileMottoAndRelation] upsert failed:", error);
+      await updateVisitorMottoRelation(spaceId, p, n, visitorPin, mottoValue.trim() || null, relationValue || null);
     } catch (e) {
       console.error("[syncProfileMottoAndRelation] unexpected error:", e);
     }
@@ -966,8 +959,8 @@ export default function VisitorAccountScreen() {
     if (role === "intervenant" && intervenantProfileId) {
       ok = await syncIntervenantContact(intervenantProfileId, prenom, nom, telephone, motto);
     } else {
-      if (photoUri) syncProfilePhoto(space.id, prenom.trim(), nom.trim(), photoUri);
-      if (prenom.trim() && nom.trim()) syncProfileMottoAndRelation(space.id, prenom.trim(), nom.trim(), motto, relation);
+      if (photoUri) syncProfilePhoto(space.id, prenom.trim(), nom.trim(), photoUri, pin);
+      if (prenom.trim() && nom.trim()) syncProfileMottoAndRelation(space.id, prenom.trim(), nom.trim(), motto, relation, pin);
     }
     setSaving(false);
     if (ok) showToast("Enregistré ✓");
