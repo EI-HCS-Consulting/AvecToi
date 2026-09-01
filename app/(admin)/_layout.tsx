@@ -8,6 +8,7 @@ import { useDisplayMode } from "@/lib/DisplayModeContext";
 import PatientOnboarding from "@/components/PatientOnboarding";
 import RgpdAlertModal from "@/components/RgpdAlertModal";
 import RelaisAlertModal from "@/components/RelaisAlertModal";
+import PinResetAlertModal from "@/components/PinResetAlertModal";
 import BirthdayAlertModal from "@/components/BirthdayAlertModal";
 import EntraideTabIcon from "@/components/EntraideTabIcon";
 import UnreadDotIcon from "@/components/UnreadDotIcon";
@@ -37,6 +38,7 @@ function AdminGate() {
     <>
       <RgpdAlertModal />
       {!!space && <RelaisAlertModal spaceId={space.id} isAdmin />}
+      {!!space && <PinResetAlertModal spaceId={space.id} />}
       {!!space && <BirthdayAlertModal spaceId={space.id} birthdate={space.patient_birthdate} patientFirstname={space.patient_firstname} />}
       <Tabs
         screenOptions={{

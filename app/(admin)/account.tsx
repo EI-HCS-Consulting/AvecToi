@@ -26,6 +26,8 @@ import { disengageTask as performDisengage } from "@/lib/taskDisengage";
 import ConfirmModal from "@/components/ConfirmModal";
 import RecurringBookingModal from "@/components/RecurringBookingModal";
 import { fetchOpenRelaisAlerts, fetchMyRelaisCoverageHistory, type RelaisCoverageSummary } from "@/lib/relaisAlerts";
+import { fetchOpenPinResetRequests, markPinResetRequestSeen, type PinResetRequest } from "@/lib/pinResetRequests";
+import { adminResetVisitorPin } from "@/lib/visitorProfile";
 import type { Reservation, ReservationChangeHistoryEntry, NewsEntry, NewsEntryReply, SupportMessage, Task } from "@/lib/types";
 import { TASK_CATEGORY_COLORS } from "@/lib/themes";
 
@@ -127,6 +129,10 @@ export default function AdminAccountScreen() {
   // Besoins de relais ouverts ciblant l'admin — voir lib/relaisAlerts.ts,
   // même source que le popup RelaisAlertModal, ici consultable à tout moment.
   const [relaisAlerts, setRelaisAlerts] = useState<Task[]>([]);
+  // Demandes de réinitialisation de code envoyées depuis "Qui êtes-vous ?"
+  // — même source que le popup PinResetAlertModal, consultable ici à tout
+  // moment. Voir supabase/migrations/20260901_pin_reset_requests.sql.
+  const [pinResetRequests, setPinResetRequests] = useState<PinResetRequest[]>([]);
   // Besoins de relais déjà pris en charge (en tout ou partie) par l'admin —
   // sortis de relaisAlerts ci-dessus, affichés dans "Historique".
   const [relaisCoverageHistory, setRelaisCoverageHistory] = useState<RelaisCoverageSummary[]>([]);
@@ -509,6 +515,12 @@ export default function AdminAccountScreen() {
     } catch (e) {
       console.error("[loadActivity] fetchMyRelaisCoverageHistory failed:", e);
     }
+    try {
+      const pinRequests = await fetchOpenPinResetRequests(spaceId);
+      setPinResetRequests(pinRequests);
+    } catch (e) {
+      console.error("[loadActivity] fetchOpenPinResetRequests failed:", e);
+    }
   }
 
   // Alertes actives = réservations "Visite"/"Nuit" de l'admin lui-même
@@ -538,7 +550,19 @@ export default function AdminAccountScreen() {
   // recasages/annulations.
   const [rgpdProlonging, setRgpdProlonging] = useState(false);
   const rgpdAlertActive = !!space && isRgpdAlertActive(space);
-  const alertsBadgeCount = myActiveAlerts.length + relaisAlerts.length + (rgpdAlertActive ? 1 : 0);
+  const alertsBadgeCount = myActiveAlerts.length + relaisAlerts.length + pinResetRequests.length + (rgpdAlertActive ? 1 : 0);
+
+  async function handleResetPinRequest(r: PinResetRequest) {
+    if (!space) return;
+    const ok = await adminResetVisitorPin(space.id, r.visitor_id);
+    if (ok) await markPinResetRequestSeen(r.id);
+    setPinResetRequests((prev) => prev.filter((x) => x.id !== r.id));
+  }
+
+  async function handleDismissPinResetRequest(r: PinResetRequest) {
+    await markPinResetRequestSeen(r.id);
+    setPinResetRequests((prev) => prev.filter((x) => x.id !== r.id));
+  }
 
   async function handleRgpdProlong() {
     if (!space) return;
@@ -876,6 +900,9 @@ export default function AdminAccountScreen() {
           onDismissRelais={handleDismissRelais}
           relaisCoverageHistory={relaisCoverageHistory}
           onMarkHistorySeen={handleHistorySeen}
+          pinResetRequests={pinResetRequests}
+          onResetPinRequest={handleResetPinRequest}
+          onDismissPinResetRequest={handleDismissPinResetRequest}
         />
 
         {/* Section Mon affichage */}

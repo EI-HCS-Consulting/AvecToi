@@ -7,6 +7,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { themes } from "@/lib/themes";
 import PinPad from "@/components/PinPad";
 import { loginVisitorProfile } from "@/lib/visitorProfile";
+import { requestPinReset } from "@/lib/pinResetRequests";
 import { saveVisitorSession } from "@/lib/visitorSession";
 
 const C = themes.dark;
@@ -26,8 +27,34 @@ export default function VisitorIdentifyScreen() {
   const [pin, setPin] = useState("");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  // Demande de réinitialisation envoyée à l'admin (voir
+  // supabase/migrations/20260901_pin_reset_requests.sql + PinResetAlertModal
+  // / MyAlertsModal côté admin) pour un visiteur qui a oublié son code.
+  const [pinRequestStatus, setPinRequestStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [pinRequestMsg, setPinRequestMsg] = useState("");
 
   const canSubmit = prenom.trim() && nom.trim() && pin.length === 4 && !loading;
+
+  async function handleRequestPinReset() {
+    if (!prenom.trim() || !nom.trim()) {
+      setPinRequestMsg("Renseigne ton prénom et ton nom avant d'envoyer la demande.");
+      return;
+    }
+    setPinRequestStatus("sending");
+    setPinRequestMsg("");
+    const result = await requestPinReset(spaceId, prenom.trim(), nom.trim());
+    if (!result.ok) {
+      setPinRequestStatus("error");
+      setPinRequestMsg(
+        result.reason === "not_found"
+          ? "Aucun profil ne correspond à ce prénom/nom. Si c'est ta première visite, utilise \"Créer mon profil\" ci-dessus."
+          : "Une erreur est survenue. Réessaie.",
+      );
+      return;
+    }
+    setPinRequestStatus("sent");
+    setPinRequestMsg("Demande envoyée à l'administrateur. Reviens un peu plus tard pour recréer ton code.");
+  }
 
   async function handleSubmit() {
     if (!canSubmit) return;
@@ -118,6 +145,24 @@ export default function VisitorIdentifyScreen() {
         >
           <Text style={styles.btnSecondaryText}>Première visite ? Créer mon profil</Text>
         </TouchableOpacity>
+
+        {pinRequestStatus !== "sent" && (
+          <TouchableOpacity
+            style={styles.linkBtn}
+            onPress={handleRequestPinReset}
+            disabled={pinRequestStatus === "sending"}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.linkText}>
+              {pinRequestStatus === "sending" ? "Envoi…" : "Code oublié ? Prévenir l'administrateur"}
+            </Text>
+          </TouchableOpacity>
+        )}
+        {!!pinRequestMsg && (
+          <Text style={[styles.pinRequestMsg, pinRequestStatus === "error" && { color: C.danger }]}>
+            {pinRequestMsg}
+          </Text>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -196,5 +241,23 @@ const styles = StyleSheet.create({
     fontFamily: "DM_Sans_600SemiBold",
     fontSize: 14,
     color: C.text,
+  },
+  linkBtn: {
+    alignItems: "center",
+    marginTop: 16,
+  },
+  linkText: {
+    fontFamily: "DM_Sans_400Regular",
+    fontSize: 13,
+    color: C.muted,
+    textDecorationLine: "underline",
+  },
+  pinRequestMsg: {
+    fontFamily: "DM_Sans_400Regular",
+    fontSize: 13,
+    color: C.text,
+    textAlign: "center",
+    marginTop: 10,
+    lineHeight: 18,
   },
 });
