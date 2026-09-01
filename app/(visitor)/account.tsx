@@ -32,7 +32,7 @@ import MyChecklist from "@/components/MyChecklist";
 import MyRelaisCommitments from "@/components/MyRelaisCommitments";
 import MyAlertsModal from "@/components/MyAlertsModal";
 import { fetchOpenRelaisAlerts, fetchMyRelaisCoverageHistory, type RelaisCoverageSummary } from "@/lib/relaisAlerts";
-import type { Reservation, ReservationChangeHistoryEntry, NewsEntry, SupportMessage, Task } from "@/lib/types";
+import type { Reservation, ReservationChangeHistoryEntry, NewsEntry, NewsEntryReply, SupportMessage, Task } from "@/lib/types";
 import { TASK_CATEGORY_COLORS } from "@/lib/themes";
 
 function visitorPhotoUrl(spaceId: string, filename: string) {
@@ -229,9 +229,19 @@ export default function VisitorAccountScreen() {
   // reste affiché sous chaque réservation concernée dans "Mes réservations".
   const [myChangeHistory, setMyChangeHistory] = useState<ReservationChangeHistoryEntry[]>([]);
   const [myNews, setMyNews] = useState<NewsEntry[]>([]);
+  // Réponses que j'ai postées sur des nouvelles publiées par d'autres — pas
+  // dans myNews (ça ne couvre que mes propres publications). Fusionnées avec
+  // myNews dans myNewsActivity pour que "Mon compte / Mes nouvelles" liste
+  // aussi ces réponses, pas seulement les nouvelles que j'ai créées.
+  const [myNewsReplies, setMyNewsReplies] = useState<NewsEntryReply[]>([]);
   const [myMessages, setMyMessages] = useState<SupportMessage[]>([]);
   const [myTasks, setMyTasks] = useState<Task[]>([]);
   const [myPublishedTasks, setMyPublishedTasks] = useState<Task[]>([]);
+  // Besoins "courses" où j'ai coché au moins un article sans jamais cliquer
+  // "Je m'en occupe" — invisibles de myTasks (qui ne fetch que claimed_by_*),
+  // seule trace dans shopping_list_items.bought_by_* (voir Entraide.tsx >
+  // loadCourseContributors pour l'équivalent affiché sur la carte du besoin).
+  const [myCourseContribTasks, setMyCourseContribTasks] = useState<Task[]>([]);
 
   // Section active de la grille de tuiles (null = grille affichée)
   const [activeSection, setActiveSection] = useState<AccountSectionKey | null>(null);
@@ -257,9 +267,30 @@ export default function VisitorAccountScreen() {
   const allMyTasks = useMemo(() => {
     const byId = new Map<string, Task>();
     for (const t of myPublishedTasks) byId.set(t.id, t);
+    for (const t of myCourseContribTasks) byId.set(t.id, t);
     for (const t of myTasks) byId.set(t.id, t);
     return [...byId.values()];
-  }, [myTasks, myPublishedTasks]);
+  }, [myTasks, myPublishedTasks, myCourseContribTasks]);
+  // "Mes nouvelles" fusionne mes propres publications (myNews) et mes
+  // réponses aux publications des autres (myNewsReplies) en une seule liste
+  // chronologique — chaque ligne pointe vers l'entrée parente (entry_id pour
+  // une réponse, id pour une publication) puisque le lien profond
+  // ?focusEntryId ne cible qu'une entrée, pas une réponse individuelle.
+  type MyNewsActivityItem =
+    | { kind: "entry"; id: string; entryId: string; createdAt: string; text: string; photo: string | null; deletedByAdmin: boolean }
+    | { kind: "reply"; id: string; entryId: string; createdAt: string; text: string; photo: string | null; deletedByAdmin: boolean };
+  const myNewsActivity = useMemo<MyNewsActivityItem[]>(() => {
+    const entries: MyNewsActivityItem[] = myNews.map((e) => ({
+      kind: "entry", id: e.id, entryId: e.id, createdAt: e.created_at,
+      text: e.content, photo: e.photos?.[0] ?? null, deletedByAdmin: e.deleted_by_admin,
+    }));
+    const replies: MyNewsActivityItem[] = myNewsReplies.map((r) => ({
+      kind: "reply", id: r.id, entryId: r.entry_id, createdAt: r.created_at,
+      text: r.reply_text, photo: r.photo, deletedByAdmin: r.deleted_by_admin,
+    }));
+    return [...entries, ...replies].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [myNews, myNewsReplies]);
+
   // "Planifié" (encore actif : ouvert/pris en charge) vs "Historique" (fait/
   // fermé) — même regroupement par catégorie qu'avant la scission en deux vues.
   const myTasksPlanifie = useMemo(() => allMyTasks.filter((t) => t.status !== "fait" && t.status !== "ferme"), [allMyTasks]);
@@ -297,7 +328,7 @@ export default function VisitorAccountScreen() {
   const loadActivity = useCallback(async (spaceId: string, p: string, n: string) => {
     if (!p.trim() || !n.trim()) return;
     setActivityLoading(true);
-    const [resv, resvBookedFor, news, msgs, tasks, published, changeHistory] = await Promise.all([
+    const [resv, resvBookedFor, news, newsReplies, msgs, tasks, published, changeHistory] = await Promise.all([
       supabase.from("reservations").select("*").eq("space_id", spaceId)
         .ilike("prenom", p.trim()).ilike("nom", n.trim()).order("date", { ascending: false }),
       // Réservations faites pour quelqu'un d'autre (ex. un proche âgé) — le
@@ -307,6 +338,9 @@ export default function VisitorAccountScreen() {
       supabase.from("reservations").select("*").eq("space_id", spaceId)
         .ilike("booked_by_prenom", p.trim()).ilike("booked_by_nom", n.trim()).order("date", { ascending: false }),
       supabase.from("news_entries").select("*").eq("space_id", spaceId)
+        .ilike("author_prenom", p.trim()).ilike("author_nom", n.trim()).order("created_at", { ascending: false }),
+      // Réponses postées sur les nouvelles des autres — voir myNewsReplies.
+      supabase.from("news_entry_replies").select("*").eq("space_id", spaceId)
         .ilike("author_prenom", p.trim()).ilike("author_nom", n.trim()).order("created_at", { ascending: false }),
       supabase.from("support_messages").select("*").eq("space_id", spaceId)
         .ilike("author_prenom", p.trim()).ilike("author_nom", n.trim()).order("created_at", { ascending: false }),
@@ -324,10 +358,29 @@ export default function VisitorAccountScreen() {
     ].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
     setMyReservations(myResv);
     setMyNews(news.data || []);
+    setMyNewsReplies(newsReplies.data || []);
     setMyMessages(msgs.data || []);
     setMyTasks(tasks.data || []);
     setMyPublishedTasks(published.data || []);
     setMyChangeHistory(changeHistory.data || []);
+
+    // Contributions "courses" partielles (articles cochés sans "Je m'en
+    // occupe") — task_id connu seulement après une première requête sur
+    // shopping_list_items, donc en deux temps comme les accompagnants ci-dessous.
+    const { data: courseItemsData } = await supabase
+      .from("shopping_list_items")
+      .select("task_id")
+      .eq("bought", true)
+      .ilike("bought_by_prenom", p.trim())
+      .ilike("bought_by_nom", n.trim());
+    const courseTaskIds = [...new Set((courseItemsData || []).map((r: { task_id: string }) => r.task_id))];
+    if (courseTaskIds.length > 0) {
+      const { data: courseTasksData } = await supabase.from("tasks").select("*")
+        .eq("space_id", spaceId).in("id", courseTaskIds);
+      setMyCourseContribTasks(courseTasksData || []);
+    } else {
+      setMyCourseContribTasks([]);
+    }
 
     // Accompagnants : réservations liées par group_id, mais avec un prénom/nom
     // différent du mien (donc absentes de myResv) — on les recharge à part.
@@ -1257,7 +1310,7 @@ export default function VisitorAccountScreen() {
             : key === "patients" ? `${Math.max(linkedSpaces.length, 1)} patient(s)`
             : key === "mes_soins" ? `${mesSoinsPlanifies.length} planifié(s)`
             : key === "resv" ? `${myReservations.length} réservation(s)`
-            : key === "news" ? `${myNews.length} nouvelle(s)`
+            : key === "news" ? `${myNewsActivity.length} nouvelle(s)`
             : key === "soutien" ? `${myMessages.length} message(s)`
             : `${allMyTasks.length} besoin(s)`;
           return (
@@ -1547,25 +1600,26 @@ export default function VisitorAccountScreen() {
                   <ActivityIndicator color={C.accent} style={{ marginVertical: 16 }} />
                 ) : identityMissing ? missingIdentityCard : (
                   <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
-                    {myNews.length === 0 ? (
+                    {myNewsActivity.length === 0 ? (
                       <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucune nouvelle publiée pour le moment.</Text>
-                    ) : myNews.map((entry) => (
+                    ) : myNewsActivity.map((item) => (
                       <TouchableOpacity
-                        key={entry.id}
+                        key={item.id}
                         style={[styles.activityRow, { alignItems: "flex-start" }]}
-                        onPress={() => router.push(`/(visitor)/news?focusEntryId=${entry.id}` as any)}
+                        onPress={() => router.push(`/(visitor)/news?focusEntryId=${item.entryId}` as any)}
                         activeOpacity={0.7}
                       >
-                        {entry.photos?.[0] && (
-                          <Image source={{ uri: newsPhotoUrl(space.id, entry.photos[0]) }} style={styles.activityMsgThumb} resizeMode="cover" />
+                        {item.photo && (
+                          <Image source={{ uri: newsPhotoUrl(space.id, item.photo) }} style={styles.activityMsgThumb} resizeMode="cover" />
                         )}
                         <View style={{ flex: 1 }}>
                           <Text style={[styles.activityRowText, { color: C.text }]} numberOfLines={2}>
-                            {new Date(entry.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} — {entry.content}
+                            {new Date(item.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}
+                            {" — "}{item.kind === "reply" ? "↳ " : ""}{item.text}
                           </Text>
-                          {entry.deleted_by_admin && (
+                          {item.deletedByAdmin && (
                             <Text style={[styles.activityRowSub, { color: C.danger }]}>
-                              🗑️ Supprimée par l'administrateur
+                              🗑️ {item.kind === "reply" ? "Réponse supprimée" : "Supprimée"} par l'administrateur
                             </Text>
                           )}
                         </View>

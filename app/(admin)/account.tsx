@@ -26,7 +26,7 @@ import { disengageTask as performDisengage } from "@/lib/taskDisengage";
 import ConfirmModal from "@/components/ConfirmModal";
 import RecurringBookingModal from "@/components/RecurringBookingModal";
 import { fetchOpenRelaisAlerts, fetchMyRelaisCoverageHistory, type RelaisCoverageSummary } from "@/lib/relaisAlerts";
-import type { Reservation, ReservationChangeHistoryEntry, NewsEntry, SupportMessage, Task } from "@/lib/types";
+import type { Reservation, ReservationChangeHistoryEntry, NewsEntry, NewsEntryReply, SupportMessage, Task } from "@/lib/types";
 import { TASK_CATEGORY_COLORS } from "@/lib/themes";
 
 const CAT_ICONS: Record<Task["category"], string> = {
@@ -105,11 +105,21 @@ export default function AdminAccountScreen() {
   const [patientProfileVisible, setPatientProfileVisible] = useState(false);
   const [visitorsListVisible, setVisitorsListVisible] = useState(false);
   const [news, setNews] = useState<NewsEntry[]>([]);
+  // Réponses postées par l'admin sur des nouvelles publiées par d'autres —
+  // pas dans `news` (ça ne couvre que les publications de l'admin). Fusionnées
+  // avec `news` dans newsActivity, même principe que myNewsActivity côté
+  // visiteur (app/(visitor)/account.tsx).
+  const [newsReplies, setNewsReplies] = useState<NewsEntryReply[]>([]);
   const [messages, setMessages] = useState<SupportMessage[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   // Besoins pris en charge personnellement par l'admin (agissant comme un
   // visiteur) — même liste/geste que myTasks côté visiteur, voir disengageTask.
   const [myClaimedTasks, setMyClaimedTasks] = useState<Task[]>([]);
+  // Besoins "courses" où l'admin a coché au moins un article sans jamais
+  // cliquer "Je m'en occupe" — invisibles de myClaimedTasks (qui ne fetch que
+  // claimed_by_*), seule trace dans shopping_list_items.bought_by_* (voir
+  // Entraide.tsx > loadCourseContributors et account.tsx visiteur).
+  const [myCourseContribTasks, setMyCourseContribTasks] = useState<Task[]>([]);
   // Besoins de relais ouverts ciblant l'admin — voir lib/relaisAlerts.ts,
   // même source que le popup RelaisAlertModal, ici consultable à tout moment.
   const [relaisAlerts, setRelaisAlerts] = useState<Task[]>([]);
@@ -127,9 +137,10 @@ export default function AdminAccountScreen() {
   const allMyTasks = useMemo(() => {
     const byId = new Map<string, Task>();
     for (const t of tasks) byId.set(t.id, t);
+    for (const t of myCourseContribTasks) byId.set(t.id, t);
     for (const t of myClaimedTasks) byId.set(t.id, t);
     return [...byId.values()];
-  }, [tasks, myClaimedTasks]);
+  }, [tasks, myClaimedTasks, myCourseContribTasks]);
   // "Planifié" (encore actif : ouvert/pris en charge) vs "Historique" (fait/
   // fermé) — même regroupement par catégorie qu'avant la scission en deux vues
   // (voir account.tsx visiteur).
@@ -145,6 +156,27 @@ export default function AdminAccountScreen() {
     for (const t of sortTasksHistorique(myTasksHistorique)) { const arr = groups.get(t.category); if (arr) arr.push(t); else groups.set(t.category, [t]); }
     return CAT_ORDER.map((cat) => ({ cat, tasks: groups.get(cat) || [] })).filter((g) => g.tasks.length > 0);
   }, [myTasksHistorique]);
+  // "Mes nouvelles" fusionne les publications de l'admin (news) et ses
+  // réponses aux publications des autres (newsReplies) en une seule liste
+  // chronologique — même principe que myNewsActivity côté visiteur
+  // (app/(visitor)/account.tsx). Chaque ligne pointe vers l'entrée parente
+  // (entry_id pour une réponse, id pour une publication) puisque le lien
+  // profond ?focusEntryId ne cible qu'une entrée, pas une réponse individuelle.
+  type NewsActivityItem =
+    | { kind: "entry"; id: string; entryId: string; createdAt: string; text: string; deletedByAdmin: boolean }
+    | { kind: "reply"; id: string; entryId: string; createdAt: string; text: string; deletedByAdmin: boolean };
+  const newsActivity = useMemo<NewsActivityItem[]>(() => {
+    const entries: NewsActivityItem[] = news.map((e) => ({
+      kind: "entry", id: e.id, entryId: e.id, createdAt: e.created_at,
+      text: e.content, deletedByAdmin: e.deleted_by_admin,
+    }));
+    const replies: NewsActivityItem[] = newsReplies.map((r) => ({
+      kind: "reply", id: r.id, entryId: r.entry_id, createdAt: r.created_at,
+      text: r.reply_text, deletedByAdmin: r.deleted_by_admin,
+    }));
+    return [...entries, ...replies].sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }, [news, newsReplies]);
+
   async function confirmDesengage() {
     if (!desengageTarget) return;
     setDesengageSaving(true);
@@ -386,7 +418,7 @@ export default function AdminAccountScreen() {
   async function loadActivity(spaceId: string, p: string, n: string) {
     setActivityLoading(true);
     const hasIdentity = !!p.trim() && !!n.trim();
-    const [resv, resvBookedFor, newsData, msgs, tasksData, claimedTasksData, changeHistoryData] = await Promise.all([
+    const [resv, resvBookedFor, newsData, newsRepliesData, msgs, tasksData, claimedTasksData, changeHistoryData] = await Promise.all([
       hasIdentity
         ? supabase.from("reservations").select("*").eq("space_id", spaceId)
             .ilike("prenom", p.trim()).ilike("nom", n.trim()).order("date", { ascending: false })
@@ -396,6 +428,8 @@ export default function AdminAccountScreen() {
             .ilike("booked_by_prenom", p.trim()).ilike("booked_by_nom", n.trim()).order("date", { ascending: false })
         : Promise.resolve({ data: [] as Reservation[] }),
       supabase.from("news_entries").select("*").eq("space_id", spaceId).eq("author_pin", "ADMIN").order("created_at", { ascending: false }),
+      // Réponses postées sur les nouvelles des autres — voir newsReplies.
+      supabase.from("news_entry_replies").select("*").eq("space_id", spaceId).eq("author_pin", "ADMIN").order("created_at", { ascending: false }),
       supabase.from("support_messages").select("*").eq("space_id", spaceId).eq("author_pin", "ADMIN").order("created_at", { ascending: false }),
       supabase.from("tasks").select("*").eq("space_id", spaceId).eq("created_by", "admin").order("created_at", { ascending: false }),
       hasIdentity
@@ -414,10 +448,33 @@ export default function AdminAccountScreen() {
     ].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
     setReservations(myResv);
     setNews(newsData.data || []);
+    setNewsReplies(newsRepliesData.data || []);
     setMessages(msgs.data || []);
     setTasks(tasksData.data || []);
     setMyClaimedTasks(claimedTasksData.data || []);
     setChangeHistory(changeHistoryData.data || []);
+
+    // Contributions "courses" partielles (articles cochés sans "Je m'en
+    // occupe") — task_id connu seulement après une première requête sur
+    // shopping_list_items, voir myCourseContribTasks.
+    if (hasIdentity) {
+      const { data: courseItemsData } = await supabase
+        .from("shopping_list_items")
+        .select("task_id")
+        .eq("bought", true)
+        .ilike("bought_by_prenom", p.trim())
+        .ilike("bought_by_nom", n.trim());
+      const courseTaskIds = [...new Set((courseItemsData || []).map((r: { task_id: string }) => r.task_id))];
+      if (courseTaskIds.length > 0) {
+        const { data: courseTasksData } = await supabase.from("tasks").select("*")
+          .eq("space_id", spaceId).in("id", courseTaskIds);
+        setMyCourseContribTasks(courseTasksData || []);
+      } else {
+        setMyCourseContribTasks([]);
+      }
+    } else {
+      setMyCourseContribTasks([]);
+    }
     setActivityLoading(false);
     try {
       const relais = await fetchOpenRelaisAlerts(spaceId, true, { prenom: p, nom: n });
@@ -822,7 +879,7 @@ export default function AdminAccountScreen() {
               <>
                 {(["resv", "news", "soutien", "besoins"] as ContribKey[]).map((key) => {
                   const count = key === "resv" ? reservationGroups.length
-                    : key === "news" ? news.length
+                    : key === "news" ? newsActivity.length
                     : key === "soutien" ? messages.length
                     : allMyTasks.length;
                   const isOpen = activeContrib === key;
@@ -876,18 +933,26 @@ export default function AdminAccountScreen() {
 
                       {isOpen && key === "news" && (
                         <View style={[styles.card, styles.contribCard, { backgroundColor: C.card, borderColor: C.border }]}>
-                          {news.length === 0 ? (
+                          {newsActivity.length === 0 ? (
                             <Text style={[styles.activityEmpty, { color: C.muted }]}>Aucune nouvelle publiée pour le moment.</Text>
-                          ) : news.map((entry) => (
+                          ) : newsActivity.map((item) => (
                             <TouchableOpacity
-                              key={entry.id}
+                              key={item.id}
                               style={styles.activityRow}
-                              onPress={() => router.push(`/(admin)/news?focusEntryId=${entry.id}` as any)}
+                              onPress={() => router.push(`/(admin)/news?focusEntryId=${item.entryId}` as any)}
                               activeOpacity={0.7}
                             >
-                              <Text style={[styles.activityRowText, { color: C.text, flex: 1 }]} numberOfLines={2}>
-                                {new Date(entry.created_at).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} — {entry.content}
-                              </Text>
+                              <View style={{ flex: 1 }}>
+                                <Text style={[styles.activityRowText, { color: C.text }]} numberOfLines={2}>
+                                  {new Date(item.createdAt).toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}
+                                  {" — "}{item.kind === "reply" ? "↳ " : ""}{item.text}
+                                </Text>
+                                {item.deletedByAdmin && (
+                                  <Text style={[styles.activityRowSub, { color: C.danger }]}>
+                                    🗑️ {item.kind === "reply" ? "Réponse supprimée" : "Supprimée"} par l'administrateur
+                                  </Text>
+                                )}
+                              </View>
                               <Text style={[styles.activityChevron, { color: C.muted }]}>›</Text>
                             </TouchableOpacity>
                           ))}
