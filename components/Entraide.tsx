@@ -2706,24 +2706,26 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     return new Date(`${t.date_limite}T23:59:59`) < new Date();
   }
 
-  // Échéance à J+3 ou moins (mais pas encore dépassée, voir taskPastDeadline
-  // ci-dessus) : déclenche le même cadre/tag "🔴 Urgent" qu'un besoin marqué
-  // Urgent manuellement, tant que personne ne l'a pris en charge (voir
-  // urgentOpen dans renderTask) — même structure de date que taskPastDeadline.
+  // Échéance à J+3 ou moins, y compris déjà dépassée : déclenche le même
+  // cadre/tag "🔴 Urgent" qu'un besoin marqué Urgent manuellement, tant que
+  // personne ne l'a pris en charge (voir urgentOpen dans renderTask). Pas de
+  // borne basse (due >= now) volontairement — une fois entré dans la fenêtre
+  // J+3, le besoin reste Urgent jusqu'à prise en charge, même s'il a été
+  // publié plusieurs jours avant et n'était pas urgent à sa création (seul le
+  // statut "ouvert" y met fin, voir urgentOpen). En pratique closeOverdue
+  // (plus haut) ferme automatiquement le besoin ~60s après l'échéance, donc
+  // cette persistance ne joue que sur cette courte fenêtre.
   function taskDueSoon(t: Task): boolean {
-    const now = new Date();
-    const threshold = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+    const threshold = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
     if (t.category === "transport") {
       const date = t.transport_confirmed_date || t.transport_date;
       if (!date) return false;
       const time = t.transport_confirmed_return_time || t.transport_return_time
         || t.transport_confirmed_out_time || t.transport_out_time || "23:59";
-      const due = new Date(`${date}T${time}:00`);
-      return due >= now && due <= threshold;
+      return new Date(`${date}T${time}:00`) <= threshold;
     }
     if (!t.date_limite) return false;
-    const due = new Date(`${t.date_limite}T23:59:59`);
-    return due >= now && due <= threshold;
+    return new Date(`${t.date_limite}T23:59:59`) <= threshold;
   }
 
   // Besoin encore "actif" (jamais pris en charge, ou pris en charge mais pas
