@@ -6,8 +6,9 @@ import type { Theme } from "@/lib/themes";
 // Pictogramme de l'onglet Entraide : couleur normale du thème (comme avant),
 // avec jusqu'à 2 points rouges empilés façon ":" à droite — voir
 // lib/entraideBadges.ts. Le point du haut signale un besoin Urgent pas
-// encore pris en charge, celui du bas un nouveau besoin publié par
-// quelqu'un d'autre depuis la dernière visite de cet écran par ce viewer.
+// encore pris en charge, celui du bas qu'au moins un besoin (le sien inclus)
+// n'a pas encore été marqué vu par ce viewer — même Set que les badges "New"
+// affichés sur le mur Entraide lui-même.
 export default function EntraideTabIcon({
   spaceId, isAdmin, color, size, theme: C,
 }: {
@@ -17,7 +18,7 @@ export default function EntraideTabIcon({
   size: number;
   theme: Theme;
 }) {
-  const { urgentUnclaimed, newFromOthers } = useEntraideBadges(spaceId, isAdmin);
+  const { urgentUnclaimed, newUnseen } = useEntraideBadges(spaceId, isAdmin);
   const dotStyle = {
     width: 7,
     height: 7,
@@ -29,10 +30,10 @@ export default function EntraideTabIcon({
   return (
     <View style={{ width: size, height: size }}>
       <Ionicons name="people-outline" size={size} color={color} />
-      {(urgentUnclaimed || newFromOthers) && (
+      {(urgentUnclaimed || newUnseen) && (
         <View style={{ position: "absolute", top: 0, bottom: 0, right: -5, justifyContent: "center", gap: 2 }}>
           {urgentUnclaimed && <View style={dotStyle} />}
-          {newFromOthers && <View style={dotStyle} />}
+          {newUnseen && <View style={dotStyle} />}
         </View>
       )}
     </View>

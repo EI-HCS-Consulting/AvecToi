@@ -2,7 +2,7 @@ import { useState, forwardRef, useImperativeHandle } from "react";
 import { View, Text, TouchableOpacity, Modal, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import { supabase } from "@/lib/supabase";
-import { toFrShort, isReservationDatePast, nightStartSlot } from "@/lib/slotUtils";
+import { toFrShort, isReservationFullyPast, nightStartSlot } from "@/lib/slotUtils";
 import { addToNativeCalendar, linkCalendarEvent, getLinkedCalendarEvent } from "@/lib/calendarSync";
 import type { PatientSpace, Reservation, SlotConfig } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
@@ -58,7 +58,7 @@ function AdminReservationDetail({ space, slotConfig, onEdit, onDelete, C }: Prop
     setCalendarAdded(true);
   }
 
-  const past = !!target && isReservationDatePast(target.date);
+  const past = !!target && isReservationFullyPast(target);
 
   return (
     <Modal visible={!!target} transparent animationType="fade" onRequestClose={close}>
@@ -117,9 +117,13 @@ function AdminReservationDetail({ space, slotConfig, onEdit, onDelete, C }: Prop
               // router.back() dépend de l'état de la pile interne du Stack
               // "home" (Calendrier/Créneaux/Nuitées) au moment du push depuis
               // Mon Compte — pas fiable pour revenir précisément à l'onglet
-              // Compte. On y navigue explicitement, comme le fait déjà le
-              // tabPress de l'onglet "home" dans _layout.tsx.
-              router.push("/(admin)/account" as any);
+              // Compte. router.push("/(admin)/account") ne l'était pas non
+              // plus : "push" est une action de Stack, or l'écran courant est
+              // rattaché au Stack "home" imbriqué dans les Tabs — l'action ne
+              // remonte pas jusqu'aux Tabs pour changer d'onglet. dismissTo
+              // referme/traverse les navigateurs intermédiaires et rejoint
+              // directement l'onglet Compte, quelle que soit la profondeur.
+              router.dismissTo("/(admin)/account" as any);
             }}
             style={[styles.closeBtn, { borderColor: C.border }]}
           >

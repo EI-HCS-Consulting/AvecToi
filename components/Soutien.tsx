@@ -13,7 +13,7 @@ import { supabase } from "@/lib/supabase";
 import { blobToArrayBuffer } from "@/lib/blobToArrayBuffer";
 import { downloadAndShare, downloadAndShareMultiple, logSavedMedia, isShareAvailable } from "@/lib/mediaShare";
 import { getVisitorSession, rememberAuthorPin } from "@/lib/visitorSession";
-import { useWallReadTracking, useWallNewIds } from "@/lib/wallUnread";
+import { useWallReadTracking } from "@/lib/wallUnread";
 import { NewIndicator } from "@/components/NewIndicator";
 import PinPad from "@/components/PinPad";
 import VisitorProfileModal from "@/components/VisitorProfileModal";
@@ -679,12 +679,10 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
   // supabase/migrations/20260811_content_deleted_by_admin.sql.
   const visibleMessages = messages.filter((m) => !m.deleted_by_admin || (!isAdmin && isOwnMessage(m)));
 
-  // Badge "New" sur chaque message publié par quelqu'un d'autre depuis le
-  // démarrage de cette session (voir lib/wallUnread.ts, mécanisme partagé
-  // avec Entraide/Nouvelles). useWallReadTracking n'entretient plus que le
-  // point rouge de la barre d'onglets.
-  useWallReadTracking("soutien", spaceId, isAdmin, msgsLoading ? null : visibleMessages);
-  const newIds = useWallNewIds(isAdmin, msgsLoading ? null : visibleMessages);
+  // Badge "New" sur chaque message non encore vu (voir lib/wallUnread.ts,
+  // mécanisme partagé avec Entraide/Nouvelles) — même Set que celui qui
+  // alimente le point rouge de la barre d'onglets, volontairement liés.
+  const newIds = useWallReadTracking("soutien", spaceId, isAdmin, msgsLoading ? null : visibleMessages);
 
   // Liste aplatie des médias pour la vue "Médias" (bouton du sous-header) —
   // uniquement les photos des messages, pas des réponses (voir plan).
