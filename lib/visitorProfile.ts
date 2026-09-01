@@ -90,3 +90,21 @@ export async function updateVisitorMottoRelation(
   });
   if (error) console.error("updateVisitorMottoRelation", error);
 }
+
+// Admin-only (voir 20260901_visitor_admin_reset_pin.sql) : remet le pin à
+// NULL pour que le visiteur puisse récupérer son profil via l'écran de
+// création existant, avec un nouveau code de son choix.
+export async function adminResetVisitorPin(
+  spaceId: string,
+  visitorId: string,
+): Promise<boolean> {
+  const { error } = await supabase.rpc("rpc_admin_reset_visitor_pin", {
+    p_space_id: spaceId,
+    p_visitor_id: visitorId,
+  });
+  if (error) {
+    console.error("adminResetVisitorPin", error);
+    return false;
+  }
+  return true;
+}
