@@ -1,6 +1,14 @@
 # PRD — AvecToi
-## Product Requirements Document v1.21
+## Product Requirements Document v1.22
 *Préparé pour Claude Code — Juin 2026, synchronisé avec l'application livrée en Juillet/Août/Septembre 2026*
+
+> **Changelog v1.21 → v1.22**
+> - **Reconnaissance visiteur cross-device via PIN serveur** *(01/09/2026, PR #358)* : un visiteur qui rescanne son lien d'invitation depuis un nouveau téléphone récupère désormais son profil (photo, phrase totem, lien avec le patient) via un écran « Qui êtes-vous ? » (prénom + nom + PIN vérifiés côté serveur), au lieu d'une identité purement locale (AsyncStorage) repartant de zéro à chaque appareil ; corrige au passage une fuite de données préexistante sur `visitor_profiles` (RLS permissive + grant `anon` sans filtre d'espace) ; homonymes toujours possibles, différenciés par PIN — voir §6.1
+> - **Écran « Qui êtes-vous ? » resserré** *(01/09/2026, PR #359)* : le bouton « Créer mon profil » restait hors écran sans défilement — paddings/marges réduits, lien transformé en bouton secondaire pleine largeur sous « Continuer » — voir §6.1
+> - **« Mon code PIN » : texte mis à jour** *(01/09/2026, PR #360)* : la carte ne mentionnait que la confirmation d'action ; précise désormais aussi son rôle de récupération de profil cross-device — voir §6.4
+> - **Réinitialisation du code visiteur par l'admin** *(01/09/2026, PR #361)* : pas d'email/téléphone vérifié sur `visitor_profiles`, donc pas de « mot de passe oublié » self-service viable sans infra d'envoi dédiée ; à la place, bouton « Réinitialiser le code » sur la fiche visiteur (Mon compte > Visiteurs), nouvelle RPC serveur `rpc_admin_reset_visitor_pin` réservée à l'admin authentifié de l'espace ; le visiteur récupère son profil (photo/humeur/relation conservées) en repassant par « Créer mon profil » — voir §5.11
+> - **Demande de réinitialisation initiée par le visiteur + alerte admin** *(01/09/2026, PR #362)* : lien « Code oublié ? Prévenir l'administrateur » sur « Qui êtes-vous ? » (recherche par prénom/nom seul, nouvelle table `pin_reset_requests`) ; l'admin voit la demande à deux endroits synchronisés — popup à l'ouverture de l'app et section dédiée dans Mon compte > Mes alertes —, chacun avec un bouton de réinitialisation direct ; rappel « 📝 Note-le quelque part pour ne plus l'oublier. » ajouté à la création du nouveau PIN — voir §5.11, §6.1
+> - Détail exhaustif écran par écran : `Documentation/Documentation Fonctionnalités.docx` (généré depuis le code, mis à jour à chaque handoff)
 
 > **Changelog v1.20 → v1.21**
 > - **Entraide : Urgent automatique à J+3, persistant après échéance** *(01/09/2026, PR #355, #356)* : le tag Urgent (cadre rouge) se déclenche désormais aussi automatiquement dès qu'un besoin ouvert entre dans sa fenêtre d'échéance à J+3 ou moins, même s'il n'a pas été coché Urgent à la création ni publié récemment ; corrigé pour rester actif même une fois l'échéance dépassée, tant que le besoin n'est pas pris en charge (en pratique borné à une fenêtre courte par la fermeture automatique déjà en place, ~60s après l'échéance) — voir §5.9
