@@ -19,7 +19,7 @@ import { LOGO_PURPLE } from "@/lib/themes";
 // écran (home/nights.tsx), non concernée par la réservation depuis la bande
 // Hebdo.
 export default function VisitorSlotsList({
-  iso, C, role, intervenantProfileId, myPin, bookable = true, otherSpaceInterventions = [], onReserveVisit, onEditVisit, onReserveIntervention, onCancelIntervention, onLongPressOtherSpaceSoin,
+  iso, C, role, intervenantProfileId, myPin, bookable = true, otherSpaceInterventions = [], onReserveVisit, onEditVisit, onReserveIntervention, onCancelIntervention, onLongPressOtherSpaceSoin, focusCreneau, onFocusSlotLayout,
 }: {
   iso: string;
   C: Theme;
@@ -43,6 +43,12 @@ export default function VisitorSlotsList({
   // home/slots.tsx). Absent côté visiteur (otherSpaceInterventions est de
   // toute façon vide pour ce rôle, cf. plus bas).
   onLongPressOtherSpaceSoin?: (soin: OtherSpaceIntervention) => void;
+  // Arrivée depuis la fiche visiteur (VisitorProfileModal, focusCreneau) —
+  // ce créneau est surligné et onFocusSlotLayout signale sa position pour que
+  // l'écran parent scrolle jusqu'à lui (voir home/slots.tsx), plutôt que de
+  // laisser l'utilisateur en haut de la liste du jour.
+  focusCreneau?: string | null;
+  onFocusSlotLayout?: (y: number) => void;
 }) {
   const { reservations, getConfigForDate, getSlotsForDate, intervenantProfiles } = useVisitorSpace();
   const dayConfig = getConfigForDate(iso);
@@ -79,14 +85,18 @@ export default function VisitorSlotsList({
           ? (getInterventionOverlap(otherSpaceInterventions, iso, slot, dayConfig.slot_duration_minutes) as OtherSpaceIntervention | undefined)
           : undefined;
 
+        const isFocused = !!focusCreneau && focusCreneau === slot;
+
         return (
           <View
             key={slot}
+            onLayout={isFocused ? (e) => onFocusSlotLayout?.(e.nativeEvent.layout.y) : undefined}
             style={[
               styles.slotCard,
               {
                 backgroundColor: otherSpaceSoin ? `${LOGO_PURPLE}1F` : C.card,
-                borderColor: intervention ? C.orange : otherSpaceSoin ? LOGO_PURPLE : full ? "rgba(233,69,96,0.3)" : C.border,
+                borderColor: isFocused ? C.accent : intervention ? C.orange : otherSpaceSoin ? LOGO_PURPLE : full ? "rgba(233,69,96,0.3)" : C.border,
+                borderWidth: isFocused ? 2 : 1,
                 opacity: past ? 0.5 : 1,
               },
             ]}

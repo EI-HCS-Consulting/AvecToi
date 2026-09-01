@@ -133,11 +133,15 @@ export default function VisitorProfileModal({ visible, onClose, spaceId, C, isAd
   // déjà sélectionné, pas forcément celui de cette réservation) — focusDate
   // est lu par les deux écrans (admin et visiteur) pour se repositionner,
   // voir app/(admin)/home/slots.tsx et app/(visitor)/home/slots.tsx.
+  // focusCreneau (Visite uniquement, la Nuitée n'a qu'un seul créneau par
+  // jour) va plus loin : ces mêmes écrans scrollent jusqu'au créneau exact et
+  // le surlignent brièvement, plutôt que de laisser l'utilisateur retrouver
+  // la bonne ligne en haut de la liste du jour.
   function goToReservation(r: Reservation) {
     onClose();
     router.push({
       pathname: `${basePath}/home/${r.type === "Nuit" ? "nights" : "slots"}`,
-      params: { focusDate: r.date },
+      params: r.type === "Nuit" ? { focusDate: r.date } : { focusDate: r.date, focusCreneau: r.creneau },
     } as any);
   }
 

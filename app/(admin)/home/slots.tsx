@@ -23,12 +23,19 @@ export default function AdminSlotsScreen() {
     pendingBookingSlot, setPendingBookingSlot, getConfigForDate,
     pendingEditReservationId, setPendingEditReservationId,
   } = useSpace();
-  const { focusDate } = useLocalSearchParams<{ focusDate?: string }>();
+  const { focusDate, focusCreneau } = useLocalSearchParams<{ focusDate?: string; focusCreneau?: string }>();
   const { theme: C } = useDisplayMode();
   const addRef = useRef<AdminAddReservationHandle>(null);
   const editRef = useRef<AdminEditReservationHandle>(null);
   const detailRef = useRef<AdminReservationDetailHandle>(null);
   const deleteRef = useRef<DeleteReservationConfirmHandle>(null);
+  // Arrivée depuis la fiche visiteur (VisitorProfileModal, focusCreneau) —
+  // même mécanisme que app/(visitor)/home/slots.tsx : scrolle jusqu'au
+  // créneau exact et le surligne brièvement une fois rendu (voir
+  // onFocusSlotLayout/AdminSlotsList).
+  const scrollRef = useRef<ScrollView>(null);
+  const scrolledToFocusRef = useRef(false);
+  const [highlightCreneau, setHighlightCreneau] = useState<string | null>(null);
 
   const startDate = space ? new Date(space.start_date + "T00:00:00") : new Date();
 
@@ -53,8 +60,19 @@ export default function AdminSlotsScreen() {
   // réservation ciblée, même si sa date est passée.
   useEffect(() => {
     if (focusDate) setSelectedDay(new Date(focusDate + "T00:00:00"));
+    scrolledToFocusRef.current = false;
+    setHighlightCreneau(focusCreneau ?? null);
+    if (focusCreneau) {
+      const t = setTimeout(() => setHighlightCreneau(null), 2500);
+      return () => clearTimeout(t);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusDate]);
+  }, [focusDate, focusCreneau]);
+  function handleFocusSlotLayout(y: number) {
+    if (scrolledToFocusRef.current) return;
+    scrolledToFocusRef.current = true;
+    scrollRef.current?.scrollTo({ y: Math.max(y - 80, 0), animated: true });
+  }
 
   // Rouvre l'étape "détail" (même enchaînement que côté visiteur) sur la
   // réservation ciblée depuis "Mon compte → Mes réservations" — même
@@ -95,7 +113,7 @@ export default function AdminSlotsScreen() {
     <View style={[styles.container, { backgroundColor: C.bg }]}>
       <SpaceHeader space={space} active="slots" basePath="/(admin)/home" C={C} />
 
-      <ScrollView contentContainerStyle={styles.scroll}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.scroll}>
         <View style={[styles.dayNav, { backgroundColor: C.card, borderColor: C.border }]}>
           <TouchableOpacity
             onPress={() => {
@@ -128,6 +146,8 @@ export default function AdminSlotsScreen() {
           onAdd={(slot, maxAdditional) => addRef.current?.open(iso, slot, "Visite", maxAdditional)}
           onEdit={(r) => editRef.current?.open(r)}
           onAckAlert={async (rs) => { await supabase.from("reservations").update({ alert_seen: true }).in("id", rs.map((r) => r.id)); await refreshReservations(); }}
+          focusCreneau={highlightCreneau}
+          onFocusSlotLayout={handleFocusSlotLayout}
         />
 
         {dayConfig?.night_enabled && (() => {

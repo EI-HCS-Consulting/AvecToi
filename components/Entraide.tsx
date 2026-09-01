@@ -2706,6 +2706,26 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     return new Date(`${t.date_limite}T23:59:59`) < new Date();
   }
 
+  // Échéance à J+3 ou moins (mais pas encore dépassée, voir taskPastDeadline
+  // ci-dessus) : déclenche le même cadre/tag "🔴 Urgent" qu'un besoin marqué
+  // Urgent manuellement, tant que personne ne l'a pris en charge (voir
+  // urgentOpen dans renderTask) — même structure de date que taskPastDeadline.
+  function taskDueSoon(t: Task): boolean {
+    const now = new Date();
+    const threshold = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
+    if (t.category === "transport") {
+      const date = t.transport_confirmed_date || t.transport_date;
+      if (!date) return false;
+      const time = t.transport_confirmed_return_time || t.transport_return_time
+        || t.transport_confirmed_out_time || t.transport_out_time || "23:59";
+      const due = new Date(`${date}T${time}:00`);
+      return due >= now && due <= threshold;
+    }
+    if (!t.date_limite) return false;
+    const due = new Date(`${t.date_limite}T23:59:59`);
+    return due >= now && due <= threshold;
+  }
+
   // Besoin encore "actif" (jamais pris en charge, ou pris en charge mais pas
   // encore marqué "Fait") dont l'échéance est déjà passée — fermé
   // automatiquement (voir l'effet plus haut) pour ne pas rester affiché
@@ -3041,12 +3061,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       && (isAdmin || (isAuthor(t) && !isTaskClosedPast(t)));
     const selected = selectedTaskIds.has(t.id);
     const modifiedByLabel = [t.modified_by_prenom, t.modified_by_nom].filter(Boolean).join(" ");
-    // Cadre "au repos" : rouge fin tant que le tag Urgent est actif (et le
-    // besoin encore "ouvert"), sinon gris normal/estompé (fait). Le
-    // surlignage d'arrivée (deep-link/création, voir highlightAnim) part
-    // toujours d'un rouge plus épais que ce repos, pour qu'un fondu soit
-    // visible même sur un besoin déjà Urgent.
-    const urgentOpen = t.urgent && t.status === "ouvert";
+    // Cadre "au repos" : rouge fin tant que le tag Urgent est actif — soit
+    // coché manuellement (t.urgent), soit parce que l'échéance tombe à J+3
+    // ou moins (voir taskDueSoon) — et le besoin encore "ouvert", sinon gris
+    // normal/estompé (fait). Le surlignage d'arrivée (deep-link/création,
+    // voir highlightAnim) part toujours d'un rouge plus épais que ce repos,
+    // pour qu'un fondu soit visible même sur un besoin déjà Urgent.
+    const urgentOpen = (t.urgent || taskDueSoon(t)) && t.status === "ouvert";
     const restingColor = urgentOpen ? C.danger : (t.status === "fait" ? "rgba(122,143,166,0.2)" : C.border);
     const restingWidth = urgentOpen ? 2 : 1;
     const animBorderColor = highlightAnim.interpolate({ inputRange: [0, 1], outputRange: [restingColor, C.danger] });
@@ -3087,8 +3108,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           </View>
           {/* Urgent ne s'affiche (tag + cadre rouge, voir plus haut) que tant
               que le besoin reste "ouvert" — une fois pris en charge / fait /
-              fermé, l'urgence n'a plus de sens à signaler. */}
-          {t.urgent && t.status === "ouvert" && (
+              fermé, l'urgence n'a plus de sens à signaler. Se déclenche soit
+              manuellement (t.urgent) soit automatiquement à J+3 ou moins
+              (taskDueSoon) — même condition que urgentOpen ci-dessus. */}
+          {urgentOpen && (
             <View style={[styles.catBadge, { backgroundColor: `${C.danger}22` }]}>
               <Text style={[styles.catLabel, { color: C.danger }]}>🔴 Urgent</Text>
             </View>
