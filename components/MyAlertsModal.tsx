@@ -84,6 +84,10 @@ interface Props {
   pinResetHistory?: PinResetRequest[];
   adminFirstname?: string | null;
   adminLastname?: string | null;
+  // Le contenu diffère selon qui regarde : l'admin voit qui a demandé, le
+  // visiteur voit qui a traité. Défaut visiteur (les deux autres appelants —
+  // intervenant compris — n'utilisent jamais pinResetHistory).
+  pinResetHistoryIsAdmin?: boolean;
 }
 
 function frDateTime(iso: string): string {
@@ -92,13 +96,26 @@ function frDateTime(iso: string): string {
   });
 }
 
-function pinResetHistoryLine(r: PinResetRequest, adminFirstname?: string | null, adminLastname?: string | null): string {
-  const adminName = [adminFirstname, adminLastname].filter(Boolean).join(" ") || "L'administrateur";
+// Une ligne par info, comme demandé : la version admin ajoute "Demandée par"
+// (l'admin ne connaît pas déjà le nom, contrairement au visiteur qui est
+// lui-même le demandeur) et omet le nom de l'admin sur la ligne "PIN
+// Réinitialisé" (implicite, c'est lui/elle qui vient de la traiter).
+function pinResetHistoryLines(
+  r: PinResetRequest,
+  isAdmin: boolean,
+  adminFirstname?: string | null,
+  adminLastname?: string | null,
+): string[] {
+  const requested = `Demande de réinitialisation : le ${frDateTime(r.created_at)}`;
   const resolved = r.resolved_at ? frDateTime(r.resolved_at) : "";
-  return `${r.prenom} ${r.nom} a demandé la réinitialisation de son code le ${frDateTime(r.created_at)}. ${adminName} a effectué la réinitialisation le ${resolved}.`;
+  if (isAdmin) {
+    return [requested, `Demandée par : ${r.prenom} / ${r.nom}`, `PIN Réinitialisé : le ${resolved}`];
+  }
+  const adminName = [adminFirstname, adminLastname].filter(Boolean).join(" ");
+  return [requested, `PIN Réinitialisé : le ${resolved}${adminName ? ` - par ${adminName}` : ""}`];
 }
 
-export default function MyAlertsModal({ visible, onClose, C, activeAlerts, history, onModify, onMarkSeen, rgpdAlert, relaisAlerts = [], onClaimRelais, onDismissRelais, relaisCoverageHistory = [], onMarkHistorySeen, pinResetRequests = [], onResetPinRequest, onDismissPinResetRequest, pinResetHistory = [], adminFirstname, adminLastname }: Props) {
+export default function MyAlertsModal({ visible, onClose, C, activeAlerts, history, onModify, onMarkSeen, rgpdAlert, relaisAlerts = [], onClaimRelais, onDismissRelais, relaisCoverageHistory = [], onMarkHistorySeen, pinResetRequests = [], onResetPinRequest, onDismissPinResetRequest, pinResetHistory = [], adminFirstname, adminLastname, pinResetHistoryIsAdmin = false }: Props) {
   function handleModify(r: Reservation) {
     onClose();
     onModify(r);
@@ -227,7 +244,9 @@ export default function MyAlertsModal({ visible, onClose, C, activeAlerts, histo
                     {pinResetHistory.map((r) => (
                       <View key={r.id} style={[styles.historyRow, { borderLeftColor: C.gold }]}>
                         <Text style={[styles.historyType, { color: C.text }]}>🔑 Réinitialisation du code</Text>
-                        <Text style={[styles.historyLine, { color: C.muted }]}>{pinResetHistoryLine(r, adminFirstname, adminLastname)}</Text>
+                        {pinResetHistoryLines(r, pinResetHistoryIsAdmin, adminFirstname, adminLastname).map((line, i) => (
+                          <Text key={i} style={[styles.historyLine, { color: C.muted }]}>{line}</Text>
+                        ))}
                       </View>
                     ))}
                     {relaisCoverageHistory.map((s) => (

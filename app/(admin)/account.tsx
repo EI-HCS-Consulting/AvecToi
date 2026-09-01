@@ -918,6 +918,7 @@ export default function AdminAccountScreen() {
           pinResetHistory={pinResetHistory}
           adminFirstname={space?.admin_firstname}
           adminLastname={space?.admin_lastname}
+          pinResetHistoryIsAdmin
         />
 
         {/* Section Mon affichage */}
