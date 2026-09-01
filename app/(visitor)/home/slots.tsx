@@ -28,14 +28,32 @@ export default function SlotsScreen() {
   // params) — une fois la réservation confirmée, InterventionBookingFlow
   // doit ramener sur l'onglet Planning avec ce patient présélectionné
   // plutôt que sur le calendrier de l'espace (comportement par défaut).
-  const { returnTo, returnSpaceId, focusDate } = useLocalSearchParams<{ returnTo?: string; returnSpaceId?: string; focusDate?: string }>();
+  const { returnTo, returnSpaceId, focusDate, focusCreneau } = useLocalSearchParams<{ returnTo?: string; returnSpaceId?: string; focusDate?: string; focusCreneau?: string }>();
   // Arrivée depuis la fiche visiteur (VisitorProfileModal, réservation d'un
   // autre visiteur) : repositionne sur le jour ciblé, même pattern que
-  // app/(admin)/home/slots.tsx.
+  // app/(admin)/home/slots.tsx. focusCreneau va plus loin : une fois le
+  // créneau exact rendu, scrollToFocusedSlot (VisitorSlotsList,
+  // onFocusSlotLayout) amène l'écran directement dessus et le surligne
+  // brièvement (highlightCreneau), au lieu de laisser l'utilisateur en haut
+  // de la liste du jour.
+  const scrollRef = useRef<ScrollView>(null);
+  const scrolledToFocusRef = useRef(false);
+  const [highlightCreneau, setHighlightCreneau] = useState<string | null>(null);
   useEffect(() => {
     if (focusDate) setSelectedDay(new Date(focusDate + "T00:00:00"));
+    scrolledToFocusRef.current = false;
+    setHighlightCreneau(focusCreneau ?? null);
+    if (focusCreneau) {
+      const t = setTimeout(() => setHighlightCreneau(null), 2500);
+      return () => clearTimeout(t);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusDate]);
+  }, [focusDate, focusCreneau]);
+  function handleFocusSlotLayout(y: number) {
+    if (scrolledToFocusRef.current) return;
+    scrolledToFocusRef.current = true;
+    scrollRef.current?.scrollTo({ y: Math.max(y - 80, 0), animated: true });
+  }
   const returnToPlanning = returnTo === "planning";
   const interventionHomeCalendarPath = returnToPlanning
     ? { pathname: "/(visitor)/soins", params: { focusSpaceId: returnSpaceId ?? "" } }
@@ -217,7 +235,7 @@ export default function SlotsScreen() {
     <View style={[styles.container, { backgroundColor: C.bg }]}>
       <SpaceHeader space={space} active="slots" basePath="/(visitor)/home" C={C} />
 
-      <ScrollView contentContainerStyle={styles.scroll}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.scroll}>
         {/* Day navigation */}
         {dayNav}
 
@@ -234,6 +252,8 @@ export default function SlotsScreen() {
           onReserveIntervention={(slotIso, slot) => interventionFlowRef.current?.openBooking(slotIso, slot)}
           onCancelIntervention={(r) => interventionFlowRef.current?.openCancel(r)}
           onLongPressOtherSpaceSoin={(soin) => setConflictSoin(soin)}
+          focusCreneau={highlightCreneau}
+          onFocusSlotLayout={handleFocusSlotLayout}
         />
 
         {/* Nuitée du jour — ajoutée à la fin de la liste des créneaux, même

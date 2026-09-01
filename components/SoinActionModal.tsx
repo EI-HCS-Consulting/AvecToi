@@ -32,10 +32,22 @@ interface Props {
   // n'est affiché (usage intervenant, soins.tsx, un seul soin possible par
   // créneau, la notion ne s'applique pas).
   remaining?: { taken: number; max: number } | null;
+  // Ajout au calendrier natif (voir AdminReservationDetail.tsx, même
+  // mécanisme addToNativeCalendar/linkCalendarEvent) — absent : bouton non
+  // affiché (usage intervenant, soins.tsx, pas de ce besoin côté soin).
+  onAjouterCalendrier?: () => void;
+  calendarAdded?: boolean;
+  addingToCalendar?: boolean;
+  // Suppression de cette visite (voir home/calendar.tsx, handleSupprimerVisite
+  // → DeleteReservationConfirm, même mécanisme que côté admin) — absent :
+  // bouton non affiché (usage intervenant, soins.tsx, pas de suppression
+  // depuis ce popup).
+  onSupprimer?: () => void;
 }
 
 export default function SoinActionModal({
   C, visible, reservation, patientNameBySpaceId, locationBySpaceId, onModifier, onYAller, onClose, onAjouterVisite, remaining,
+  onAjouterCalendrier, calendarAdded, addingToCalendar, onSupprimer,
 }: Props) {
   if (!reservation) return null;
   const dayDate = new Date(reservation.date + "T00:00:00");
@@ -62,6 +74,22 @@ export default function SoinActionModal({
             <Text style={[styles.sub, { color: C.muted }]} numberOfLines={1}>📍 {locationBySpaceId[reservation.space_id]}</Text>
           )}
 
+          {onAjouterCalendrier && (
+            <TouchableOpacity
+              style={[
+                styles.calendarBtn,
+                { borderColor: calendarAdded ? C.success : "rgba(52,168,83,0.4)", backgroundColor: "rgba(52,168,83,0.1)" },
+                addingToCalendar && { opacity: 0.6 },
+              ]}
+              onPress={onAjouterCalendrier}
+              disabled={addingToCalendar || calendarAdded}
+            >
+              <Text style={[styles.calendarBtnText, { color: calendarAdded ? C.success : "#3da85e" }]}>
+                {calendarAdded ? "✅ Ajouté au calendrier" : "📅 Ajouter à mon calendrier"}
+              </Text>
+            </TouchableOpacity>
+          )}
+
           <View style={styles.row}>
             <TouchableOpacity style={[styles.btn, { borderColor: C.border }]} onPress={onModifier}>
               <Text style={[styles.btnText, { color: C.text }]}>Modifier</Text>
@@ -77,6 +105,15 @@ export default function SoinActionModal({
               onPress={onAjouterVisite}
             >
               <Text style={styles.addVisiteBtnText}>+ Ajouter une Visite</Text>
+            </TouchableOpacity>
+          )}
+
+          {onSupprimer && (
+            <TouchableOpacity
+              style={[styles.deleteBtn, { borderColor: "rgba(233,69,96,0.35)", backgroundColor: "rgba(233,69,96,0.1)" }]}
+              onPress={onSupprimer}
+            >
+              <Text style={[styles.deleteBtnText, { color: C.danger }]}>🗑️ Annuler cette visite</Text>
             </TouchableOpacity>
           )}
 
@@ -99,6 +136,10 @@ const styles = StyleSheet.create({
   btnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },
   addVisiteBtn: { width: "100%", borderRadius: 10, paddingVertical: 13, alignItems: "center", marginTop: 10 },
   addVisiteBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" },
+  calendarBtn: { width: "100%", borderWidth: 1, borderRadius: 10, paddingVertical: 13, alignItems: "center", marginTop: 20 },
+  calendarBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
+  deleteBtn: { width: "100%", borderWidth: 1, borderRadius: 10, paddingVertical: 13, alignItems: "center", marginTop: 10 },
+  deleteBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14 },
   closeBtn: { alignItems: "center", marginTop: 14 },
   closeBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
 });

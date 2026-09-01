@@ -3,12 +3,14 @@ import {
   View, Text, TouchableOpacity, ScrollView, StyleSheet, Alert, Modal, Linking,
 } from "react-native";
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router";
+import { supabase } from "@/lib/supabase";
 import {
   getDayStatus, findNextAvailableSlot, getDaysInMonth, getMonday, addDays,
   toISO, toFrLong, isMyReservation, visiteurIdentityKey, isSlotFullyPast,
   getSlotOccupancy,
 } from "@/lib/slotUtils";
 import { isSpaceCapped } from "@/lib/freemiumCap";
+import { addToNativeCalendar, linkCalendarEvent, getLinkedCalendarEvent } from "@/lib/calendarSync";
 import { LOGO_NAVY, VISITES_ORANGE_FILL, VISITES_DANGER_FILL, getPatientColor } from "@/lib/themes";
 import { careLocationDetail, mapsUrlForSpace } from "@/lib/address";
 import SpaceHeader from "@/components/SpaceHeader";
@@ -23,6 +25,7 @@ import SoinActionModal from "@/components/SoinActionModal";
 import VisiteAutreVisiteurPopup from "@/components/VisiteAutreVisiteurPopup";
 import VisiteEditFlow, { type VisiteEditFlowHandle } from "@/components/VisiteEditFlow";
 import BookingFlow, { type BookingFlowHandle } from "@/components/BookingFlow";
+import DeleteReservationConfirm, { type DeleteReservationConfirmHandle } from "@/components/DeleteReservationConfirm";
 import type { Reservation, SlotConfig, PatientSpace } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -100,6 +103,12 @@ export default function HomeCalendarScreen({
   // popup Réserver la place restante/Voir la journée (VisiteAutreVisiteurPopup)
   // est ouvert. Visiteur uniquement, voir openVisiteActions.
   const [pendingAutreVisite, setPendingAutreVisite] = useState<Reservation | null>(null);
+  // État du bouton "Ajouter à mon calendrier" du popup pendingVisite — même
+  // mécanisme que AdminReservationDetail.tsx (lien stocké en local via
+  // AsyncStorage, voir calendarSync.ts), pas de colonne en base.
+  const [calendarAdded, setCalendarAdded] = useState(false);
+  const [addingToCalendar, setAddingToCalendar] = useState(false);
+  const deleteRef = useRef<DeleteReservationConfirmHandle>(null);
 
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
   const startDate = useMemo(
@@ -322,6 +331,8 @@ export default function HomeCalendarScreen({
     if (isSlotFullyPast(r.date, r.creneau)) return;
     if (isMyReservation(r, myPin, null, myPrenom, myNom)) {
       setPendingVisite(r);
+      setCalendarAdded(false);
+      getLinkedCalendarEvent(r.id).then((eventId) => setCalendarAdded(!!eventId));
       return;
     }
     if (token) {
@@ -355,6 +366,33 @@ export default function HomeCalendarScreen({
     if (!space) return;
     const url = mapsUrlForSpace(space);
     if (url) Linking.openURL(url).catch(() => {});
+  }
+  // Même mécanisme que AdminReservationDetail.tsx : lien calendrier natif
+  // stocké localement (AsyncStorage), pas de colonne en base.
+  async function handleAjouterCalendrierVisitePress() {
+    if (!pendingVisite || !slotConfig) return;
+    setAddingToCalendar(true);
+    const { data } = await supabase.auth.getUser();
+    const result = await addToNativeCalendar(
+      space, slotConfig, pendingVisite.date, pendingVisite.creneau, pendingVisite.type, data.user?.email ?? null,
+    );
+    setAddingToCalendar(false);
+    if (!result.ok) return;
+    await linkCalendarEvent(pendingVisite.id, result.eventId);
+    setCalendarAdded(true);
+  }
+  // "Annuler cette visite" du popup pendingVisite — ouvre la même modale de
+  // confirmation que côté admin (DeleteReservationConfirm, propose de
+  // supprimer aussi les accompagnants liés par group_id), puis rafraîchit.
+  function handleSupprimerVisitePress() {
+    const r = pendingVisite;
+    setPendingVisite(null);
+    if (!r) return;
+    deleteRef.current?.open(r);
+  }
+  async function handleConfirmDeleteVisite(ids: string[]) {
+    await supabase.from("reservations").delete().in("id", ids);
+    await refreshReservations();
   }
   // "Ajouter une Visite" du popup Modifier/Y Aller : réserve un créneau
   // supplémentaire le même jour, plus rapide que fermer le popup puis
@@ -709,8 +747,18 @@ export default function HomeCalendarScreen({
         onModifier={handleModifierVisitePress}
         onYAller={handleYAllerVisitePress}
         onAjouterVisite={handleAjouterVisitePress}
+        onAjouterCalendrier={handleAjouterCalendrierVisitePress}
+        calendarAdded={calendarAdded}
+        addingToCalendar={addingToCalendar}
+        onSupprimer={handleSupprimerVisitePress}
         onClose={() => setPendingVisite(null)}
         remaining={pendingVisiteCapacity}
+      />
+      <DeleteReservationConfirm
+        ref={deleteRef}
+        reservations={reservations}
+        onConfirm={handleConfirmDeleteVisite}
+        C={C}
       />
       <VisiteAutreVisiteurPopup
         C={C}

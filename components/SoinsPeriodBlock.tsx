@@ -67,6 +67,21 @@ export default function SoinsPeriodBlock({
   for (const list of Object.values(byDay)) list.sort((a, b) => a.creneau.localeCompare(b.creneau));
   const dayIsos = Object.keys(byDay).sort();
 
+  // Regroupe les réservations d'un même jour par créneau consécutif (rows
+  // déjà triées par creneau) — deux réservations séparées (ex. deux visiteurs
+  // différents) tombant sur le même horaire partagent alors un seul bloc
+  // (horaire + icône affichés une fois) au lieu de deux lignes identiques
+  // empilées, même logique que PlanningDuJourBlock (slotGroup/slotTimeCol).
+  function groupByCreneau(rows: Reservation[]) {
+    const groups: { creneau: string; rows: Reservation[] }[] = [];
+    for (const r of rows) {
+      const g = groups[groups.length - 1];
+      if (g && g.creneau === r.creneau) g.rows.push(r);
+      else groups.push({ creneau: r.creneau, rows: [r] });
+    }
+    return groups;
+  }
+
   function goPrev() {
     if (view === "hebdo") {
       onWeekChange(addDays(weekAnchor, -7));
@@ -139,47 +154,58 @@ export default function SoinsPeriodBlock({
                   {dayDate.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" })}
                   {isToday ? " · Aujourd'hui" : ""}
                 </Text>
-                {byDay[iso].map((r) => {
-                  const patientName = patientNameBySpaceId?.[r.space_id];
-                  const location = locationBySpaceId?.[r.space_id];
-                  const companions = companionsById?.[r.id];
-                  return (
-                    <TouchableOpacity
-                      key={r.id}
-                      style={styles.soinRow}
-                      activeOpacity={0.7}
-                      onPress={() => (onSoinPress ? onSoinPress(r) : onDayPress(iso))}
-                    >
-                      <Text style={[styles.soinTime, { color: C.orange }]}>{r.creneau}</Text>
-                      <Ionicons name={soinIconName(r.intervention_label ?? "")} size={16} color={C.gold} />
-                      <View style={{ flex: 1 }}>
-                        {patientName ? (
-                          <>
-                            <Text style={[styles.soinLabel, { color: C.text }]} numberOfLines={1}>{patientName}</Text>
-                            <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>
-                              {r.intervention_label ?? reservationType}{r.duration_minutes ? ` (${r.duration_minutes} min)` : ""}
-                            </Text>
-                            {!!location && (
-                              <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>📍 {location}</Text>
-                            )}
-                            <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>{r.prenom} {r.nom}</Text>
-                          </>
-                        ) : (
-                          <>
-                            <Text style={[styles.soinLabel, { color: C.text }]} numberOfLines={1}>{r.intervention_label ?? reservationType}</Text>
-                            <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>{r.prenom} {r.nom}</Text>
-                          </>
-                        )}
-                        {!!companions?.length && (
-                          <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>
-                            + {companions.map((c) => `${c.prenom} ${c.nom}`).join(", ")}
-                          </Text>
-                        )}
-                      </View>
-                      <Text style={[styles.chevron, { color: C.muted }]}>›</Text>
-                    </TouchableOpacity>
-                  );
-                })}
+                {groupByCreneau(byDay[iso]).map((group, gi) => (
+                  <View
+                    key={group.creneau}
+                    style={[styles.slotGroup, gi > 0 && { borderTopWidth: 1, borderTopColor: C.border }]}
+                  >
+                    <View style={styles.slotTimeCol}>
+                      <Text style={[styles.soinTime, { color: C.orange }]}>{group.creneau}</Text>
+                      <Ionicons name={soinIconName(group.rows[0].intervention_label ?? "")} size={16} color={C.gold} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      {group.rows.map((r) => {
+                        const patientName = patientNameBySpaceId?.[r.space_id];
+                        const location = locationBySpaceId?.[r.space_id];
+                        const companions = companionsById?.[r.id];
+                        return (
+                          <TouchableOpacity
+                            key={r.id}
+                            style={styles.slotPersonRow}
+                            activeOpacity={0.7}
+                            onPress={() => (onSoinPress ? onSoinPress(r) : onDayPress(iso))}
+                          >
+                            <View style={{ flex: 1 }}>
+                              {patientName ? (
+                                <>
+                                  <Text style={[styles.soinLabel, { color: C.text }]} numberOfLines={1}>{patientName}</Text>
+                                  <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>
+                                    {r.intervention_label ?? reservationType}{r.duration_minutes ? ` (${r.duration_minutes} min)` : ""}
+                                  </Text>
+                                  {!!location && (
+                                    <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>📍 {location}</Text>
+                                  )}
+                                  <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>{r.prenom} {r.nom}</Text>
+                                </>
+                              ) : (
+                                <>
+                                  <Text style={[styles.soinLabel, { color: C.text }]} numberOfLines={1}>{r.intervention_label ?? reservationType}</Text>
+                                  <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>{r.prenom} {r.nom}</Text>
+                                </>
+                              )}
+                              {!!companions?.length && (
+                                <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>
+                                  + {companions.map((c) => `${c.prenom} ${c.nom}`).join(", ")}
+                                </Text>
+                              )}
+                            </View>
+                            <Text style={[styles.chevron, { color: C.muted }]}>›</Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+                ))}
               </View>
             );
           })
@@ -200,7 +226,13 @@ const styles = StyleSheet.create({
 
   dayGroup: { borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 10 },
   dayGroupTitle: { fontFamily: "DM_Sans_700Bold", fontSize: 13, textTransform: "capitalize", marginBottom: 8 },
-  soinRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 },
+  // slotGroup regroupe toutes les réservations d'un même créneau : l'horaire
+  // (slotTimeCol) s'étire sur toute la hauteur du groupe et se centre avec
+  // justifyContent, aligné visuellement sur le nom du milieu quand plusieurs
+  // personnes partagent le créneau — même pattern que PlanningDuJourBlock.
+  slotGroup: { flexDirection: "row", alignItems: "stretch", gap: 10, paddingVertical: 4 },
+  slotTimeCol: { minWidth: 42, alignItems: "center", justifyContent: "center", gap: 2 },
+  slotPersonRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 3 },
   soinTime: { fontFamily: "DM_Sans_700Bold", fontSize: 13, minWidth: 42 },
   soinLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
   soinBy: { fontFamily: "DM_Sans_400Regular", fontSize: 11.5, marginTop: 1 },

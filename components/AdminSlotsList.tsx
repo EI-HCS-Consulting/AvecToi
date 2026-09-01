@@ -13,7 +13,7 @@ import type { Theme } from "@/lib/themes";
 // Pulls `slots`/`slotConfig` from context directly to keep the parent
 // component's JSX uncluttered.
 export default function AdminSlotsList({
-  iso, reservations, C, dayIsPast, capped, bookable = true, onAdd, onEdit, onAckAlert,
+  iso, reservations, C, dayIsPast, capped, bookable = true, onAdd, onEdit, onAckAlert, focusCreneau, onFocusSlotLayout,
 }: {
   iso: string;
   reservations: Reservation[];
@@ -27,6 +27,12 @@ export default function AdminSlotsList({
   onAdd: (slot: string, maxAdditional: number) => void;
   onEdit: (r: Reservation) => void;
   onAckAlert: (rs: Reservation[]) => void;
+  // Arrivée depuis la fiche visiteur (VisitorProfileModal, focusCreneau) —
+  // même mécanisme que VisitorSlotsList : ce créneau est surligné et
+  // onFocusSlotLayout signale sa position pour que l'écran parent scrolle
+  // jusqu'à lui (voir home/slots.tsx).
+  focusCreneau?: string | null;
+  onFocusSlotLayout?: (y: number) => void;
 }) {
   const { getConfigForDate, getSlotsForDate, intervenantProfiles } = useSpace();
   const slotConfig = getConfigForDate(iso);
@@ -58,8 +64,21 @@ export default function AdminSlotsList({
         // peut plus être réservé (dayIsPast couvre les jours antérieurs).
         const slotPast = !dayIsPast && isSlotPast(iso, slot);
 
+        const isFocused = !!focusCreneau && focusCreneau === slot;
+
         return (
-          <View key={slot} style={[styles.slotCard, { backgroundColor: C.card, borderColor: intervention ? C.orange : full ? "rgba(233,69,96,0.3)" : C.border }]}>
+          <View
+            key={slot}
+            onLayout={isFocused ? (e) => onFocusSlotLayout?.(e.nativeEvent.layout.y) : undefined}
+            style={[
+              styles.slotCard,
+              {
+                backgroundColor: C.card,
+                borderColor: isFocused ? C.accent : intervention ? C.orange : full ? "rgba(233,69,96,0.3)" : C.border,
+                borderWidth: isFocused ? 2 : 1,
+              },
+            ]}
+          >
             <View style={styles.slotHeader}>
               <Text style={[styles.slotTime, { color: C.gold }]}>{slot}</Text>
               <Text style={[styles.slotCount, { color: C.muted }]}>{occ.length}/{slotConfig.max_visitors_per_slot}</Text>

@@ -114,16 +114,17 @@ function AdminReservationDetail({ space, slotConfig, onEdit, onDelete, C }: Prop
           <TouchableOpacity
             onPress={() => {
               close();
-              // router.back() dépend de l'état de la pile interne du Stack
-              // "home" (Calendrier/Créneaux/Nuitées) au moment du push depuis
-              // Mon Compte — pas fiable pour revenir précisément à l'onglet
-              // Compte. router.push("/(admin)/account") ne l'était pas non
-              // plus : "push" est une action de Stack, or l'écran courant est
-              // rattaché au Stack "home" imbriqué dans les Tabs — l'action ne
-              // remonte pas jusqu'aux Tabs pour changer d'onglet. dismissTo
-              // referme/traverse les navigateurs intermédiaires et rejoint
+              // router.back()/push("/(admin)/account") : voir les commentaires
+              // retirés ci-dessous dans l'historique, aucun des deux ne
+              // marchait. router.dismissTo() non plus : c'est une action de
+              // Stack (pop jusqu'à trouver l'écran visé), or l'écran courant
+              // est rattaché au Stack "home" imbriqué dans les Tabs — "account"
+              // n'existe pas dans CE Stack, donc dismissTo se contente de
+              // remonter jusqu'à sa racine ("home/calendar", Accueil) sans
+              // jamais atteindre l'onglet Compte. router.navigate() sait
+              // traverser les Tabs (pas seulement un Stack) pour rejoindre
               // directement l'onglet Compte, quelle que soit la profondeur.
-              router.dismissTo("/(admin)/account" as any);
+              router.navigate("/(admin)/account" as any);
             }}
             style={[styles.closeBtn, { borderColor: C.border }]}
           >
