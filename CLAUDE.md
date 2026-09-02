@@ -57,7 +57,6 @@ Ce modèle est explicitement autorisé par Google Play et évite toute commissio
 .gitignore         → doit contenir .env
 CLAUDE.md          → ce fichier
 PRD_AvecToi_v1_4.md → PRD complet (référence)
-App.jsx            → MVP web de référence (logique à porter en RN)
 ```
 
 ## Priorité des tâches V1 (ordre strict)
@@ -137,8 +136,6 @@ Hypothèses à tester, par ordre de priorité.
 ## Références
 - Documentation fonctionnelle complète : Documentation/Documentation Fonctionnalités.docx
 - PRD complet : PRD_AvecToi_v1_4.md (dans ce dossier)
-- Code source MVP : App.jsx (dans ce dossier)
-- App web de référence : https://planning-visites-maman.vercel.app
+- MVP web d'origine (archivé, supprimé le 02/09/2026) : tag git `archive/vercel-mvp-site` sur ce dépôt — plus de site ni de projet Vercel live
 - Supabase dashboard : https://supabase.com/dashboard/project/flmslcdzjuifkivmzins
-- Vercel : https://vercel.com/ei-hcs-consultings-projects/planning-visites-maman
 - GitHub : https://github.com/EI-HCS-Consulting/AvecToi
