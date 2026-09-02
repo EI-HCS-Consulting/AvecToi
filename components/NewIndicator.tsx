@@ -1,27 +1,36 @@
 import { View, Text, StyleSheet } from "react-native";
 import { NEW_ACCENT } from "@/lib/themes";
 
-// Barre d'accent + badge "New" (Nouvelles/Entraide/Soutien, voir
-// lib/wallUnread.ts:useWallReadTracking). Le badge flotte légèrement au-dessus du
-// coin haut-droit (top négatif) plutôt qu'à l'intérieur de la carte : les 3
-// murs ont tous des boutons modifier/supprimer et/ou d'autres badges proches
-// de ce coin, avec lesquels un badge posé à top:8/right:8 entrerait en
-// collision visuelle.
+// Barre d'accent + badge "New" (Nouvelles/Entraide/Soutien), deux signaux
+// dissociés :
+// - `mine` : liseret bleu latéral, affiché tant que la publication existe et
+//   m'appartient (voir isAuthor/isOwnMessage/isOwnEntry selon le mur) —
+//   indépendant du statut vu/pas-vu, pour repérer d'un coup d'œil ce qu'on a
+//   soi-même publié.
+// - `isNew` : badge flottant, affiché tant que la publication n'a pas été vue
+//   (voir lib/wallUnread.ts:useWallReadTracking) ; disparaît dès que
+//   l'utilisateur a scrollé dessus lors d'une session ultérieure.
+// Le badge flotte légèrement au-dessus du coin haut-droit (top négatif)
+// plutôt qu'à l'intérieur de la carte : les 3 murs ont tous des boutons
+// modifier/supprimer et/ou d'autres badges proches de ce coin, avec lesquels
+// un badge posé à top:8/right:8 entrerait en collision visuelle.
 //
-// `urgent`: en Entraide, un besoin Urgent+New affiche le badge seul, sans
-// barre latérale (le cadre rouge Urgent reste le seul indicateur de bord,
-// géré par l'appelant) — voir le tableau de priorité dans wallUnread.ts.
-export function NewIndicator({ urgent = false }: { urgent?: boolean }) {
+// Le cadre rouge éventuel (Urgent en Entraide, New en Nouvelles/Soutien)
+// reste géré par l'appelant via la couleur de bordure de la carte, pas ici.
+export function NewIndicator({ isNew = false, mine = false }: { isNew?: boolean; mine?: boolean }) {
+  if (!isNew && !mine) return null;
   return (
     <>
-      {!urgent && (
+      {mine && (
         <View pointerEvents="none" style={styles.barClip}>
           <View style={styles.bar} />
         </View>
       )}
-      <View pointerEvents="none" style={styles.badge}>
-        <Text style={styles.badgeText}>New</Text>
-      </View>
+      {isNew && (
+        <View pointerEvents="none" style={styles.badge}>
+          <Text style={styles.badgeText}>New</Text>
+        </View>
+      )}
     </>
   );
 }

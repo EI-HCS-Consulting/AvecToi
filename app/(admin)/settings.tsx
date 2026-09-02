@@ -27,7 +27,7 @@ import NightIntervenantModal from "@/components/NightIntervenantModal";
 import NewsIntervenantModal from "@/components/NewsIntervenantModal";
 import NightVisitorModal from "@/components/NightVisitorModal";
 import { resolvePlaceFromMapsUrl } from "@/lib/address";
-import { generateSlots, formatHourMinute } from "@/lib/slotUtils";
+import { generateSlots, formatHourMinute, isReservationFullyPast } from "@/lib/slotUtils";
 import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
 import { canEnableIntervenants } from "@/lib/freemiumCap";
 import { INTERVENANT_ROLE_ENABLED } from "@/lib/featureFlags";
@@ -941,8 +941,11 @@ export default function SettingsScreen() {
     // Rôle Intervenant retiré de la V1 (lib/featureFlags.ts) — la
     // chronologie ne doit plus montrer les soins réalisés/planifiés ni les
     // réservations rattachées à un intervenant (voir Développement V2/).
+    // Seules les visites/nuitées déjà passées y figurent (isReservationFullyPast,
+    // même bascule Planifié→Historique que "Mon compte") : une visite à venir
+    // n'y apparaît qu'une fois son créneau écoulé, pas avant.
     ...chronoReservations
-      .filter((r) => r.type !== "Intervention" && !r.intervenant_profile_id)
+      .filter((r) => r.type !== "Intervention" && !r.intervenant_profile_id && isReservationFullyPast(r))
       .map((r): ChronoEvent => ({
         id: `resa-${r.id}`, kind: "resa", date: new Date(r.date + "T12:00:00"),
         icon: r.type === "Nuit" ? "🌙" : "☀️",

@@ -35,15 +35,25 @@ export default function VisitorNightsScreen() {
   const [intervenantProfileId, setIntervenantProfileId] = useState<string | null>(null);
   const [myPrenom, setMyPrenom] = useState("");
   const [myNom, setMyNom] = useState("");
+  // Tant que la session n'a pas été lue (voir effet ci-dessous), `role`/
+  // `myPrenom`/`myNom` restent à leurs valeurs par défaut ("visiteur"/"") —
+  // sessionReady évite de calculer canReserveNight sur cet état transitoire
+  // (c'est ce décalage qui faisait apparaître puis disparaître le bouton
+  // "Prochaine disponibilité" chez un intervenant/visiteur restreint : un
+  // premier rendu permissif avant que le vrai rôle/la vraie autorisation ne
+  // soit connue).
+  const [sessionReady, setSessionReady] = useState(false);
   // Dépend de `token` — voir home/slots.tsx pour le détail (changement
   // d'espace patient sans démontage de l'écran).
   useEffect(() => {
+    setSessionReady(false);
     getVisitorSession().then((s) => {
       setMyPin(s?.pin ?? null);
       setRole(s?.role ?? "visiteur");
       setIntervenantProfileId(s?.intervenantProfileId ?? null);
       setMyPrenom(s?.prenom ?? "");
       setMyNom(s?.nom ?? "");
+      setSessionReady(true);
     });
   }, [token]);
   const isMine = (r: Reservation) => !!myPin && r.pin === myPin;
@@ -52,33 +62,40 @@ export default function VisitorNightsScreen() {
   // components/NightVisitorModal.tsx) — n'a d'effet que si l'admin a
   // restreint aux "certains visiteurs seulement" (mode "some"), sinon (mode
   // "all", défaut) tout le monde peut réserver, comportement historique.
-  const [nightVisitorAuthorized, setNightVisitorAuthorized] = useState(true);
+  // `null` = pas encore déterminé (session pas encore lue, ou vérification
+  // serveur en cours) : canReserveNight le traite comme "pas encore".
+  const [nightVisitorAuthorized, setNightVisitorAuthorized] = useState<boolean | null>(null);
   useEffect(() => {
+    if (!sessionReady) return;
     if (role !== "visiteur" || !space || slotConfig?.night_visitor_mode !== "some" || !myPrenom || !myNom) {
       setNightVisitorAuthorized(true);
       return;
     }
+    setNightVisitorAuthorized(null);
     isVisitorAuthorizedForNight(space.id, myPrenom, myNom).then(setNightVisitorAuthorized);
-  }, [role, space, slotConfig?.night_visitor_mode, myPrenom, myNom]);
+  }, [sessionReady, role, space, slotConfig?.night_visitor_mode, myPrenom, myNom]);
 
   // Autorisation des intervenants (voir slot_config.night_intervenant_mode,
   // components/NightIntervenantModal.tsx) — même principe que les visiteurs
   // ci-dessus, mais matché par intervenant_profiles.id (compte stable) via
   // night_authorized_intervenants plutôt que par prénom/nom.
-  const [nightIntervenantAuthorized, setNightIntervenantAuthorized] = useState(true);
+  const [nightIntervenantAuthorized, setNightIntervenantAuthorized] = useState<boolean | null>(null);
   useEffect(() => {
+    if (!sessionReady) return;
     if (role !== "intervenant" || !space || slotConfig?.night_intervenant_mode !== "some" || !intervenantProfileId) {
       setNightIntervenantAuthorized(false);
       return;
     }
+    setNightIntervenantAuthorized(null);
     isIntervenantAuthorizedForNight(space.id, intervenantProfileId).then(setNightIntervenantAuthorized);
-  }, [role, space, slotConfig?.night_intervenant_mode, intervenantProfileId]);
+  }, [sessionReady, role, space, slotConfig?.night_intervenant_mode, intervenantProfileId]);
 
   const canReserveNight =
-    (role !== "intervenant"
+    sessionReady
+    && (role !== "intervenant"
       || slotConfig?.night_intervenant_mode === "all"
-      || (slotConfig?.night_intervenant_mode === "some" && nightIntervenantAuthorized))
-    && (role !== "visiteur" || nightVisitorAuthorized);
+      || (slotConfig?.night_intervenant_mode === "some" && nightIntervenantAuthorized === true))
+    && (role !== "visiteur" || nightVisitorAuthorized === true);
 
   const today = useMemo(() => { const d = new Date(); d.setHours(0, 0, 0, 0); return d; }, []);
   const startDate = space ? new Date(space.start_date + "T00:00:00") : today;

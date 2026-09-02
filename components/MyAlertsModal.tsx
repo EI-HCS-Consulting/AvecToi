@@ -164,7 +164,7 @@ export default function MyAlertsModal({ visible, onClose, C, activeAlerts, histo
           <Text style={[styles.title, { color: C.text }]}>🔔 Mes alertes</Text>
 
           <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: 4 }}>
-            {!rgpdAlert && pinResetRequests.length === 0 && relaisAlerts.length === 0 && activeAlerts.length === 0 && history.length === 0 && relaisCoverageHistory.length === 0 && pinResetHistory.length === 0 ? (
+            {!rgpdAlert && pinResetRequests.length === 0 && relaisAlerts.length === 0 && activeAlerts.length === 0 && history.length === 0 && relaisCoverageHistory.length === 0 && pinResetHistory.length === 0 && archived.length === 0 ? (
               <Text style={[styles.emptyText, { color: C.muted }]}>Aucune alerte pour l'instant.</Text>
             ) : (
               <>
