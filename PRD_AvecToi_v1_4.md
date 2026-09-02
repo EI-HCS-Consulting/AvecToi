@@ -1,6 +1,12 @@
 # PRD — AvecToi
-## Product Requirements Document v1.23
+## Product Requirements Document v1.24
 *Préparé pour Claude Code — Juin 2026, synchronisé avec l'application livrée en Juillet/Août/Septembre 2026*
+
+> **Changelog v1.23 → v1.24**
+> - **Cap freemium : fenêtre de 7 jours glissants au lieu de 8 réservations** *(02/09/2026, PR #374)* : le cap ne compte plus les réservations de type Visite — un espace non payant reste désormais en visites illimitées pendant les **7 jours suivant sa toute première Visite réservée**, puis se verrouille jusqu'au passage en Premium ; même logique dupliquée côté client (`lib/freemiumCap.ts`, double vérification) et serveur (trigger `check_visite_cap()`) ; l'ancien trigger `AFTER INSERT` de notification (qui se basait sur « la réservation qui vient d'être insérée est la 8e ») n'a plus d'événement naturel à observer avec une fenêtre temporelle — remplacé par un scan quotidien (`check-freemium-expiry`, pg_cron 03:00 UTC) ; copie mise à jour sur l'onboarding et l'écran de création de compte — voir §3.12, §6.2, §7
+> - **Nettoyage du MVP web historique (Vercel) et de son intégration accidentelle** *(02/09/2026, PR #375)* : le site `App.jsx`/Vite qui servait de référence initiale (`planning-visites-maman.vercel.app`) est retiré du dépôt (code préservé via le tag git `archive/vercel-mvp-site`) et son projet Vercel supprimé ; un second import Vercel non intentionnel du dépôt **actuel** (déclenché par la détection zero-config de `vite.config.js` à la racine, domaines `avec-toi-chi`/`avec-toi-sandy.vercel.app`) est également supprimé — ne changeait rien au fonctionnement de l'app mobile, mais tentait un rebuild en échec à chaque push sur `main` ; aucun impact produit, entrée gardée pour mémoire (le PRD référençait encore `App.jsx` comme code source du MVP, voir §14)
+> - Correctif d'infrastructure hors périmètre produit : le routage des réponses aux emails transactionnels (`support@avectoi.care`) était mal configuré chez Resend — non détaillé ici, voir handoff
+> - Détail exhaustif écran par écran : `Documentation/Documentation Fonctionnalités.docx` (généré depuis le code, mis à jour à chaque handoff)
 
 > **Changelog v1.22 → v1.23**
 > - **Réinitialisation du PIN visiteur en un geste** *(01-02/09/2026, PR #365, #366)* : sur « Qui êtes-vous ? », le titre masquait le lien « Code oublié ? Prévenir l'administrateur » (retiré) ; après un reset admin, le visiteur peut désormais saisir directement son nouveau PIN sur cet écran (nouvelle RPC serveur `rpc_visitor_claim_reset`, ne crée jamais de profil fantôme — échoue silencieusement si aucun profil « non réclamé » ne correspond exactement au prénom/nom saisi) au lieu de repasser par tout l'écran « Créer mon profil » — voir §6.1
@@ -179,7 +185,7 @@
 ### Origine
 Application née d'un besoin réel : coordonner les visites à un proche hospitalisé (Rose-Marie, Hôpital Michallon, CHU Grenoble Alpes) sans conflits de créneaux, sans surcharger le patient ni l'équipe soignante.
 
-Un MVP fonctionnel existe déjà : une PWA React déployée sur Vercel, connectée à Supabase, accessible sur https://planning-visites-maman.vercel.app
+Un MVP fonctionnel existait : une PWA React déployée sur Vercel, connectée à Supabase, accessible sur https://planning-visites-maman.vercel.app *(site et projet Vercel supprimés le 02/09/2026, PR #375 — code intégralement porté depuis en React Native, voir §7 ; snapshot conservé via le tag git `archive/vercel-mvp-site`)*
 
 ### Vision produit
 Transformer ce MVP en application Android native (puis iOS), **gratuite au téléchargement pour tous**, l'organisateur payant **une fois** la création de son espace patient via le web. Permettre à n'importe quelle famille de coordonner sereinement la présence autour d'un proche — planning des visites, entraide, et nouvelles partagées.
@@ -236,7 +242,7 @@ Le nom **AvecToi** porte la promesse : la **présence auprès d'un proche** — 
 ### Visiteur (accès gratuit via lien d'invitation)
 - Accède via lien unique, QR code ou code dossier (pas de compte requis)
 - **Voit le planning complet** : qui vient à quel créneau
-- Réserve un créneau disponible (dans la limite du **cap freemium** de 8 réservations de type Visite tant que l'espace n'est pas premium — §3.12)
+- Réserve un créneau disponible (dans la limite du **cap freemium** — 7 jours glissants depuis sa première Visite tant que l'espace n'est pas premium — §3.12)
 - Saisit : **Prénom (obligatoire), Nom (obligatoire)**, Téléphone (optionnel)
   - *Nom obligatoire : permet aux autres visiteurs de savoir précisément qui vient.*
 - **Indique son lien avec le patient** *(NOUVEAU depuis v1.10)* : champ picker dans Mon Compte → Mes informations (Père, Mère, Fils, Fille, Frère/Sœur, Beau-père/Belle-mère, Grand-père/Grand-mère, Petit-fils/Petite-fille, Beau-fils/Belle-fille, Cousin/Cousine, Oncle/Tante, Neveu/Nièce, Ami·e, Voisin·e, Collègue de travail, Autre) — visiteur uniquement, absent côté intervenant
@@ -416,8 +422,8 @@ Réservé aux professionnels de soin (infirmier·ère, kiné, aide à domicile�
 
 ### 3.12 Cap freemium *(NOUVEAU depuis v1.4 — mécanisme de conversion non détaillé au niveau produit dans le PRD initial)*
 
-- Un espace non payant est limité à **8 réservations de type Visite**
-- Au-delà, toute nouvelle réservation ou tout nouvel ajout de photo est bloqué avec un message d'information — jamais de bouton d'achat affiché dans l'app (conformité reader app, §3.1)
+- Un espace non payant reste en visites illimitées pendant **7 jours glissants à partir de sa toute première réservation de type Visite** *(remplace le cap à 8 réservations depuis v1.24, PR #374)*
+- Au-delà de cette fenêtre, toute nouvelle réservation ou tout nouvel ajout de photo est bloqué avec un message d'information — jamais de bouton d'achat affiché dans l'app (conformité reader app, §3.1)
 - Le partage de l'espace (lien d'invitation, QR code, code dossier) n'est **pas** limité par le cap — disponible dès la Freemium
 - **Rôle Intervenant réservé au Premium** *(NOUVEAU depuis v1.7)* : activer « Planning des intervenants » (§3.9) exige un espace Premium ; la désactivation reste toujours possible sans condition. Message neutre affiché si l'admin d'un espace Freemium tente d'activer, sans ton commercial appuyé (cohérent avec l'absence de bouton d'achat dans l'app, §3.1)
 - Le passage en espace premium reste un flux **web** (avectoi.care), hors du périmètre de l'app mobile
@@ -439,8 +445,8 @@ Réservé aux professionnels de soin (infirmier·ère, kiné, aide à domicile�
 - **Partage** : expo-sharing
 - ❌ **Pas de librairie de paiement in-app** (ni Play Billing, ni Stripe SDK in-app) — l'app ne vend rien
 
-### Web (site de vente + gestion — basé sur la PWA Vercel existante)
-- **React + Vite** (réutilise l'`App.jsx` actuel comme base)
+### Web (site de vente + gestion — non démarré)
+- **React + Vite** (peut repartir de l'ancien `App.jsx` du MVP, conservé via le tag git `archive/vercel-mvp-site`, §7)
 - **Stripe Checkout** (paiement 5,99 € hébergé par Stripe) + **webhook** vers Supabase pour activer l'espace
 - Responsive : permet à l'admin de tout gérer depuis le navigateur sans l'app
 
@@ -516,7 +522,7 @@ patient_blood_type (text)      ← NOUVEAU depuis v1.4
 patient_allergies (text)       ← NOUVEAU depuis v1.4
 intervenants_enabled (boolean) ← NOUVEAU depuis v1.4, active le rôle Intervenant (§3.9)
 intervenant_news_visible_to_visitors (boolean) ← NOUVEAU depuis v1.6, défaut false, ouvre aux visiteurs le canal Nouvelles intervenants/admin (§3.7)
-premium (boolean)              ← NOUVEAU depuis v1.4, désactive le cap freemium de 8 réservations Visite (§3.12)
+premium (boolean)              ← NOUVEAU depuis v1.4, désactive le cap freemium (fenêtre de 7 jours depuis v1.24, §3.12)
 start_date (date)
 end_date (date)
 is_active (boolean)           ← activé après paiement Stripe confirmé
@@ -718,9 +724,11 @@ const themes = {
 
 ---
 
-## 7. Ce qui existe déjà (MVP Vercel)
+## 7. Ce qui existait au départ (MVP Vercel, archivé)
 
-Code de référence : `App.jsx` (fichier unique React) — composants UI complets, connexion Supabase (`supabase.js`), logique métier (créneaux, PIN, compression, QR). **La base web du modèle §4bis réutilise directement ce code.**
+*Section historique : le portage décrit ci-dessous est terminé depuis longtemps (toute l'app est en React Native). Code et site supprimés le 02/09/2026 (PR #375) ; snapshot conservé via le tag git `archive/vercel-mvp-site`, redéployable au besoin.*
+
+Code de référence à l'origine du projet : `App.jsx` (fichier unique React) — composants UI complets, connexion Supabase (`supabase.js`), logique métier (créneaux, PIN, compression, QR).
 
 **À porter en React Native (app mobile) :**
 | Web (actuel) | React Native (cible) |
@@ -787,14 +795,11 @@ Logique Supabase (requêtes, realtime, storage) : 100 % réutilisable.
 ## 10. Contacts & Ressources
 
 - **Développeur** : HCS — Hybrid Consulting Systems (Guillaume Frey)
-- **App existante (référence / base web)** : https://planning-visites-maman.vercel.app
-- **GitHub** : https://github.com/EI-HCS-Consulting/Planning-Visites-Maman
-- **Vercel** : https://vercel.com/ei-hcs-consultings-projects/planning-visites-maman
+- **MVP d'origine (archivé, supprimé le 02/09/2026)** : tag git `archive/vercel-mvp-site` sur ce dépôt — plus de site ni de projet Vercel live
 - **Supabase dashboard** : https://supabase.com/dashboard/project/flmslcdzjuifkivmzins
 - **Supabase URL** : https://flmslcdzjuifkivmzins.supabase.co
 - **Supabase anon key** : `.env` → `EXPO_PUBLIC_SUPABASE_ANON_KEY` (ne jamais committer)
 - **Stripe** : clés `.env` (web uniquement) ; webhook → Edge Function d'activation
-- **Code de référence** : `App.jsx`
 - **Assets logo** : SVG du logo circulaire à fournir à Claude Code
 
 ---
