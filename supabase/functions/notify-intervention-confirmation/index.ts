@@ -116,6 +116,7 @@ Deno.serve(async (req: Request) => {
       body: JSON.stringify({
         from: "AvecToi <notifications@notifications.avectoi.care>",
         to: [intervenant_email],
+        reply_to: "support@avectoi.care",
         subject: `AvecToi — Confirmation de votre créneau du ${dateFr}`,
         html,
       }),

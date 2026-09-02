@@ -119,6 +119,7 @@ Deno.serve(async (req: Request) => {
       body: JSON.stringify({
         from: "AvecToi <notifications@notifications.avectoi.care>",
         to: [adminEmail],
+        reply_to: "support@avectoi.care",
         subject: `AvecToi — Annulation de ${visitor_prenom} ${visitor_nom} (${dateFr})`,
         html,
       }),

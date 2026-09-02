@@ -89,6 +89,7 @@ Deno.serve(async (req: Request) => {
       body: JSON.stringify({
         from: "AvecToi <notifications@notifications.avectoi.care>",
         to: [adminEmail],
+        reply_to: "support@avectoi.care",
         subject: `AvecToi — Limite atteinte pour ${space.patient_firstname} ${space.patient_lastname}`,
         html,
       }),
