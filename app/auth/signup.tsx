@@ -8,6 +8,7 @@ import * as Linking from "expo-linking";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import { themes } from "@/lib/themes";
+import { FREE_TRIAL_DAYS } from "@/lib/freemiumCap";
 
 const C = themes.dark;
 
@@ -85,7 +86,7 @@ export default function SignupScreen() {
         <Text style={styles.title}>Créer un compte</Text>
         <Text style={styles.subtitle}>
           Gratuit, sans carte bancaire.{"\n"}
-          Tu pourras planifier jusqu'à 8 visites avant de passer en illimité.
+          Visites illimitées pendant {FREE_TRIAL_DAYS} jours à partir de ta première réservation.
         </Text>
 
         <View style={styles.form}>

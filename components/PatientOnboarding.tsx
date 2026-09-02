@@ -9,7 +9,7 @@ import { supabase } from "@/lib/supabase";
 import { useSpace } from "@/lib/SpaceContext";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { generateDossierCode } from "@/lib/dossierCode";
-import { FREE_VISIT_LIMIT } from "@/lib/freemiumCap";
+import { FREE_TRIAL_DAYS } from "@/lib/freemiumCap";
 import { resolvePlaceFromMapsUrl } from "@/lib/address";
 import { openAndroidTimePicker, openAndroidDatePicker } from "@/lib/androidTimePicker";
 import { formatHourMinute } from "@/lib/slotUtils";
@@ -774,7 +774,7 @@ export default function PatientOnboarding() {
 
         {step === "patient" && (
           <Text style={styles.hint}>
-            Tu pourras planifier jusqu'à {FREE_VISIT_LIMIT} visites gratuitement.{"\n"}
+            Visites illimitées pendant {FREE_TRIAL_DAYS} jours à partir de la première réservation.{"\n"}
             Pas de carte bancaire, pas d'engagement.
           </Text>
         )}
