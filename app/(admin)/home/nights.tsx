@@ -104,8 +104,8 @@ export default function AdminNightsScreen() {
         )}
 
         {slotConfig.night_enabled && (
-          <TouchableOpacity style={[styles.reserveNextBtn, { backgroundColor: C.gold }]} onPress={handleReserveNext} activeOpacity={0.85}>
-            <Text style={styles.reserveNextBtnText}>Prochaine nuitée disponible</Text>
+          <TouchableOpacity style={[styles.reserveNextBtn, { backgroundColor: C.accent }]} onPress={handleReserveNext} activeOpacity={0.85}>
+            <Text style={styles.reserveNextBtnText}>⚡ Prochaine disponibilité</Text>
           </TouchableOpacity>
         )}
 
@@ -247,8 +247,8 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   scroll: { padding: 16, paddingBottom: 32 },
 
-  reserveNextBtn: { borderRadius: 12, paddingVertical: 14, paddingHorizontal: 16, alignItems: "center", marginBottom: 24 },
-  reserveNextBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#0D1B2E", textAlign: "center" },
+  reserveNextBtn: { borderRadius: 12, paddingVertical: 11, alignItems: "center", marginBottom: 12 },
+  reserveNextBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 15, color: "#fff", textAlign: "center" },
 
   sectionTitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, letterSpacing: 1, textTransform: "uppercase", marginBottom: 12 },
 

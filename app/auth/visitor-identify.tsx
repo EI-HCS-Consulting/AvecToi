@@ -107,6 +107,7 @@ export default function VisitorIdentifyScreen() {
           onChangeText={(v) => { setPrenom(v); setErrorMsg(""); }}
           autoCapitalize="words"
           autoCorrect={false}
+          autoFocus
         />
         <TextInput
           style={styles.input}

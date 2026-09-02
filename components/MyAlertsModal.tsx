@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { View, Text, TouchableOpacity, Modal, ScrollView, StyleSheet } from "react-native";
 import type { Reservation, ReservationChangeHistoryEntry, Task } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
@@ -30,7 +31,7 @@ function relaisCoverageLine(s: RelaisCoverageSummary): string {
 // calendrier/BDD.
 function frDate(iso: string | null): string {
   return iso
-    ? new Date(iso + "T12:00:00").toLocaleDateString("fr-FR", { day: "numeric", month: "long", year: "numeric" })
+    ? new Date(iso + "T12:00:00").toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" })
     : "";
 }
 
@@ -90,10 +91,21 @@ interface Props {
   pinResetHistoryIsAdmin?: boolean;
 }
 
+// Un item "Marquer comme lu" (activeAlerts ou history) est capturé ici au
+// moment du clic, avant que le parent ne le fasse disparaître de ses props —
+// c'est ce qui alimente le bloc "Archives" repliable. Purement local à la
+// session de ce composant monté (même principe que sessionHiddenIds dans
+// PinResetAlertModal) : pas de persistance en base, la liste est réinitialisée
+// à chaque remontage de l'écran appelant.
+type ArchivedEntry =
+  | { kind: "alert"; id: string; message: string }
+  | { kind: "history"; id: string; type: string; changeType: string; line: string; msg: string; changedAt: string };
+
 function frDateTime(iso: string): string {
-  return new Date(iso).toLocaleString("fr-FR", {
-    day: "numeric", month: "long", year: "numeric", hour: "2-digit", minute: "2-digit",
-  });
+  const d = new Date(iso);
+  const date = d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+  const time = d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  return `${date} à ${time}`;
 }
 
 // Une ligne par info, comme demandé : la version admin ajoute "Demandée par"
@@ -116,6 +128,9 @@ function pinResetHistoryLines(
 }
 
 export default function MyAlertsModal({ visible, onClose, C, activeAlerts, history, onModify, onMarkSeen, rgpdAlert, relaisAlerts = [], onClaimRelais, onDismissRelais, relaisCoverageHistory = [], onMarkHistorySeen, pinResetRequests = [], onResetPinRequest, onDismissPinResetRequest, pinResetHistory = [], adminFirstname, adminLastname, pinResetHistoryIsAdmin = false }: Props) {
+  const [archived, setArchived] = useState<ArchivedEntry[]>([]);
+  const [archivesOpen, setArchivesOpen] = useState(false);
+
   function handleModify(r: Reservation) {
     onClose();
     onModify(r);
@@ -124,6 +139,22 @@ export default function MyAlertsModal({ visible, onClose, C, activeAlerts, histo
   function handleClaimRelais(t: Task) {
     onClose();
     onClaimRelais?.(t);
+  }
+
+  // Capture l'item dans les Archives (en tête, ordre antéchronologique de
+  // traitement) avant de déclencher l'action réelle du parent, qui le fera
+  // disparaître d'activeAlerts/history au prochain rendu.
+  function handleMarkSeen(r: Reservation) {
+    setArchived((prev) => [{ kind: "alert", id: r.id, message: r.alert_message ?? "" }, ...prev]);
+    onMarkSeen(r);
+  }
+
+  function handleMarkHistorySeen(h: ReservationChangeHistoryEntry) {
+    setArchived((prev) => [
+      { kind: "history", id: h.id, type: h.type, changeType: h.change_type, line: changeLine(h), msg: h.message, changedAt: h.changed_at },
+      ...prev,
+    ]);
+    onMarkHistorySeen?.(h);
   }
 
   return (
@@ -226,7 +257,7 @@ export default function MyAlertsModal({ visible, onClose, C, activeAlerts, histo
                       >
                         <Text style={[styles.activeMessage, { color: C.text }]}>{r.alert_message}</Text>
                         <View style={styles.activeRow}>
-                          <TouchableOpacity style={[styles.smallBtn, { borderColor: C.border }]} onPress={() => onMarkSeen(r)}>
+                          <TouchableOpacity style={[styles.smallBtn, { borderColor: C.border }]} onPress={() => handleMarkSeen(r)}>
                             <Text style={[styles.smallBtnText, { color: C.muted }]}>Marquer comme lu</Text>
                           </TouchableOpacity>
                           <TouchableOpacity style={[styles.smallBtn, { backgroundColor: C.accent }]} onPress={() => handleModify(r)}>
@@ -263,20 +294,43 @@ export default function MyAlertsModal({ visible, onClose, C, activeAlerts, histo
                         <Text style={[styles.historyLine, { color: C.muted }]}>{changeLine(h)}</Text>
                         <Text style={[styles.historyMsg, { color: C.danger }]}>{h.message}</Text>
                         <Text style={[styles.historyDate, { color: C.muted }]}>
-                          {new Date(h.changed_at).toLocaleString("fr-FR", {
-                            day: "numeric", month: "long", year: "numeric",
-                            hour: "2-digit", minute: "2-digit",
-                          })}
+                          {frDateTime(h.changed_at)}
                         </Text>
                         {!!onMarkHistorySeen && (
                           <TouchableOpacity
                             style={[styles.smallBtn, { borderColor: C.border, alignSelf: "flex-start", marginTop: 8, paddingHorizontal: 14 }]}
-                            onPress={() => onMarkHistorySeen(h)}
+                            onPress={() => handleMarkHistorySeen(h)}
                           >
                             <Text style={[styles.smallBtnText, { color: C.muted }]}>Marquer comme lu</Text>
                           </TouchableOpacity>
                         )}
                       </View>
+                    ))}
+                  </>
+                )}
+
+                {archived.length > 0 && (
+                  <>
+                    <TouchableOpacity onPress={() => setArchivesOpen((v) => !v)} activeOpacity={0.7}>
+                      <Text style={[styles.sectionLabel, { color: C.gold, marginTop: 16 }]}>
+                        {archivesOpen ? "▾" : "▸"} Archives ({archived.length})
+                      </Text>
+                    </TouchableOpacity>
+                    {archivesOpen && archived.map((a) => (
+                      a.kind === "alert" ? (
+                        <View key={`archived-${a.id}`} style={[styles.historyRow, { borderLeftColor: C.border }]}>
+                          <Text style={[styles.historyLine, { color: C.muted }]}>{a.message}</Text>
+                        </View>
+                      ) : (
+                        <View key={`archived-${a.id}`} style={[styles.historyRow, { borderLeftColor: C.border }]}>
+                          <Text style={[styles.historyType, { color: C.text }]}>
+                            {a.changeType === "night_cancelled" ? "🌙" : "☀️"} {a.type}
+                          </Text>
+                          <Text style={[styles.historyLine, { color: C.muted }]}>{a.line}</Text>
+                          <Text style={[styles.historyMsg, { color: C.danger }]}>{a.msg}</Text>
+                          <Text style={[styles.historyDate, { color: C.muted }]}>{frDateTime(a.changedAt)}</Text>
+                        </View>
+                      )
                     ))}
                   </>
                 )}
