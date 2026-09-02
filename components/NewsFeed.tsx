@@ -809,15 +809,18 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
       ? entry.author_role === "visiteur" ? C.orange : entry.author_role === "intervenant" ? LOGO_PURPLE : C.border
       : C.border;
     const isNew = newIds.has(entry.id);
+    // Liseret bleu "mes publications" (voir NewIndicator) — indépendant du
+    // badge New, s'affiche tant que la publication existe, même vue/ancienne.
+    const mine = isAdmin ? entry.author_pin === "ADMIN" : (!!sessionPin && entry.author_pin === sessionPin);
     return (
       <View
         style={[
           styles.card,
-          { backgroundColor: C.card, borderColor: highlighted ? C.gold : entryAccentColor },
-          highlighted && { borderWidth: 2 },
+          { backgroundColor: C.card, borderColor: highlighted ? C.gold : isNew ? C.danger : entryAccentColor },
+          (highlighted || isNew) && { borderWidth: 2 },
         ]}
       >
-        {isNew && <NewIndicator />}
+        {(isNew || mine) && <NewIndicator isNew={isNew} mine={mine} />}
         {/* Author + date */}
         <View style={styles.cardHeader}>
           <View style={[styles.avatar, { backgroundColor: C.accent }]}>

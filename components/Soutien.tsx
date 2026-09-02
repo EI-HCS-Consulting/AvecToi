@@ -844,11 +844,11 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
               }}
               style={[
                 styles.msgCard,
-                { backgroundColor: C.card, borderColor: highlighted ? C.gold : C.border },
-                highlighted && { borderWidth: 2 },
+                { backgroundColor: C.card, borderColor: highlighted ? C.gold : isNew ? C.danger : C.border },
+                (highlighted || isNew) && { borderWidth: 2 },
               ]}
             >
-              {isNew && <NewIndicator />}
+              {(isNew || own) && <NewIndicator isNew={isNew} mine={own} />}
               <View style={styles.msgCardHeader}>
                 <View style={[styles.msgAvatar, { backgroundColor: `${C.gold}33` }]}>
                   <Text style={[styles.msgAvatarText, { color: C.gold }]}>

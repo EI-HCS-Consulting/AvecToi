@@ -3052,6 +3052,9 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     const statusColors = STATUS_COLORS(C);
     const highlighted = highlightId === t.id;
     const isNew = newIds.has(t.id);
+    // Liseret bleu "mes publications" (voir NewIndicator) — indépendant du
+    // badge New, s'affiche tant que le besoin existe, même vu/ancien.
+    const mine = isAdmin ? t.author_pin === "ADMIN" : isAuthor(t);
     // Sélection multiple : admin sur tout besoin, visiteur seulement sur ceux
     // qu'il a lui-même publiés (voir isAuthor) et pas encore fermés depuis
     // trop longtemps (voir isTaskClosedPast) — même périmètre que la
@@ -3097,7 +3100,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           selected && { borderColor: C.accent, borderWidth: 2, backgroundColor: `${C.accent}11` },
         ]}
       >
-        {isNew && <NewIndicator urgent={urgentOpen} />}
+        {(isNew || mine) && <NewIndicator isNew={isNew} mine={mine} />}
         <View style={styles.taskHeader}>
           {selectable && selectionMode && (
             <View style={[styles.selectDot, { borderColor: C.accent, backgroundColor: selected ? C.accent : "transparent" }]}>
