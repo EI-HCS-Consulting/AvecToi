@@ -213,6 +213,20 @@ export function useWallReadTracking(scope: WallScope, spaceId: string | null, is
   // été publié pendant l'absence, s'il y en a). `unreadIdsRef` capture la
   // valeur juste avant le flush : l'event AppState est synchrone, donc aucun
   // refetch réseau ne peut s'être glissé entre les deux dans le même tick.
+  //
+  // On exige explicitement "background" (pas seulement "inactive") comme
+  // état précédent : présenter/masquer un <Modal> natif RN (RebookingAlert-
+  // Modal, DeletedContentAlertModal... tous montés en permanence dans les
+  // _layout.tsx, donc actifs quel que soit l'onglet affiché) fait
+  // transitoirement passer AppState par "inactive" sur iOS, SANS jamais
+  // atteindre "background" — un simple changement d'onglet suffisait donc à
+  // déclencher ce flush par erreur (et à effacer des badges "New" jamais
+  // réellement vus), tout en laissant le flush ne se produire qu'au hasard
+  // pour un mur donné (d'où des badges qui semblaient à la fois s'effacer
+  // trop tôt sur certains murs et s'accumuler indéfiniment sur d'autres,
+  // comme Soutien — un seul et même bug). Une vraie mise en arrière-plan
+  // (bouton Accueil, multitâche, écran éteint) transite toujours par
+  // "background" sur iOS comme sur Android.
   const unreadIdsRef = useRef(unreadIds);
   unreadIdsRef.current = unreadIds;
   const markAllSeenRef = useRef(markAllSeen);
@@ -220,7 +234,7 @@ export function useWallReadTracking(scope: WallScope, spaceId: string | null, is
   const appStateRef = useRef(AppState.currentState);
   useEffect(() => {
     const sub = AppState.addEventListener("change", (next) => {
-      if (/inactive|background/.test(appStateRef.current) && next === "active") {
+      if (appStateRef.current === "background" && next === "active") {
         markAllSeenRef.current(unreadIdsRef.current);
       }
       appStateRef.current = next;

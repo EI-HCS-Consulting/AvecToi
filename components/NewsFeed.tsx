@@ -811,13 +811,22 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
     const isNew = newIds.has(entry.id);
     // Liseret bleu "mes publications" (voir NewIndicator) — indépendant du
     // badge New, s'affiche tant que la publication existe, même vue/ancienne.
-    const mine = isAdmin ? entry.author_pin === "ADMIN" : (!!sessionPin && entry.author_pin === sessionPin);
+    // Le PIN seul ne suffit pas à identifier l'auteur (deux visiteurs
+    // peuvent choisir le même code à 4 chiffres) : on exige aussi le
+    // prénom/nom de la session, comme samePerson côté Entraide.
+    const mine = isAdmin
+      ? entry.author_pin === "ADMIN"
+      : (!!sessionPin && entry.author_pin === sessionPin && entry.author_prenom === formPrenom && entry.author_nom === formNom);
+    // Cadre rouge réservé aux nouvelles publications des AUTRES : sur mes
+    // propres publications, seuls le liseret bleu et le badge New comptent
+    // (pas besoin de cadre rouge pour attirer mon attention sur mon propre
+    // contenu).
     return (
       <View
         style={[
           styles.card,
-          { backgroundColor: C.card, borderColor: highlighted ? C.gold : isNew ? C.danger : entryAccentColor },
-          (highlighted || isNew) && { borderWidth: 2 },
+          { backgroundColor: C.card, borderColor: highlighted ? C.gold : (isNew && !mine) ? C.danger : entryAccentColor },
+          (highlighted || (isNew && !mine)) && { borderWidth: 2 },
         ]}
       >
         {(isNew || mine) && <NewIndicator isNew={isNew} mine={mine} />}

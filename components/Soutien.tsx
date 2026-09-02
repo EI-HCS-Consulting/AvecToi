@@ -844,8 +844,8 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
               }}
               style={[
                 styles.msgCard,
-                { backgroundColor: C.card, borderColor: highlighted ? C.gold : isNew ? C.danger : C.border },
-                (highlighted || isNew) && { borderWidth: 2 },
+                { backgroundColor: C.card, borderColor: highlighted ? C.gold : (isNew && !own) ? C.danger : C.border },
+                (highlighted || (isNew && !own)) && { borderWidth: 2 },
               ]}
             >
               {(isNew || own) && <NewIndicator isNew={isNew} mine={own} />}
