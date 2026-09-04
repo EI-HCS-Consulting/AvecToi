@@ -1,6 +1,11 @@
 # PRD — AvecToi
-## Product Requirements Document v1.26
+## Product Requirements Document v1.27
 *Préparé pour Claude Code — Juin 2026, synchronisé avec l'application livrée en Juillet/Août/Septembre 2026*
+
+> **Changelog v1.26 → v1.27**
+> - **Mot de passe oublié : lien de réinitialisation non fonctionnel, corrigé** *(04/09/2026, PR #381-384)* : le lien envoyé par email (introduit en v1.26, PR #378) laissait l'écran bloqué sur « Vérification du lien… », puis (après un premier correctif de filet de sécurité, PR #381) basculait sur « Lien invalide » sans jamais aboutir. Cause racine, identifiée via instrumentation temporaire (PR #382, retirée par PR #384) : le client Supabase (`lib/supabase.ts`) utilisait par défaut le **flux d'authentification implicite** (jetons dans le fragment `#access_token=...` de l'URL), qu'Expo Router ne peut pas capturer une fois la navigation initiale résolue (il ne matche que le chemin, et `Linking.getInitialURL()` n'est lisible qu'une seule fois côté natif). Corrigé en forçant `flowType: "pkce"` (PR #383), qui transmet les jetons en query string (`?code=...`) — capturée normalement par `useLocalSearchParams()`. Confirmé fonctionnel de bout en bout sur device réel.
+> - **Envoi de l'email de réinitialisation via SMTP personnalisé (Resend)** *(04/09/2026)* : le mailer intégré de Supabase, limité en fréquence d'envoi, est remplacé par un SMTP dédié (Resend, sous-domaine `notifications.avectoi.care` déjà vérifié SPF/DKIM/DMARC) ; le template d'email a également été traduit en français — configuration Dashboard uniquement (Auth → SMTP Settings / Email Templates), aucun changement de code
+> - Détail exhaustif écran par écran : `Documentation/Documentation Fonctionnalités.docx` (généré depuis le code, mis à jour à chaque handoff)
 
 > **Changelog v1.25 → v1.26**
 > - **Gates Premium : masquage complet au lieu d'un message bloquant, pour deux des cinq gates** *(04/09/2026, PR #378)* : la vue Hebdo du calendrier (switch Mensuel/Hebdo) et le besoin **🆘 SOS** (bouton « Besoin de relais » de Mon Compte) sont désormais **entièrement masqués** pour un espace Freemium au lieu d'afficher un message neutre au moment de l'action — ils réapparaissent automatiquement au passage en Premium. La Chronologie, les Documents types et la prolongation RGPD restent, eux, visibles mais gérés par une popup « Fonctionnalité Premium » (`ConfirmModal`, avec lien « En savoir plus » vers `avectoi.care`) au moment de l'action — voir §3.12 (mise à jour ci-dessous)
