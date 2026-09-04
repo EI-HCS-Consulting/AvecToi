@@ -295,7 +295,7 @@ export default function MesSouvenirs({ spaceId, C, isAdmin }: Props) {
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
       <View style={[styles.header, { backgroundColor: C.card, borderBottomColor: C.border }]}>
-        <TouchableOpacity onPress={() => router.back()} activeOpacity={0.7}>
+        <TouchableOpacity onPress={() => router.push(isAdmin ? "/(admin)/account" : "/(visitor)/account")} activeOpacity={0.7}>
           <Text style={[styles.backText, { color: C.accent }]}>← Retour</Text>
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: C.text }]}>📷 Mes souvenirs</Text>
