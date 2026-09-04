@@ -6,6 +6,7 @@ import {
 import * as Crypto from "expo-crypto";
 import { supabase } from "@/lib/supabase";
 import ConfirmModal from "@/components/ConfirmModal";
+import PremiumGateModal from "@/components/PremiumGateModal";
 import MiniCalendar from "@/components/MiniCalendar";
 import { normalizePhone } from "@/lib/phone";
 import { CHECKLIST_TEMPLATES, addDaysIso, checklistItemDescription, findTemplateItemByTitle, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
@@ -160,6 +161,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
   // formulaire. Requêté à l'ouverture du modal plutôt que tenu en
   // permanence, comme existingTasks.
   const [documentsModal, setDocumentsModal] = useState(false);
+  const [premiumGateMsg, setPremiumGateMsg] = useState<string | null>(null);
   const [documents, setDocuments] = useState<PersonalDocument[]>([]);
   const [loadingDocuments, setLoadingDocuments] = useState(false);
   const [redownloadingDocId, setRedownloadingDocId] = useState<string | null>(null);
@@ -909,14 +911,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
             style={styles.itemLinkWrap}
             onPress={() => {
               if (!canGenerateDocumentType(space)) {
-                Alert.alert(
-                  "Fonctionnalité Premium",
-                  "La génération de documents types fait partie de l'offre Premium. Passez votre espace en illimité pour l'activer.",
-                  [
-                    { text: "Fermer", style: "cancel" },
-                    { text: "En savoir plus", onPress: () => Linking.openURL("https://avectoi.care") },
-                  ],
-                );
+                setPremiumGateMsg("La génération de documents types fait partie de l'offre Premium. Passez votre espace en illimité pour l'activer.");
                 return;
               }
               openLetterModal(letterTpl);
@@ -1435,6 +1430,13 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
         singleButton
         onCancel={() => setFullyImportedTplName(null)}
         onConfirm={() => setFullyImportedTplName(null)}
+        C={C}
+      />
+
+      <PremiumGateModal
+        visible={!!premiumGateMsg}
+        message={premiumGateMsg ?? ""}
+        onClose={() => setPremiumGateMsg(null)}
         C={C}
       />
 

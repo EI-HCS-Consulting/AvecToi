@@ -95,6 +95,12 @@ export default function LoginScreen() {
               {loading ? "Connexion…" : "Se connecter"}
             </Text>
           </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => router.push(`/auth/forgot-password?email=${encodeURIComponent(email.trim())}`)}
+            style={styles.forgotBtn}
+          >
+            <Text style={styles.forgotText}>Mot de passe oublié ?</Text>
+          </TouchableOpacity>
         </View>
 
         <Text style={styles.hint}>
@@ -164,6 +170,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#fff",
   },
+  forgotBtn: { alignSelf: "center", marginTop: 14, padding: 6 },
+  forgotText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, color: C.accent },
   hint: {
     fontFamily: "DM_Sans_400Regular",
     fontSize: 12,

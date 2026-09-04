@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   View, Text, TouchableOpacity, ScrollView,
   StyleSheet, ActivityIndicator, TextInput, Alert,
-  Modal, KeyboardAvoidingView, Platform, Dimensions, Linking,
+  Modal, KeyboardAvoidingView, Platform, Dimensions,
 } from "react-native";
 import { useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
@@ -25,6 +25,7 @@ import { canProlongSpace, canPublishRelaisSOS } from "@/lib/freemiumCap";
 import { toFrShort, isReservationFullyPast } from "@/lib/slotUtils";
 import { disengageTask as performDisengage } from "@/lib/taskDisengage";
 import ConfirmModal from "@/components/ConfirmModal";
+import PremiumGateModal from "@/components/PremiumGateModal";
 import RecurringBookingModal from "@/components/RecurringBookingModal";
 import { fetchOpenRelaisAlerts, fetchMyRelaisCoverageHistory, type RelaisCoverageSummary } from "@/lib/relaisAlerts";
 import { fetchOpenPinResetRequests, markPinResetRequestSeen, resolvePinResetRequest, fetchPinResetHistory, type PinResetRequest } from "@/lib/pinResetRequests";
@@ -559,6 +560,7 @@ export default function AdminAccountScreen() {
   // de l'app. Comptée dans le badge "Mes alertes" au même titre que les
   // recasages/annulations.
   const [rgpdProlonging, setRgpdProlonging] = useState(false);
+  const [premiumGateMsg, setPremiumGateMsg] = useState<string | null>(null);
   const rgpdAlertActive = !!space && isRgpdAlertActive(space);
   const alertsBadgeCount = myActiveAlerts.length + relaisAlerts.length + pinResetRequests.length + (rgpdAlertActive ? 1 : 0);
 
@@ -580,14 +582,7 @@ export default function AdminAccountScreen() {
   async function handleRgpdProlong() {
     if (!space) return;
     if (!canProlongSpace(space)) {
-      Alert.alert(
-        "Fonctionnalité Premium",
-        "La prolongation de la conservation des données fait partie de l'offre Premium. Passez votre espace en illimité pour l'activer.",
-        [
-          { text: "Fermer", style: "cancel" },
-          { text: "En savoir plus", onPress: () => Linking.openURL("https://avectoi.care") },
-        ],
-      );
+      setPremiumGateMsg("La prolongation de la conservation des données fait partie de l'offre Premium. Passez votre espace en illimité pour l'activer.");
       return;
     }
     setRgpdProlonging(true);
@@ -886,32 +881,21 @@ export default function AdminAccountScreen() {
           )}
         </View>
 
-        <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 16 }]}>
-          <Text style={[styles.patientName, { color: C.text, fontSize: 16 }]}>🆘 Besoin de relais</Text>
-          <Text style={[styles.cardDesc, { color: C.muted }]}>
-            Tu as besoin de souffler ? Publie un besoin de relais ponctuel, visible par tous les proches ou seulement certains.
-          </Text>
-          <TouchableOpacity
-            style={[styles.editProfileBtn, { backgroundColor: C.accent, borderColor: C.accent, marginTop: 10 }]}
-            onPress={() => {
-              if (!canPublishRelaisSOS(space)) {
-                Alert.alert(
-                  "Fonctionnalité Premium",
-                  "Le besoin de relais (SOS) fait partie de l'offre Premium. Passez votre espace en illimité pour l'activer.",
-                  [
-                    { text: "Fermer", style: "cancel" },
-                    { text: "En savoir plus", onPress: () => Linking.openURL("https://avectoi.care") },
-                  ],
-                );
-                return;
-              }
-              router.push("/(admin)/entraide?openRelais=1");
-            }}
-            activeOpacity={0.85}
-          >
-            <Text style={[styles.editProfileBtnText, { color: "#fff" }]}>Publier un besoin de relais</Text>
-          </TouchableOpacity>
-        </View>
+        {canPublishRelaisSOS(space) && (
+          <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 16 }]}>
+            <Text style={[styles.patientName, { color: C.text, fontSize: 16 }]}>🆘 Besoin de relais</Text>
+            <Text style={[styles.cardDesc, { color: C.muted }]}>
+              Tu as besoin de souffler ? Publie un besoin de relais ponctuel, visible par tous les proches ou seulement certains.
+            </Text>
+            <TouchableOpacity
+              style={[styles.editProfileBtn, { backgroundColor: C.accent, borderColor: C.accent, marginTop: 10 }]}
+              onPress={() => router.push("/(admin)/entraide?openRelais=1")}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.editProfileBtnText, { color: "#fff" }]}>Publier un besoin de relais</Text>
+            </TouchableOpacity>
+          </View>
+        )}
 
         <TouchableOpacity
           style={[styles.saveBtn, { backgroundColor: C.accent, marginTop: 16 }, alertsBadgeCount > 0 && { backgroundColor: "#e94560" }]}
@@ -1405,6 +1389,13 @@ export default function AdminAccountScreen() {
         saving={desengageSaving}
         onCancel={() => setDesengageTarget(null)}
         onConfirm={confirmDesengage}
+        C={C}
+      />
+
+      <PremiumGateModal
+        visible={!!premiumGateMsg}
+        message={premiumGateMsg ?? ""}
+        onClose={() => setPremiumGateMsg(null)}
         C={C}
       />
 
