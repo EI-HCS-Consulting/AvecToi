@@ -1,9 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, KeyboardAvoidingView, Platform, ScrollView,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import * as Linking from "expo-linking";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
@@ -27,6 +27,15 @@ function extractAuthParams(url: string) {
 
 export default function ResetPasswordScreen() {
   const router = useRouter();
+  // Expo Router a déjà parsé la query string du lien pour ouvrir cet écran —
+  // source fiable, contrairement à Linking.useURL() qui peut ne jamais
+  // résoudre l'URL de lancement au cold start sur un Dev Client (bug observé :
+  // écran bloqué indéfiniment sur "Vérification du lien…"). On ne garde
+  // Linking.useURL() qu'en repli, pour le flux implicite (#access_token=...)
+  // que les search params de Router ne capturent pas (fragment, pas query).
+  const searchParams = useLocalSearchParams<{
+    code?: string; access_token?: string; refresh_token?: string;
+  }>();
   const url = Linking.useURL();
   const [ready, setReady] = useState(false);
   const [invalidLink, setInvalidLink] = useState(false);
@@ -36,26 +45,42 @@ export default function ResetPasswordScreen() {
   const [loading, setLoading] = useState(false);
   const [errorModal, setErrorModal] = useState<string | null>(null);
   const [doneModal, setDoneModal] = useState(false);
+  const handledRef = useRef(false);
 
   useEffect(() => {
-    if (!url || ready) return;
-    (async () => {
-      const params = extractAuthParams(url);
-      const code = params.get("code");
+    async function process(code: string | null, access_token: string | null, refresh_token: string | null) {
+      if (handledRef.current || (!code && !(access_token && refresh_token))) return;
+      handledRef.current = true;
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
         if (error) { setInvalidLink(true); return; }
         setReady(true);
         return;
       }
-      const access_token = params.get("access_token");
-      const refresh_token = params.get("refresh_token");
-      if (!access_token || !refresh_token) { setInvalidLink(true); return; }
-      const { error } = await supabase.auth.setSession({ access_token, refresh_token });
+      const { error } = await supabase.auth.setSession({ access_token: access_token!, refresh_token: refresh_token! });
       if (error) { setInvalidLink(true); return; }
       setReady(true);
-    })();
-  }, [url, ready]);
+    }
+
+    if (searchParams.code || (searchParams.access_token && searchParams.refresh_token)) {
+      process(searchParams.code ?? null, searchParams.access_token ?? null, searchParams.refresh_token ?? null);
+      return;
+    }
+    if (url) {
+      const params = extractAuthParams(url);
+      process(params.get("code"), params.get("access_token"), params.get("refresh_token"));
+    }
+  }, [searchParams.code, searchParams.access_token, searchParams.refresh_token, url]);
+
+  // Filet de sécurité : si rien n'a pu être extrait du lien après quelques
+  // secondes (ni Router params ni Linking.useURL() n'ont livré de jeton),
+  // ne pas laisser l'écran bloqué indéfiniment sur "Vérification du lien…".
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      if (!handledRef.current) setInvalidLink(true);
+    }, 6000);
+    return () => clearTimeout(timeout);
+  }, []);
 
   async function handleReset() {
     if (password.length < 6) {
@@ -67,7 +92,7 @@ export default function ResetPasswordScreen() {
       return;
     }
     setLoading(true);
-    const { error } = await supabase.auth.updateUser({ password });
+    const { error } = await supabase.auth.updateUser({ password: password.trim() });
     setLoading(false);
     if (error) {
       setErrorModal(error.message);
