@@ -1,6 +1,13 @@
 # PRD — AvecToi
-## Product Requirements Document v1.25
+## Product Requirements Document v1.26
 *Préparé pour Claude Code — Juin 2026, synchronisé avec l'application livrée en Juillet/Août/Septembre 2026*
+
+> **Changelog v1.25 → v1.26**
+> - **Gates Premium : masquage complet au lieu d'un message bloquant, pour deux des cinq gates** *(04/09/2026, PR #378)* : la vue Hebdo du calendrier (switch Mensuel/Hebdo) et le besoin **🆘 SOS** (bouton « Besoin de relais » de Mon Compte) sont désormais **entièrement masqués** pour un espace Freemium au lieu d'afficher un message neutre au moment de l'action — ils réapparaissent automatiquement au passage en Premium. La Chronologie, les Documents types et la prolongation RGPD restent, eux, visibles mais gérés par une popup « Fonctionnalité Premium » (`ConfirmModal`, avec lien « En savoir plus » vers `avectoi.care`) au moment de l'action — voir §3.12 (mise à jour ci-dessous)
+> - **Mot de passe oublié (Admin)** *(04/09/2026, PR #378)* : lien « Mot de passe oublié ? » sur l'écran de connexion, envoi d'un email de réinitialisation (Supabase Auth) puis écran dédié pour poser le nouveau mot de passe, avec déconnexion forcée pour resynchroniser la session ; à l'inscription, une adresse déjà associée à un compte ouvre une popup « Adresse déjà utilisée » proposant directement « Mot de passe oublié » ou « Se connecter » (détection anti-énumération via le signal `identities` vide renvoyé par Supabase, sans erreur explicite) — voir §5.11/§6.4
+> - **Harmonisation des popups vers `ConfirmModal`** *(04/09/2026, PR #378)* : les nouvelles popups introduites par ce cycle (gates Premium Hebdo/SOS avant leur passage en masquage, adresse déjà utilisée) suivent la convention déjà en place (`ConfirmModal`, jamais `Alert.alert`, voir Handoff) — pas de changement produit, mentionné pour cohérence
+> - **Fiche patient : date de naissance avant date d'hospitalisation** *(04/09/2026, PR #378)* : réordonnancement des champs affichés (admin et visiteur) pour mettre la date de naissance en premier — pas de changement de contenu, uniquement d'ordre de présentation
+> - Détail exhaustif écran par écran : `Documentation/Documentation Fonctionnalités.docx` (généré depuis le code, mis à jour à chaque handoff)
 
 > **Changelog v1.24 → v1.25**
 > - **Modèle Freemium/Premium aligné sur le site `avectoi.care` v4** *(04/09/2026, synchronisation post-lancement site — voir `AvecToi-Site/PRD_ClaudeCode_Site_avectoi_care_v4.md` "Mises à jour post-v4")* :
@@ -435,12 +442,12 @@ Réservé aux professionnels de soin (infirmier·ère, kiné, aide à domicile�
 - Au-delà de cette fenêtre, toute nouvelle réservation ou tout nouvel ajout de photo est bloqué avec un message d'information — jamais de bouton d'achat affiché dans l'app (conformité reader app, §3.1)
 - Le partage de l'espace (lien d'invitation, QR code, code dossier) n'est **pas** limité par le cap — disponible dès la Freemium
 - **Rôle Intervenant réservé au Premium** *(NOUVEAU depuis v1.7)* : activer « Planning des intervenants » (§3.9) exige un espace Premium ; la désactivation reste toujours possible sans condition. Message neutre affiché si l'admin d'un espace Freemium tente d'activer, sans ton commercial appuyé (cohérent avec l'absence de bouton d'achat dans l'app, §3.1)
-- **Vue planning Hebdo réservée au Premium** *(NOUVEAU depuis v1.25)* : un espace Freemium reste limité à la vue Mensuelle (§3.2, §3.3) ; basculer sur « Hebdo » affiche le même message neutre, sans bloquer la vue Mensuelle
-- **Besoin de relais (🆘 SOS) réservé au Premium** *(NOUVEAU depuis v1.25)* : publier un besoin de relais (§3.8) exige un espace Premium
-- **Chronologie et téléchargement du livret d'hospitalisation réservés au Premium** *(NOUVEAU depuis v1.25)* : le bouton « 🕐 Chronologie » (Paramètres, §3.2) exige un espace Premium ; l'export PDF "livret" reste par ailleurs non construit (backlog V2, §8), à annoncer comme "bientôt disponible" une fois livré
-- **Documents types réservés au Premium** *(NOUVEAU depuis v1.25)* : la génération de courriers administratifs depuis une checklist (§3.8, « ✉️ Préparer le courrier ») exige un espace Premium
-- **Prolongation de la conservation RGPD réservée au Premium** *(NOUVEAU depuis v1.25)* : le bouton « Prolonger » (§10bis) exige un espace Premium ; un espace Freemium n'a que sa fenêtre initiale de 30 jours, non renouvelable
-- Le passage en espace premium reste un flux **web** (avectoi.care), hors du périmètre de l'app mobile — les cinq gates ci-dessus partagent le même garde-fou `space.premium` (`lib/freemiumCap.ts`) et la même Alert « Fonctionnalité Premium » que le rôle Intervenant
+- **Vue planning Hebdo réservée au Premium** *(NOUVEAU depuis v1.25, comportement corrigé en v1.26 — PR #378)* : un espace Freemium reste limité à la vue Mensuelle (§3.2, §3.3) ; le switch Mensuel/Hebdo lui-même est **entièrement masqué** (et non plus affiché avec un message bloquant au tap) — il réapparaît automatiquement au passage en Premium
+- **Besoin de relais (🆘 SOS) réservé au Premium** *(NOUVEAU depuis v1.25, comportement corrigé en v1.26 — PR #378)* : le bouton « 🆘 Besoin de relais » de Mon Compte est **entièrement masqué** pour un espace Freemium (et non plus affiché avec un message bloquant au tap) — il réapparaît automatiquement au passage en Premium
+- **Chronologie et téléchargement du livret d'hospitalisation réservés au Premium** *(NOUVEAU depuis v1.25)* : le bouton « 🕐 Chronologie » (Paramètres, §3.2) reste visible mais ouvre une popup « Fonctionnalité Premium » (`ConfirmModal`) pour un espace Freemium ; l'export PDF "livret" reste par ailleurs non construit (backlog V2, §8), à annoncer comme "bientôt disponible" une fois livré
+- **Documents types réservés au Premium** *(NOUVEAU depuis v1.25)* : le bouton « ✉️ Préparer le courrier » (§3.8) reste visible mais ouvre une popup « Fonctionnalité Premium » (`ConfirmModal`) pour un espace Freemium, au lieu du formulaire de courrier
+- **Prolongation de la conservation RGPD réservée au Premium** *(NOUVEAU depuis v1.25)* : le bouton « Prolonger » (§10bis) reste visible mais ouvre une popup « Fonctionnalité Premium » (`ConfirmModal`) pour un espace Freemium, qui n'a que sa fenêtre initiale de 30 jours, non renouvelable
+- Le passage en espace premium reste un flux **web** (avectoi.care), hors du périmètre de l'app mobile — les cinq gates ci-dessus partagent le même garde-fou `space.premium` (`lib/freemiumCap.ts`), mais se répartissent en deux comportements distincts depuis v1.26 : **masquage complet** (Hebdo, SOS/relais) contre **popup `ConfirmModal` « Fonctionnalité Premium »** (Chronologie, Documents types, Prolongation RGPD) — le rôle Intervenant (§3.9) suit toujours l'ancien comportement d'Alert bloquante, non harmonisé à ce jour
 
 ---
 
