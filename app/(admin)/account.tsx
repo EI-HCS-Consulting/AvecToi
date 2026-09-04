@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   View, Text, TouchableOpacity, ScrollView,
   StyleSheet, ActivityIndicator, TextInput, Alert,
-  Modal, KeyboardAvoidingView, Platform, Dimensions,
+  Modal, KeyboardAvoidingView, Platform, Dimensions, Linking,
 } from "react-native";
 import { useRouter } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
@@ -21,6 +21,7 @@ import MyAlertsModal from "@/components/MyAlertsModal";
 import PatientProfileModal from "@/components/PatientProfileModal";
 import VisitorsListModal from "@/components/VisitorsListModal";
 import { isRgpdAlertActive, rgpdAlertMessage, prolongSpace } from "@/lib/rgpd";
+import { canProlongSpace, canPublishRelaisSOS } from "@/lib/freemiumCap";
 import { toFrShort, isReservationFullyPast } from "@/lib/slotUtils";
 import { disengageTask as performDisengage } from "@/lib/taskDisengage";
 import ConfirmModal from "@/components/ConfirmModal";
@@ -578,6 +579,17 @@ export default function AdminAccountScreen() {
 
   async function handleRgpdProlong() {
     if (!space) return;
+    if (!canProlongSpace(space)) {
+      Alert.alert(
+        "Fonctionnalité Premium",
+        "La prolongation de la conservation des données fait partie de l'offre Premium. Passez votre espace en illimité pour l'activer.",
+        [
+          { text: "Fermer", style: "cancel" },
+          { text: "En savoir plus", onPress: () => Linking.openURL("https://avectoi.care") },
+        ],
+      );
+      return;
+    }
     setRgpdProlonging(true);
     const patch = await prolongSpace(space);
     setRgpdProlonging(false);
@@ -881,7 +893,20 @@ export default function AdminAccountScreen() {
           </Text>
           <TouchableOpacity
             style={[styles.editProfileBtn, { backgroundColor: C.accent, borderColor: C.accent, marginTop: 10 }]}
-            onPress={() => router.push("/(admin)/entraide?openRelais=1")}
+            onPress={() => {
+              if (!canPublishRelaisSOS(space)) {
+                Alert.alert(
+                  "Fonctionnalité Premium",
+                  "Le besoin de relais (SOS) fait partie de l'offre Premium. Passez votre espace en illimité pour l'activer.",
+                  [
+                    { text: "Fermer", style: "cancel" },
+                    { text: "En savoir plus", onPress: () => Linking.openURL("https://avectoi.care") },
+                  ],
+                );
+                return;
+              }
+              router.push("/(admin)/entraide?openRelais=1");
+            }}
             activeOpacity={0.85}
           >
             <Text style={[styles.editProfileBtnText, { color: "#fff" }]}>Publier un besoin de relais</Text>

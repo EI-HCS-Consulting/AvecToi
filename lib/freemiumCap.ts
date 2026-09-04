@@ -23,3 +23,30 @@ export function canEnableIntervenants(space: PatientSpace | null): boolean {
   if (!space) return false;
   return space.premium;
 }
+
+// Alignées sur avectoi.care v4 (04/09/2026) : Hebdo, SOS, Chronologie+livret et
+// Documents types passent en exclusivité Premium — voir PRD_AvecToi_v1_4.md §3.12.
+export function canUseHebdoPlanningView(space: PatientSpace | null): boolean {
+  if (!space) return false;
+  return space.premium;
+}
+
+export function canPublishRelaisSOS(space: PatientSpace | null): boolean {
+  if (!space) return false;
+  return space.premium;
+}
+
+export function canAccessChronologieLivret(space: PatientSpace | null): boolean {
+  if (!space) return false;
+  return space.premium;
+}
+
+export function canGenerateDocumentType(space: PatientSpace | null): boolean {
+  if (!space) return false;
+  return space.premium;
+}
+
+export function canProlongSpace(space: PatientSpace | null): boolean {
+  if (!space) return false;
+  return space.premium;
+}

@@ -13,7 +13,7 @@ import { FREE_TRIAL_DAYS } from "@/lib/freemiumCap";
 import { resolvePlaceFromMapsUrl } from "@/lib/address";
 import { openAndroidTimePicker, openAndroidDatePicker } from "@/lib/androidTimePicker";
 import { formatHourMinute } from "@/lib/slotUtils";
-import { RGPD_DEFAULT_RETENTION_DAYS } from "@/lib/rgpd";
+import { RGPD_RETENTION_DAYS_FREEMIUM } from "@/lib/rgpd";
 import type { PatientSpace } from "@/lib/types";
 
 const DOSSIER_CODE_UNIQUE_VIOLATION = "23505";
@@ -38,7 +38,7 @@ const FIXED_SLOT_CONFIG = {
   max_night_visitors: 1,
 };
 
-const SPACE_DURATION_DAYS = RGPD_DEFAULT_RETENTION_DAYS; // durée initiale de conservation RGPD (lib/rgpd.ts)
+const SPACE_DURATION_DAYS = RGPD_RETENTION_DAYS_FREEMIUM; // durée initiale de conservation RGPD (tous les espaces sont créés en Freemium — lib/rgpd.ts)
 
 type Step = "patient" | "care" | "hours" | "capacity";
 const FORM_STEPS: Step[] = ["patient", "care", "hours", "capacity"];

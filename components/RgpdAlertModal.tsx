@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { View, Text, TouchableOpacity, Modal, StyleSheet } from "react-native";
+import { View, Text, TouchableOpacity, Modal, StyleSheet, Linking } from "react-native";
 import { useSpace } from "@/lib/SpaceContext";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { isRgpdAlertActive, rgpdAlertMessage, prolongSpace, RGPD_EXTENSION_DAYS } from "@/lib/rgpd";
+import { canProlongSpace } from "@/lib/freemiumCap";
 
 // Popup affiché à l'ouverture de l'app admin quand la date de conservation
 // RGPD de l'espace (purge_scheduled_at) tombe dans les 7 prochains jours —
@@ -23,6 +24,10 @@ export default function RgpdAlertModal() {
 
   async function handleProlong() {
     if (!space) return;
+    if (!canProlongSpace(space)) {
+      Linking.openURL("https://avectoi.care");
+      return;
+    }
     setProlonging(true);
     const patch = await prolongSpace(space);
     setProlonging(false);
@@ -53,7 +58,9 @@ export default function RgpdAlertModal() {
               disabled={prolonging}
               activeOpacity={0.85}
             >
-              <Text style={styles.btnPrimaryText}>Prolonger de {RGPD_EXTENSION_DAYS} jours</Text>
+              <Text style={styles.btnPrimaryText}>
+                {canProlongSpace(space) ? `Prolonger de ${RGPD_EXTENSION_DAYS} jours` : "Passer en Premium"}
+              </Text>
             </TouchableOpacity>
           </View>
         </View>

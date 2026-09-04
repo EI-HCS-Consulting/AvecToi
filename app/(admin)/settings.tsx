@@ -29,7 +29,7 @@ import NightVisitorModal from "@/components/NightVisitorModal";
 import { resolvePlaceFromMapsUrl } from "@/lib/address";
 import { generateSlots, formatHourMinute, isReservationFullyPast } from "@/lib/slotUtils";
 import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
-import { canEnableIntervenants } from "@/lib/freemiumCap";
+import { canEnableIntervenants, canProlongSpace, canAccessChronologieLivret } from "@/lib/freemiumCap";
 import { INTERVENANT_ROLE_ENABLED } from "@/lib/featureFlags";
 import { RGPD_EXTENSION_DAYS, prolongSpace, isRgpdAlertActive, rgpdEarlyProlongMessage } from "@/lib/rgpd";
 import ConfirmModal from "@/components/ConfirmModal";
@@ -1540,6 +1540,17 @@ export default function SettingsScreen() {
   // d'alerte (voir rgpdEarlyProlongMessage, lib/rgpd.ts).
   function handleProlong() {
     if (!space) return;
+    if (!canProlongSpace(space)) {
+      Alert.alert(
+        "Fonctionnalité Premium",
+        "La prolongation de la conservation des données fait partie de l'offre Premium. Passez votre espace en illimité pour l'activer.",
+        [
+          { text: "Fermer", style: "cancel" },
+          { text: "En savoir plus", onPress: () => Linking.openURL("https://avectoi.care") },
+        ],
+      );
+      return;
+    }
     if (!isRgpdAlertActive(space)) {
       setEarlyProlongModal(true);
       return;
@@ -2799,7 +2810,20 @@ export default function SettingsScreen() {
               </Text>
               <TouchableOpacity
                 style={[styles.saveNotesBtn, { backgroundColor: C.accent, borderWidth: 1, borderColor: C.accent }]}
-                onPress={openChronoModal}
+                onPress={() => {
+                  if (!canAccessChronologieLivret(space)) {
+                    Alert.alert(
+                      "Fonctionnalité Premium",
+                      "La Chronologie fait partie de l'offre Premium. Passez votre espace en illimité pour l'activer.",
+                      [
+                        { text: "Fermer", style: "cancel" },
+                        { text: "En savoir plus", onPress: () => Linking.openURL("https://avectoi.care") },
+                      ],
+                    );
+                    return;
+                  }
+                  openChronoModal();
+                }}
               >
                 <Text style={[styles.saveNotesBtnText, { color: "#fff" }]}>Chronologie</Text>
               </TouchableOpacity>
