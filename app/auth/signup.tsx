@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   View, Text, TextInput, TouchableOpacity,
-  StyleSheet, KeyboardAvoidingView, Platform, ScrollView, Modal,
+  StyleSheet, KeyboardAvoidingView, Platform, ScrollView,
 } from "react-native";
 import { useRouter } from "expo-router";
 import * as Linking from "expo-linking";
@@ -9,6 +9,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import { themes } from "@/lib/themes";
 import { FREE_TRIAL_DAYS } from "@/lib/freemiumCap";
+import ConfirmModal from "@/components/ConfirmModal";
 
 const C = themes.dark;
 
@@ -23,6 +24,7 @@ export default function SignupScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [showCreatedModal, setShowCreatedModal] = useState(false);
   const [errorModal, setErrorModal] = useState<{ title: string; message: string } | null>(null);
+  const [existingAccountModal, setExistingAccountModal] = useState(false);
 
   const canSubmit =
     firstname.trim() && lastname.trim() && email.trim() && password && confirm && !loading;
@@ -61,11 +63,20 @@ export default function SignupScreen() {
     if (data.session) {
       // Email confirmation disabled on this project — straight into onboarding.
       router.replace("/(admin)/home/calendar");
-    } else {
-      // Email confirmation required — the admin tabs will pick up onboarding
-      // automatically once they log back in with a confirmed account.
-      setShowCreatedModal(true);
+      return;
     }
+
+    // Anti-énumération : Supabase ne renvoie jamais d'erreur pour une adresse
+    // déjà enregistrée, qu'elle soit confirmée ou non. Le seul signal est un
+    // user renvoyé sans identité liée — voir doc Supabase auth.signUp().
+    if (data.user && data.user.identities && data.user.identities.length === 0) {
+      setExistingAccountModal(true);
+      return;
+    }
+
+    // Email confirmation required — the admin tabs will pick up onboarding
+    // automatically once they log back in with a confirmed account.
+    setShowCreatedModal(true);
   }
 
   function closeCreatedModal() {
@@ -179,33 +190,46 @@ export default function SignupScreen() {
         </Text>
       </ScrollView>
 
-      <Modal visible={showCreatedModal} transparent animationType="fade" onRequestClose={closeCreatedModal}>
-        <View style={styles.overlay}>
-          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.accent }]}>
-            <Text style={styles.sheetIcon}>✓</Text>
-            <Text style={[styles.sheetTitle, { color: C.success }]}>Compte créé</Text>
-            <Text style={[styles.sheetSub, { color: C.muted }]}>
-              Vérifie ta boîte mail pour confirmer ton adresse, puis connecte-toi.
-            </Text>
-            <TouchableOpacity style={[styles.sheetBtn, { backgroundColor: C.accent }]} onPress={closeCreatedModal} activeOpacity={0.85}>
-              <Text style={styles.sheetBtnText}>OK</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      <ConfirmModal
+        visible={showCreatedModal}
+        icon="✓"
+        title="Compte créé"
+        message="Vérifie ta boîte mail pour confirmer ton adresse, puis connecte-toi."
+        confirmLabel="OK"
+        destructive={false}
+        singleButton
+        onCancel={closeCreatedModal}
+        onConfirm={closeCreatedModal}
+        C={C}
+      />
 
-      <Modal visible={!!errorModal} transparent animationType="fade" onRequestClose={() => setErrorModal(null)}>
-        <View style={styles.overlay}>
-          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.danger }]}>
-            <Text style={styles.sheetIcon}>⚠️</Text>
-            <Text style={[styles.sheetTitle, { color: C.text }]}>{errorModal?.title}</Text>
-            <Text style={[styles.sheetSub, { color: C.muted }]}>{errorModal?.message}</Text>
-            <TouchableOpacity style={[styles.sheetBtn, { backgroundColor: C.danger }]} onPress={() => setErrorModal(null)} activeOpacity={0.85}>
-              <Text style={styles.sheetBtnText}>OK</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      <ConfirmModal
+        visible={!!errorModal}
+        icon="⚠️"
+        title={errorModal?.title ?? ""}
+        message={errorModal?.message}
+        confirmLabel="OK"
+        singleButton
+        onCancel={() => setErrorModal(null)}
+        onConfirm={() => setErrorModal(null)}
+        C={C}
+      />
+
+      <ConfirmModal
+        visible={existingAccountModal}
+        icon="✉️"
+        title="Adresse déjà utilisée"
+        message="Un compte existe déjà avec cette adresse email. Connecte-toi, ou réinitialise ton mot de passe si tu l'as oublié."
+        cancelLabel="Mot de passe oublié"
+        confirmLabel="Se connecter"
+        destructive={false}
+        onCancel={() => {
+          setExistingAccountModal(false);
+          router.push(`/auth/forgot-password?email=${encodeURIComponent(email.trim())}`);
+        }}
+        onConfirm={() => { setExistingAccountModal(false); router.replace("/auth/login"); }}
+        C={C}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -270,11 +294,4 @@ const styles = StyleSheet.create({
     marginTop: 32,
     lineHeight: 20,
   },
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "center", alignItems: "center", padding: 24 },
-  sheet: { width: "100%", maxWidth: 380, borderRadius: 20, borderWidth: 1, padding: 24, alignItems: "center" },
-  sheetIcon: { fontSize: 32, marginBottom: 8 },
-  sheetTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, textAlign: "center", marginBottom: 6 },
-  sheetSub: { fontFamily: "DM_Sans_400Regular", fontSize: 13, textAlign: "center", lineHeight: 20 },
-  sheetBtn: { borderRadius: 10, paddingVertical: 13, paddingHorizontal: 32, alignItems: "center", marginTop: 20 },
-  sheetBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 15, color: "#fff" },
 });

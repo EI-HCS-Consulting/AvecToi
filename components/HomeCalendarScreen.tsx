@@ -463,34 +463,25 @@ export default function HomeCalendarScreen({
 
       <ScrollView contentContainerStyle={styles.scroll}>
         {/* Switch Mensuel/Hebdo seul — règle uniquement la forme du
-            calendrier juste en dessous, placé avant lui pour ça. */}
-        <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginBottom: 14 }]}>
-          <SegmentedSwitch
-            value={planningView === "hebdo"}
-            onChange={(v) => {
-              if (v && !canUseHebdoPlanningView(space)) {
-                Alert.alert(
-                  "Fonctionnalité Premium",
-                  basePath === "/(admin)/home"
-                    ? "La vue Hebdo fait partie de l'offre Premium. Passez votre espace en illimité pour l'activer."
-                    : "La vue Hebdo fait partie de l'offre Premium de cet espace. Demande à l'administrateur de passer en illimité pour l'activer.",
-                  [
-                    { text: "Fermer", style: "cancel" },
-                    { text: "En savoir plus", onPress: () => Linking.openURL("https://avectoi.care") },
-                  ],
-                );
-                return;
-              }
-              setPlanningView(v ? "hebdo" : "mensuel");
-              if (v) setWeekAnchor(getMonday(selectedDay));
-            }}
-            leftLabel="Mensuel"
-            rightLabel="Hebdo"
-            C={C}
-            minWidthRatio={0.5}
-            onThumbWidth={setViewThumbWidth}
-          />
-        </View>
+            calendrier juste en dessous, placé avant lui pour ça. Masqué tant
+            que l'espace est Freemium (au lieu d'un Alert au tap) : réapparaît
+            automatiquement au passage en Premium. */}
+        {canUseHebdoPlanningView(space) && (
+          <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginBottom: 14 }]}>
+            <SegmentedSwitch
+              value={planningView === "hebdo"}
+              onChange={(v) => {
+                setPlanningView(v ? "hebdo" : "mensuel");
+                if (v) setWeekAnchor(getMonday(selectedDay));
+              }}
+              leftLabel="Mensuel"
+              rightLabel="Hebdo"
+              C={C}
+              minWidthRatio={0.5}
+              onThumbWidth={setViewThumbWidth}
+            />
+          </View>
+        )}
 
         <TouchableOpacity
           style={[styles.nextDispoBtn, { backgroundColor: C.accent }]}

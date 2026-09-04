@@ -33,6 +33,7 @@ import { canEnableIntervenants, canProlongSpace, canAccessChronologieLivret } fr
 import { INTERVENANT_ROLE_ENABLED } from "@/lib/featureFlags";
 import { RGPD_EXTENSION_DAYS, prolongSpace, isRgpdAlertActive, rgpdEarlyProlongMessage } from "@/lib/rgpd";
 import ConfirmModal from "@/components/ConfirmModal";
+import PremiumGateModal from "@/components/PremiumGateModal";
 import type { Theme } from "@/lib/themes";
 import { LOGO_PURPLE } from "@/lib/themes";
 import type { NewsEntry, Task, SupportMessage, SlotConfig, ReservationChangeHistoryEntry, Reservation } from "@/lib/types";
@@ -370,6 +371,7 @@ export default function SettingsScreen() {
   const displayPhotoUrl = localPhotoUrl !== undefined ? localPhotoUrl : (space?.patient_photo_url ?? null);
   const [prolonging, setProlonging] = useState(false);
   const [earlyProlongModal, setEarlyProlongModal] = useState(false);
+  const [premiumGateMsg, setPremiumGateMsg] = useState<string | null>(null);
   const [toast, setToast] = useState("");
 
   // Section active de la barre de navigation des réglages — la roue ⚙️ n'est
@@ -1541,14 +1543,7 @@ export default function SettingsScreen() {
   function handleProlong() {
     if (!space) return;
     if (!canProlongSpace(space)) {
-      Alert.alert(
-        "Fonctionnalité Premium",
-        "La prolongation de la conservation des données fait partie de l'offre Premium. Passez votre espace en illimité pour l'activer.",
-        [
-          { text: "Fermer", style: "cancel" },
-          { text: "En savoir plus", onPress: () => Linking.openURL("https://avectoi.care") },
-        ],
-      );
+      setPremiumGateMsg("La prolongation de la conservation des données fait partie de l'offre Premium. Passez votre espace en illimité pour l'activer.");
       return;
     }
     if (!isRgpdAlertActive(space)) {
@@ -2812,14 +2807,7 @@ export default function SettingsScreen() {
                 style={[styles.saveNotesBtn, { backgroundColor: C.accent, borderWidth: 1, borderColor: C.accent }]}
                 onPress={() => {
                   if (!canAccessChronologieLivret(space)) {
-                    Alert.alert(
-                      "Fonctionnalité Premium",
-                      "La Chronologie fait partie de l'offre Premium. Passez votre espace en illimité pour l'activer.",
-                      [
-                        { text: "Fermer", style: "cancel" },
-                        { text: "En savoir plus", onPress: () => Linking.openURL("https://avectoi.care") },
-                      ],
-                    );
+                    setPremiumGateMsg("La Chronologie fait partie de l'offre Premium. Passez votre espace en illimité pour l'activer.");
                     return;
                   }
                   openChronoModal();
@@ -3107,77 +3095,6 @@ export default function SettingsScreen() {
                     Un mantra qui définit le patient — affiché sous son nom dans la fiche patient et dans le bandeau de l'app.
                   </Text>
 
-                  <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 14 }]}>🏥 Date d'hospitalisation (optionnel)</Text>
-                  <TouchableOpacity
-                    style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border }]}
-                    onPress={openAdmissionDatePicker}
-                    activeOpacity={0.75}
-                  >
-                    <Text style={{ fontFamily: "DM_Sans_400Regular", fontSize: 14, color: admissionDateLabel ? C.text : C.muted }}>
-                      {admissionDateLabel ?? "Sélectionner une date"}
-                    </Text>
-                  </TouchableOpacity>
-                  {showAdmissionDatePicker && (
-                    <DateTimePicker
-                      value={admissionDateValue}
-                      mode="date"
-                      display="spinner"
-                      maximumDate={new Date()}
-                      onChange={(_, date) => {
-                        setShowAdmissionDatePicker(false);
-                        if (date) setPatientAdmissionDate(isoDate(date));
-                      }}
-                    />
-                  )}
-                  <Text style={[styles.cardDesc, { color: C.muted }]}>
-                    Date d'entrée à l'hôpital — visible dans la fiche patient.
-                  </Text>
-
-                  <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 14 }]}>🚪 Date de sortie d'hospitalisation (optionnel)</Text>
-                  <TouchableOpacity
-                    style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border }]}
-                    onPress={openDischargeDatePicker}
-                    activeOpacity={0.75}
-                  >
-                    <Text style={{ fontFamily: "DM_Sans_400Regular", fontSize: 14, color: dischargeDateLabel ? C.text : C.muted }}>
-                      {dischargeDateLabel ?? "Sélectionner une date"}
-                    </Text>
-                  </TouchableOpacity>
-                  {showDischargeDatePicker && (
-                    <DateTimePicker
-                      value={dischargeDateValue}
-                      mode="date"
-                      display="spinner"
-                      maximumDate={new Date()}
-                      onChange={(_, date) => {
-                        setShowDischargeDatePicker(false);
-                        if (date) setPatientDischargeDate(isoDate(date));
-                      }}
-                    />
-                  )}
-                  <Text style={[styles.cardDesc, { color: C.muted }]}>
-                    Date de fin de séjour — apparaît dans la Chronologie une fois renseignée.
-                  </Text>
-
-                  <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
-
-                  <Text style={[styles.fieldLabel, { color: C.gold }]}>Nom du patient</Text>
-                  <Text style={[styles.cardDesc, { color: C.muted, marginBottom: 8 }]}>
-                    Le nom et prénom ne peuvent pas être modifiés directement. En cas d'erreur ou de changement, contactez le service client.
-                  </Text>
-                  {space?.name_change_requested_at ? (
-                    <View style={[styles.pendingBadge, { backgroundColor: C.gold + "22", borderColor: C.gold }]}>
-                      <Text style={[styles.pendingBadgeText, { color: C.gold }]}>⏳ Demande en cours de traitement</Text>
-                    </View>
-                  ) : (
-                    <TouchableOpacity
-                      style={[styles.saveNotesBtn, { backgroundColor: C.overlay, borderWidth: 1, borderColor: C.border }]}
-                      onPress={handleOpenNameChange}
-                    >
-                      <Text style={[styles.saveNotesBtnText, { color: C.muted }]}>✏️ Demander un changement de nom</Text>
-                    </TouchableOpacity>
-                  )}
-
                   <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
 
                   <Text style={[styles.fieldLabel, { color: C.gold }]}>🎂 Date de naissance</Text>
@@ -3262,6 +3179,79 @@ export default function SettingsScreen() {
                       </TouchableOpacity>
                     </TouchableOpacity>
                   </Modal>
+
+                  <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
+
+                  <Text style={[styles.fieldLabel, { color: C.gold }]}>🏥 Date d'hospitalisation (optionnel)</Text>
+                  <TouchableOpacity
+                    style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border }]}
+                    onPress={openAdmissionDatePicker}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={{ fontFamily: "DM_Sans_400Regular", fontSize: 14, color: admissionDateLabel ? C.text : C.muted }}>
+                      {admissionDateLabel ?? "Sélectionner une date"}
+                    </Text>
+                  </TouchableOpacity>
+                  {showAdmissionDatePicker && (
+                    <DateTimePicker
+                      value={admissionDateValue}
+                      mode="date"
+                      display="spinner"
+                      maximumDate={new Date()}
+                      onChange={(_, date) => {
+                        setShowAdmissionDatePicker(false);
+                        if (date) setPatientAdmissionDate(isoDate(date));
+                      }}
+                    />
+                  )}
+                  <Text style={[styles.cardDesc, { color: C.muted }]}>
+                    Date d'entrée à l'hôpital — visible dans la fiche patient.
+                  </Text>
+
+                  <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 14 }]}>🚪 Date de sortie d'hospitalisation (optionnel)</Text>
+                  <TouchableOpacity
+                    style={[styles.sectorInput, { backgroundColor: C.bg, borderColor: C.border }]}
+                    onPress={openDischargeDatePicker}
+                    activeOpacity={0.75}
+                  >
+                    <Text style={{ fontFamily: "DM_Sans_400Regular", fontSize: 14, color: dischargeDateLabel ? C.text : C.muted }}>
+                      {dischargeDateLabel ?? "Sélectionner une date"}
+                    </Text>
+                  </TouchableOpacity>
+                  {showDischargeDatePicker && (
+                    <DateTimePicker
+                      value={dischargeDateValue}
+                      mode="date"
+                      display="spinner"
+                      maximumDate={new Date()}
+                      onChange={(_, date) => {
+                        setShowDischargeDatePicker(false);
+                        if (date) setPatientDischargeDate(isoDate(date));
+                      }}
+                    />
+                  )}
+                  <Text style={[styles.cardDesc, { color: C.muted }]}>
+                    Date de fin de séjour — apparaît dans la Chronologie une fois renseignée.
+                  </Text>
+
+                  <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
+
+                  <Text style={[styles.fieldLabel, { color: C.gold }]}>Nom du patient</Text>
+                  <Text style={[styles.cardDesc, { color: C.muted, marginBottom: 8 }]}>
+                    Le nom et prénom ne peuvent pas être modifiés directement. En cas d'erreur ou de changement, contactez le service client.
+                  </Text>
+                  {space?.name_change_requested_at ? (
+                    <View style={[styles.pendingBadge, { backgroundColor: C.gold + "22", borderColor: C.gold }]}>
+                      <Text style={[styles.pendingBadgeText, { color: C.gold }]}>⏳ Demande en cours de traitement</Text>
+                    </View>
+                  ) : (
+                    <TouchableOpacity
+                      style={[styles.saveNotesBtn, { backgroundColor: C.overlay, borderWidth: 1, borderColor: C.border }]}
+                      onPress={handleOpenNameChange}
+                    >
+                      <Text style={[styles.saveNotesBtnText, { color: C.muted }]}>✏️ Demander un changement de nom</Text>
+                    </TouchableOpacity>
+                  )}
 
                   <View style={[styles.fieldDivider, { backgroundColor: C.border }]} />
 
@@ -3421,6 +3411,13 @@ export default function SettingsScreen() {
         confirmLabel="J'ai compris"
         onCancel={() => setEarlyProlongModal(false)}
         onConfirm={() => setEarlyProlongModal(false)}
+        C={C}
+      />
+
+      <PremiumGateModal
+        visible={!!premiumGateMsg}
+        message={premiumGateMsg ?? ""}
+        onClose={() => setPremiumGateMsg(null)}
         C={C}
       />
 
