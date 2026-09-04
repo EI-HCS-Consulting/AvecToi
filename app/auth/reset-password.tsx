@@ -46,41 +46,19 @@ export default function ResetPasswordScreen() {
   const [errorModal, setErrorModal] = useState<string | null>(null);
   const [doneModal, setDoneModal] = useState(false);
   const handledRef = useRef(false);
-  // DIAGNOSTIC TEMPORAIRE — à retirer une fois le bug du lien de reset
-  // résolu. Affiché sur les écrans "Vérification…"/"Lien invalide" pour
-  // voir sur l'appareil ce que l'app reçoit réellement (pas de débogueur
-  // distant disponible sur ce Dev Build).
-  const [debugInfo, setDebugInfo] = useState<string[]>([]);
-  function logDebug(line: string) {
-    setDebugInfo((prev) => [...prev, line]);
-  }
-
-  useEffect(() => {
-    Linking.getInitialURL().then((u) => logDebug(`getInitialURL: ${u ?? "null"}`));
-  }, []);
-
-  useEffect(() => {
-    logDebug(`useURL: ${url ?? "null"}`);
-  }, [url]);
-
-  useEffect(() => {
-    logDebug(`searchParams: ${JSON.stringify(searchParams)}`);
-  }, [searchParams.code, searchParams.access_token, searchParams.refresh_token]);
 
   useEffect(() => {
     async function process(code: string | null, access_token: string | null, refresh_token: string | null) {
       if (handledRef.current || (!code && !(access_token && refresh_token))) return;
       handledRef.current = true;
       if (code) {
-        logDebug(`exchangeCodeForSession(${code.slice(0, 8)}…)`);
         const { error } = await supabase.auth.exchangeCodeForSession(code);
-        if (error) { logDebug(`exchange error: ${error.message}`); setInvalidLink(true); return; }
+        if (error) { setInvalidLink(true); return; }
         setReady(true);
         return;
       }
-      logDebug("setSession(access_token, refresh_token)");
       const { error } = await supabase.auth.setSession({ access_token: access_token!, refresh_token: refresh_token! });
-      if (error) { logDebug(`setSession error: ${error.message}`); setInvalidLink(true); return; }
+      if (error) { setInvalidLink(true); return; }
       setReady(true);
     }
 
@@ -131,7 +109,7 @@ export default function ResetPasswordScreen() {
 
   if (invalidLink) {
     return (
-      <ScrollView contentContainerStyle={styles.centered}>
+      <View style={styles.centered}>
         <Text style={styles.title}>Lien invalide</Text>
         <Text style={styles.subtitle}>
           Ce lien de réinitialisation n'est plus valide ou a expiré. Redemande un email depuis l'écran de connexion.
@@ -139,17 +117,15 @@ export default function ResetPasswordScreen() {
         <TouchableOpacity style={styles.btn} onPress={() => router.replace("/auth/login")} activeOpacity={0.85}>
           <Text style={styles.btnText}>Retour à la connexion</Text>
         </TouchableOpacity>
-        <Text style={styles.debug} selectable>{debugInfo.join("\n")}</Text>
-      </ScrollView>
+      </View>
     );
   }
 
   if (!ready) {
     return (
-      <ScrollView contentContainerStyle={styles.centered}>
+      <View style={styles.centered}>
         <Text style={styles.subtitle}>Vérification du lien…</Text>
-        <Text style={styles.debug} selectable>{debugInfo.join("\n")}</Text>
-      </ScrollView>
+      </View>
     );
   }
 
@@ -238,18 +214,11 @@ const styles = StyleSheet.create({
     paddingTop: 60,
   },
   centered: {
-    flexGrow: 1,
+    flex: 1,
     backgroundColor: C.bg,
     alignItems: "center",
     justifyContent: "center",
     padding: 24,
-  },
-  debug: {
-    marginTop: 32,
-    fontSize: 11,
-    color: C.muted,
-    fontFamily: Platform.OS === "ios" ? "Courier" : "monospace",
-    textAlign: "left",
   },
   title: {
     fontFamily: "PlayfairDisplay_700Bold",
