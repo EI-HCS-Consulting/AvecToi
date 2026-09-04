@@ -1,6 +1,14 @@
 # PRD — AvecToi
-## Product Requirements Document v1.24
+## Product Requirements Document v1.25
 *Préparé pour Claude Code — Juin 2026, synchronisé avec l'application livrée en Juillet/Août/Septembre 2026*
+
+> **Changelog v1.24 → v1.25**
+> - **Modèle Freemium/Premium aligné sur le site `avectoi.care` v4** *(04/09/2026, synchronisation post-lancement site — voir `AvecToi-Site/PRD_ClaudeCode_Site_avectoi_care_v4.md` "Mises à jour post-v4")* :
+>   - **Prix Premium : 5,99 € → 7,99 €** (toujours un paiement unique, sans abonnement, effectué sur le web) — répercuté partout où le prix apparaît (§1, §2, §3.1, §4bis, §9)
+>   - **Purge RGPD différenciée par plan** (auparavant 60j + 30j renouvelable pour tous, uniforme) : **Freemium 30 jours, sans prolongation possible** / **Premium 60 jours + 30 jours de prolongation, renouvelable** — voir §3.12, §10bis
+>   - **Vue planning Hebdo réservée au Premium** : la Freemium reste limitée à la vue Mensuelle — voir §3.2, §3.3, §3.12
+>   - **Trois fonctionnalités basculées en exclusivité Premium** : le besoin **🆘 SOS** (catégorie technique "relais" d'Entraide, §3.8), la **Chronologie et le téléchargement du livret d'hospitalisation** (Paramètres → Historique, §3.2), et les **Documents types** (génération de courriers administratifs depuis une checklist, §3.8) — voir §3.12
+> - Détail exhaustif écran par écran : `Documentation/Documentation Fonctionnalités.docx` (généré depuis le code, mis à jour à chaque handoff)
 
 > **Changelog v1.23 → v1.24**
 > - **Cap freemium : fenêtre de 7 jours glissants au lieu de 8 réservations** *(02/09/2026, PR #374)* : le cap ne compte plus les réservations de type Visite — un espace non payant reste désormais en visites illimitées pendant les **7 jours suivant sa toute première Visite réservée**, puis se verrouille jusqu'au passage en Premium ; même logique dupliquée côté client (`lib/freemiumCap.ts`, double vérification) et serveur (trigger `check_visite_cap()`) ; l'ancien trigger `AFTER INSERT` de notification (qui se basait sur « la réservation qui vient d'être insérée est la 8e ») n'a plus d'événement naturel à observer avec une fenêtre temporelle — remplacé par un scan quotidien (`check-freemium-expiry`, pg_cron 03:00 UTC) ; copie mise à jour sur l'onboarding et l'écran de création de compte — voir §3.12, §6.2, §7
@@ -176,7 +184,7 @@
 
 > **INPI** — « AvecToi » est un nom **distinctif** (expression appropriée, bien plus protégeable que « Relais »). Dépôt prévu en **classes 42 (logiciels/SaaS)** et **44 (services de santé)** ; envisager d'ajouter **9 (applications téléchargeables)** et **45 (services aux personnes)** pour couvrir l'usage. ⚠️ *Disponibilité de la marque « AvecToi » non encore vérifiée dans l'export INPI — faire une extraction sur ce nom (classes 9/42/44/45) avant dépôt, idéalement validée par un CPI.*
 
-> **⚠️ Cohérence à harmoniser dans `AvecToi_Identité_Marque.md`** : le document de marque décrit encore le modèle initial (« PWA sans installation, sans compte », « freemium B2C »). Le modèle **décidé et figé dans ce PRD** est : **app native Android gratuite (reader app) + paiement unique 5,99 € sur le web** ; compte requis pour l'**admin** uniquement (les visiteurs restent sans compte). À aligner dans le doc marketing.
+> **⚠️ Cohérence à harmoniser dans `AvecToi_Identité_Marque.md`** : le document de marque décrit encore le modèle initial (« PWA sans installation, sans compte », « freemium B2C »). Le modèle **décidé et figé dans ce PRD** est : **app native Android gratuite (reader app), créable en Freemium gratuit (essai 7 jours glissants depuis la 1ère Visite), avec passage en Premium par paiement unique de 7,99 € sur le web** ; compte requis pour l'**admin** uniquement (les visiteurs restent sans compte). À aligner dans le doc marketing.
 
 ---
 
@@ -198,9 +206,10 @@ Le nom **AvecToi** porte la promesse : la **présence auprès d'un proche** — 
 - Profil : adultes 35-70 ans, pas nécessairement technophiles
 
 ### Modèle économique
-- **Paiement unique** par l'admin (le proche organisateur), pas d'abonnement : **5,99 €** par espace patient
+- **Freemium par défaut** : l'admin crée son espace gratuitement ; réservations illimitées pendant les **7 jours** suivant sa toute première Visite (§3.12), puis verrouillage jusqu'au passage en Premium
+- **Premium — paiement unique** *(7,99 € depuis le 04/09/2026, remplace 5,99 €)* par l'admin (le proche organisateur), pas d'abonnement, par espace patient — débloque les réservations illimitées sans limite de durée, la vue planning Hebdo (§3.2), le rôle Intervenant (§3.9, actuellement masqué), le besoin de relais SOS, la Chronologie + téléchargement du livret, les Documents types (§3.8), et une conservation RGPD étendue et renouvelable (§10bis)
 - **Paiement réalisé sur le web (Stripe), hors de l'app** → l'app reste gratuite et sans achat in-app (modèle reader app, voir §3.1 et §4bis)
-- Visiteurs : accès 100 % gratuit via lien d'invitation
+- Visiteurs : accès 100 % gratuit via lien d'invitation, quel que soit le plan de l'espace
 - **Prescripteurs (acquisition, pas de revenu direct)** : établissements de santé (autocollant QR code en salon des familles, pointant vers le **web**), puis — phase 2 — mutuelles et assureurs
 
 ---
@@ -214,7 +223,7 @@ Le nom **AvecToi** porte la promesse : la **présence auprès d'un proche** — 
 - N'apparaît pas dans l'interface utilisateur
 
 ### Admin (client payant)
-- **Crée son compte et son espace patient sur le web, et paie 5,99 € via Stripe** (le paiement ne se fait jamais dans l'app — voir §3.1)
+- **Crée son compte et son espace patient sur le web**, gratuitement (Freemium) ou en passant directement en Premium (**7,99 €** via Stripe, paiement unique) — le paiement ne se fait jamais dans l'app (voir §3.1)
 - Se connecte ensuite indifféremment sur le web (responsive) ou dans l'app mobile pour gérer, via Supabase Auth (email + mot de passe) **plus un PIN secondaire de reconfirmation** pour les actions sensibles côté app
 - **Choisit un mode de soin à la création de l'espace : Suivi hospitalier ou Soin à domicile** — conditionne les champs d'adresse demandés ensuite (§3.1)
 - Renseigne : nom du patient, hôpital, service, numéro de chambre, adresse, lien Google Maps (mode hospitalier) ou adresse domicile (mode Soin à domicile)
@@ -235,7 +244,7 @@ Le nom **AvecToi** porte la promesse : la **présence auprès d'un proche** — 
 - **Crée des besoins d'entraide et modère le mur de soutien**
 - **Peut activer le rôle Intervenant pour son espace** et gérer les fiches des professionnels de soin (§2 Intervenant, §3.9) — ⚠️ **rôle masqué dans l'app publiée depuis le 21/08/2026 (PR #291)**, bascule d'activation et écran dédié inaccessibles ; conservé ici comme référence produit pour une réintégration V2
 - Reçoit un email automatique à chaque annulation
-- **Prolonge ou déclenche la purge** de l'espace (§10bis — fenêtre 30 jours, renouvelable)
+- **Prolonge** *(réservé au Premium depuis v1.25, renouvelable — indisponible en Freemium)* **ou déclenche la purge** de l'espace (§10bis — fenêtre 30 jours en Freemium, 60 jours + 30 jours de prolongation en Premium)
 - **Accède depuis Mon Compte aux boutons « 🩺 Fiche patient » et « 👥 Visiteurs »** *(NOUVEAU depuis v1.10)* : la fiche patient et la liste des visiteurs de l'espace (fiche au clic)
 - **« 🔔 Mes alertes »** *(NOUVEAU depuis v1.13)* : bouton à badge centralisant alerte RGPD, besoins de relais ouverts et réservations recasées/annulées ; l'historique n'y montre que les entrées jamais vues, marquées vues uniquement via un bouton « Marquer comme lu » explicite par entrée *(corrigé v1.14, plus à la fermeture du popup)* ; un besoin de relais déjà couvert par l'identité connectée sort des alertes actives et apparaît dans l'Historique à sa place *(NOUVEAU depuis v1.14)*. **« 🤝 Mes engagements de relais »** *(NOUVEAU depuis v1.13)* : bloc récapitulant les sous-périodes de relais réclamées, sous « Mes checklists »
 
@@ -284,12 +293,12 @@ L'app est **"consumption-only" (reader app)** : elle ne vend **aucun** bien ou s
 > - tout lien sortant vers une page de paiement (les "external payment links" déclenchent des frais Google ~20 % + intégration d'API dédiée)
 
 **Parcours Admin (sur le web)**
-1. L'admin arrive sur le site web (`avectoi.care` ou domaine retenu) via SEO / QR code prescripteur / bouche-à-oreille
+1. L'admin arrive sur le site web (`avectoi.care`, en ligne depuis le 03/09/2026) via SEO / QR code prescripteur / bouche-à-oreille
 2. Crée un compte (Supabase Auth : email + mot de passe, vérification email)
-3. Renseigne l'espace patient (formulaire en étapes, voir ci-dessous)
-4. **Paie 5,99 € via Stripe Checkout** (sur le web)
-5. À paiement confirmé (webhook Stripe → Supabase) : l'espace est activé, l'admin reçoit son accès + le **lien d'invitation visiteurs** (et le QR code)
-6. L'admin peut dès lors gérer depuis le web **ou** se connecter dans l'app mobile
+3. Renseigne l'espace patient (formulaire en étapes, voir ci-dessous) — l'espace est créé et activé immédiatement en **Freemium**, sans paiement (essai 7 jours glissants dès la 1ère Visite, §3.12), l'admin reçoit son accès + le **lien d'invitation visiteurs** (et le QR code)
+4. **Optionnel, à tout moment** : passe en **Premium** (**7,99 €** via Stripe Checkout, sur le web) pour débloquer l'illimité et les fonctionnalités Premium (§3.12)
+5. Au paiement confirmé (webhook Stripe → Supabase, `premium = true`) : l'espace passe en Premium immédiatement (la date de purge RGPD est aussi automatiquement étendue, §10bis)
+6. L'admin peut dès lors gérer depuis le web **ou** se connecter dans l'app mobile, quel que soit son plan
 
 **Parcours dans l'app mobile**
 - Écran d'accueil : « J'ai un lien d'invitation » (visiteur) / « Je gère un espace » (admin → écran de connexion)
@@ -312,7 +321,7 @@ L'app est **"consumption-only" (reader app)** : elle ne vend **aucun** bien ou s
 
 ### 3.2 Interface Admin — Dashboard
 
-**Vue Calendrier** : calendrier mensuel (indicateurs dispo/partiel/complet) ; **bouton "⚡ Prochaine disponibilité"** ; **clic sur un jour → vue jour** (visiteurs + accès Nouvelles du jour) ; navigation mois. **Depuis le 21/08/2026 (PR #292), écran strictement commun avec le calendrier visiteur** (§3.3) — l'admin y perd le switch Visites/Soins et « Afficher mes créneaux » (spécifiques à l'ex-rôle Intervenant, masqué) ; nouveau bouton « 📅 Créneaux » dans le Planning du jour pour réserver directement.
+**Vue Calendrier** : calendrier mensuel (indicateurs dispo/partiel/complet) ; **bouton "⚡ Prochaine disponibilité"** ; **clic sur un jour → vue jour** (visiteurs + accès Nouvelles du jour) ; navigation mois. **Depuis le 21/08/2026 (PR #292), écran strictement commun avec le calendrier visiteur** (§3.3) — l'admin y perd le switch Visites/Soins et « Afficher mes créneaux » (spécifiques à l'ex-rôle Intervenant, masqué) ; nouveau bouton « 📅 Créneaux » dans le Planning du jour pour réserver directement. **Vue Hebdo réservée au Premium depuis v1.25** (§3.12) : la Freemium reste limitée à la vue Mensuelle, avec message neutre si elle tente de basculer sur Hebdo.
 
 **Vue Jour** : créneaux du jour (heure, inscrits/max, noms) ; ajouter/modifier/supprimer une résa ; bloc nuitée si activée ; **bouton "📰 Nouvelles du jour"** pour cette date.
 
@@ -331,7 +340,7 @@ L'app est **"consumption-only" (reader app)** : elle ne vend **aucun** bien ou s
 **Accès** : lien unique, QR code ou code dossier ; pas de compte ; **au 1er accès, consentement** (prénom + nom visibles des autres visiteurs). Entrée dédiée « Je suis intervenant », distincte de « Je rends visite », si le rôle Intervenant est activé sur l'espace.
 
 **Onglets** :
-- **Calendrier** : vue partagée ; "⚡ Prochaine disponibilité" ; clic jour → créneaux + accès Nouvelles du jour ; jour d'hospitalisation signalé par un popup dédié (picto 🏥) distinct du popup générique « Jour non disponible » *(NOUVEAU depuis v1.10, §3.4)*. **Depuis le 21/08/2026 (PR #292), composant strictement commun avec le calendrier admin** (§3.2). **Sélection du jour/vue** *(PR #293)* : l'onglet bas « Accueil » conserve le jour/mois/semaine déjà sélectionnés d'une visite à l'autre ; seul le bandeau « 📅 Calendrier » (accessible depuis Créneaux/Nuits/Infos/Partager) réinitialise sur la date du jour, tout mode confondu — sémantique inverse du cycle précédent
+- **Calendrier** : vue partagée ; "⚡ Prochaine disponibilité" ; clic jour → créneaux + accès Nouvelles du jour ; jour d'hospitalisation signalé par un popup dédié (picto 🏥) distinct du popup générique « Jour non disponible » *(NOUVEAU depuis v1.10, §3.4)*. **Depuis le 21/08/2026 (PR #292), composant strictement commun avec le calendrier admin** (§3.2), y compris le **plan de l'espace** : vue Hebdo réservée au Premium (§3.12). **Sélection du jour/vue** *(PR #293)* : l'onglet bas « Accueil » conserve le jour/mois/semaine déjà sélectionnés d'une visite à l'autre ; seul le bandeau « 📅 Calendrier » (accessible depuis Créneaux/Nuits/Infos/Partager) réinitialise sur la date du jour, tout mode confondu — sémantique inverse du cycle précédent
 - **Créneaux** : liste du jour ; **noms (prénom + nom) visibles** (transparence assumée) ; "+ Réserver" ; "✏️ Modifier" (PIN) ; "📰 Nouvelles du jour" ; créneaux bloqués par une intervention signalés par un bandeau dédié
 - **Planning du jour** *(enrichi depuis v1.10)* : message « Aucune visite prévue ce jour » cliquable (ouvre les créneaux) ; bouton « Ajouter une Visite » depuis le popup d'une visite existante ; taper le créneau libre d'un autre visiteur réserve directement une place ; places restantes affichées
 - **Nouvelles du jour** (§3.7)
@@ -378,10 +387,10 @@ Compte-rendu court après le passage d'un visiteur, pour rassurer les proches ab
 - Chaque besoin : **catégorie** — **6 catégories depuis v1.5** : 🍽️ Repas / 👕 Affaires / 🛒 Courses / 🚗 Transport / 🗂️ Administratif / 💡 Autre (le PRD v1.4 n'en prévoyait que 4, sans Transport ni Administratif) — + **statut** (ouvert → pris en charge → fait, avec fermeture automatique si non pris en charge après sa date)
 - Un visiteur clique **« Je m'en occupe »** (identifié prénom + nom, PIN pour se désinscrire)
 - **Désengagement généralisé** *(NOUVEAU depuis v1.8)* : un besoin pris en charge peut être libéré par la personne qui l'a pris (« Me désengager », depuis « Modifier le besoin » ou par appui long sur sa carte), quelle que soit la catégorie — auparavant réservé à Transport
-- **Besoin de relais ponctuel** *(NOUVEAU depuis v1.9)* : catégorie technique dédiée (🆘), non sélectionnable dans la grille de création manuelle — publiée uniquement depuis Mon Compte, **réservé à l'admin depuis v1.10** (le bloc a été retiré du compte visiteur, voir §2), avec période d'indisponibilité, message pré-rempli modifiable et ciblage de l'audience à la publication (tous les proches ou une sélection précise) ; alerte popup à la connexion des personnes ciblées, avec « Je m'en occupe » (ouvre directement la prise en charge), « Pas cette fois » (masque l'alerte sans fermer le besoin) ou **« 🗓️ Je regarde mon planning »** *(NOUVEAU depuis v1.13)* — ferme le popup sans rien décider, le besoin reste ouvert et l'alerte revient à la prochaine connexion, consultable entre-temps dans « 🔔 Mes alertes » (§5.11/§6.4) ; la liste des personnes sollicitées est visible dans le détail du popup dès que le ciblage n'est pas « tous les proches ». L'onglet « SOS Relais » du filtre par catégorie n'apparaît que s'il existe un besoin relais visible pour la personne connectée. **Traçabilité des refus** *(NOUVEAU depuis v1.12)* : la carte du besoin affiche, côté admin uniquement, la liste des personnes ayant répondu « Pas cette fois ». **Répartition entre plusieurs preneurs** *(NOUVEAU depuis v1.13)* : la prise en charge se fait « 🙋 Je m'en charge (ce qu'il reste) » ou « 📅 Choisir une période » (deux popups centrés successifs « Du »/« Au », seuls les jours de la période demandée par l'admin sélectionnables et surlignés en orange) — plusieurs personnes peuvent ainsi couvrir chacune une sous-période distincte ; la carte liste chaque contributeur avec sa période et l'éventuel reste à couvrir, avec désinscription individuelle par sous-période ; le popup de remerciement affiche, pour cette catégorie uniquement, un message dédié informant que les autres personnes sollicitées seront prévenues, et son bouton « J'ai compris » ramène désormais vers l'accueil au lieu de simplement se fermer *(corrigé v1.14)*. Une fois qu'une identité a posé une couverture (même partielle) sur un besoin, celui-ci sort de ses alertes actives et bascule dans l'Historique de « 🔔 Mes alertes » plutôt que de continuer à la solliciter *(NOUVEAU depuis v1.14)*
+- **Besoin de relais ponctuel — 🆘 SOS** *(NOUVEAU depuis v1.9)* : catégorie technique dédiée (🆘), non sélectionnable dans la grille de création manuelle — publiée uniquement depuis Mon Compte, **réservé à l'admin depuis v1.10** (le bloc a été retiré du compte visiteur, voir §2) **et à un espace Premium depuis v1.25** (message dédié si l'admin d'un espace Freemium tente de publier, §3.12), avec période d'indisponibilité, message pré-rempli modifiable et ciblage de l'audience à la publication (tous les proches ou une sélection précise) ; alerte popup à la connexion des personnes ciblées, avec « Je m'en occupe » (ouvre directement la prise en charge), « Pas cette fois » (masque l'alerte sans fermer le besoin) ou **« 🗓️ Je regarde mon planning »** *(NOUVEAU depuis v1.13)* — ferme le popup sans rien décider, le besoin reste ouvert et l'alerte revient à la prochaine connexion, consultable entre-temps dans « 🔔 Mes alertes » (§5.11/§6.4) ; la liste des personnes sollicitées est visible dans le détail du popup dès que le ciblage n'est pas « tous les proches ». L'onglet « SOS Relais » du filtre par catégorie n'apparaît que s'il existe un besoin relais visible pour la personne connectée. **Traçabilité des refus** *(NOUVEAU depuis v1.12)* : la carte du besoin affiche, côté admin uniquement, la liste des personnes ayant répondu « Pas cette fois ». **Répartition entre plusieurs preneurs** *(NOUVEAU depuis v1.13)* : la prise en charge se fait « 🙋 Je m'en charge (ce qu'il reste) » ou « 📅 Choisir une période » (deux popups centrés successifs « Du »/« Au », seuls les jours de la période demandée par l'admin sélectionnables et surlignés en orange) — plusieurs personnes peuvent ainsi couvrir chacune une sous-période distincte ; la carte liste chaque contributeur avec sa période et l'éventuel reste à couvrir, avec désinscription individuelle par sous-période ; le popup de remerciement affiche, pour cette catégorie uniquement, un message dédié informant que les autres personnes sollicitées seront prévenues, et son bouton « J'ai compris » ramène désormais vers l'accueil au lieu de simplement se fermer *(corrigé v1.14)*. Une fois qu'une identité a posé une couverture (même partielle) sur un besoin, celui-ci sort de ses alertes actives et bascule dans l'Historique de « 🔔 Mes alertes » plutôt que de continuer à la solliciter *(NOUVEAU depuis v1.14)*
 - Catégorie **Courses devenue liste d'articles** *(NOUVEAU depuis v1.8, affiné en v1.9, corrigé en v1.10)* : articles ajoutés un par un à la création, cochables en temps réel par tout visiteur ou admin via « 👁️ Aperçu de la liste » tant que personne n'a pris le besoin en charge (dispatch libre). Chaque article coché porte l'identité de qui l'a coché et ne peut être décoché que par cette même personne. Le bloc du besoin cumule tous les contributeurs (« X s'en occupe » / « X, Y et Z s'en occupent », suffixe « … partiellement » tant que la liste n'est pas intégralement cochée). Cliquer « Je m'en occupe » verrouille le cochage au preneur, **sans cochage automatique** (le comportement introduit en v1.9, qui cochait les articles restants et clôturait le besoin automatiquement, a été retiré en v1.10). Cocher le dernier article (toujours à la main) ferme le besoin, décocher un article après coup le rouvre
 - Catégorie **Administratif** : checklists suggérées prêtes à publier en bloc — **bibliothèque passée à 11 modèles depuis v1.8** (bibliothèque complète pour l'admin, sous-ensemble marqué partageable pour les visiteurs/intervenants), dont **deux modèles réservés au proche aidant** (« Congé proche aidant », « Répit aidant »), visibles uniquement dans Mon Compte → Checklist personnelle ; import via un **assistant séquentiel** *(NOUVEAU depuis v1.8)* demandant échéance → urgence → précision libre item par item. **Choix de la destination de publication** *(NOUVEAU depuis v1.12)* : Mur d'Entraide seul, « Mes Checklists » seul, ou les deux à la fois — les deux copies restent alors liées et se synchronisent automatiquement (statut « Fait », identité de qui s'en occupe). Import privé depuis Mon Compte indépendant du Mur *(v1.12)* : un item déjà publié publiquement ne bloque plus son import en privé, l'anti-doublon public ne s'appliquant qu'en cochant « Publier aussi sur le Mur d'Entraide »
-- **Génération de courriers administratifs** *(NOUVEAU depuis v1.8)* : certains items de checklist (demande employeur, autorisation de soins pour un enfant, attestation d'autorité parentale, courrier école/crèche, déclaration mutuelle/CPAM, procuration bancaire, absence pour hospitalisation d'un proche, déclaration de sinistre) affichent un bouton « ✉️ Préparer le courrier » : popup de remplissage des champs obligatoires, aperçu fidèle à une lettre administrative réelle, export Word (.doc) ou partage par email. Chaque courrier généré est tracé dans un nouveau bouton « 📄 Mes documents » (modifiable, supprimable, retéléchargeable), qui liste aussi les listes de courses associées à un besoin Courses
+- **Génération de courriers administratifs — Documents types** *(NOUVEAU depuis v1.8, réservé au Premium depuis v1.25)* : certains items de checklist (demande employeur, autorisation de soins pour un enfant, attestation d'autorité parentale, courrier école/crèche, déclaration mutuelle/CPAM, procuration bancaire, absence pour hospitalisation d'un proche, déclaration de sinistre) affichent un bouton « ✉️ Préparer le courrier » : popup de remplissage des champs obligatoires, aperçu fidèle à une lettre administrative réelle, export Word (.doc) ou partage par email. Chaque courrier généré est tracé dans un nouveau bouton « 📄 Mes documents » (modifiable, supprimable, retéléchargeable), qui liste aussi les listes de courses associées à un besoin Courses
 - Catégorie **Transport** *(NOUVEAU depuis v1.4 — revient sur l'exclusion initiale)* : dates/heures aller-retour, adresses, proposition d'horaire par la personne qui prend en charge
 - L'admin dispose d'opérations groupées (sélection multiple, suppression en masse) sur **tout** besoin ; les besoins qu'il prend en charge personnellement apparaissent dans une section dédiée de Mon Compte, distincte de ceux qu'il publie
 - **Suppression par l'auteur** *(NOUVEAU depuis v1.12)* : au-delà de l'admin (tout besoin), l'auteur d'un besoin — visiteur inclus — peut désormais le supprimer lui-même. Suppression en cascade : si d'autres items de la même checklist suggérée restent publiés et ouverts, une confirmation propose de les supprimer aussi (suppression individuelle **et** en masse, Mon Compte **et** Entraide) ; si l'item supprimé était lié à une ligne de Mes Checklists, un second popup propose de la supprimer également
@@ -426,7 +435,12 @@ Réservé aux professionnels de soin (infirmier·ère, kiné, aide à domicile�
 - Au-delà de cette fenêtre, toute nouvelle réservation ou tout nouvel ajout de photo est bloqué avec un message d'information — jamais de bouton d'achat affiché dans l'app (conformité reader app, §3.1)
 - Le partage de l'espace (lien d'invitation, QR code, code dossier) n'est **pas** limité par le cap — disponible dès la Freemium
 - **Rôle Intervenant réservé au Premium** *(NOUVEAU depuis v1.7)* : activer « Planning des intervenants » (§3.9) exige un espace Premium ; la désactivation reste toujours possible sans condition. Message neutre affiché si l'admin d'un espace Freemium tente d'activer, sans ton commercial appuyé (cohérent avec l'absence de bouton d'achat dans l'app, §3.1)
-- Le passage en espace premium reste un flux **web** (avectoi.care), hors du périmètre de l'app mobile
+- **Vue planning Hebdo réservée au Premium** *(NOUVEAU depuis v1.25)* : un espace Freemium reste limité à la vue Mensuelle (§3.2, §3.3) ; basculer sur « Hebdo » affiche le même message neutre, sans bloquer la vue Mensuelle
+- **Besoin de relais (🆘 SOS) réservé au Premium** *(NOUVEAU depuis v1.25)* : publier un besoin de relais (§3.8) exige un espace Premium
+- **Chronologie et téléchargement du livret d'hospitalisation réservés au Premium** *(NOUVEAU depuis v1.25)* : le bouton « 🕐 Chronologie » (Paramètres, §3.2) exige un espace Premium ; l'export PDF "livret" reste par ailleurs non construit (backlog V2, §8), à annoncer comme "bientôt disponible" une fois livré
+- **Documents types réservés au Premium** *(NOUVEAU depuis v1.25)* : la génération de courriers administratifs depuis une checklist (§3.8, « ✉️ Préparer le courrier ») exige un espace Premium
+- **Prolongation de la conservation RGPD réservée au Premium** *(NOUVEAU depuis v1.25)* : le bouton « Prolonger » (§10bis) exige un espace Premium ; un espace Freemium n'a que sa fenêtre initiale de 30 jours, non renouvelable
+- Le passage en espace premium reste un flux **web** (avectoi.care), hors du périmètre de l'app mobile — les cinq gates ci-dessus partagent le même garde-fou `space.premium` (`lib/freemiumCap.ts`) et la même Alert « Fonctionnalité Premium » que le rôle Intervenant
 
 ---
 
@@ -445,10 +459,10 @@ Réservé aux professionnels de soin (infirmier·ère, kiné, aide à domicile�
 - **Partage** : expo-sharing
 - ❌ **Pas de librairie de paiement in-app** (ni Play Billing, ni Stripe SDK in-app) — l'app ne vend rien
 
-### Web (site de vente + gestion — non démarré)
-- **React + Vite** (peut repartir de l'ancien `App.jsx` du MVP, conservé via le tag git `archive/vercel-mvp-site`, §7)
-- **Stripe Checkout** (paiement 5,99 € hébergé par Stripe) + **webhook** vers Supabase pour activer l'espace
-- Responsive : permet à l'admin de tout gérer depuis le navigateur sans l'app
+### Web (site de vente + gestion — en ligne depuis le 03/09/2026, `avectoi.care`)
+- **Next.js** (App Router), hébergé sur **Infomaniak** (offre Node.js) — pas l'ancien MVP React + Vite (`App.jsx`, archivé via le tag git `archive/vercel-mvp-site`, §7), ni Vercel comme site de production (voir `AvecToi-Site/PRD_ClaudeCode_Site_avectoi_care_v4.md` §10)
+- **Stripe Checkout** (paiement **7,99 €** hébergé par Stripe, passage en Premium uniquement) + **webhook** vers Supabase pour passer l'espace en Premium (`premium = true`)
+- Responsive : permet à l'admin de tout gérer depuis le navigateur sans l'app, y compris en Freemium
 
 ### Backend (existant, à étendre) — partagé web + app
 - **Base de données** : Supabase (PostgreSQL), **région UE** (RGPD §10bis)
@@ -472,7 +486,7 @@ Réservé aux professionnels de soin (infirmier·ère, kiné, aide à domicile�
    │ • Landing / SEO             │         │ • Visiteur : réserver, voir  │
    │ • Création compte admin     │         │   nouvelles, souvenirs,      │
    │ • Création espace patient   │         │   entraide                   │
-   │ • PAIEMENT 5,99 € (Stripe)  │         │ • Admin : gérer en mobilité  │
+   │ • PAIEMENT 7,99 € (Stripe)  │         │ • Admin : gérer en mobilité  │
    │ • Gestion (responsive)      │         │   + push                     │
    └──────────────┬──────────────┘         │ • AUCUN prix / achat in-app  │
                   │                         └───────────────┬──────────────┘
@@ -486,7 +500,7 @@ Réservé aux professionnels de soin (infirmier·ère, kiné, aide à domicile�
 - **Le web vend, l'app sert.** L'achat se fait à 100 % sur le web → app gratuite légitime, 0 % commission.
 - **Acquisition** : QR codes prescripteurs et liens pointent vers le **web** (découverte + achat).
 - **Lien d'invitation visiteur** : ouvre l'app si installée (deep link), sinon la version web (PWA) — le visiteur n'a jamais à payer ni à installer.
-- **Frais réels** : Stripe EU ≈ 1,5 % + 0,25 € → ~0,34 € sur 5,99 € (net ~5,65 €).
+- **Frais réels** : Stripe EU ≈ 1,5 % + 0,25 € → ~0,37 € sur 7,99 € (net ~7,62 €).
 
 ---
 
@@ -522,15 +536,15 @@ patient_blood_type (text)      ← NOUVEAU depuis v1.4
 patient_allergies (text)       ← NOUVEAU depuis v1.4
 intervenants_enabled (boolean) ← NOUVEAU depuis v1.4, active le rôle Intervenant (§3.9)
 intervenant_news_visible_to_visitors (boolean) ← NOUVEAU depuis v1.6, défaut false, ouvre aux visiteurs le canal Nouvelles intervenants/admin (§3.7)
-premium (boolean)              ← NOUVEAU depuis v1.4, désactive le cap freemium (fenêtre de 7 jours depuis v1.24, §3.12)
+premium (boolean)              ← NOUVEAU depuis v1.4, désactive le cap freemium (fenêtre de 7 jours depuis v1.24) et débloque Hebdo, SOS, Chronologie+livret, Documents types, prolongation RGPD (§3.12, depuis v1.25) ; passage à 7,99 € depuis v1.25 ; recalcule aussi purge_scheduled_at (+30j) au passage à true, via trigger (supabase/migrations/20260904_rgpd_purge_premium_upgrade_extension.sql)
 start_date (date)
 end_date (date)
-is_active (boolean)           ← activé après paiement Stripe confirmé
+is_active (boolean)           ← activé immédiatement à la création de l'espace (Freemium, sans paiement) ; ne dépend plus d'un paiement Stripe depuis v1.25
 invite_token (text, unique)
 dossier_code (text, unique)    ← NOUVEAU depuis v1.4, code alternatif lisible à voix haute
 stripe_payment_id (text)      ← référence du paiement (webhook)
 last_activity_at (timestamp)  ← rafraîchi à chaque résa/nouvelle/upload
-purge_scheduled_at (date)     ← date de purge auto calculée (fenêtre 30 jours depuis v1.4, voir §10bis)
+purge_scheduled_at (date)     ← date de purge auto calculée, différenciée par plan depuis v1.25 : 30 jours (Freemium) / 60 jours + 30 jours de prolongation renouvelable (Premium) — voir §10bis
 created_at (timestamp)
 ```
 
@@ -759,7 +773,7 @@ Logique Supabase (requêtes, realtime, storage) : 100 % réutilisable.
 - Prescription mutuelles / assureurs (phase 2 commerciale)
 - ~~Codes couleurs définitifs des thèmes autres que `blue`~~ — **obsolète depuis v1.5** : le système de 6 thèmes par espace a été remplacé par un mode d'affichage Clair/Sombre par appareil (§6)
 - **Export PDF "livret"** (V2) : bouton "Chronologie" côté admin (Paramètres →
-  Historique) déjà livré en V1 — ouvre une frise chronologique (popup, zone de
+  Historique) déjà livré en V1 (**réservé aux espaces Premium depuis v1.25, §3.12**) — ouvre une frise chronologique (popup, zone de
   scroll bornée) combinant Infos hospitalières + Consignes de visite + Règles
   de visite + Visites (créneaux/nuitées réservés), triée du plus récent (haut)
   à la date d'hospitalisation (bas) ; **depuis v1.6, les soins des intervenants
@@ -775,8 +789,8 @@ Logique Supabase (requêtes, realtime, storage) : 100 % réutilisable.
 ## 9. Critères de succès V1
 
 - App Android publiée sur Play Store, **gratuite, sans achat in-app** (conforme reader app)
-- Site web opérationnel : création compte + espace + **paiement Stripe 5,99 €** + activation par webhook
-- Flux complet : admin crée espace + paie (web) → invite → visiteur réserve (app/web)
+- Site web opérationnel (`avectoi.care`, Next.js/Infomaniak, en ligne depuis le 03/09/2026) : création compte + espace Freemium + **passage Premium via Stripe (7,99 €)** + activation par webhook
+- Flux complet : admin crée espace (Freemium, gratuit) → invite → visiteur réserve (app/web) → passage Premium optionnel (web)
 - Connexion admin dans l'app à un espace créé sur le web
 - Mode d'affichage Clair/Sombre (switch temps réel, préférence par appareil) ; photo patient au centre du logo
 - "Prochaine disponibilité" (admin + visiteur) ; ajout calendrier natif Android
@@ -784,7 +798,7 @@ Logique Supabase (requêtes, realtime, storage) : 100 % réutilisable.
 - **Nouvelles du jour** : publication (texte + photos), flux anté-chronologique, accès par jour, droits PIN/admin
 - **Entraide** (6 catégories, dont Transport) : création de besoins, statut, « Je m'en occupe » (PIN) ; **Mur de soutien** : post + affichage anté-chronologique
 - Notes libres admin affichées (avec avertissement données sensibles)
-- Email admin à chaque annulation ; **purge auto (30 jours, renouvelable) + alerte J-7 + prolongation**
+- Email admin à chaque annulation ; **purge auto différenciée par plan (Freemium 30 jours sans renouvellement / Premium 60 jours + 30 jours de prolongation renouvelable) + alerte J-7 + prolongation (Premium)**
 - Push rappel 1h avant visite ; planning + nouvelles en temps réel (Realtime)
 - **Rôle Intervenant** : fiche, réservation prioritaire d'intervention, recasage automatique des visites en conflit *(depuis v1.5)*
 - **Fiche médicale du patient** (lecture seule visiteurs/intervenants) *(depuis v1.5)*
@@ -816,11 +830,13 @@ Logique Supabase (requêtes, realtime, storage) : 100 % réutilisable.
 - Supabase **région UE**. Le PRD v1.4 excluait l'obligation d'hébergement HDS tant qu'aucune donnée de santé n'était traitée à titre médical ; **la fiche médicale patient (§3.10) introduit une donnée de santé structurée** — à faire trancher par un conseil juridique/CPI avant toute communication commerciale sur ce point, indépendamment d'une évolution B2B hospitalière.
 
 ### Purge automatique
-- **Règle actuelle : `purge_scheduled_at = max(end_date, last_activity_at) + 30 jours`** (ramenée de 90 à 30 jours depuis v1.4)
+- **Règle actuelle, différenciée par plan depuis le 04/09/2026 (v1.25)** : `purge_scheduled_at = max(end_date, last_activity_at) + 30 jours` en **Freemium**, `+ 60 jours` en **Premium** (uniformisée à 60 jours pour tous entre le 17/08/2026, PR #232, et le 04/09/2026 ; redifférenciée pour s'aligner sur le site `avectoi.care` v4)
 - `last_activity_at` rafraîchi à chaque réservation/nouvelle/upload/modification
-- **Job quotidien** (Edge Function) : si `purge_scheduled_at` dépassée → suppression en cascade (`reservations`, `souvenirs` + fichiers Storage, `news` + photos, `tasks`, `support_messages`, fiches `intervenants`, photo patient et fiche médicale, puis l'espace)
-- **Alerte email J-7** à l'admin avec lien pour **prolonger de 30 jours (renouvelable gratuitement)** ou **purger immédiatement**
-- L'admin peut **fermer/purger manuellement** depuis les paramètres
+- **Job quotidien** (Edge Function) : si `purge_scheduled_at` dépassée → suppression en cascade (`reservations`, `souvenirs` + fichiers Storage, `news` + photos, `tasks`, `support_messages`, fiches `intervenants`, photo patient et fiche médicale, puis l'espace) — comportement inchangé, indépendant du plan
+- **Prolongation réservée au Premium** *(NOUVEAU depuis v1.25)* : seul un espace Premium peut prolonger de **30 jours, renouvelable gratuitement à chaque échéance** ; un espace Freemium n'a pas de prolongation possible — bouton remplacé par un message neutre invitant à passer en Premium
+- **Alerte email J-7** à l'admin, avec lien pour **prolonger** (Premium) ou **purger immédiatement** (tous plans)
+- **Passage Freemium → Premium** : `purge_scheduled_at` est recalculé automatiquement (+30 jours, trigger Postgres `supabase/migrations/20260904_rgpd_purge_premium_upgrade_extension.sql`) dès l'upgrade, sans attendre la prochaine activité — évite qu'un espace tout juste passé Premium soit purgé sur l'ancienne échéance Freemium
+- L'admin peut **fermer/purger manuellement** depuis les paramètres, quel que soit son plan
 
 ### Bénéfices
 - Maîtrise du coût serveur (un paiement unique ne finance pas un stockage à vie)

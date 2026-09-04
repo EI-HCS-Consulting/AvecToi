@@ -9,7 +9,7 @@ import {
   toISO, toFrLong, isMyReservation, visiteurIdentityKey, isSlotFullyPast,
   getSlotOccupancy,
 } from "@/lib/slotUtils";
-import { isSpaceCapped } from "@/lib/freemiumCap";
+import { isSpaceCapped, canUseHebdoPlanningView } from "@/lib/freemiumCap";
 import { addToNativeCalendar, linkCalendarEvent, getLinkedCalendarEvent } from "@/lib/calendarSync";
 import { LOGO_NAVY, VISITES_ORANGE_FILL, VISITES_DANGER_FILL, getPatientColor } from "@/lib/themes";
 import { careLocationDetail, mapsUrlForSpace } from "@/lib/address";
@@ -468,6 +468,19 @@ export default function HomeCalendarScreen({
           <SegmentedSwitch
             value={planningView === "hebdo"}
             onChange={(v) => {
+              if (v && !canUseHebdoPlanningView(space)) {
+                Alert.alert(
+                  "Fonctionnalité Premium",
+                  basePath === "/(admin)/home"
+                    ? "La vue Hebdo fait partie de l'offre Premium. Passez votre espace en illimité pour l'activer."
+                    : "La vue Hebdo fait partie de l'offre Premium de cet espace. Demande à l'administrateur de passer en illimité pour l'activer.",
+                  [
+                    { text: "Fermer", style: "cancel" },
+                    { text: "En savoir plus", onPress: () => Linking.openURL("https://avectoi.care") },
+                  ],
+                );
+                return;
+              }
               setPlanningView(v ? "hebdo" : "mensuel");
               if (v) setWeekAnchor(getMonday(selectedDay));
             }}

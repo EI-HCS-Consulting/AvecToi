@@ -10,6 +10,7 @@ import MiniCalendar from "@/components/MiniCalendar";
 import { normalizePhone } from "@/lib/phone";
 import { CHECKLIST_TEMPLATES, addDaysIso, checklistItemDescription, findTemplateItemByTitle, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
 import { findLetterTemplateForChecklistItem, LETTER_TEMPLATES, type LetterTemplate } from "@/lib/letterTemplates";
+import { canGenerateDocumentType } from "@/lib/freemiumCap";
 import { saveAndShareDoc, splitAlignedLines } from "@/lib/mediaShare";
 import MesDocumentsModal from "@/components/MesDocumentsModal";
 import ShoppingListModal from "@/components/ShoppingListModal";
@@ -906,7 +907,20 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
         {!!letterTpl && (
           <TouchableOpacity
             style={styles.itemLinkWrap}
-            onPress={() => openLetterModal(letterTpl)}
+            onPress={() => {
+              if (!canGenerateDocumentType(space)) {
+                Alert.alert(
+                  "Fonctionnalité Premium",
+                  "La génération de documents types fait partie de l'offre Premium. Passez votre espace en illimité pour l'activer.",
+                  [
+                    { text: "Fermer", style: "cancel" },
+                    { text: "En savoir plus", onPress: () => Linking.openURL("https://avectoi.care") },
+                  ],
+                );
+                return;
+              }
+              openLetterModal(letterTpl);
+            }}
             hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
           >
             <Text style={[styles.itemLink, { color: C.accent }]}>✉️ Préparer le courrier</Text>
