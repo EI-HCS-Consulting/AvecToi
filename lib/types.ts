@@ -144,7 +144,7 @@ export interface Reservation {
   type: "Visite" | "Nuit" | "Intervention";
   pin: string;
   push_token: string | null;
-  timestamp: string;
+  created_at: string;
   // Posés par apply_slot_rule_change() quand un changement de règles de
   // visite invalide cette réservation : previous_date/previous_creneau
   // gardent l'horaire d'origine pour le message affiché au visiteur,

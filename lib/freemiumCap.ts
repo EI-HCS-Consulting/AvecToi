@@ -11,8 +11,8 @@ export function isSpaceCapped(space: PatientSpace | null, reservations: Reservat
   const visites = reservations.filter((r) => r.type === "Visite");
   if (visites.length === 0) return false;
   const firstTimestamp = visites.reduce(
-    (min, r) => (r.timestamp < min ? r.timestamp : min),
-    visites[0].timestamp,
+    (min, r) => (r.created_at < min ? r.created_at : min),
+    visites[0].created_at,
   );
   const deadline = new Date(firstTimestamp);
   deadline.setDate(deadline.getDate() + FREE_TRIAL_DAYS);
