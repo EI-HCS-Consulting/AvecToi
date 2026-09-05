@@ -225,7 +225,7 @@ export default function SignupScreen() {
         destructive={false}
         onCancel={() => {
           setExistingAccountModal(false);
-          router.push(`/auth/forgot-password?email=${encodeURIComponent(email.trim())}`);
+          router.push({ pathname: "/auth/forgot-password", params: { email: email.trim() } });
         }}
         onConfirm={() => { setExistingAccountModal(false); router.replace("/auth/login"); }}
         C={C}
