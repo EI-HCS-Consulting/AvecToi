@@ -96,7 +96,7 @@ export default function LoginScreen() {
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => router.push(`/auth/forgot-password?email=${encodeURIComponent(email.trim())}`)}
+            onPress={() => router.push({ pathname: "/auth/forgot-password", params: { email: email.trim() } })}
             style={styles.forgotBtn}
           >
             <Text style={styles.forgotText}>Mot de passe oublié ?</Text>
