@@ -27,7 +27,7 @@ begin
     return new;
   end if;
 
-  select min(timestamp) into v_first_timestamp from reservations
+  select min(created_at) into v_first_timestamp from reservations
     where space_id = new.space_id and type = 'Visite';
 
   -- v_first_timestamp est null pour la toute première "Visite" de l'espace :

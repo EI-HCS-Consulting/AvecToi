@@ -53,16 +53,16 @@ Deno.serve(async (req: Request) => {
     for (const space of spaces) {
       const { data: firstVisite } = await supabaseAdmin
         .from("reservations")
-        .select("timestamp")
+        .select("created_at")
         .eq("space_id", space.id)
         .eq("type", "Visite")
-        .order("timestamp", { ascending: true })
+        .order("created_at", { ascending: true })
         .limit(1)
         .maybeSingle();
 
       if (!firstVisite) continue;
 
-      const deadline = new Date(firstVisite.timestamp);
+      const deadline = new Date(firstVisite.created_at);
       deadline.setUTCDate(deadline.getUTCDate() + FREE_TRIAL_DAYS);
       if (deadline > new Date()) continue;
 
