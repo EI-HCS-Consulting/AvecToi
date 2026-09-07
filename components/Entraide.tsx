@@ -5424,16 +5424,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                       <TouchableOpacity
                         onPress={() => {
                           setThanksModal(false);
-                          // Relais : comportement voulu depuis PR #307, on
-                          // ramène sur l'accueil (la couverture se gère
-                          // plutôt depuis le calendrier). Toute autre
-                          // catégorie : on reste sur Entraide et on re-scrolle
-                          // sur le besoin claimé (même mécanisme que le lien
-                          // profond ?focusTaskId, voir l'effet focusTarget).
-                          if (thanksModalCategory === "relais") {
-                            router.navigate(isAdmin ? "/(admin)/home/calendar" : "/(visitor)/home/calendar");
-                            return;
-                          }
+                          // Reste sur Entraide et re-scrolle sur le besoin
+                          // claimé (même mécanisme que le lien profond
+                          // ?focusTaskId, voir l'effet focusTarget) — y
+                          // compris pour un relais : le renvoi vers l'accueil
+                          // (comportement PR #307) faisait retomber sur le
+                          // popup "Besoin de relais" ou sur le planning au
+                          // lieu de montrer le besoin pris en charge (bug
+                          // remonté).
                           if (thanksModalTaskId) {
                             focusedRef.current = false;
                             setFocusTarget(thanksModalTaskId);
