@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   View, Text, TouchableOpacity, ScrollView, StyleSheet,
-  ActivityIndicator, Modal, TextInput,
+  ActivityIndicator, TextInput,
 } from "react-native";
 import { useRouter } from "expo-router";
 import { useSpace } from "@/lib/SpaceContext";
@@ -14,6 +14,21 @@ import PatientAvatar from "@/components/PatientAvatar";
 import ConfirmModal from "@/components/ConfirmModal";
 import PremiumGateModal from "@/components/PremiumGateModal";
 import type { PatientSpaceCoadmin } from "@/lib/types";
+
+// Une ligne du tableau de bord = une identité (prenom+nom), qu'elle ait déjà
+// une ligne patient_space_coadmins (octroyée/en attente/révoquée) et/ou des
+// périodes proposées via "Je m'en occupe" sur un Besoin SOS — les deux
+// sources sont fusionnées par identité pour que les dates proposées restent
+// visibles quel que soit le statut (demande explicite : "tableau de bord
+// pour voir toutes les propositions avec leurs statuts").
+interface DashboardEntry {
+  key: string;
+  prenom: string;
+  nom: string;
+  photoUrl: string | null;
+  periods: SosRelaisPeriod[];
+  coadmin: PatientSpaceCoadmin | null;
+}
 
 // Gestion des co-administrateurs temporaires (Feature 3 du chantier SOS
 // relais, voir lib/coAdmin.ts) — admin réel uniquement. Un co-admin ne voit
@@ -29,12 +44,11 @@ export default function CoAdminsScreen() {
   const [revoking, setRevoking] = useState(false);
   const [premiumGateMsg, setPremiumGateMsg] = useState<string | null>(null);
 
-  const [pickerVisible, setPickerVisible] = useState(false);
-  const [pickerLoading, setPickerLoading] = useState(false);
+  const [candidatesLoading, setCandidatesLoading] = useState(true);
   const [sosCandidates, setSosCandidates] = useState<SosRelaisCandidate[]>([]);
   const [search, setSearch] = useState("");
   const [granting, setGranting] = useState<string | null>(null);
-  const [grantError, setGrantError] = useState("");
+  const [grantError, setGrantError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!space) return;
@@ -49,41 +63,44 @@ export default function CoAdminsScreen() {
     setLoading(false);
   }, [space]);
 
-  useEffect(() => { load(); }, [load]);
-
-  // Un même visiteur ne peut pas avoir deux invitations/octrois en attente
-  // ou actifs simultanément — exclu du picker s'il a déjà une ligne non révoquée.
-  const activeOrPendingKeys = new Set(
-    coadmins.filter((c) => c.active).map((c) => visitorIdentityKey(c.prenom, c.nom)),
-  );
-
-  function handleOpenAdd() {
+  const loadCandidates = useCallback(async () => {
     if (!space) return;
-    if (!canGrantCoAdmin(space)) {
-      setPremiumGateMsg("La co-administration temporaire fait partie de l'offre Premium. Passez votre espace en illimité pour désigner un co-administrateur.");
-      return;
-    }
-    setSearch("");
-    setGrantError("");
-    setPickerVisible(true);
-    setPickerLoading(true);
-    loadSosRelaisCandidates(space.id).then((rows) => {
-      setSosCandidates(rows);
-      setPickerLoading(false);
-    });
-  }
+    setCandidatesLoading(true);
+    const rows = await loadSosRelaisCandidates(space.id);
+    setSosCandidates(rows);
+    setCandidatesLoading(false);
+  }, [space]);
 
-  // Un candidat qui vient d'être octroyé reste affiché (avec ses périodes
-  // marquées "Déjà co-administrateur") plutôt que de disparaître entièrement
-  // du picker : la co-administration est un octroi par personne, pas par
-  // période (patient_space_coadmins n'a pas de colonne période), donc valider
-  // une seule période d'un candidat qui en avait proposé plusieurs faisait
-  // disparaître TOUTES ses périodes d'un coup, donnant l'impression que
-  // "tout se validait" alors qu'une seule ligne avait réellement été écrite
-  // en base (bug remonté). Les périodes des AUTRES candidats, elles, n'ont
-  // jamais été affectées (activeOrPendingKeys ne contient que la clé du
-  // candidat concerné).
-  const filteredCandidates = sosCandidates.filter((v) => {
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { loadCandidates(); }, [loadCandidates]);
+
+  // Fusion par identité : une proposition (task_relais_coverage) et un octroi
+  // (patient_space_coadmins) pour la même personne pointent vers la même
+  // ligne du tableau de bord, quel que soit leur statut respectif.
+  const dashboard = useMemo<DashboardEntry[]>(() => {
+    const byKey = new Map<string, DashboardEntry>();
+    for (const v of sosCandidates) {
+      byKey.set(visitorIdentityKey(v.prenom, v.nom), {
+        key: visitorIdentityKey(v.prenom, v.nom),
+        prenom: v.prenom,
+        nom: v.nom,
+        photoUrl: v.photoUrl,
+        periods: v.periods,
+        coadmin: null,
+      });
+    }
+    for (const c of coadmins) {
+      const key = visitorIdentityKey(c.prenom, c.nom);
+      const existing = byKey.get(key);
+      if (existing) existing.coadmin = c;
+      else byKey.set(key, { key, prenom: c.prenom, nom: c.nom, photoUrl: null, periods: [], coadmin: c });
+    }
+    return Array.from(byKey.values()).sort(
+      (a, b) => a.nom.localeCompare(b.nom, "fr") || a.prenom.localeCompare(b.prenom, "fr"),
+    );
+  }, [sosCandidates, coadmins]);
+
+  const filteredDashboard = dashboard.filter((v) => {
     if (!search.trim()) return true;
     const q = search.trim().toLowerCase();
     return `${v.prenom} ${v.nom}`.toLowerCase().includes(q);
@@ -95,10 +112,21 @@ export default function CoAdminsScreen() {
     return `du ${start} au ${end}`;
   }
 
-  async function handleGrant(v: SosRelaisCandidate) {
+  function statusLabel(c: PatientSpaceCoadmin | null): { text: string; color: string } {
+    if (!c) return { text: "🙋 Proposition non traitée", color: C.muted };
+    if (!c.active) return { text: "🔒 Révoqué", color: C.muted };
+    if (!c.accepted_at) return { text: "⏳ En attente", color: C.orange };
+    return { text: "✅ Actif", color: C.success };
+  }
+
+  async function handleGrant(v: DashboardEntry) {
     if (!space) return;
-    setGranting(visitorIdentityKey(v.prenom, v.nom));
-    setGrantError("");
+    if (!canGrantCoAdmin(space)) {
+      setPremiumGateMsg("La co-administration temporaire fait partie de l'offre Premium. Passez votre espace en illimité pour désigner un co-administrateur.");
+      return;
+    }
+    setGranting(v.key);
+    setGrantError(null);
 
     // Résolution prenom/nom → visitor_profiles.id (même convention que
     // VisitorProfileModal/pinResetRequests : homonymie non gérée ici, limite
@@ -131,12 +159,6 @@ export default function CoAdminsScreen() {
       setGrantError("Erreur lors de l'envoi de l'invitation. Réessaie.");
       return;
     }
-
-    // Ne pas fermer le picker ici : un même besoin SOS peut avoir plusieurs
-    // candidats/périodes à valider dans la foulée — seul `v` doit disparaître
-    // de filteredCandidates (via activeOrPendingKeys, recalculé par load()).
-    // Fermer tout le popup ici donnait l'impression que "tout se validait"
-    // alors qu'un seul candidat venait d'être octroyé (bug remonté).
     await load();
   }
 
@@ -160,16 +182,12 @@ export default function CoAdminsScreen() {
     await load();
   }
 
-  function statusLabel(c: PatientSpaceCoadmin): { text: string; color: string } {
-    if (!c.active) return { text: "🔒 Révoqué", color: C.muted };
-    if (!c.accepted_at) return { text: "⏳ En attente", color: C.orange };
-    return { text: "✅ Actif", color: C.success };
-  }
+  const isLoading = loading || candidatesLoading;
 
   return (
     <View style={[styles.container, { backgroundColor: C.bg }]}>
       <View style={[styles.header, { backgroundColor: C.card, borderBottomColor: C.border }]}>
-        <TouchableOpacity onPress={() => router.back()}>
+        <TouchableOpacity onPress={() => router.replace("/(admin)/account?scrollTo=coadmin" as any)}>
           <Text style={[styles.backText, { color: C.muted }]}>← Retour</Text>
         </TouchableOpacity>
         <Text style={[styles.headerTitle, { color: C.text }]}>🛡️ Co-administrateurs</Text>
@@ -177,42 +195,72 @@ export default function CoAdminsScreen() {
 
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text style={[styles.intro, { color: C.muted }]}>
-          Retrouve ici les proches qui se sont proposés pour te remplacer via un Besoin SOS,
-          et les périodes qu'ils ont indiqué pouvoir couvrir en cliquant sur « Je m'en occupe ».
-          Valide une période pour en faire un co-administrateur temporaire — il obtient
-          l'accès complet aux réglages et au planning pendant ton absence. Tu gardes la main
-          à tout moment et peux révoquer un co-administrateur ici même.
+          Tableau de bord des proches qui se sont proposés pour te remplacer via un Besoin SOS,
+          avec les périodes qu'ils ont indiqué pouvoir couvrir en cliquant sur « Je m'en occupe »
+          et le statut de chacun. Valide une proposition pour en faire un co-administrateur
+          temporaire — il obtient l'accès complet aux réglages et au planning pendant ton absence.
+          Tu gardes la main à tout moment et peux révoquer un co-administrateur ici même.
         </Text>
 
-        <TouchableOpacity
-          style={[styles.addBtn, { backgroundColor: C.accent }]}
-          onPress={handleOpenAdd}
-          activeOpacity={0.85}
-        >
-          <Text style={styles.addBtnText}>+ Voir les propositions de relais</Text>
-        </TouchableOpacity>
+        <TextInput
+          style={[styles.searchInput, { backgroundColor: C.card, borderColor: C.border, color: C.text }]}
+          placeholder="Rechercher un nom…"
+          placeholderTextColor={C.muted}
+          value={search}
+          onChangeText={setSearch}
+          autoCapitalize="words"
+        />
+        {!!grantError && <Text style={[styles.errorText, { color: C.danger }]}>{grantError}</Text>}
 
-        {loading ? (
+        {isLoading ? (
           <ActivityIndicator color={C.accent} style={{ marginTop: 24 }} />
-        ) : coadmins.length === 0 ? (
-          <Text style={[styles.empty, { color: C.muted }]}>Aucun co-administrateur pour le moment.</Text>
+        ) : filteredDashboard.length === 0 ? (
+          <Text style={[styles.empty, { color: C.muted }]}>
+            Personne ne s'est encore proposé pour un Besoin SOS via « Je m'en occupe ».
+          </Text>
         ) : (
-          coadmins.map((c) => {
-            const status = statusLabel(c);
+          filteredDashboard.map((v) => {
+            const status = statusLabel(v.coadmin);
+            const canValidate = !v.coadmin || !v.coadmin.active;
             return (
-              <View key={c.id} style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.cardName, { color: C.text }]}>{c.prenom} {c.nom}</Text>
-                  <Text style={[styles.cardStatus, { color: status.color }]}>{status.text}</Text>
+              <View key={v.key} style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
+                <View style={styles.visitorRow}>
+                  <PatientAvatar photoUrl={v.photoUrl} firstname={v.prenom} lastname={v.nom} size={40} C={C} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.cardName, { color: C.text }]}>{v.prenom} {v.nom}</Text>
+                    <Text style={[styles.cardStatus, { color: status.color }]}>{status.text}</Text>
+                  </View>
+                  {v.coadmin?.active ? (
+                    <TouchableOpacity
+                      style={[styles.revokeBtn, { borderColor: "rgba(233,69,96,0.4)" }]}
+                      onPress={() => handleRevoke(v.coadmin!)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.revokeBtnText}>Révoquer</Text>
+                    </TouchableOpacity>
+                  ) : canValidate ? (
+                    <TouchableOpacity
+                      style={[styles.validateBtn, { backgroundColor: C.accent }]}
+                      onPress={() => handleGrant(v)}
+                      disabled={!!granting}
+                      activeOpacity={0.8}
+                    >
+                      {granting === v.key ? (
+                        <ActivityIndicator color="#fff" size="small" />
+                      ) : (
+                        <Text style={styles.validateBtnText}>Valider</Text>
+                      )}
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
-                {c.active && (
-                  <TouchableOpacity
-                    style={[styles.revokeBtn, { borderColor: "rgba(233,69,96,0.4)" }]}
-                    onPress={() => handleRevoke(c)}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.revokeBtnText}>Révoquer</Text>
-                  </TouchableOpacity>
+                {v.periods.length > 0 && (
+                  <View style={styles.periodsBlock}>
+                    {v.periods.map((p) => (
+                      <Text key={p.coverageId} style={[styles.periodText, { color: C.muted }]} numberOfLines={1}>
+                        🗓️ {formatPeriod(p)}{p.fullPeriod ? " (période complète)" : ""}
+                      </Text>
+                    ))}
+                  </View>
                 )}
               </View>
             );
@@ -220,75 +268,11 @@ export default function CoAdminsScreen() {
         )}
       </ScrollView>
 
-      {/* Picker de sélection d'un visiteur connu */}
-      <Modal visible={pickerVisible} transparent animationType="fade" onRequestClose={() => setPickerVisible(false)}>
-        <View style={styles.overlay}>
-          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setPickerVisible(false)} />
-          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.border }]}>
-            <Text style={[styles.sheetTitle, { color: C.text }]}>Propositions de relais</Text>
-            <TextInput
-              style={[styles.searchInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-              placeholder="Rechercher un nom…"
-              placeholderTextColor={C.muted}
-              value={search}
-              onChangeText={setSearch}
-              autoCapitalize="words"
-            />
-            {!!grantError && <Text style={[styles.errorText, { color: C.danger }]}>{grantError}</Text>}
-            {pickerLoading ? (
-              <ActivityIndicator color={C.accent} style={{ marginVertical: 20 }} />
-            ) : (
-              <ScrollView style={{ maxHeight: 420 }}>
-                {filteredCandidates.length === 0 ? (
-                  <Text style={[styles.empty, { color: C.muted }]}>
-                    Personne ne s'est encore proposé pour un Besoin SOS via « Je m'en occupe ».
-                  </Text>
-                ) : filteredCandidates.map((v) => {
-                  const key = visitorIdentityKey(v.prenom, v.nom);
-                  const alreadyGranted = activeOrPendingKeys.has(key);
-                  return (
-                    <View key={key} style={[styles.candidateBlock, { borderColor: C.border }]}>
-                      <View style={styles.visitorRow}>
-                        <PatientAvatar photoUrl={v.photoUrl} firstname={v.prenom} lastname={v.nom} size={40} C={C} />
-                        <Text style={[styles.visitorName, { color: C.text }]}>{v.prenom} {v.nom}</Text>
-                      </View>
-                      {v.periods.map((p) => (
-                        <View key={p.coverageId} style={styles.periodRow}>
-                          <Text style={[styles.periodText, { color: C.muted }]} numberOfLines={1}>
-                            🗓️ {formatPeriod(p)}{p.fullPeriod ? " (période complète)" : ""}
-                          </Text>
-                          {alreadyGranted ? (
-                            <Text style={[styles.validateBtnText, { color: C.accent }]}>✅ Déjà co-admin</Text>
-                          ) : (
-                            <TouchableOpacity
-                              style={[styles.validateBtn, { backgroundColor: C.accent }]}
-                              onPress={() => handleGrant(v)}
-                              disabled={!!granting}
-                              activeOpacity={0.8}
-                            >
-                              {granting === key ? (
-                                <ActivityIndicator color="#fff" size="small" />
-                              ) : (
-                                <Text style={styles.validateBtnText}>Valider</Text>
-                              )}
-                            </TouchableOpacity>
-                          )}
-                        </View>
-                      ))}
-                    </View>
-                  );
-                })}
-              </ScrollView>
-            )}
-          </View>
-        </View>
-      </Modal>
-
       <ConfirmModal
         visible={!!revokeTarget}
         icon="🔒"
         title="Révoquer ce co-administrateur ?"
-        message={revokeTarget ? `${revokeTarget.prenom} ${revokeTarget.nom} perdra l'accès à l'administration dès son prochain lancement de l'app.` : ""}
+        message={revokeTarget ? `${revokeTarget.prenom} ${revokeTarget.nom} perdra l'accès à l'administration dès sa prochaine connexion.` : ""}
         confirmLabel="Révoquer"
         destructive
         saving={revoking}
@@ -317,44 +301,27 @@ const styles = StyleSheet.create({
   headerTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 20 },
   scroll: { padding: 16, paddingBottom: 48 },
   intro: { fontFamily: "DM_Sans_400Regular", fontSize: 13.5, lineHeight: 20, marginBottom: 16 },
-  addBtn: { borderRadius: 12, paddingVertical: 14, alignItems: "center", marginBottom: 20 },
-  addBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" },
   empty: { fontFamily: "DM_Sans_400Regular", fontSize: 13, textAlign: "center", marginTop: 16 },
+  searchInput: {
+    borderWidth: 1, borderRadius: 10, padding: 12,
+    fontFamily: "DM_Sans_400Regular", fontSize: 14, marginBottom: 12,
+  },
+  errorText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginBottom: 10, textAlign: "center" },
   card: {
-    flexDirection: "row", alignItems: "center", borderWidth: 1, borderRadius: 14,
+    borderWidth: 1, borderRadius: 14,
     padding: 14, marginBottom: 10,
+  },
+  visitorRow: {
+    flexDirection: "row", alignItems: "center", gap: 12,
   },
   cardName: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15 },
   cardStatus: { fontFamily: "DM_Sans_400Regular", fontSize: 12.5, marginTop: 2 },
   revokeBtn: { borderWidth: 1, borderRadius: 8, paddingVertical: 8, paddingHorizontal: 12 },
   revokeBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12.5, color: "#e94560" },
-  overlay: {
-    flex: 1, backgroundColor: "rgba(0,0,0,0.82)",
-    justifyContent: "center", alignItems: "stretch", paddingHorizontal: 0,
-  },
-  sheet: {
-    borderWidth: 1, borderRadius: 20,
-    padding: 20, paddingBottom: 24, width: "100%", maxHeight: "85%",
-  },
-  sheetTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, marginBottom: 12 },
-  searchInput: {
-    borderWidth: 1, borderRadius: 10, padding: 12,
-    fontFamily: "DM_Sans_400Regular", fontSize: 14, marginBottom: 10,
-  },
-  errorText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginBottom: 10, textAlign: "center" },
-  candidateBlock: {
-    borderBottomWidth: 1, paddingVertical: 12,
-  },
-  visitorRow: {
-    flexDirection: "row", alignItems: "center", gap: 12,
-    marginBottom: 8,
-  },
-  visitorName: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14, flex: 1 },
-  periodRow: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    gap: 10, paddingLeft: 52, marginBottom: 6,
-  },
-  periodText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, flex: 1 },
-  validateBtn: { borderRadius: 8, paddingVertical: 7, paddingHorizontal: 14 },
+  validateBtn: { borderRadius: 8, paddingVertical: 8, paddingHorizontal: 14 },
   validateBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12.5, color: "#fff" },
+  periodsBlock: {
+    paddingLeft: 52, marginTop: 8, gap: 4,
+  },
+  periodText: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
 });
