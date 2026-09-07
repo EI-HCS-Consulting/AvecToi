@@ -637,6 +637,19 @@ export interface VisitorProfile {
   updated_at: string;
 }
 
+export interface PatientSpaceCoadmin {
+  id: string;
+  space_id: string;
+  visitor_id: string;
+  prenom: string;
+  nom: string;
+  active: boolean;
+  accepted_at: string | null;
+  granted_at: string;
+  revoked_at: string | null;
+  granted_by_admin_id: string | null;
+}
+
 export interface SupportMessageReply {
   id: string;
   message_id: string;
