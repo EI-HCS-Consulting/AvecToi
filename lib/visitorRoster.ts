@@ -72,3 +72,94 @@ export async function loadKnownVisitors(
     (a, b) => a.nom.localeCompare(b.nom, "fr") || a.prenom.localeCompare(b.prenom, "fr"),
   );
 }
+
+// Périmètre du sélecteur de co-admin (app/(admin)/coadmins.tsx) : uniquement
+// les visiteurs qui ont proposé une période de relais via "Je m'en occupe"
+// (task_relais_coverage) sur un Besoin SOS de l'espace — et, quand ce besoin
+// ciblait des destinataires précis (relais_visible_to==="some"), uniquement
+// ceux effectivement désignés dans tasks.relais_recipients à ce moment-là.
+// Quand le besoin était ouvert à tous (relais_visible_to "all"/null), tout
+// contributeur compte : l'admin a choisi d'ouvrir le besoin à tous, donc tout
+// le monde qui a répondu fait partie des personnes qu'il a "laissé" pouvoir
+// le remplacer.
+export interface SosRelaisPeriod {
+  coverageId: string;
+  taskId: string;
+  startDate: string;
+  endDate: string;
+  fullPeriod: boolean;
+}
+
+export interface SosRelaisCandidate {
+  prenom: string;
+  nom: string;
+  photoUrl: string | null;
+  periods: SosRelaisPeriod[];
+}
+
+export async function loadSosRelaisCandidates(spaceId: string): Promise<SosRelaisCandidate[]> {
+  const { data: relaisTasks } = await supabase
+    .from("tasks")
+    .select("id, relais_visible_to, relais_recipients")
+    .eq("space_id", spaceId)
+    .eq("category", "relais");
+
+  const tasks = relaisTasks || [];
+  if (tasks.length === 0) return [];
+
+  const eligibleKeysByTask = new Map<string, Set<string> | null>();
+  for (const t of tasks) {
+    if (t.relais_visible_to === "some" && Array.isArray(t.relais_recipients)) {
+      eligibleKeysByTask.set(
+        t.id,
+        new Set(
+          (t.relais_recipients as { prenom: string; nom: string }[]).map((r) => visitorIdentityKey(r.prenom, r.nom)),
+        ),
+      );
+    } else {
+      eligibleKeysByTask.set(t.id, null);
+    }
+  }
+
+  const [coverageRes, profilesRes] = await Promise.all([
+    supabase
+      .from("task_relais_coverage")
+      .select("id, task_id, prenom, nom, start_date, end_date, full_period")
+      .in("task_id", tasks.map((t) => t.id))
+      .order("start_date", { ascending: true }),
+    supabase.from("visitor_profiles").select("prenom,nom,photo").eq("space_id", spaceId),
+  ]);
+
+  const photoByKey = new Map<string, string | null>();
+  for (const p of profilesRes.data || []) {
+    photoByKey.set(visitorIdentityKey(p.prenom, p.nom), p.photo ? visitorPhotoUrl(spaceId, p.photo) : null);
+  }
+
+  const byKey = new Map<string, SosRelaisCandidate>();
+  for (const cov of coverageRes.data || []) {
+    if (!cov.prenom?.trim() || !cov.nom?.trim()) continue;
+    const key = visitorIdentityKey(cov.prenom, cov.nom);
+    const eligible = eligibleKeysByTask.get(cov.task_id);
+    if (eligible && !eligible.has(key)) continue;
+
+    if (!byKey.has(key)) {
+      byKey.set(key, {
+        prenom: cov.prenom.trim(),
+        nom: cov.nom.trim(),
+        photoUrl: photoByKey.get(key) ?? null,
+        periods: [],
+      });
+    }
+    byKey.get(key)!.periods.push({
+      coverageId: cov.id,
+      taskId: cov.task_id,
+      startDate: cov.start_date,
+      endDate: cov.end_date,
+      fullPeriod: cov.full_period,
+    });
+  }
+
+  return Array.from(byKey.values()).sort(
+    (a, b) => a.nom.localeCompare(b.nom, "fr") || a.prenom.localeCompare(b.prenom, "fr"),
+  );
+}
