@@ -362,7 +362,28 @@ const sliderStyles = StyleSheet.create({
 
 export default function SettingsScreen() {
   const router = useRouter();
-  const { space, slotConfig, loading, hasSpace, refreshSlotConfig, refreshSpace, patchSpace } = useSpace();
+  const { space, slotConfig, loading, hasSpace, refreshSlotConfig, refreshSpace, patchSpace, isCoAdmin, coAdminIdentity } = useSpace();
+
+  // Point d'entrée unique vers l'écriture patient_spaces : un co-admin n'a
+  // aucune session Supabase (identité PIN visiteur anonyme), donc RLS lui
+  // interdit le .update() direct — il passe par update_space_as_coadmin
+  // (RPC security definer, whitelist de colonnes côté serveur, voir la
+  // migration). L'admin réel garde son .update() direct inchangé.
+  async function patientSpacesUpdate(patch: Record<string, string | boolean | null>) {
+    if (!space) return { error: new Error("NO_SPACE") };
+    if (isCoAdmin && coAdminIdentity) {
+      const { error } = await supabase.rpc("update_space_as_coadmin", {
+        p_space_id: space.id,
+        p_caller_prenom: coAdminIdentity.prenom,
+        p_caller_nom: coAdminIdentity.nom,
+        p_caller_pin: coAdminIdentity.pin,
+        p_patch: patch,
+      });
+      return { error };
+    }
+    const { error } = await supabase.from("patient_spaces").update(patch).eq("id", space.id);
+    return { error };
+  }
   const { theme: C } = useDisplayMode();
 
   const [photoUploading, setPhotoUploading] = useState(false);
@@ -512,18 +533,15 @@ export default function SettingsScreen() {
     setPatientMedicalSaving(true);
     const parts = COMMON_ALLERGIES.filter((a) => allergyChecks.has(a));
     if (allergyOtherChecked && allergyOtherText.trim()) parts.push(allergyOtherText.trim());
-    const { error } = await supabase
-      .from("patient_spaces")
-      .update({
-        patient_motto: patientMotto.trim() || null,
-        patient_admission_date: patientAdmissionDate,
-        patient_discharge_date: patientDischargeDate,
-        patient_birthdate: patientBirthdate,
-        patient_sex: patientSex,
-        patient_blood_type: patientBloodType,
-        patient_allergies: parts.length ? parts.join(", ") : null,
-      })
-      .eq("id", space.id);
+    const { error } = await patientSpacesUpdate({
+      patient_motto: patientMotto.trim() || null,
+      patient_admission_date: patientAdmissionDate,
+      patient_discharge_date: patientDischargeDate,
+      patient_birthdate: patientBirthdate,
+      patient_sex: patientSex,
+      patient_blood_type: patientBloodType,
+      patient_allergies: parts.length ? parts.join(", ") : null,
+    });
     setPatientMedicalSaving(false);
     if (error) showToast("Erreur lors de la sauvegarde.");
     else {
@@ -1007,10 +1025,7 @@ export default function SettingsScreen() {
     // ici pour que la BDD reste cohérente même si l'admin n'a jamais ouvert
     // la section Coordonnées.
     const update = { hospital_room: nextRoom, hospital_service: nextService, hospital_sector: nextSector, hospital_address_line2: nextSector };
-    const { error } = await supabase
-      .from("patient_spaces")
-      .update(update)
-      .eq("id", space.id);
+    const { error } = await patientSpacesUpdate(update);
     setHospitalInfosSaving(false);
     if (error) showToast("Erreur lors de la sauvegarde.");
     else { patchSpace(update); showToast("Infos hospitalières enregistrées ✓"); loadHistory(); }
@@ -1022,10 +1037,7 @@ export default function SettingsScreen() {
     setNotesSaving(true);
     const nextRules = visitRules.trim() || null;
     await logFieldChange("visit_rules", space.visit_rules, nextRules);
-    const { error } = await supabase
-      .from("patient_spaces")
-      .update({ visit_rules: nextRules })
-      .eq("id", space.id);
+    const { error } = await patientSpacesUpdate({ visit_rules: nextRules });
     setNotesSaving(false);
     if (error) showToast("Erreur lors de la sauvegarde.");
     else { showToast("Message enregistré ✓"); loadHistory(); }
@@ -1181,10 +1193,7 @@ export default function SettingsScreen() {
       update.hospital_country = hospitalCountry.trim() || null;
       update.hospital_maps_url = hospitalMapsUrl.trim() || null;
     }
-    const { error } = await supabase
-      .from("patient_spaces")
-      .update(update)
-      .eq("id", space.id);
+    const { error } = await patientSpacesUpdate(update);
     if (!error && modeChanged) {
       await logFieldChange(
         "home_care_mode",
@@ -1224,6 +1233,9 @@ export default function SettingsScreen() {
       p_space_id: space.id,
       p_new_config: patch,
       p_new_slots: newSlots,
+      ...(isCoAdmin && coAdminIdentity
+        ? { p_caller_prenom: coAdminIdentity.prenom, p_caller_nom: coAdminIdentity.nom, p_caller_pin: coAdminIdentity.pin }
+        : {}),
     });
     if (error) return { ok: false, error: error.message };
 
@@ -1505,10 +1517,7 @@ export default function SettingsScreen() {
       // Bust cache with a timestamp
       const photoUrl = `${urlData.publicUrl}?t=${Date.now()}`;
 
-      const { error: dbErr } = await supabase
-        .from("patient_spaces")
-        .update({ patient_photo_url: photoUrl })
-        .eq("id", space!.id);
+      const { error: dbErr } = await patientSpacesUpdate({ patient_photo_url: photoUrl });
 
       if (dbErr) throw dbErr;
 
@@ -1529,7 +1538,7 @@ export default function SettingsScreen() {
     setRemovePhotoModal(false);
     if (!space) return;
     await supabase.storage.from("patient-photos").remove([`${space.id}/photo.jpg`]);
-    await supabase.from("patient_spaces").update({ patient_photo_url: null }).eq("id", space.id);
+    await patientSpacesUpdate({ patient_photo_url: null });
     setLocalPhotoUrl(null);
     showToast("Photo supprimée ✓");
   }
@@ -2364,7 +2373,11 @@ export default function SettingsScreen() {
                     Rôle retiré de la V1 (voir Développement V2/ à la racine
                     du repo) : bloc masqué tant que INTERVENANT_ROLE_ENABLED
                     est à false, code laissé en place pour la V2. ── */}
-                {INTERVENANT_ROLE_ENABLED && space && (
+                {/* Bascule Premium hors périmètre opérationnel courant du
+                    co-admin (voir plan co-administration temporaire) — même
+                    quand INTERVENANT_ROLE_ENABLED repassera à true, seul
+                    l'admin réel doit pouvoir l'activer/désactiver. */}
+                {INTERVENANT_ROLE_ENABLED && space && !isCoAdmin && (
                   <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 16 }]}>
                     <Text style={[styles.fieldLabel, { color: C.orange, marginTop: 0 }]}>🩺 Planning des intervenants</Text>
                     <View style={styles.nightRow}>
@@ -2434,16 +2447,19 @@ export default function SettingsScreen() {
           </View>
         )}
 
-        {/* ── Section : Historique (sous-blocs Visiteurs, Intervenants, puis Historique) ── */}
-        {hasSpace && space && activeSection === "hist" && (
+        {/* ── Section : Historique (sous-blocs Visiteurs, Intervenants, puis Historique) ──
+            Onglet entier masqué pour un co-admin : gestion des visiteurs et
+            surtout conservation des données/RGPD sont explicitement hors
+            périmètre co-admin (voir plan co-administration temporaire). ── */}
+        {hasSpace && space && activeSection === "hist" && !isCoAdmin && (
           <VisitorsBlock spaceId={space.id} C={C} adminFirstname={space.admin_firstname} adminLastname={space.admin_lastname} />
         )}
         {/* Rôle Intervenant retiré de la V1 — bloc masqué tant que
             INTERVENANT_ROLE_ENABLED est à false (voir Développement V2/). */}
-        {INTERVENANT_ROLE_ENABLED && hasSpace && space && activeSection === "hist" && (
+        {INTERVENANT_ROLE_ENABLED && hasSpace && space && activeSection === "hist" && !isCoAdmin && (
           <IntervenantsBlock spaceId={space.id} C={C} />
         )}
-        {hasSpace && space && activeSection === "hist" && (
+        {hasSpace && space && activeSection === "hist" && !isCoAdmin && (
           <>
             <Text style={[styles.sectionTitle, { color: C.gold }]}>Historique</Text>
             <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
@@ -2889,7 +2905,7 @@ export default function SettingsScreen() {
               <Text style={styles.settingsNavIconText}>⚙️</Text>
             </View>
           </View>
-          {SETTINGS_NAV_ORDER.map((key) => {
+          {SETTINGS_NAV_ORDER.filter((key) => key !== "hist" || !isCoAdmin).map((key) => {
             const isDisabled = key === "regles" && !slotConfig;
             const isActive = activeSection === key;
             return (
