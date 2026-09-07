@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, KeyboardAvoidingView, Platform, ScrollView,
@@ -9,6 +9,7 @@ import PinPad from "@/components/PinPad";
 import { loginVisitorProfile, claimResetVisitorPin } from "@/lib/visitorProfile";
 import { requestPinReset } from "@/lib/pinResetRequests";
 import { saveVisitorSession } from "@/lib/visitorSession";
+import { checkCoAdminStatus, requestCoAdminCode, resetCoAdminPinViaEmail } from "@/lib/coAdmin";
 
 const C = themes.dark;
 
@@ -32,6 +33,65 @@ export default function VisitorIdentifyScreen() {
   // / MyAlertsModal côté admin) pour un visiteur qui a oublié son code.
   const [pinRequestStatus, setPinRequestStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [pinRequestMsg, setPinRequestMsg] = useState("");
+
+  // Co-administrateur temporaire actif sous ce prénom/nom (voir
+  // lib/coAdmin.ts) — seul cas où un reset de code peut se faire sans passer
+  // par l'admin d'origine (précisément indisponible pendant un relais).
+  const [coAdminActive, setCoAdminActive] = useState(false);
+  const [resetStep, setResetStep] = useState<"hidden" | "email" | "code" | "newpin">("hidden");
+  const [resetEmail, setResetEmail] = useState("");
+  const [resetCode, setResetCode] = useState("");
+  const [resetNewPin, setResetNewPin] = useState("");
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetError, setResetError] = useState("");
+
+  useEffect(() => {
+    if (!prenom.trim() || !nom.trim()) {
+      setCoAdminActive(false);
+      return;
+    }
+    let cancelled = false;
+    checkCoAdminStatus(spaceId, prenom.trim(), nom.trim()).then((status) => {
+      if (!cancelled) setCoAdminActive(status === "active");
+    });
+    return () => { cancelled = true; };
+  }, [spaceId, prenom, nom]);
+
+  async function handleResetSendCode() {
+    if (!resetEmail.trim()) return;
+    setResetLoading(true);
+    setResetError("");
+    const result = await requestCoAdminCode(spaceId, prenom.trim(), nom.trim(), resetEmail.trim(), "reset");
+    setResetLoading(false);
+    if (!result.ok) {
+      setResetError(result.error);
+      return;
+    }
+    setResetStep("code");
+  }
+
+  async function handleResetConfirm() {
+    if (resetNewPin.length !== 4) return;
+    setResetLoading(true);
+    setResetError("");
+    const result = await resetCoAdminPinViaEmail(spaceId, prenom.trim(), nom.trim(), resetEmail.trim(), resetNewPin, resetCode);
+    if (!result.ok) {
+      setResetLoading(false);
+      setResetError(result.error);
+      return;
+    }
+    const row = await loginVisitorProfile(spaceId, prenom.trim(), nom.trim(), resetNewPin);
+    setResetLoading(false);
+    if (!row) {
+      setResetError("Code réinitialisé, mais la connexion a échoué. Réessaie avec ton nouveau code ci-dessus.");
+      return;
+    }
+    await saveVisitorSession({
+      token, spaceId, prenom: row.prenom, nom: row.nom, pin: resetNewPin,
+      motto: row.motto ?? "", relation: row.relation ?? "",
+    });
+    router.replace({ pathname: "/(visitor)/home/calendar", params: { spaceId, token } });
+  }
 
   const canSubmit = prenom.trim() && nom.trim() && pin.length === 4 && !loading;
 
@@ -168,6 +228,72 @@ export default function VisitorIdentifyScreen() {
             {pinRequestMsg}
           </Text>
         )}
+
+        {coAdminActive && resetStep === "hidden" && (
+          <TouchableOpacity
+            style={styles.linkBtn}
+            onPress={() => setResetStep("email")}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.linkText}>🛡️ Réinitialiser mon code par email</Text>
+          </TouchableOpacity>
+        )}
+
+        {resetStep === "email" && (
+          <View style={styles.resetBox}>
+            <Text style={styles.resetLabel}>Adresse email de co-administrateur</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Adresse email"
+              placeholderTextColor={C.muted}
+              value={resetEmail}
+              onChangeText={(v) => { setResetEmail(v); setResetError(""); }}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
+            />
+            {!!resetError && <Text style={styles.errorText}>{resetError}</Text>}
+            <TouchableOpacity
+              style={[styles.btn, (!resetEmail.trim() || resetLoading) && styles.btnDisabled]}
+              onPress={handleResetSendCode}
+              disabled={!resetEmail.trim() || resetLoading}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.btnText}>{resetLoading ? "Envoi…" : "Recevoir un code"}</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {resetStep === "code" && (
+          <View style={styles.resetBox}>
+            <Text style={styles.resetLabel}>Code reçu par email</Text>
+            <PinPad value={resetCode} onChange={(v) => { setResetCode(v); setResetError(""); }} maxLength={6} theme={C} />
+            <TouchableOpacity
+              style={[styles.btn, resetCode.length !== 6 && styles.btnDisabled]}
+              onPress={() => setResetStep("newpin")}
+              disabled={resetCode.length !== 6}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.btnText}>Continuer</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {resetStep === "newpin" && (
+          <View style={styles.resetBox}>
+            <Text style={styles.resetLabel}>Choisis ton nouveau code à 4 chiffres</Text>
+            <PinPad value={resetNewPin} onChange={(v) => { setResetNewPin(v); setResetError(""); }} theme={C} />
+            {!!resetError && <Text style={styles.errorText}>{resetError}</Text>}
+            <TouchableOpacity
+              style={[styles.btn, (resetNewPin.length !== 4 || resetLoading) && styles.btnDisabled]}
+              onPress={handleResetConfirm}
+              disabled={resetNewPin.length !== 4 || resetLoading}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.btnText}>{resetLoading ? "Vérification…" : "Valider et se connecter"}</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -261,5 +387,20 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 10,
     lineHeight: 18,
+  },
+  resetBox: {
+    marginTop: 16,
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.card,
+  },
+  resetLabel: {
+    fontFamily: "DM_Sans_600SemiBold",
+    fontSize: 13,
+    color: C.text,
+    marginBottom: 8,
+    textAlign: "center",
   },
 });

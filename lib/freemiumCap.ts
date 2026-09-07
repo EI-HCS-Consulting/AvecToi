@@ -50,3 +50,10 @@ export function canProlongSpace(space: PatientSpace | null): boolean {
   if (!space) return false;
   return space.premium;
 }
+
+// Co-administration temporaire (voir lib/coAdmin.ts) : réservée Premium,
+// puisqu'elle donne un accès opérationnel complet à un tiers.
+export function canGrantCoAdmin(space: PatientSpace | null): boolean {
+  if (!space) return false;
+  return space.premium;
+}

@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { View, ActivityIndicator, Text, StyleSheet } from "react-native";
 import { Tabs, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import { AdminSpaceProvider, useSpace } from "@/lib/SpaceContext";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
+import { getVisitorSession } from "@/lib/visitorSession";
+import { checkCoAdminStatus, setCachedCoAdminActive } from "@/lib/coAdmin";
 import PatientOnboarding from "@/components/PatientOnboarding";
 import RgpdAlertModal from "@/components/RgpdAlertModal";
 import RelaisAlertModal from "@/components/RelaisAlertModal";
@@ -117,37 +119,83 @@ function AdminGate() {
           name="mes-souvenirs"
           options={{ href: null }}
         />
+        <Tabs.Screen
+          name="coadmins"
+          options={{ href: null }}
+        />
       </Tabs>
     </>
   );
 }
 
+type CoAdminGate = { spaceId: string; prenom: string; nom: string; pin: string };
+
 export default function AdminLayout() {
   const { theme: C } = useDisplayMode();
   const [adminId, setAdminId] = useState<string | null>(null);
+  const [coAdmin, setCoAdmin] = useState<CoAdminGate | null>(null);
   const [ready, setReady] = useState(false);
   const router = useRouter();
+  // L'écouteur onAuthStateChange ci-dessous ne doit rediriger vers "/" que
+  // pour un admin réel qui se déconnecte — un co-admin n'a jamais de session
+  // Supabase (identité PIN visiteur uniquement), donc l'event initial "pas de
+  // session" ne doit pas le renvoyer alors qu'on vient tout juste de le
+  // laisser entrer.
+  const isCoAdminRef = useRef(false);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) {
-        router.replace("/auth/login");
+    let cancelled = false;
+
+    async function resolve() {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session) {
+        if (cancelled) return;
+        setAdminId(session.user.id);
+        setReady(true);
         return;
       }
-      setAdminId(session.user.id);
-      setReady(true);
-    });
+
+      // Pas de session admin réelle — revérifié à CHAQUE montage (pas
+      // seulement via le flag local en cache) pour qu'une révocation par
+      // l'admin d'origine soit effective dès le prochain lancement de l'app
+      // du co-admin.
+      const visitorSession = await getVisitorSession();
+      if (visitorSession?.spaceId && visitorSession.prenom && visitorSession.nom && visitorSession.pin) {
+        const status = await checkCoAdminStatus(visitorSession.spaceId, visitorSession.prenom, visitorSession.nom);
+        await setCachedCoAdminActive(visitorSession.spaceId, status === "active");
+        if (status === "active") {
+          if (cancelled) return;
+          isCoAdminRef.current = true;
+          setCoAdmin({
+            spaceId: visitorSession.spaceId,
+            prenom: visitorSession.prenom,
+            nom: visitorSession.nom,
+            pin: visitorSession.pin,
+          });
+          setReady(true);
+          return;
+        }
+      }
+
+      if (!cancelled) router.replace("/auth/login");
+    }
+
+    resolve();
 
     const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (isCoAdminRef.current) return;
       if (event === "SIGNED_OUT" || !session) {
         router.replace("/");
       }
     });
 
-    return () => listener.subscription.unsubscribe();
+    return () => {
+      cancelled = true;
+      listener.subscription.unsubscribe();
+    };
   }, []);
 
-  if (!ready || !adminId) {
+  if (!ready || (!adminId && !coAdmin)) {
     return (
       <View style={[styles.loader, { backgroundColor: C.bg }]}>
         <ActivityIndicator color={C.accent} size="large" />
@@ -155,8 +203,19 @@ export default function AdminLayout() {
     );
   }
 
+  if (coAdmin) {
+    return (
+      <AdminSpaceProvider
+        spaceId={coAdmin.spaceId}
+        coAdminIdentity={{ prenom: coAdmin.prenom, nom: coAdmin.nom, pin: coAdmin.pin }}
+      >
+        <AdminGate />
+      </AdminSpaceProvider>
+    );
+  }
+
   return (
-    <AdminSpaceProvider adminId={adminId}>
+    <AdminSpaceProvider adminId={adminId!}>
       <AdminGate />
     </AdminSpaceProvider>
   );
