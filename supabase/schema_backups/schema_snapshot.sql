@@ -689,7 +689,7 @@ CREATE OR REPLACE FUNCTION "public"."check_visite_cap"() RETURNS "trigger"
     AS $$
 declare
   v_premium boolean;
-  v_count integer;
+  v_first_timestamp timestamptz;
 begin
   if new.type <> 'Visite' then
     return new;
@@ -700,10 +700,10 @@ begin
     return new;
   end if;
 
-  select count(*) into v_count from reservations
+  select min(created_at) into v_first_timestamp from reservations
     where space_id = new.space_id and type = 'Visite';
 
-  if v_count >= 8 then
+  if v_first_timestamp is not null and v_first_timestamp + interval '7 days' <= now() then
     raise exception 'FREEMIUM_CAP_REACHED';
   end if;
 
@@ -715,57 +715,179 @@ $$;
 ALTER FUNCTION "public"."check_visite_cap"() OWNER TO "postgres";
 
 
-CREATE OR REPLACE FUNCTION "public"."notify_cap_reached"() RETURNS "trigger"
+CREATE OR REPLACE FUNCTION "public"."extend_purge_on_premium_upgrade"() RETURNS "trigger"
+    LANGUAGE "plpgsql"
+    AS $$
+BEGIN
+  IF OLD.premium IS DISTINCT FROM TRUE AND NEW.premium IS TRUE THEN
+    NEW.purge_scheduled_at := NEW.purge_scheduled_at + INTERVAL '30 days';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+ALTER FUNCTION "public"."extend_purge_on_premium_upgrade"() OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."rpc_admin_reset_visitor_pin"("p_space_id" "uuid", "p_visitor_id" "uuid") RETURNS "void"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
     AS $$
-declare
-  v_premium boolean;
-  v_count integer;
-  v_updated integer;
-  v_url text := 'https://flmslcdzjuifkivmzins.supabase.co/functions/v1/notify-cap-reached';
-  v_secret text := 'AvecToi2026PurgeSecret8742';
 begin
-  if new.type <> 'Visite' then
-    return new;
+  if not exists (
+    select 1 from patient_spaces
+    where id = p_space_id and admin_id = auth.uid()
+  ) then
+    raise exception 'not authorized';
   end if;
 
-  select premium into v_premium from patient_spaces where id = new.space_id;
-  if v_premium then
-    return new;
-  end if;
-
-  select count(*) into v_count from reservations
-    where space_id = new.space_id and type = 'Visite';
-
-  if v_count = 8 then
-    update patient_spaces
-      set cap_email_sent_at = now()
-      where id = new.space_id and cap_email_sent_at is null;
-    get diagnostics v_updated = row_count;
-
-    if v_updated > 0 then
-      begin
-        perform net.http_post(
-          url := v_url,
-          headers := jsonb_build_object(
-            'Content-Type', 'application/json',
-            'Authorization', 'Bearer ' || v_secret
-          ),
-          body := jsonb_build_object('space_id', new.space_id)
-        );
-      exception when others then
-        raise warning 'notify_cap_reached: échec envoi notification (%): %', sqlstate, sqlerrm;
-      end;
-    end if;
-  end if;
-
-  return new;
+  update visitor_profiles
+    set pin = null, updated_at = now()
+    where id = p_visitor_id and space_id = p_space_id;
 end;
 $$;
 
 
-ALTER FUNCTION "public"."notify_cap_reached"() OWNER TO "postgres";
+ALTER FUNCTION "public"."rpc_admin_reset_visitor_pin"("p_space_id" "uuid", "p_visitor_id" "uuid") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."rpc_visitor_claim_or_create"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_relation" "text" DEFAULT NULL::"text") RETURNS TABLE("id" "uuid", "prenom" "text", "nom" "text", "photo" "text", "motto" "text", "relation" "text")
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+declare
+  v_exact record;
+  v_unclaimed record;
+begin
+  select * into v_exact from visitor_profiles vp
+    where vp.space_id = p_space_id
+      and lower(trim(vp.prenom)) = lower(trim(p_prenom))
+      and lower(trim(vp.nom)) = lower(trim(p_nom))
+      and vp.pin = p_pin;
+
+  if v_exact.id is not null then
+    update visitor_profiles
+      set relation = coalesce(p_relation, relation), updated_at = now()
+      where visitor_profiles.id = v_exact.id;
+    return query select vp.id, vp.prenom, vp.nom, vp.photo, vp.motto, vp.relation
+      from visitor_profiles vp where vp.id = v_exact.id;
+    return;
+  end if;
+
+  select * into v_unclaimed from visitor_profiles vp
+    where vp.space_id = p_space_id
+      and lower(trim(vp.prenom)) = lower(trim(p_prenom))
+      and lower(trim(vp.nom)) = lower(trim(p_nom))
+      and vp.pin is null
+    limit 1;
+
+  if v_unclaimed.id is not null then
+    update visitor_profiles
+      set pin = p_pin, relation = coalesce(p_relation, relation), updated_at = now()
+      where visitor_profiles.id = v_unclaimed.id;
+    return query select vp.id, vp.prenom, vp.nom, vp.photo, vp.motto, vp.relation
+      from visitor_profiles vp where vp.id = v_unclaimed.id;
+    return;
+  end if;
+
+  return query
+    insert into visitor_profiles (space_id, prenom, nom, pin, relation)
+    values (p_space_id, trim(p_prenom), trim(p_nom), p_pin, p_relation)
+    returning visitor_profiles.id, visitor_profiles.prenom, visitor_profiles.nom,
+              visitor_profiles.photo, visitor_profiles.motto, visitor_profiles.relation;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."rpc_visitor_claim_or_create"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_relation" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."rpc_visitor_claim_reset"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text") RETURNS TABLE("id" "uuid", "prenom" "text", "nom" "text", "photo" "text", "motto" "text", "relation" "text")
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+declare
+  v_unclaimed record;
+begin
+  select * into v_unclaimed from visitor_profiles vp
+    where vp.space_id = p_space_id
+      and lower(trim(vp.prenom)) = lower(trim(p_prenom))
+      and lower(trim(vp.nom)) = lower(trim(p_nom))
+      and vp.pin is null
+    limit 1;
+
+  if v_unclaimed.id is null then
+    return;
+  end if;
+
+  update visitor_profiles
+    set pin = p_pin, updated_at = now()
+    where visitor_profiles.id = v_unclaimed.id;
+
+  return query select vp.id, vp.prenom, vp.nom, vp.photo, vp.motto, vp.relation
+    from visitor_profiles vp where vp.id = v_unclaimed.id;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."rpc_visitor_claim_reset"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."rpc_visitor_login"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text") RETURNS TABLE("id" "uuid", "prenom" "text", "nom" "text", "photo" "text", "motto" "text", "relation" "text")
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+begin
+  return query
+    select vp.id, vp.prenom, vp.nom, vp.photo, vp.motto, vp.relation
+    from visitor_profiles vp
+    where vp.space_id = p_space_id
+      and vp.pin is not null
+      and lower(trim(vp.prenom)) = lower(trim(p_prenom))
+      and lower(trim(vp.nom)) = lower(trim(p_nom))
+      and vp.pin = p_pin;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."rpc_visitor_login"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."rpc_visitor_update_motto_relation"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_motto" "text", "p_relation" "text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+begin
+  update visitor_profiles
+    set motto = p_motto, relation = p_relation, updated_at = now()
+    where space_id = p_space_id
+      and lower(trim(prenom)) = lower(trim(p_prenom))
+      and lower(trim(nom)) = lower(trim(p_nom))
+      and pin = p_pin;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."rpc_visitor_update_motto_relation"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_motto" "text", "p_relation" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."rpc_visitor_update_photo"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_photo" "text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+begin
+  update visitor_profiles
+    set photo = p_photo, updated_at = now()
+    where space_id = p_space_id
+      and lower(trim(prenom)) = lower(trim(p_prenom))
+      and lower(trim(nom)) = lower(trim(p_nom))
+      and pin = p_pin;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."rpc_visitor_update_photo"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_photo" "text") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."sync_intervention_type_identity"() RETURNS "trigger"
@@ -1946,6 +2068,21 @@ CREATE TABLE IF NOT EXISTS "public"."personal_documents" (
 ALTER TABLE "public"."personal_documents" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."pin_reset_requests" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "space_id" "uuid" NOT NULL,
+    "visitor_id" "uuid" NOT NULL,
+    "prenom" "text" NOT NULL,
+    "nom" "text" NOT NULL,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "seen" boolean DEFAULT false NOT NULL,
+    "resolved_at" timestamp with time zone
+);
+
+
+ALTER TABLE "public"."pin_reset_requests" OWNER TO "postgres";
+
+
 CREATE TABLE IF NOT EXISTS "public"."recurring_shopping_items" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "space_id" "uuid" NOT NULL,
@@ -2040,7 +2177,8 @@ CREATE TABLE IF NOT EXISTS "public"."shopping_list_items" (
     "position" integer DEFAULT 0 NOT NULL,
     "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "bought_by_prenom" "text",
-    "bought_by_nom" "text"
+    "bought_by_nom" "text",
+    "bought_at" timestamp with time zone
 );
 
 
@@ -2253,6 +2391,7 @@ CREATE TABLE IF NOT EXISTS "public"."tasks" (
     "relais_recipients" "jsonb",
     "relais_dismissed_by" "jsonb" DEFAULT '[]'::"jsonb" NOT NULL,
     "transport_home_maps_url" "text",
+    "claimed_at" timestamp with time zone,
     CONSTRAINT "tasks_category_check" CHECK (("category" = ANY (ARRAY['repas'::"text", 'affaires'::"text", 'courses'::"text", 'transport'::"text", 'administratif'::"text", 'autre'::"text", 'relais'::"text"]))),
     CONSTRAINT "tasks_relais_visible_to_check" CHECK ((("relais_visible_to" IS NULL) OR ("relais_visible_to" = ANY (ARRAY['all'::"text", 'some'::"text"])))),
     CONSTRAINT "tasks_status_check" CHECK (("status" = ANY (ARRAY['ouvert'::"text", 'pris_en_charge'::"text", 'fait'::"text", 'ferme'::"text"])))
@@ -2270,11 +2409,16 @@ CREATE TABLE IF NOT EXISTS "public"."visitor_profiles" (
     "photo" "text",
     "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "motto" "text",
-    "relation" "text"
+    "relation" "text",
+    "pin" "text"
 );
 
 
 ALTER TABLE "public"."visitor_profiles" OWNER TO "postgres";
+
+
+COMMENT ON COLUMN "public"."visitor_profiles"."pin" IS 'PIN 4 chiffres — identifiant de reconnexion cross-device. NULL = profil pas encore migré/sécurisé.';
+
 
 
 CREATE OR REPLACE VIEW "public"."visitor_profiles_by_patient" WITH ("security_invoker"='true') AS
@@ -2518,6 +2662,11 @@ ALTER TABLE ONLY "public"."personal_documents"
 
 
 
+ALTER TABLE ONLY "public"."pin_reset_requests"
+    ADD CONSTRAINT "pin_reset_requests_pkey" PRIMARY KEY ("id");
+
+
+
 ALTER TABLE ONLY "public"."recurring_shopping_items"
     ADD CONSTRAINT "recurring_shopping_items_pkey" PRIMARY KEY ("id");
 
@@ -2589,7 +2738,7 @@ ALTER TABLE ONLY "public"."tasks"
 
 
 ALTER TABLE ONLY "public"."visitor_profiles"
-    ADD CONSTRAINT "visitor_profiles_identity_key" UNIQUE ("space_id", "prenom", "nom");
+    ADD CONSTRAINT "visitor_profiles_identity_key" UNIQUE ("space_id", "prenom", "nom", "pin");
 
 
 
@@ -2743,7 +2892,7 @@ CREATE OR REPLACE TRIGGER "trg_check_visite_cap" BEFORE INSERT ON "public"."rese
 
 
 
-CREATE OR REPLACE TRIGGER "trg_notify_cap_reached" AFTER INSERT ON "public"."reservations" FOR EACH ROW EXECUTE FUNCTION "public"."notify_cap_reached"();
+CREATE OR REPLACE TRIGGER "trg_extend_purge_on_premium_upgrade" BEFORE UPDATE ON "public"."patient_spaces" FOR EACH ROW EXECUTE FUNCTION "public"."extend_purge_on_premium_upgrade"();
 
 
 
@@ -2843,6 +2992,16 @@ ALTER TABLE ONLY "public"."personal_checklist_items"
 
 ALTER TABLE ONLY "public"."personal_documents"
     ADD CONSTRAINT "personal_documents_space_id_fkey" FOREIGN KEY ("space_id") REFERENCES "public"."patient_spaces"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."pin_reset_requests"
+    ADD CONSTRAINT "pin_reset_requests_space_id_fkey" FOREIGN KEY ("space_id") REFERENCES "public"."patient_spaces"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."pin_reset_requests"
+    ADD CONSTRAINT "pin_reset_requests_visitor_id_fkey" FOREIGN KEY ("visitor_id") REFERENCES "public"."visitor_profiles"("id") ON DELETE CASCADE;
 
 
 
@@ -3017,6 +3176,9 @@ ALTER TABLE "public"."personal_checklist_items" ENABLE ROW LEVEL SECURITY;
 ALTER TABLE "public"."personal_documents" ENABLE ROW LEVEL SECURITY;
 
 
+ALTER TABLE "public"."pin_reset_requests" ENABLE ROW LEVEL SECURITY;
+
+
 CREATE POLICY "public can delete intervenant_profiles" ON "public"."intervenant_profiles" FOR DELETE USING (true);
 
 
@@ -3065,6 +3227,10 @@ CREATE POLICY "public can insert news entry replies" ON "public"."news_entry_rep
 
 
 
+CREATE POLICY "public can insert pin_reset_requests" ON "public"."pin_reset_requests" FOR INSERT WITH CHECK (true);
+
+
+
 CREATE POLICY "public can insert support message replies" ON "public"."support_message_replies" FOR INSERT WITH CHECK (true);
 
 
@@ -3078,10 +3244,6 @@ CREATE POLICY "public can manage night_authorized_intervenants" ON "public"."nig
 
 
 CREATE POLICY "public can manage night_authorized_visitors" ON "public"."night_authorized_visitors" USING (true) WITH CHECK (true);
-
-
-
-CREATE POLICY "public can manage visitor_profiles" ON "public"."visitor_profiles" USING (true) WITH CHECK (true);
 
 
 
@@ -3109,6 +3271,10 @@ CREATE POLICY "public can select intervention_types" ON "public"."intervention_t
 
 
 
+CREATE POLICY "public can select pin_reset_requests" ON "public"."pin_reset_requests" FOR SELECT USING (true);
+
+
+
 CREATE POLICY "public can update intervenant_profiles" ON "public"."intervenant_profiles" FOR UPDATE USING (true) WITH CHECK (true);
 
 
@@ -3118,6 +3284,10 @@ CREATE POLICY "public can update intervention_types" ON "public"."intervention_t
 
 
 CREATE POLICY "public can update news entry replies" ON "public"."news_entry_replies" FOR UPDATE USING (true) WITH CHECK (true);
+
+
+
+CREATE POLICY "public can update pin_reset_requests" ON "public"."pin_reset_requests" FOR UPDATE USING (true) WITH CHECK (true);
 
 
 
@@ -3294,6 +3464,10 @@ CREATE POLICY "public write shopping list items" ON "public"."shopping_list_item
 
 
 CREATE POLICY "public write task relais coverage" ON "public"."task_relais_coverage" FOR INSERT WITH CHECK (true);
+
+
+
+CREATE POLICY "read visitor_profiles scoped to space" ON "public"."visitor_profiles" FOR SELECT USING (true);
 
 
 
@@ -3511,9 +3685,51 @@ GRANT ALL ON FUNCTION "public"."check_visite_cap"() TO "service_role";
 
 
 
-GRANT ALL ON FUNCTION "public"."notify_cap_reached"() TO "anon";
-GRANT ALL ON FUNCTION "public"."notify_cap_reached"() TO "authenticated";
-GRANT ALL ON FUNCTION "public"."notify_cap_reached"() TO "service_role";
+GRANT ALL ON FUNCTION "public"."extend_purge_on_premium_upgrade"() TO "anon";
+GRANT ALL ON FUNCTION "public"."extend_purge_on_premium_upgrade"() TO "authenticated";
+GRANT ALL ON FUNCTION "public"."extend_purge_on_premium_upgrade"() TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."rpc_admin_reset_visitor_pin"("p_space_id" "uuid", "p_visitor_id" "uuid") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."rpc_admin_reset_visitor_pin"("p_space_id" "uuid", "p_visitor_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."rpc_admin_reset_visitor_pin"("p_space_id" "uuid", "p_visitor_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."rpc_admin_reset_visitor_pin"("p_space_id" "uuid", "p_visitor_id" "uuid") TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."rpc_visitor_claim_or_create"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_relation" "text") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."rpc_visitor_claim_or_create"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_relation" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."rpc_visitor_claim_or_create"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_relation" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."rpc_visitor_claim_or_create"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_relation" "text") TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."rpc_visitor_claim_reset"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."rpc_visitor_claim_reset"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."rpc_visitor_claim_reset"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."rpc_visitor_claim_reset"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text") TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."rpc_visitor_login"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."rpc_visitor_login"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."rpc_visitor_login"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."rpc_visitor_login"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text") TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."rpc_visitor_update_motto_relation"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_motto" "text", "p_relation" "text") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."rpc_visitor_update_motto_relation"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_motto" "text", "p_relation" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."rpc_visitor_update_motto_relation"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_motto" "text", "p_relation" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."rpc_visitor_update_motto_relation"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_motto" "text", "p_relation" "text") TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."rpc_visitor_update_photo"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_photo" "text") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."rpc_visitor_update_photo"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_photo" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."rpc_visitor_update_photo"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_photo" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."rpc_visitor_update_photo"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_photo" "text") TO "service_role";
 
 
 
@@ -3601,6 +3817,12 @@ GRANT ALL ON TABLE "public"."personal_documents" TO "service_role";
 
 
 
+GRANT ALL ON TABLE "public"."pin_reset_requests" TO "anon";
+GRANT ALL ON TABLE "public"."pin_reset_requests" TO "authenticated";
+GRANT ALL ON TABLE "public"."pin_reset_requests" TO "service_role";
+
+
+
 GRANT ALL ON TABLE "public"."recurring_shopping_items" TO "anon";
 GRANT ALL ON TABLE "public"."recurring_shopping_items" TO "authenticated";
 GRANT ALL ON TABLE "public"."recurring_shopping_items" TO "service_role";
@@ -3679,9 +3901,49 @@ GRANT ALL ON TABLE "public"."tasks" TO "service_role";
 
 
 
-GRANT ALL ON TABLE "public"."visitor_profiles" TO "anon";
-GRANT ALL ON TABLE "public"."visitor_profiles" TO "authenticated";
+GRANT REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE "public"."visitor_profiles" TO "anon";
+GRANT REFERENCES,TRIGGER,TRUNCATE,MAINTAIN ON TABLE "public"."visitor_profiles" TO "authenticated";
 GRANT ALL ON TABLE "public"."visitor_profiles" TO "service_role";
+
+
+
+GRANT SELECT("id") ON TABLE "public"."visitor_profiles" TO "anon";
+GRANT SELECT("id") ON TABLE "public"."visitor_profiles" TO "authenticated";
+
+
+
+GRANT SELECT("space_id") ON TABLE "public"."visitor_profiles" TO "anon";
+GRANT SELECT("space_id") ON TABLE "public"."visitor_profiles" TO "authenticated";
+
+
+
+GRANT SELECT("prenom") ON TABLE "public"."visitor_profiles" TO "anon";
+GRANT SELECT("prenom") ON TABLE "public"."visitor_profiles" TO "authenticated";
+
+
+
+GRANT SELECT("nom") ON TABLE "public"."visitor_profiles" TO "anon";
+GRANT SELECT("nom") ON TABLE "public"."visitor_profiles" TO "authenticated";
+
+
+
+GRANT SELECT("photo") ON TABLE "public"."visitor_profiles" TO "anon";
+GRANT SELECT("photo") ON TABLE "public"."visitor_profiles" TO "authenticated";
+
+
+
+GRANT SELECT("updated_at") ON TABLE "public"."visitor_profiles" TO "anon";
+GRANT SELECT("updated_at") ON TABLE "public"."visitor_profiles" TO "authenticated";
+
+
+
+GRANT SELECT("motto") ON TABLE "public"."visitor_profiles" TO "anon";
+GRANT SELECT("motto") ON TABLE "public"."visitor_profiles" TO "authenticated";
+
+
+
+GRANT SELECT("relation") ON TABLE "public"."visitor_profiles" TO "anon";
+GRANT SELECT("relation") ON TABLE "public"."visitor_profiles" TO "authenticated";
 
 
 
