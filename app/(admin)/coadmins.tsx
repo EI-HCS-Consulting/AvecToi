@@ -8,7 +8,8 @@ import { useSpace } from "@/lib/SpaceContext";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { supabase } from "@/lib/supabase";
 import { canGrantCoAdmin } from "@/lib/freemiumCap";
-import { loadKnownVisitors, visitorIdentityKey, type KnownVisitor } from "@/lib/visitorRoster";
+import { loadSosRelaisCandidates, visitorIdentityKey, type SosRelaisCandidate, type SosRelaisPeriod } from "@/lib/visitorRoster";
+import { toFrShort } from "@/lib/slotUtils";
 import PatientAvatar from "@/components/PatientAvatar";
 import ConfirmModal from "@/components/ConfirmModal";
 import PremiumGateModal from "@/components/PremiumGateModal";
@@ -30,7 +31,7 @@ export default function CoAdminsScreen() {
 
   const [pickerVisible, setPickerVisible] = useState(false);
   const [pickerLoading, setPickerLoading] = useState(false);
-  const [knownVisitors, setKnownVisitors] = useState<KnownVisitor[]>([]);
+  const [sosCandidates, setSosCandidates] = useState<SosRelaisCandidate[]>([]);
   const [search, setSearch] = useState("");
   const [granting, setGranting] = useState<string | null>(null);
   const [grantError, setGrantError] = useState("");
@@ -66,20 +67,26 @@ export default function CoAdminsScreen() {
     setGrantError("");
     setPickerVisible(true);
     setPickerLoading(true);
-    loadKnownVisitors(space.id, space.admin_firstname, space.admin_lastname).then((rows) => {
-      setKnownVisitors(rows);
+    loadSosRelaisCandidates(space.id).then((rows) => {
+      setSosCandidates(rows);
       setPickerLoading(false);
     });
   }
 
-  const filteredVisitors = knownVisitors.filter((v) => {
+  const filteredCandidates = sosCandidates.filter((v) => {
     if (activeOrPendingKeys.has(visitorIdentityKey(v.prenom, v.nom))) return false;
     if (!search.trim()) return true;
     const q = search.trim().toLowerCase();
     return `${v.prenom} ${v.nom}`.toLowerCase().includes(q);
   });
 
-  async function handleGrant(v: KnownVisitor) {
+  function formatPeriod(p: SosRelaisPeriod) {
+    const start = toFrShort(new Date(p.startDate + "T12:00:00"));
+    const end = toFrShort(new Date(p.endDate + "T12:00:00"));
+    return `du ${start} au ${end}`;
+  }
+
+  async function handleGrant(v: SosRelaisCandidate) {
     if (!space) return;
     setGranting(visitorIdentityKey(v.prenom, v.nom));
     setGrantError("");
@@ -157,10 +164,11 @@ export default function CoAdminsScreen() {
 
       <ScrollView contentContainerStyle={styles.scroll}>
         <Text style={[styles.intro, { color: C.muted }]}>
-          Désigne un ou plusieurs proches qui se sont proposés pour du relais comme
-          co-administrateurs temporaires — ils obtiennent l'accès complet aux réglages et
-          au planning pendant ton absence. Tu gardes la main à tout moment et peux révoquer
-          un co-administrateur ici même.
+          Retrouve ici les proches qui se sont proposés pour te remplacer via un Besoin SOS,
+          et les périodes qu'ils ont indiqué pouvoir couvrir en cliquant sur « Je m'en occupe ».
+          Valide une période pour en faire un co-administrateur temporaire — il obtient
+          l'accès complet aux réglages et au planning pendant ton absence. Tu gardes la main
+          à tout moment et peux révoquer un co-administrateur ici même.
         </Text>
 
         <TouchableOpacity
@@ -168,7 +176,7 @@ export default function CoAdminsScreen() {
           onPress={handleOpenAdd}
           activeOpacity={0.85}
         >
-          <Text style={styles.addBtnText}>+ Ajouter un co-administrateur</Text>
+          <Text style={styles.addBtnText}>+ Voir les propositions de relais</Text>
         </TouchableOpacity>
 
         {loading ? (
@@ -204,7 +212,7 @@ export default function CoAdminsScreen() {
         <View style={styles.overlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setPickerVisible(false)} />
           <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.border }]}>
-            <Text style={[styles.sheetTitle, { color: C.text }]}>Choisir un visiteur</Text>
+            <Text style={[styles.sheetTitle, { color: C.text }]}>Propositions de relais</Text>
             <TextInput
               style={[styles.searchInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
               placeholder="Rechercher un nom…"
@@ -217,23 +225,39 @@ export default function CoAdminsScreen() {
             {pickerLoading ? (
               <ActivityIndicator color={C.accent} style={{ marginVertical: 20 }} />
             ) : (
-              <ScrollView style={{ maxHeight: 360 }}>
-                {filteredVisitors.length === 0 ? (
-                  <Text style={[styles.empty, { color: C.muted }]}>Aucun visiteur disponible.</Text>
-                ) : filteredVisitors.map((v) => {
+              <ScrollView style={{ maxHeight: 420 }}>
+                {filteredCandidates.length === 0 ? (
+                  <Text style={[styles.empty, { color: C.muted }]}>
+                    Personne ne s'est encore proposé pour un Besoin SOS via « Je m'en occupe ».
+                  </Text>
+                ) : filteredCandidates.map((v) => {
                   const key = visitorIdentityKey(v.prenom, v.nom);
                   return (
-                    <TouchableOpacity
-                      key={key}
-                      style={styles.visitorRow}
-                      onPress={() => handleGrant(v)}
-                      disabled={!!granting}
-                      activeOpacity={0.7}
-                    >
-                      <PatientAvatar photoUrl={v.photoUrl} firstname={v.prenom} lastname={v.nom} size={40} C={C} />
-                      <Text style={[styles.visitorName, { color: C.text }]}>{v.prenom} {v.nom}</Text>
-                      {granting === key && <ActivityIndicator color={C.accent} size="small" />}
-                    </TouchableOpacity>
+                    <View key={key} style={[styles.candidateBlock, { borderColor: C.border }]}>
+                      <View style={styles.visitorRow}>
+                        <PatientAvatar photoUrl={v.photoUrl} firstname={v.prenom} lastname={v.nom} size={40} C={C} />
+                        <Text style={[styles.visitorName, { color: C.text }]}>{v.prenom} {v.nom}</Text>
+                      </View>
+                      {v.periods.map((p) => (
+                        <View key={p.coverageId} style={styles.periodRow}>
+                          <Text style={[styles.periodText, { color: C.muted }]} numberOfLines={1}>
+                            🗓️ {formatPeriod(p)}{p.fullPeriod ? " (période complète)" : ""}
+                          </Text>
+                          <TouchableOpacity
+                            style={[styles.validateBtn, { backgroundColor: C.accent }]}
+                            onPress={() => handleGrant(v)}
+                            disabled={!!granting}
+                            activeOpacity={0.8}
+                          >
+                            {granting === key ? (
+                              <ActivityIndicator color="#fff" size="small" />
+                            ) : (
+                              <Text style={styles.validateBtnText}>Valider</Text>
+                            )}
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
                   );
                 })}
               </ScrollView>
@@ -297,9 +321,19 @@ const styles = StyleSheet.create({
     fontFamily: "DM_Sans_400Regular", fontSize: 14, marginBottom: 10,
   },
   errorText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginBottom: 10, textAlign: "center" },
+  candidateBlock: {
+    borderBottomWidth: 1, paddingVertical: 12,
+  },
   visitorRow: {
     flexDirection: "row", alignItems: "center", gap: 12,
-    paddingVertical: 10,
+    marginBottom: 8,
   },
-  visitorName: { fontFamily: "DM_Sans_400Regular", fontSize: 14, flex: 1 },
+  visitorName: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14, flex: 1 },
+  periodRow: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    gap: 10, paddingLeft: 52, marginBottom: 6,
+  },
+  periodText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, flex: 1 },
+  validateBtn: { borderRadius: 8, paddingVertical: 7, paddingHorizontal: 14 },
+  validateBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12.5, color: "#fff" },
 });
