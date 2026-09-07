@@ -73,8 +73,17 @@ export default function CoAdminsScreen() {
     });
   }
 
+  // Un candidat qui vient d'être octroyé reste affiché (avec ses périodes
+  // marquées "Déjà co-administrateur") plutôt que de disparaître entièrement
+  // du picker : la co-administration est un octroi par personne, pas par
+  // période (patient_space_coadmins n'a pas de colonne période), donc valider
+  // une seule période d'un candidat qui en avait proposé plusieurs faisait
+  // disparaître TOUTES ses périodes d'un coup, donnant l'impression que
+  // "tout se validait" alors qu'une seule ligne avait réellement été écrite
+  // en base (bug remonté). Les périodes des AUTRES candidats, elles, n'ont
+  // jamais été affectées (activeOrPendingKeys ne contient que la clé du
+  // candidat concerné).
   const filteredCandidates = sosCandidates.filter((v) => {
-    if (activeOrPendingKeys.has(visitorIdentityKey(v.prenom, v.nom))) return false;
     if (!search.trim()) return true;
     const q = search.trim().toLowerCase();
     return `${v.prenom} ${v.nom}`.toLowerCase().includes(q);
@@ -236,6 +245,7 @@ export default function CoAdminsScreen() {
                   </Text>
                 ) : filteredCandidates.map((v) => {
                   const key = visitorIdentityKey(v.prenom, v.nom);
+                  const alreadyGranted = activeOrPendingKeys.has(key);
                   return (
                     <View key={key} style={[styles.candidateBlock, { borderColor: C.border }]}>
                       <View style={styles.visitorRow}>
@@ -247,18 +257,22 @@ export default function CoAdminsScreen() {
                           <Text style={[styles.periodText, { color: C.muted }]} numberOfLines={1}>
                             🗓️ {formatPeriod(p)}{p.fullPeriod ? " (période complète)" : ""}
                           </Text>
-                          <TouchableOpacity
-                            style={[styles.validateBtn, { backgroundColor: C.accent }]}
-                            onPress={() => handleGrant(v)}
-                            disabled={!!granting}
-                            activeOpacity={0.8}
-                          >
-                            {granting === key ? (
-                              <ActivityIndicator color="#fff" size="small" />
-                            ) : (
-                              <Text style={styles.validateBtnText}>Valider</Text>
-                            )}
-                          </TouchableOpacity>
+                          {alreadyGranted ? (
+                            <Text style={[styles.validateBtnText, { color: C.accent }]}>✅ Déjà co-admin</Text>
+                          ) : (
+                            <TouchableOpacity
+                              style={[styles.validateBtn, { backgroundColor: C.accent }]}
+                              onPress={() => handleGrant(v)}
+                              disabled={!!granting}
+                              activeOpacity={0.8}
+                            >
+                              {granting === key ? (
+                                <ActivityIndicator color="#fff" size="small" />
+                              ) : (
+                                <Text style={styles.validateBtnText}>Valider</Text>
+                              )}
+                            </TouchableOpacity>
+                          )}
                         </View>
                       ))}
                     </View>
