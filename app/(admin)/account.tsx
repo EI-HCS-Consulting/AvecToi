@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   View, Text, TouchableOpacity, ScrollView,
   StyleSheet, ActivityIndicator, TextInput, Alert,
   Modal, KeyboardAvoidingView, Platform, Dimensions,
+  findNodeHandle,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import { File } from "expo-file-system";
@@ -88,12 +89,34 @@ const SHEET_MAX_HEIGHT = Dimensions.get("window").height * 0.72;
 
 export default function AdminAccountScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ scrollTo?: string }>();
   const {
     space, loading, hasSpace, getConfigForDate, patchSpace,
     slotConfig, slots, reservations: allReservations, refreshReservations,
     setSelectedDay, setPendingEditReservationId, isCoAdmin,
   } = useSpace();
   const { mode, theme: C, setMode } = useDisplayMode();
+
+  // Ancre de scroll pour revenir précisément sur le bouton "Co-administrateurs"
+  // quand on quitte app/(admin)/coadmins.tsx via son bouton retour (au lieu de
+  // remonter en haut d'une page "Mon Compte" assez longue). measureLayout (pas
+  // le onLayout du bouton lui-même, qui ne donne qu'un y relatif à son parent
+  // immédiat) pour obtenir la position réelle dans le ScrollView.
+  const scrollRef = useRef<ScrollView>(null);
+  const coadminBtnRef = useRef<View>(null);
+  useEffect(() => {
+    if (params.scrollTo !== "coadmin") return;
+    const t = setTimeout(() => {
+      const scrollNode = findNodeHandle(scrollRef.current);
+      if (!scrollNode || !coadminBtnRef.current) return;
+      coadminBtnRef.current.measureLayout(
+        scrollNode,
+        (_x, y) => scrollRef.current?.scrollTo({ y: Math.max(0, y - 20), animated: true }),
+        () => {},
+      );
+    }, 500);
+    return () => clearTimeout(t);
+  }, [params.scrollTo]);
 
   const [activityLoading, setActivityLoading] = useState(false);
   const [reservations, setReservations] = useState<Reservation[]>([]);
@@ -844,7 +867,7 @@ export default function AdminAccountScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll}>
+      <ScrollView ref={scrollRef} contentContainerStyle={styles.scroll}>
         {/* Bandeau profil admin — distinct du patient (déplacé dans Paramètres) */}
         <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
           {profileLoading ? (
@@ -1147,13 +1170,15 @@ export default function AdminAccountScreen() {
                 </TouchableOpacity>
 
                 {!isCoAdmin && (
-                  <TouchableOpacity
-                    style={[styles.saveBtn, { backgroundColor: C.accent, marginTop: 10 }]}
-                    onPress={() => router.push("/(admin)/coadmins" as any)}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={styles.saveBtnText}>🛡️ Co-administrateurs</Text>
-                  </TouchableOpacity>
+                  <View ref={coadminBtnRef}>
+                    <TouchableOpacity
+                      style={[styles.saveBtn, { backgroundColor: C.accent, marginTop: 10 }]}
+                      onPress={() => router.push("/(admin)/coadmins" as any)}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={styles.saveBtnText}>🛡️ Co-administrateurs</Text>
+                    </TouchableOpacity>
+                  </View>
                 )}
 
                 <PatientProfileModal
