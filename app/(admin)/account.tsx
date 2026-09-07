@@ -22,6 +22,7 @@ import PatientProfileModal from "@/components/PatientProfileModal";
 import VisitorsListModal from "@/components/VisitorsListModal";
 import { isRgpdAlertActive, rgpdAlertMessage, prolongSpace } from "@/lib/rgpd";
 import { canProlongSpace, canPublishRelaisSOS } from "@/lib/freemiumCap";
+import { setCachedCoAdminActive } from "@/lib/coAdmin";
 import { toFrShort, isReservationFullyPast } from "@/lib/slotUtils";
 import { disengageTask as performDisengage } from "@/lib/taskDisengage";
 import ConfirmModal from "@/components/ConfirmModal";
@@ -90,7 +91,7 @@ export default function AdminAccountScreen() {
   const {
     space, loading, hasSpace, getConfigForDate, patchSpace,
     slotConfig, slots, reservations: allReservations, refreshReservations,
-    setSelectedDay, setPendingEditReservationId,
+    setSelectedDay, setPendingEditReservationId, isCoAdmin,
   } = useSpace();
   const { mode, theme: C, setMode } = useDisplayMode();
 
@@ -674,6 +675,14 @@ export default function AdminAccountScreen() {
 
   async function confirmLogout() {
     setConfirmModal(null);
+    if (isCoAdmin) {
+      // Quitte simplement le mode co-administration côté client — la ligne
+      // patient_space_coadmins reste active en base, revérifiée au prochain
+      // montage de (admin)/_layout.tsx (voir checkCoAdminStatus).
+      if (space) await setCachedCoAdminActive(space.id, false);
+      router.replace("/(visitor)/home/calendar" as any);
+      return;
+    }
     await supabase.auth.signOut();
     router.replace("/");
   }
@@ -870,13 +879,15 @@ export default function AdminAccountScreen() {
                   )}
                 </View>
               </View>
-              <TouchableOpacity
-                style={[styles.editProfileBtn, { backgroundColor: C.accent, borderColor: C.accent }]}
-                onPress={handleOpenEditProfile}
-                activeOpacity={0.85}
-              >
-                <Text style={[styles.editProfileBtnText, { color: "#fff" }]}>Mon profil (Admin)</Text>
-              </TouchableOpacity>
+              {!isCoAdmin && (
+                <TouchableOpacity
+                  style={[styles.editProfileBtn, { backgroundColor: C.accent, borderColor: C.accent }]}
+                  onPress={handleOpenEditProfile}
+                  activeOpacity={0.85}
+                >
+                  <Text style={[styles.editProfileBtnText, { color: "#fff" }]}>Mon profil (Admin)</Text>
+                </TouchableOpacity>
+              )}
             </>
           )}
         </View>
@@ -1135,6 +1146,16 @@ export default function AdminAccountScreen() {
                   <Text style={styles.saveBtnText}>👥 Visiteurs</Text>
                 </TouchableOpacity>
 
+                {!isCoAdmin && (
+                  <TouchableOpacity
+                    style={[styles.saveBtn, { backgroundColor: C.accent, marginTop: 10 }]}
+                    onPress={() => router.push("/(admin)/coadmins" as any)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.saveBtnText}>🛡️ Co-administrateurs</Text>
+                  </TouchableOpacity>
+                )}
+
                 <PatientProfileModal
                   visible={patientProfileVisible}
                   onClose={() => setPatientProfileVisible(false)}
@@ -1174,7 +1195,9 @@ export default function AdminAccountScreen() {
                   onPress={handleLogout}
                   activeOpacity={0.85}
                 >
-                  <Text style={[styles.logoutBtnText, { color: "#e94560" }]}>🚪 Se déconnecter</Text>
+                  <Text style={[styles.logoutBtnText, { color: "#e94560" }]}>
+                    {isCoAdmin ? "🚪 Quitter le mode co-administrateur" : "🚪 Se déconnecter"}
+                  </Text>
                 </TouchableOpacity>
               </>
             )}
@@ -1406,11 +1429,15 @@ export default function AdminAccountScreen() {
               <Text style={styles.logoutModalIcon}>{confirmModal === "logout" ? "🚪" : "🗑️"}</Text>
             </View>
             <Text style={[styles.logoutModalTitle, { color: C.text }]}>
-              {confirmModal === "logout" ? "Se déconnecter ?" : "Supprimer la photo ?"}
+              {confirmModal === "logout"
+                ? (isCoAdmin ? "Quitter le mode co-administrateur ?" : "Se déconnecter ?")
+                : "Supprimer la photo ?"}
             </Text>
             <Text style={[styles.logoutModalText, { color: C.muted }]}>
               {confirmModal === "logout"
-                ? "Tu devras ressaisir ton email et ton mot de passe pour revenir sur cet espace."
+                ? (isCoAdmin
+                    ? "Tu retrouveras l'espace visiteur normal. L'administrateur d'origine garde la main et pourra te redonner l'accès à tout moment."
+                    : "Tu devras ressaisir ton email et ton mot de passe pour revenir sur cet espace.")
                 : "Ta photo de profil sera retirée de l'app."}
             </Text>
             <View style={styles.logoutModalButtons}>
@@ -1427,7 +1454,9 @@ export default function AdminAccountScreen() {
                 activeOpacity={0.8}
               >
                 <Text style={styles.logoutModalConfirmText}>
-                  {confirmModal === "logout" ? "Se déconnecter" : "Supprimer"}
+                  {confirmModal === "logout"
+                    ? (isCoAdmin ? "Quitter" : "Se déconnecter")
+                    : "Supprimer"}
                 </Text>
               </TouchableOpacity>
             </View>
