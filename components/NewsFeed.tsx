@@ -263,6 +263,17 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
     });
   }, [isAdmin]);
 
+  // Le PIN seul ne suffit pas à identifier l'auteur (deux visiteurs peuvent
+  // choisir le même code à 4 chiffres) : il faut aussi le prénom/nom de la
+  // session, comme samePerson côté Entraide/Soutien — sans ça, la publication
+  // supprimée d'un visiteur homonyme en PIN passait le filtre et affichait le
+  // bandeau rouge "Votre publication a été supprimée" à la mauvaise personne.
+  function isOwnEntry(e: NewsEntryWithUrls) {
+    return isAdmin
+      ? e.author_pin === "ADMIN"
+      : (!!sessionPin && e.author_pin === sessionPin && e.author_prenom === formPrenom && e.author_nom === formNom);
+  }
+
   // Canal intervenants+admin : un visiteur ne voit que les nouvelles
   // publiées par des visiteurs, plus celles d'intervenants/admin autorisées
   // par newsIntervenantMode (voir isNewsEntryVisibleToVisitor ci-dessus).
@@ -270,7 +281,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
   const visibleEntries = entries.filter(
     (e) =>
       (effectiveRole !== "visiteur" || isNewsEntryVisibleToVisitor(e)) &&
-      (!e.deleted_by_admin || (!isAdmin && e.author_pin === sessionPin)),
+      (!e.deleted_by_admin || (!isAdmin && isOwnEntry(e))),
   );
 
   // Badge "New" sur chaque nouvelle non encore vue (voir lib/wallUnread.ts,
@@ -772,7 +783,9 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
   }
 
   function isOwnReply(r: NewsEntryReply) {
-    return isAdmin ? r.author_pin === "ADMIN" : (!!sessionPin && r.author_pin === sessionPin);
+    return isAdmin
+      ? r.author_pin === "ADMIN"
+      : (!!sessionPin && r.author_pin === sessionPin && r.author_prenom === formPrenom && r.author_nom === formNom);
   }
 
   async function softDeleteByAdminReply(r: NewsEntryReply) {
@@ -811,12 +824,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
     const isNew = newIds.has(entry.id);
     // Liseret bleu "mes publications" (voir NewIndicator) — indépendant du
     // badge New, s'affiche tant que la publication existe, même vue/ancienne.
-    // Le PIN seul ne suffit pas à identifier l'auteur (deux visiteurs
-    // peuvent choisir le même code à 4 chiffres) : on exige aussi le
-    // prénom/nom de la session, comme samePerson côté Entraide.
-    const mine = isAdmin
-      ? entry.author_pin === "ADMIN"
-      : (!!sessionPin && entry.author_pin === sessionPin && entry.author_prenom === formPrenom && entry.author_nom === formNom);
+    const mine = isOwnEntry(entry);
     // Cadre rouge réservé aux nouvelles publications des AUTRES : sur mes
     // propres publications, seuls le liseret bleu et le badge New comptent
     // (pas besoin de cadre rouge pour attirer mon attention sur mon propre

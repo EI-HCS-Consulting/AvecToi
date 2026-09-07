@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   View, Text, TextInput, TouchableOpacity, Pressable, ScrollView,
   Modal, StyleSheet, Alert, ActivityIndicator, Image,
@@ -954,10 +954,37 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
   useEffect(() => { loadTasks(); }, [loadTasks]);
 
+  // Les propositions "Je m'en occupe" (task_relais_coverage) sont stockées à
+  // part des tasks — sans les injecter ici, une nouvelle prise en charge sur
+  // un besoin SOS déjà vu n'allumait jamais le badge New/point rouge (bug
+  // remonté : André Baupin prend en charge une période, aucun badge New côté
+  // admin). Synthétisées en WallRow pour partager le même Set que les tasks.
+  const relaisCoverageWallRows = useMemo(() => {
+    const out: { id: string; author_prenom: string | null; author_nom: string | null; author_pin: string | null; created_at: string; deleted_by_admin: boolean }[] = [];
+    for (const list of Object.values(relaisCoverage)) {
+      for (const cov of list) {
+        out.push({
+          id: cov.id,
+          author_prenom: cov.prenom,
+          author_nom: cov.nom,
+          author_pin: cov.pin,
+          created_at: cov.created_at,
+          deleted_by_admin: false,
+        });
+      }
+    }
+    return out;
+  }, [relaisCoverage]);
+
   // Badge "New" sur chaque besoin non encore vu (voir lib/wallUnread.ts) —
   // même Set que celui qui alimente le point rouge de la barre d'onglets
   // (EntraideTabIcon), volontairement liés.
-  const newIds = useWallReadTracking("entraide", spaceId, isAdmin, tasksLoading ? null : tasks);
+  const newIds = useWallReadTracking(
+    "entraide",
+    spaceId,
+    isAdmin,
+    tasksLoading ? null : [...tasks, ...relaisCoverageWallRows],
+  );
 
   // Arrivée depuis "Mon compte" via un lien profond (?focusTaskId=...) —
   // à chaque nouvelle navigation (même écran déjà monté, cas des Tabs qui
@@ -2797,9 +2824,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // l'ordre chronologique normal dès qu'il est marqué vu — aucun état à
   // gérer ici, `newIds` reflète directement le storage persisté (voir
   // lib/wallUnread.ts).
+  function taskHasNew(t: Task): boolean {
+    if (newIds.has(t.id)) return true;
+    return (relaisCoverage[t.id] ?? []).some((cov) => newIds.has(cov.id));
+  }
+
   function compareOpenSectionWithNew(a: Task, b: Task): number {
-    const na = newIds.has(a.id);
-    const nb = newIds.has(b.id);
+    const na = taskHasNew(a);
+    const nb = taskHasNew(b);
     if (na !== nb) return na ? -1 : 1;
     return compareOpenSection(a, b);
   }
@@ -3051,7 +3083,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   function renderTask(t: Task) {
     const statusColors = STATUS_COLORS(C);
     const highlighted = highlightId === t.id;
-    const isNew = newIds.has(t.id);
+    const isNew = taskHasNew(t);
     // Liseret bleu "mes publications" (voir NewIndicator) — indépendant du
     // badge New, s'affiche tant que le besoin existe, même vu/ancien.
     const mine = isAdmin ? t.author_pin === "ADMIN" : isAuthor(t);
@@ -3316,6 +3348,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             {(relaisCoverage[t.id] ?? []).map((cov) => (
               <View key={cov.id} style={{ marginBottom: 6 }}>
                 <Text style={[styles.claimerText, { color: C.text }]}>
+                  {newIds.has(cov.id) && <Text style={{ color: C.danger, fontWeight: "700" }}>🆕 </Text>}
                   👤 {cov.prenom} {cov.nom} — du {toFrShort(new Date(cov.start_date + "T12:00:00"))} au {toFrShort(new Date(cov.end_date + "T12:00:00"))}
                 </Text>
                 {cov.claimed_text && (
