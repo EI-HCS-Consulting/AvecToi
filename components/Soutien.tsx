@@ -671,7 +671,9 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
       : (!!sessionPin && m.author_pin === sessionPin && m.author_prenom === msgPrenom && m.author_nom === msgNom);
   }
   function isOwnReply(r: SupportMessageReply) {
-    return isAdmin ? r.author_pin === "ADMIN" : (!!sessionPin && r.author_pin === sessionPin);
+    return isAdmin
+      ? r.author_pin === "ADMIN"
+      : (!!sessionPin && r.author_pin === sessionPin && r.author_prenom === msgPrenom && r.author_nom === msgNom);
   }
 
   // Modération admin : un message supprimé "en douceur" (deleted_by_admin)

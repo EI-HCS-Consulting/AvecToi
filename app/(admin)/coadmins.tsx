@@ -123,7 +123,11 @@ export default function CoAdminsScreen() {
       return;
     }
 
-    setPickerVisible(false);
+    // Ne pas fermer le picker ici : un même besoin SOS peut avoir plusieurs
+    // candidats/périodes à valider dans la foulée — seul `v` doit disparaître
+    // de filteredCandidates (via activeOrPendingKeys, recalculé par load()).
+    // Fermer tout le popup ici donnait l'impression que "tout se validait"
+    // alors qu'un seul candidat venait d'être octroyé (bug remonté).
     await load();
   }
 
@@ -208,7 +212,7 @@ export default function CoAdminsScreen() {
       </ScrollView>
 
       {/* Picker de sélection d'un visiteur connu */}
-      <Modal visible={pickerVisible} transparent animationType="slide" onRequestClose={() => setPickerVisible(false)}>
+      <Modal visible={pickerVisible} transparent animationType="fade" onRequestClose={() => setPickerVisible(false)}>
         <View style={styles.overlay}>
           <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={() => setPickerVisible(false)} />
           <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.border }]}>
@@ -310,10 +314,13 @@ const styles = StyleSheet.create({
   cardStatus: { fontFamily: "DM_Sans_400Regular", fontSize: 12.5, marginTop: 2 },
   revokeBtn: { borderWidth: 1, borderRadius: 8, paddingVertical: 8, paddingHorizontal: 12 },
   revokeBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12.5, color: "#e94560" },
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.82)", justifyContent: "flex-end" },
+  overlay: {
+    flex: 1, backgroundColor: "rgba(0,0,0,0.82)",
+    justifyContent: "center", alignItems: "stretch", paddingHorizontal: 0,
+  },
   sheet: {
-    borderWidth: 1, borderTopLeftRadius: 20, borderTopRightRadius: 20,
-    padding: 20, paddingBottom: 32,
+    borderWidth: 1, borderRadius: 20,
+    padding: 20, paddingBottom: 24, width: "100%", maxHeight: "85%",
   },
   sheetTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, marginBottom: 12 },
   searchInput: {
