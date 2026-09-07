@@ -17,6 +17,7 @@ import BookingProposalAlertModal from "@/components/BookingProposalAlertModal";
 import RelaisAlertModal from "@/components/RelaisAlertModal";
 import BirthdayAlertModal from "@/components/BirthdayAlertModal";
 import DeletedContentAlertModal from "@/components/DeletedContentAlertModal";
+import CoAdminGrantedAlertModal from "@/components/CoAdminGrantedAlertModal";
 import IntervenantOnboardingFlow from "@/components/IntervenantOnboardingFlow";
 import EntraideTabIcon from "@/components/EntraideTabIcon";
 import UnreadDotIcon from "@/components/UnreadDotIcon";
@@ -280,6 +281,10 @@ function VisitorTabs() {
 
       {identityKnown === true && (role !== "intervenant" || !!intervenantProfileId) && consentGiven === true && !!space && (
         <DeletedContentAlertModal spaceId={space.id} />
+      )}
+
+      {identityKnown === true && (role !== "intervenant" || !!intervenantProfileId) && consentGiven === true && !!space && (
+        <CoAdminGrantedAlertModal spaceId={space.id} />
       )}
 
     <Tabs

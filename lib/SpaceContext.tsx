@@ -41,6 +41,12 @@ interface SpaceContextValue {
   // une fois le backfill de la migration passé).
   getConfigForDate: (iso: string) => SlotConfig | null;
   getSlotsForDate: (iso: string) => string[];
+  // Vrai quand ce provider est monté en mode co-administrateur temporaire
+  // (voir app/(admin)/_layout.tsx) plutôt qu'admin réel authentifié.
+  // coAdminIdentity porte le pin, nécessaire aux RPC qui doivent le
+  // revérifier côté serveur (apply_slot_rule_change, update_space_as_coadmin).
+  isCoAdmin: boolean;
+  coAdminIdentity: { prenom: string; nom: string; pin: string } | null;
 }
 
 const SpaceContext = createContext<SpaceContextValue>({
@@ -63,13 +69,22 @@ const SpaceContext = createContext<SpaceContextValue>({
   patchSpace: () => {},
   getConfigForDate: () => null,
   getSlotsForDate: () => [],
+  isCoAdmin: false,
+  coAdminIdentity: null,
 });
 
 export function useSpace() {
   return useContext(SpaceContext);
 }
 
-export function AdminSpaceProvider({ adminId, children }: { adminId: string; children: ReactNode }) {
+type CoAdminIdentity = { prenom: string; nom: string; pin: string };
+
+type AdminSpaceProviderProps =
+  | { adminId: string; spaceId?: undefined; coAdminIdentity?: undefined; children: ReactNode }
+  | { adminId?: undefined; spaceId: string; coAdminIdentity: CoAdminIdentity; children: ReactNode };
+
+export function AdminSpaceProvider(props: AdminSpaceProviderProps) {
+  const { adminId, spaceId: coAdminSpaceId, coAdminIdentity, children } = props;
   const [space, setSpace] = useState<PatientSpace | null>(null);
   const [slotConfig, setSlotConfig] = useState<SlotConfig | null>(null);
   const [slots, setSlots] = useState<string[]>([]);
@@ -89,41 +104,50 @@ export function AdminSpaceProvider({ adminId, children }: { adminId: string; chi
   const [pendingEditReservationId, setPendingEditReservationId] = useState<string | null>(null);
 
   const fetchSpace = useCallback(async () => {
-    const { data: spaceData } = await supabase
-      .from("patient_spaces")
-      .select("*")
-      .eq("admin_id", adminId)
-      .eq("is_active", true)
-      .limit(1)
-      .single();
+    const { data: spaceData } = coAdminSpaceId
+      ? await supabase.from("patient_spaces").select("*").eq("id", coAdminSpaceId).single()
+      : await supabase
+          .from("patient_spaces")
+          .select("*")
+          .eq("admin_id", adminId)
+          .eq("is_active", true)
+          .limit(1)
+          .single();
 
     if (!spaceData) {
       setLoading(false);
       return;
     }
 
-    // admin_firstname/admin_lastname ne sont normalement resynchronisés
-    // qu'à la sauvegarde du profil (account.tsx handleSaveProfile) — un
-    // admin qui n'a jamais rouvert "Modifier mon profil" depuis la création
-    // de l'espace (ou depuis l'ajout de ces colonnes) reste avec des champs
-    // vides en base. Sans nom fiable, isMyReservation()/identityReady
-    // dégénèrent silencieusement (bande verte jamais affichée, "Afficher mes
-    // créneaux" sans effet — voir home/calendar.tsx). On rattrape donc ici,
-    // à chaque chargement de l'espace, en comparant à la source de vérité
-    // (auth user_metadata) plutôt que d'attendre une sauvegarde manuelle.
-    const { data: userData } = await supabase.auth.getUser();
-    const metaFirstname = userData.user?.user_metadata?.firstname?.trim() || null;
-    const metaLastname = userData.user?.user_metadata?.lastname?.trim() || null;
-    if (
-      (metaFirstname || metaLastname) &&
-      (metaFirstname !== spaceData.admin_firstname || metaLastname !== spaceData.admin_lastname)
-    ) {
-      await supabase
-        .from("patient_spaces")
-        .update({ admin_firstname: metaFirstname, admin_lastname: metaLastname })
-        .eq("id", spaceData.id);
-      spaceData.admin_firstname = metaFirstname;
-      spaceData.admin_lastname = metaLastname;
+    // Le resync admin_firstname/admin_lastname ci-dessous dépend de
+    // auth.getUser() (compte Supabase réel) — sauté en mode co-admin, qui
+    // n'a jamais de session Supabase (identité PIN visiteur uniquement, voir
+    // lib/coAdmin.ts). L'admin réel resynchronise déjà ces champs dès qu'il
+    // relance l'app, donc aucune perte fonctionnelle.
+    if (!coAdminIdentity) {
+      // admin_firstname/admin_lastname ne sont normalement resynchronisés
+      // qu'à la sauvegarde du profil (account.tsx handleSaveProfile) — un
+      // admin qui n'a jamais rouvert "Modifier mon profil" depuis la création
+      // de l'espace (ou depuis l'ajout de ces colonnes) reste avec des champs
+      // vides en base. Sans nom fiable, isMyReservation()/identityReady
+      // dégénèrent silencieusement (bande verte jamais affichée, "Afficher mes
+      // créneaux" sans effet — voir home/calendar.tsx). On rattrape donc ici,
+      // à chaque chargement de l'espace, en comparant à la source de vérité
+      // (auth user_metadata) plutôt que d'attendre une sauvegarde manuelle.
+      const { data: userData } = await supabase.auth.getUser();
+      const metaFirstname = userData.user?.user_metadata?.firstname?.trim() || null;
+      const metaLastname = userData.user?.user_metadata?.lastname?.trim() || null;
+      if (
+        (metaFirstname || metaLastname) &&
+        (metaFirstname !== spaceData.admin_firstname || metaLastname !== spaceData.admin_lastname)
+      ) {
+        await supabase
+          .from("patient_spaces")
+          .update({ admin_firstname: metaFirstname, admin_lastname: metaLastname })
+          .eq("id", spaceData.id);
+        spaceData.admin_firstname = metaFirstname;
+        spaceData.admin_lastname = metaLastname;
+      }
     }
 
     setSpace(spaceData);
@@ -151,7 +175,7 @@ export function AdminSpaceProvider({ adminId, children }: { adminId: string; chi
     setConfigHistory(historyData || []);
 
     setLoading(false);
-  }, [adminId]);
+  }, [adminId, coAdminSpaceId, coAdminIdentity]);
 
   useEffect(() => {
     fetchSpace();
@@ -311,8 +335,8 @@ export function AdminSpaceProvider({ adminId, children }: { adminId: string; chi
   // useSpace() dans l'app (dont les grilles de calendrier, coûteuses) à
   // re-render même quand rien qui les concerne n'a changé.
   const value = useMemo<SpaceContextValue>(
-    () => ({ space, slotConfig, slots, reservations, intervenantProfiles, loading, hasSpace: !!space, selectedDay, setSelectedDay, pendingBookingSlot, setPendingBookingSlot, pendingEditReservationId, setPendingEditReservationId, refreshReservations, refreshSpace, refreshSlotConfig, patchSpace, getConfigForDate, getSlotsForDate }),
-    [space, slotConfig, slots, reservations, intervenantProfiles, loading, selectedDay, pendingBookingSlot, pendingEditReservationId, refreshReservations, refreshSpace, refreshSlotConfig, patchSpace, getConfigForDate, getSlotsForDate],
+    () => ({ space, slotConfig, slots, reservations, intervenantProfiles, loading, hasSpace: !!space, selectedDay, setSelectedDay, pendingBookingSlot, setPendingBookingSlot, pendingEditReservationId, setPendingEditReservationId, refreshReservations, refreshSpace, refreshSlotConfig, patchSpace, getConfigForDate, getSlotsForDate, isCoAdmin: !!coAdminIdentity, coAdminIdentity: coAdminIdentity ?? null }),
+    [space, slotConfig, slots, reservations, intervenantProfiles, loading, selectedDay, pendingBookingSlot, pendingEditReservationId, refreshReservations, refreshSpace, refreshSlotConfig, patchSpace, getConfigForDate, getSlotsForDate, coAdminIdentity],
   );
 
   return (
