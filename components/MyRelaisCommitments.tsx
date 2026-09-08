@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabase";
 import { toISO, addDays } from "@/lib/slotUtils";
 import { isRelaisFullyCovered } from "@/lib/relaisCoverage";
 import { revokeCoAdminForCoverage, checkCoAdminStatus } from "@/lib/coAdmin";
+import { setPendingAdminRoute } from "@/lib/pendingAdminRoute";
 import MiniCalendar from "@/components/MiniCalendar";
 import ConfirmModal from "@/components/ConfirmModal";
 import type { Theme } from "@/lib/themes";
@@ -299,7 +300,15 @@ export default function MyRelaisCommitments({ spaceId, prenom, nom, pin, C }: Pr
 
       {coAdminActive && (
         <TouchableOpacity
-          onPress={() => router.push("/(admin)/settings" as any)}
+          onPress={() => {
+            // Voir lib/pendingAdminRoute.ts : on ne peut pas pousser
+            // directement vers l'onglet caché "/(admin)/settings" depuis ici
+            // (le groupe (admin) n'existe pas encore) — on passe par la route
+            // de démarrage admin déjà fiable, et app/(admin)/_layout.tsx
+            // termine la navigation une fois ses Tabs montées.
+            setPendingAdminRoute("/(admin)/settings");
+            router.push("/(admin)/home/calendar" as any);
+          }}
           style={[styles.coAdminBtn, { backgroundColor: C.accent }]}
           activeOpacity={0.85}
         >

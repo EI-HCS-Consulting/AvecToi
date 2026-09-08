@@ -7,6 +7,7 @@ import { AdminSpaceProvider, useSpace } from "@/lib/SpaceContext";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { getVisitorSession } from "@/lib/visitorSession";
 import { checkCoAdminStatus, setCachedCoAdminActive } from "@/lib/coAdmin";
+import { consumePendingAdminRoute } from "@/lib/pendingAdminRoute";
 import PatientOnboarding from "@/components/PatientOnboarding";
 import RgpdAlertModal from "@/components/RgpdAlertModal";
 import RelaisAlertModal from "@/components/RelaisAlertModal";
@@ -25,17 +26,19 @@ function AdminGate() {
   const router = useRouter();
   const pathname = usePathname();
 
-  // Entrée directe sur un onglet caché (ex: "/settings" via le bouton
-  // "Paramètres Co-Administrateur" depuis (visitor)) : le push a lieu AVANT
-  // que ce composant ne monte, pendant la résolution async du gate parent
-  // (AdminLayout) — quand <Tabs> apparaît enfin, React Navigation a déjà
-  // perdu le chemin demandé et retombe sur le premier onglet ("home"). On
-  // réaffirme la navigation une fois, juste après le premier montage des Tabs.
-  const reassertedRef = useRef(false);
+  // Voir lib/pendingAdminRoute.ts : le bouton "Paramètres Co-Administrateur"
+  // (depuis (visitor)) pousse d'abord vers "/(admin)/home/calendar" (route de
+  // démarrage admin déjà connue pour fonctionner, cf. app/index.tsx) plutôt
+  // que directement vers l'onglet caché visé, et mémorise ce dernier ici.
+  // Une fois les Tabs montées et stables, on consomme cette route en attente
+  // et on pousse VRAIMENT vers elle depuis l'intérieur des Tabs déjà montées
+  // — un router.replace(pathname) tenté avant ce montage échoue silencieuse-
+  // ment car React Navigation a déjà résolu (et retenu) "home" comme route
+  // courante avant que cet effet n'ait la moindre chance de s'exécuter.
   useEffect(() => {
-    if (loading || !hasSpace || reassertedRef.current) return;
-    reassertedRef.current = true;
-    if (pathname) router.replace(pathname as any);
+    if (loading || !hasSpace) return;
+    const target = consumePendingAdminRoute();
+    if (target) router.push(target as any);
   }, [loading, hasSpace, pathname, router]);
 
   if (loading) {
