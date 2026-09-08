@@ -95,6 +95,12 @@ export interface SosRelaisCandidate {
   nom: string;
   photoUrl: string | null;
   periods: SosRelaisPeriod[];
+  // Email vérifié par code lors de la proposition (voir Entraide.tsx,
+  // relaisClaimStep "email"/"code") — repris par app/(admin)/coadmins.tsx
+  // pour créer directement le co-administrateur en état "accepté". Le
+  // premier email non nul rencontré parmi les propositions de la personne
+  // (elles portent normalement toutes le même, vérifié à chaque fois).
+  email: string | null;
 }
 
 export async function loadSosRelaisCandidates(spaceId: string): Promise<SosRelaisCandidate[]> {
@@ -124,7 +130,7 @@ export async function loadSosRelaisCandidates(spaceId: string): Promise<SosRelai
   const [coverageRes, profilesRes] = await Promise.all([
     supabase
       .from("task_relais_coverage")
-      .select("id, task_id, prenom, nom, start_date, end_date, full_period")
+      .select("id, task_id, prenom, nom, start_date, end_date, full_period, email")
       .in("task_id", tasks.map((t) => t.id))
       .order("start_date", { ascending: true }),
     supabase.from("visitor_profiles").select("prenom,nom,photo").eq("space_id", spaceId),
@@ -148,9 +154,12 @@ export async function loadSosRelaisCandidates(spaceId: string): Promise<SosRelai
         nom: cov.nom.trim(),
         photoUrl: photoByKey.get(key) ?? null,
         periods: [],
+        email: null,
       });
     }
-    byKey.get(key)!.periods.push({
+    const entry = byKey.get(key)!;
+    if (!entry.email && cov.email) entry.email = cov.email;
+    entry.periods.push({
       coverageId: cov.id,
       taskId: cov.task_id,
       startDate: cov.start_date,

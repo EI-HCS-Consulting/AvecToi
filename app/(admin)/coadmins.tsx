@@ -28,6 +28,7 @@ interface DashboardEntry {
   photoUrl: string | null;
   periods: SosRelaisPeriod[];
   coadmin: PatientSpaceCoadmin | null;
+  email: string | null;
 }
 
 // Gestion des co-administrateurs temporaires (Feature 3 du chantier SOS
@@ -87,13 +88,14 @@ export default function CoAdminsScreen() {
         photoUrl: v.photoUrl,
         periods: v.periods,
         coadmin: null,
+        email: v.email,
       });
     }
     for (const c of coadmins) {
       const key = visitorIdentityKey(c.prenom, c.nom);
       const existing = byKey.get(key);
       if (existing) existing.coadmin = c;
-      else byKey.set(key, { key, prenom: c.prenom, nom: c.nom, photoUrl: null, periods: [], coadmin: c });
+      else byKey.set(key, { key, prenom: c.prenom, nom: c.nom, photoUrl: null, periods: [], coadmin: c, email: null });
     }
     return Array.from(byKey.values()).sort(
       (a, b) => a.nom.localeCompare(b.nom, "fr") || a.prenom.localeCompare(b.prenom, "fr"),
@@ -125,6 +127,10 @@ export default function CoAdminsScreen() {
       setPremiumGateMsg("La co-administration temporaire fait partie de l'offre Premium. Passez votre espace en illimité pour désigner un co-administrateur.");
       return;
     }
+    if (!v.email) {
+      setGrantError("Cette personne n'a pas encore vérifié son adresse email — elle doit d'abord terminer le popup « Je m'en occupe ».");
+      return;
+    }
     setGranting(v.key);
     setGrantError(null);
 
@@ -145,11 +151,17 @@ export default function CoAdminsScreen() {
       return;
     }
 
+    // email + accepted_at renseignés dès l'octroi : l'email a déjà été vérifié
+    // par code au moment de la proposition (voir Entraide.tsx, relaisClaimStep
+    // "email"/"code"), donc plus d'étape d'acceptation séparée côté visiteur —
+    // il devient co-administrateur actif dès que l'admin valide sa période.
     const { error: insertError } = await supabase.from("patient_space_coadmins").insert({
       space_id: space.id,
       visitor_id: profile.id,
       prenom: v.prenom,
       nom: v.nom,
+      email: v.email,
+      accepted_at: new Date().toISOString(),
       granted_by_admin_id: space.admin_id,
     });
 
@@ -238,7 +250,7 @@ export default function CoAdminsScreen() {
                     >
                       <Text style={styles.revokeBtnText}>Révoquer</Text>
                     </TouchableOpacity>
-                  ) : canValidate ? (
+                  ) : canValidate && v.email ? (
                     <TouchableOpacity
                       style={[styles.validateBtn, { backgroundColor: C.accent }]}
                       onPress={() => handleGrant(v)}
@@ -251,6 +263,8 @@ export default function CoAdminsScreen() {
                         <Text style={styles.validateBtnText}>Valider</Text>
                       )}
                     </TouchableOpacity>
+                  ) : canValidate ? (
+                    <Text style={[styles.pendingEmailText, { color: C.muted }]}>Email non vérifié</Text>
                   ) : null}
                 </View>
                 {v.periods.length > 0 && (
@@ -320,6 +334,7 @@ const styles = StyleSheet.create({
   revokeBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12.5, color: "#e94560" },
   validateBtn: { borderRadius: 8, paddingVertical: 8, paddingHorizontal: 14 },
   validateBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12.5, color: "#fff" },
+  pendingEmailText: { fontFamily: "DM_Sans_400Regular", fontSize: 11.5, maxWidth: 90, textAlign: "right" },
   periodsBlock: {
     paddingLeft: 52, marginTop: 8, gap: 4,
   },

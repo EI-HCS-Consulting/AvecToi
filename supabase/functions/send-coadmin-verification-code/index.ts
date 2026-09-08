@@ -25,7 +25,7 @@ Deno.serve(async (req: Request) => {
     if (!space_id || !prenom || !nom || !email || !purpose) {
       return json({ error: "Missing required fields" }, 400);
     }
-    if (purpose !== "accept" && purpose !== "reset") {
+    if (purpose !== "accept" && purpose !== "reset" && purpose !== "propose") {
       return json({ error: "Invalid purpose" }, 400);
     }
 
@@ -34,28 +34,45 @@ Deno.serve(async (req: Request) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // Le demandeur doit correspondre à une invitation en attente (accept) ou
-    // à un co-admin déjà actif+accepté avec cet email (reset) — sinon on ne
-    // révèle rien et on ne génère aucun code.
-    let query = supabaseAdmin
-      .from("patient_space_coadmins")
-      .select("id, email")
-      .eq("space_id", space_id)
-      .ilike("prenom", prenom.trim())
-      .ilike("nom", nom.trim())
-      .eq("active", true)
-      .order("granted_at", { ascending: false })
-      .limit(1);
+    // 'propose' est envoyé AVANT toute ligne patient_space_coadmins (le
+    // visiteur propose une période de relais, l'admin valide ensuite — voir
+    // 20260908_coadmin_propose_verification.sql) : seule l'identité visiteur
+    // (visitor_profiles) est vérifiée, pas une invitation préexistante.
+    if (purpose === "propose") {
+      const { data: profile } = await supabaseAdmin
+        .from("visitor_profiles")
+        .select("id")
+        .eq("space_id", space_id)
+        .ilike("prenom", prenom.trim())
+        .ilike("nom", nom.trim())
+        .maybeSingle();
+      if (!profile) {
+        return json({ error: "No matching visitor record" }, 404);
+      }
+    } else {
+      // Le demandeur doit correspondre à une invitation en attente (accept) ou
+      // à un co-admin déjà actif+accepté avec cet email (reset) — sinon on ne
+      // révèle rien et on ne génère aucun code.
+      let query = supabaseAdmin
+        .from("patient_space_coadmins")
+        .select("id, email")
+        .eq("space_id", space_id)
+        .ilike("prenom", prenom.trim())
+        .ilike("nom", nom.trim())
+        .eq("active", true)
+        .order("granted_at", { ascending: false })
+        .limit(1);
 
-    query = purpose === "accept" ? query.is("accepted_at", null) : query.not("accepted_at", "is", null);
+      query = purpose === "accept" ? query.is("accepted_at", null) : query.not("accepted_at", "is", null);
 
-    const { data: coadminRow } = await query.maybeSingle();
+      const { data: coadminRow } = await query.maybeSingle();
 
-    if (!coadminRow) {
-      return json({ error: "No matching co-admin record" }, 404);
-    }
-    if (purpose === "reset" && coadminRow.email?.toLowerCase().trim() !== String(email).toLowerCase().trim()) {
-      return json({ error: "Email does not match" }, 404);
+      if (!coadminRow) {
+        return json({ error: "No matching co-admin record" }, 404);
+      }
+      if (purpose === "reset" && coadminRow.email?.toLowerCase().trim() !== String(email).toLowerCase().trim()) {
+        return json({ error: "Email does not match" }, 404);
+      }
     }
 
     // Anti-spam : pas de nouveau code si un code non expiré/non utilisé
@@ -97,10 +114,14 @@ Deno.serve(async (req: Request) => {
       return json({ ok: true, warning: "email not sent" });
     }
 
-    const title = purpose === "accept"
+    const title = purpose === "propose"
+      ? "🛡️ Confirmez votre proposition de co-administration"
+      : purpose === "accept"
       ? "🛡️ Confirmez votre prise de fonction de co-administrateur"
       : "🔑 Réinitialisation de votre code d'accès co-administrateur";
-    const intro = purpose === "accept"
+    const intro = purpose === "propose"
+      ? "Voici votre code de confirmation pour valider ta proposition de co-administration temporaire sur AvecToi. Il ne te reste plus qu'à attendre la validation de l'administrateur :"
+      : purpose === "accept"
       ? "Voici votre code de confirmation pour devenir co-administrateur temporaire sur AvecToi :"
       : "Voici votre code pour réinitialiser votre code d'accès (PIN) co-administrateur sur AvecToi :";
 
@@ -122,7 +143,9 @@ Deno.serve(async (req: Request) => {
       body: JSON.stringify({
         from: "AvecToi <notifications@notifications.avectoi.care>",
         to: [email],
-        subject: purpose === "accept"
+        subject: purpose === "propose"
+          ? "AvecToi — Confirmez votre proposition"
+          : purpose === "accept"
           ? "AvecToi — Confirmez votre prise de fonction"
           : "AvecToi — Réinitialisation de votre code d'accès",
         html,
