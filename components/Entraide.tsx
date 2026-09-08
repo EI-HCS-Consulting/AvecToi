@@ -824,7 +824,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // "Du"/"Au"/"email"/"code" s'affichent en popups centrés (comme
   // thanksModal) plutôt qu'en feuille coulissante depuis le bas — voir la
   // <Modal> commune plus bas.
-  const relaisClaimStepCentered = relaisClaimStep === "period_start" || relaisClaimStep === "period_end"
+  const relaisClaimStepCentered = relaisClaimStep === "choice" || relaisClaimStep === "period_start" || relaisClaimStep === "period_end"
     || relaisClaimStep === "email" || relaisClaimStep === "code";
 
   // Toutes les lignes task_relais_coverage des besoins relais actuellement
@@ -1039,8 +1039,17 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     // Depuis RelaisAlertModal ("🙋 Je m'en occupe") : ouvre directement la
     // sheet de prise en charge sur ce besoin plutôt que de dupliquer la
     // logique de claim (PIN, etc.). Ne s'applique qu'au lien profond
-    // d'origine (pas à la cible re-pointée après création d'un besoin).
-    if (focusTarget === focusTaskId && openClaimParam === "1" && target.status === "ouvert") openClaim(target);
+    // d'origine (pas à la cible re-pointée après création d'un besoin) —
+    // openClaim est retiré des query params juste après consommation, sinon
+    // le "J'ai compris" du popup "Merci, tu t'en occupes" (qui réarme
+    // focusedRef sur ce même focusTarget pour re-scroller/surligner la carte,
+    // voir plus bas) rouvrait ce même popup de claim en boucle dès que
+    // `tasks` se rechargeait avec le besoin encore "ouvert" (période
+    // partiellement couverte).
+    if (focusTarget === focusTaskId && openClaimParam === "1" && target.status === "ouvert") {
+      openClaim(target);
+      router.setParams({ openClaim: undefined } as any);
+    }
     // focusTaskId volontairement absent des deps : cet effet ne doit se
     // redéclencher que sur un changement de focusTarget, pas de focusTaskId
     // (mis à jour dans l'effet ci-dessus) — sinon les deux effets tournent
@@ -6750,7 +6759,7 @@ const styles = StyleSheet.create({
   errorText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, textAlign: "center", marginTop: 8 },
   sheetBtns: { flexDirection: "row", gap: 10, marginTop: 16 },
   btnPrimary: { flex: 1.3, borderRadius: 10, paddingVertical: 14, alignItems: "center", justifyContent: "center" },
-  btnPrimaryText: { fontFamily: "DM_Sans_700Bold", fontSize: 15, color: "#fff" },
+  btnPrimaryText: { fontFamily: "DM_Sans_700Bold", fontSize: 15, color: "#fff", textAlign: "center" },
   btnSecondary: { flex: 1, borderWidth: 1, borderRadius: 10, paddingVertical: 14, alignItems: "center" },
   btnSecondaryText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
 

@@ -91,6 +91,19 @@ export async function verifyCoAdminProposalCode(
   return { ok: true };
 }
 
+// Révoque, si elle existe, l'octroi de co-administration rattaché à cette
+// proposition précise (patient_space_coadmins.coverage_id) — appelée quand
+// le visiteur annule sa proposition depuis "Mes engagements de relais"
+// (MyRelaisCommitments.tsx). SECURITY DEFINER car patient_space_coadmins.
+// update est normalement réservé à l'admin authentifié (voir
+// 20260908_coadmin_per_proposal.sql) ; ne fait rien si aucun octroi n'existe
+// encore pour cette proposition (cas le plus courant : la plupart des
+// annulations portent sur une proposition jamais validée).
+export async function revokeCoAdminForCoverage(coverageId: string): Promise<void> {
+  const { error } = await supabase.rpc("revoke_coadmin_for_coverage", { p_coverage_id: coverageId });
+  if (error) console.error("revokeCoAdminForCoverage", error);
+}
+
 export async function resetCoAdminPinViaEmail(
   spaceId: string,
   prenom: string,
