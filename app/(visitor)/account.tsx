@@ -33,7 +33,7 @@ import SegmentedSwitch from "@/components/SegmentedSwitch";
 import MyChecklist from "@/components/MyChecklist";
 import MyRelaisCommitments from "@/components/MyRelaisCommitments";
 import MyAlertsModal from "@/components/MyAlertsModal";
-import { fetchOpenRelaisAlerts, fetchMyRelaisCoverageHistory, type RelaisCoverageSummary } from "@/lib/relaisAlerts";
+import { fetchOpenRelaisAlerts, fetchMyRelaisCoverageHistory, fetchRelaisTaskProposals, type RelaisCoverageSummary, type RelaisTaskProposal } from "@/lib/relaisAlerts";
 import type { Reservation, ReservationChangeHistoryEntry, NewsEntry, NewsEntryReply, SupportMessage, Task } from "@/lib/types";
 import { TASK_CATEGORY_COLORS } from "@/lib/themes";
 
@@ -207,6 +207,10 @@ export default function VisitorAccountScreen() {
   // Besoins de relais déjà pris en charge (en tout ou partie) par cette
   // identité — sortis de relaisAlerts ci-dessus, affichés dans "Historique".
   const [relaisCoverageHistory, setRelaisCoverageHistory] = useState<RelaisCoverageSummary[]>([]);
+  // Autres propositions déjà faites sur chaque besoin de relaisAlerts
+  // ci-dessus (et statut de validation par l'admin) — demande explicite :
+  // "idem pour Mes Alertes". Voir lib/relaisAlerts.ts, fetchRelaisTaskProposals.
+  const [relaisProposalsByTask, setRelaisProposalsByTask] = useState<Record<string, RelaisTaskProposal[]>>({});
   // Demandes de réinitialisation de code déjà traitées, faites par ce visiteur
   // (rattachement par identité, voir requestPinReset) — message d'historique
   // symétrique visiteur/admin, voir MyAlertsModal (pinResetHistoryLine).
@@ -432,6 +436,8 @@ export default function VisitorAccountScreen() {
     try {
       const alerts = await fetchOpenRelaisAlerts(spaceId, false, { prenom: p, nom: n });
       setRelaisAlerts(alerts);
+      const proposals = await fetchRelaisTaskProposals(alerts.map((t) => t.id));
+      setRelaisProposalsByTask(proposals);
     } catch (e) {
       console.error("[loadRelaisAlerts] fetchOpenRelaisAlerts failed:", e);
     }
@@ -1982,6 +1988,7 @@ export default function VisitorAccountScreen() {
         onClaimRelais={handleClaimRelais}
         onDismissRelais={handleDismissRelais}
         relaisCoverageHistory={relaisCoverageHistory}
+        relaisProposalsByTask={relaisProposalsByTask}
         onMarkHistorySeen={handleHistorySeen}
         pinResetHistory={pinResetHistory}
         adminFirstname={space?.admin_firstname}

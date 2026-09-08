@@ -1,6 +1,7 @@
 import { getVisitorSession } from "@/lib/visitorSession";
 import { supabase } from "@/lib/supabase";
 import type { Task, TaskRelaisCoverage } from "@/lib/types";
+import type { Theme } from "@/lib/themes";
 import { isRelaisFullyCovered, type RelaisCoverageRange } from "@/lib/relaisCoverage";
 
 // Comparaison d'identité insensible à la casse/aux accents, utilisée partout
@@ -92,6 +93,27 @@ export async function fetchOpenRelaisAlerts(
 // proposition a son propre statut, indépendant des autres du même visiteur.
 export type CoAdminProposalStatus = "none" | "pending" | "active" | "revoked";
 
+// Formulation volontairement impersonnelle (pas "Tu es...") : utilisée à la
+// fois pour la propre proposition du viewer (Mes Alertes > Historique) et
+// pour celle des AUTRES personnes affichée à côté de leur nom (voir
+// RelaisAlertModal.tsx et MyAlertsModal.tsx > "Besoins de relais", demande
+// explicite : "le popup doit mentionner les autres propositions déjà faites,
+// et si elles ont été validées par l'admin").
+export function coAdminStatusLabel(status: CoAdminProposalStatus): string {
+  switch (status) {
+    case "active": return "✅ Validé par l'admin (co-administrateur·rice)";
+    case "pending": return "⏳ En attente de validation par l'admin";
+    case "revoked": return "🔒 Révoqué par l'admin";
+    default: return "";
+  }
+}
+
+export function coAdminStatusColor(status: CoAdminProposalStatus, C: Theme): string {
+  if (status === "active") return C.success;
+  if (status === "revoked") return C.danger;
+  return C.gold;
+}
+
 export interface RelaisCoverageRangeWithStatus extends RelaisCoverageRange {
   id: string;
   coadminStatus: CoAdminProposalStatus;
@@ -156,4 +178,63 @@ export async function fetchMyRelaisCoverageHistory(
         && isRelaisFullyCovered(ranges, t.relais_start_date, t.date_limite);
       return { task: t, ranges, fullyCovered };
     });
+}
+
+export interface RelaisTaskProposal {
+  id: string;
+  prenom: string;
+  nom: string;
+  startDate: string;
+  endDate: string;
+  fullPeriod: boolean;
+  coadminStatus: CoAdminProposalStatus;
+}
+
+// Toutes les propositions (task_relais_coverage, toutes identités confondues)
+// posées sur ces besoins, groupées par task_id et triées chronologiquement
+// par date de prise en charge — utilisé par RelaisAlertModal (popup) et
+// MyAlertsModal ("Besoins de relais") pour répondre à la demande explicite :
+// "le popup d'alerte doit mentionner les autres propositions déjà faites (et
+// par qui), et si elles ont été validées par l'admin". Les deux appelants ne
+// listent que des besoins pas encore couverts par le viewer lui-même (voir
+// fetchOpenRelaisAlerts ci-dessus), donc chaque proposition retournée ici est
+// nécessairement celle de quelqu'un d'autre — pas besoin d'exclure l'identité
+// du viewer.
+export async function fetchRelaisTaskProposals(taskIds: string[]): Promise<Record<string, RelaisTaskProposal[]>> {
+  if (!taskIds.length) return {};
+  const { data, error } = await supabase
+    .from("task_relais_coverage")
+    .select("id, task_id, prenom, nom, start_date, end_date, full_period")
+    .in("task_id", taskIds)
+    .order("start_date", { ascending: true });
+  if (error) { console.error("[fetchRelaisTaskProposals] query failed:", error); return {}; }
+  const rows = data ?? [];
+  const coverageIds = rows.map((r) => r.id);
+
+  const statusByCoverageId = new Map<string, CoAdminProposalStatus>();
+  if (coverageIds.length) {
+    const { data: grants, error: grantsError } = await supabase
+      .from("patient_space_coadmins")
+      .select("coverage_id, active, accepted_at")
+      .in("coverage_id", coverageIds);
+    if (grantsError) console.error("[fetchRelaisTaskProposals] grants query failed:", grantsError);
+    (grants ?? []).forEach((g: any) => {
+      if (!g.coverage_id) return;
+      statusByCoverageId.set(g.coverage_id, !g.active ? "revoked" : (g.accepted_at ? "active" : "pending"));
+    });
+  }
+
+  const byTask: Record<string, RelaisTaskProposal[]> = {};
+  rows.forEach((r) => {
+    (byTask[r.task_id] ?? (byTask[r.task_id] = [])).push({
+      id: r.id,
+      prenom: r.prenom,
+      nom: r.nom,
+      startDate: r.start_date,
+      endDate: r.end_date,
+      fullPeriod: r.full_period,
+      coadminStatus: statusByCoverageId.get(r.id) ?? "none",
+    });
+  });
+  return byTask;
 }

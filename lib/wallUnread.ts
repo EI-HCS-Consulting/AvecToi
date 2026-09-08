@@ -38,7 +38,7 @@ import { relaisIdentityKey, resolveRelaisIdentity } from "@/lib/relaisAlerts";
 // qu'il soit marqué vu comme les autres (bootstrap ou flush) : c'est ce qui
 // permet au badge "New" d'apparaître dès la publication, pour l'auteur
 // lui-même.
-export type WallScope = "entraide" | "soutien" | "news";
+export type WallScope = "entraide" | "soutien" | "news" | "coadmin";
 
 export interface WallRow {
   id: string;

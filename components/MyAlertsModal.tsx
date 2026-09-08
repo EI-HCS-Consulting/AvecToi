@@ -3,7 +3,10 @@ import { View, Text, TouchableOpacity, Modal, ScrollView, StyleSheet } from "rea
 import type { Reservation, ReservationChangeHistoryEntry, Task } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 import { toFrShort } from "@/lib/slotUtils";
-import type { RelaisCoverageSummary, RelaisCoverageRangeWithStatus, CoAdminProposalStatus } from "@/lib/relaisAlerts";
+import {
+  coAdminStatusLabel, coAdminStatusColor,
+  type RelaisCoverageSummary, type RelaisCoverageRangeWithStatus, type RelaisTaskProposal,
+} from "@/lib/relaisAlerts";
 import type { PinResetRequest } from "@/lib/pinResetRequests";
 
 function relaisCoverageIntro(s: RelaisCoverageSummary): string {
@@ -12,25 +15,6 @@ function relaisCoverageIntro(s: RelaisCoverageSummary): string {
 
 function relaisRangeLine(r: RelaisCoverageRangeWithStatus): string {
   return `du ${toFrShort(new Date(r.start_date + "T12:00:00"))} au ${toFrShort(new Date(r.end_date + "T12:00:00"))}`;
-}
-
-// Statut de la proposition de co-administration rattachée à cette période
-// précise (voir app/(admin)/coadmins.tsx) — affiché ici pour répondre à la
-// demande explicite : "si j'ai fait une proposition de période de co-admin,
-// je dois voir ma proposition dans le message d'alerte".
-function coAdminStatusLabel(status: CoAdminProposalStatus): string {
-  switch (status) {
-    case "active": return "✅ Tu es co-administrateur·rice pour cette période";
-    case "pending": return "⏳ En attente de validation par l'admin";
-    case "revoked": return "🔒 Révoqué par l'admin";
-    default: return "";
-  }
-}
-
-function coAdminStatusColor(status: CoAdminProposalStatus, C: Theme): string {
-  if (status === "active") return C.success;
-  if (status === "revoked") return C.danger;
-  return C.gold;
 }
 
 // Sous-menu "Mes alertes" (Mon compte, juste après "Mes Checklists") —
@@ -92,6 +76,11 @@ interface Props {
   // Affichés dans "Historique" plutôt que dans "Besoins de relais", puisqu'il
   // n'y a plus rien à demander à la personne pour ces besoins-là.
   relaisCoverageHistory?: RelaisCoverageSummary[];
+  // Autres propositions déjà faites sur chaque besoin de relaisAlerts
+  // ci-dessus (et leur statut de validation par l'admin), par task id — voir
+  // lib/relaisAlerts.ts, fetchRelaisTaskProposals. Demande explicite : "idem
+  // pour Mes Alertes" (même ajout que sur le popup RelaisAlertModal).
+  relaisProposalsByTask?: Record<string, RelaisTaskProposal[]>;
   // Demandes de réinitialisation de code envoyées depuis l'écran "Qui
   // êtes-vous ?" (visitor-identify.tsx) — admin uniquement. Même popup
   // source que PinResetAlertModal à l'ouverture de l'app, consultable ici à
@@ -149,7 +138,7 @@ function pinResetHistoryLines(
   return [requested, `PIN Réinitialisé : le ${resolved}${adminName ? ` - par ${adminName}` : ""}`];
 }
 
-export default function MyAlertsModal({ visible, onClose, C, activeAlerts, history, onModify, onMarkSeen, rgpdAlert, relaisAlerts = [], onClaimRelais, onDismissRelais, relaisCoverageHistory = [], onMarkHistorySeen, pinResetRequests = [], onResetPinRequest, onDismissPinResetRequest, pinResetHistory = [], adminFirstname, adminLastname, pinResetHistoryIsAdmin = false }: Props) {
+export default function MyAlertsModal({ visible, onClose, C, activeAlerts, history, onModify, onMarkSeen, rgpdAlert, relaisAlerts = [], onClaimRelais, onDismissRelais, relaisCoverageHistory = [], relaisProposalsByTask = {}, onMarkHistorySeen, pinResetRequests = [], onResetPinRequest, onDismissPinResetRequest, pinResetHistory = [], adminFirstname, adminLastname, pinResetHistoryIsAdmin = false }: Props) {
   const [archived, setArchived] = useState<ArchivedEntry[]>([]);
   const [archivesOpen, setArchivesOpen] = useState(false);
 
@@ -255,6 +244,23 @@ export default function MyAlertsModal({ visible, onClose, C, activeAlerts, histo
                         )}
                         {!!t.description && (
                           <Text style={[styles.activeMessage, { color: C.text }]}>{t.description}</Text>
+                        )}
+                        {!!relaisProposalsByTask[t.id]?.length && (
+                          <View style={{ marginBottom: 10 }}>
+                            <Text style={[styles.activeMessage, { color: C.text, marginBottom: 4 }]}>🙋 Propositions déjà faites :</Text>
+                            {relaisProposalsByTask[t.id].map((p) => (
+                              <View key={p.id} style={{ marginBottom: 4 }}>
+                                <Text style={[styles.historyLine, { color: C.text }]}>
+                                  {p.prenom} {p.nom} — du {toFrShort(new Date(p.startDate + "T12:00:00"))} au {toFrShort(new Date(p.endDate + "T12:00:00"))}{p.fullPeriod ? " (période complète)" : ""}
+                                </Text>
+                                {!!coAdminStatusLabel(p.coadminStatus) && (
+                                  <Text style={[styles.historyLine, { color: coAdminStatusColor(p.coadminStatus, C) }]}>
+                                    {coAdminStatusLabel(p.coadminStatus)}
+                                  </Text>
+                                )}
+                              </View>
+                            ))}
+                          </View>
                         )}
                         <View style={styles.activeRow}>
                           <TouchableOpacity style={[styles.smallBtn, { borderColor: C.border }]} onPress={() => onDismissRelais?.(t)}>

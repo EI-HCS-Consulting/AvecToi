@@ -4,7 +4,10 @@ import { useRouter } from "expo-router";
 import { supabase } from "@/lib/supabase";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { toFrShort } from "@/lib/slotUtils";
-import { relaisIdentityKey, resolveRelaisIdentity, fetchOpenRelaisAlerts } from "@/lib/relaisAlerts";
+import {
+  relaisIdentityKey, resolveRelaisIdentity, fetchOpenRelaisAlerts, fetchRelaisTaskProposals,
+  coAdminStatusLabel, coAdminStatusColor, type RelaisTaskProposal,
+} from "@/lib/relaisAlerts";
 import type { Task } from "@/lib/types";
 
 // Popup affiché à la connexion (admin et visiteur, voir montage dans
@@ -45,6 +48,23 @@ export default function RelaisAlertModal({ spaceId, isAdmin }: { spaceId: string
 
   const alerts = tasks.filter((t) => !sessionHiddenIds.has(t.id));
   const current = alerts[0];
+
+  // Autres propositions déjà faites sur ce besoin (et leur statut de
+  // validation par l'admin) — demande explicite : "le popup doit mentionner
+  // les autres propositions déjà faites (et par qui), et si elles ont été
+  // validées par l'admin". `current` n'apparaît dans `alerts` que si le
+  // viewer n'a pas encore proposé lui-même (voir fetchOpenRelaisAlerts),
+  // donc toute proposition retournée ici appartient forcément à quelqu'un
+  // d'autre.
+  const [otherProposals, setOtherProposals] = useState<RelaisTaskProposal[]>([]);
+  useEffect(() => {
+    if (!current) { setOtherProposals([]); return; }
+    let cancelled = false;
+    fetchRelaisTaskProposals([current.id]).then((byTask) => {
+      if (!cancelled) setOtherProposals(byTask[current.id] ?? []);
+    });
+    return () => { cancelled = true; };
+  }, [current?.id]);
 
   async function handleAccept() {
     if (!current) return;
@@ -91,6 +111,23 @@ export default function RelaisAlertModal({ spaceId, isAdmin }: { spaceId: string
                   🙋 Sollicité·e·s : {current.relais_recipients.map((r) => `${r.prenom} ${r.nom}`.trim()).join(", ")}
                 </Text>
               )}
+            </View>
+          )}
+          {otherProposals.length > 0 && (
+            <View style={[styles.detailBox, { borderColor: C.border }]}>
+              <Text style={[styles.detailRow, { color: C.text, marginBottom: 2 }]}>🙋 Propositions déjà faites :</Text>
+              {otherProposals.map((p) => (
+                <View key={p.id} style={{ marginTop: 6 }}>
+                  <Text style={[styles.proposalLine, { color: C.text }]} numberOfLines={1}>
+                    {p.prenom} {p.nom} — du {toFrShort(new Date(p.startDate + "T12:00:00"))} au {toFrShort(new Date(p.endDate + "T12:00:00"))}{p.fullPeriod ? " (période complète)" : ""}
+                  </Text>
+                  {!!coAdminStatusLabel(p.coadminStatus) && (
+                    <Text style={[styles.proposalStatus, { color: coAdminStatusColor(p.coadminStatus, C) }]}>
+                      {coAdminStatusLabel(p.coadminStatus)}
+                    </Text>
+                  )}
+                </View>
+              ))}
             </View>
           )}
           {!!current.description && (
@@ -153,6 +190,8 @@ const styles = StyleSheet.create({
   },
   detailBox: { width: "100%", borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: 14, gap: 6 },
   detailRow: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14 },
+  proposalLine: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
+  proposalStatus: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 2 },
   body: {
     fontFamily: "DM_Sans_400Regular",
     fontSize: 14,
