@@ -3,12 +3,34 @@ import { View, Text, TouchableOpacity, Modal, ScrollView, StyleSheet } from "rea
 import type { Reservation, ReservationChangeHistoryEntry, Task } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 import { toFrShort } from "@/lib/slotUtils";
-import type { RelaisCoverageSummary } from "@/lib/relaisAlerts";
+import type { RelaisCoverageSummary, RelaisCoverageRangeWithStatus, CoAdminProposalStatus } from "@/lib/relaisAlerts";
 import type { PinResetRequest } from "@/lib/pinResetRequests";
 
-function relaisCoverageLine(s: RelaisCoverageSummary): string {
-  const periods = s.ranges.map((r) => `du ${toFrShort(new Date(r.start_date + "T12:00:00"))} au ${toFrShort(new Date(r.end_date + "T12:00:00"))}`).join(", ");
-  return s.fullyCovered ? `Tu as pris en charge la totalité de la période : ${periods}` : `Tu as pris en charge une partie de la période : ${periods}`;
+function relaisCoverageIntro(s: RelaisCoverageSummary): string {
+  return s.fullyCovered ? "Tu as pris en charge la totalité de la période :" : "Tu as pris en charge une partie de la période :";
+}
+
+function relaisRangeLine(r: RelaisCoverageRangeWithStatus): string {
+  return `du ${toFrShort(new Date(r.start_date + "T12:00:00"))} au ${toFrShort(new Date(r.end_date + "T12:00:00"))}`;
+}
+
+// Statut de la proposition de co-administration rattachée à cette période
+// précise (voir app/(admin)/coadmins.tsx) — affiché ici pour répondre à la
+// demande explicite : "si j'ai fait une proposition de période de co-admin,
+// je dois voir ma proposition dans le message d'alerte".
+function coAdminStatusLabel(status: CoAdminProposalStatus): string {
+  switch (status) {
+    case "active": return "✅ Tu es co-administrateur·rice pour cette période";
+    case "pending": return "⏳ En attente de validation par l'admin";
+    case "revoked": return "🔒 Révoqué par l'admin";
+    default: return "";
+  }
+}
+
+function coAdminStatusColor(status: CoAdminProposalStatus, C: Theme): string {
+  if (status === "active") return C.success;
+  if (status === "revoked") return C.danger;
+  return C.gold;
 }
 
 // Sous-menu "Mes alertes" (Mon compte, juste après "Mes Checklists") —
@@ -283,7 +305,17 @@ export default function MyAlertsModal({ visible, onClose, C, activeAlerts, histo
                     {relaisCoverageHistory.map((s) => (
                       <View key={s.task.id} style={[styles.historyRow, { borderLeftColor: C.gold }]}>
                         <Text style={[styles.historyType, { color: C.text }]}>🆘 {s.task.title}</Text>
-                        <Text style={[styles.historyLine, { color: C.muted }]}>{relaisCoverageLine(s)}</Text>
+                        <Text style={[styles.historyLine, { color: C.muted }]}>{relaisCoverageIntro(s)}</Text>
+                        {s.ranges.map((r) => (
+                          <View key={r.id} style={{ marginTop: 4 }}>
+                            <Text style={[styles.historyLine, { color: C.muted }]}>📅 {relaisRangeLine(r)}</Text>
+                            {!!coAdminStatusLabel(r.coadminStatus) && (
+                              <Text style={[styles.historyLine, { color: coAdminStatusColor(r.coadminStatus, C) }]}>
+                                {coAdminStatusLabel(r.coadminStatus)}
+                              </Text>
+                            )}
+                          </View>
+                        ))}
                       </View>
                     ))}
                     {history.map((h) => (

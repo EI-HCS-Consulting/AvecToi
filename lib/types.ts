@@ -648,6 +648,12 @@ export interface PatientSpaceCoadmin {
   granted_at: string;
   revoked_at: string | null;
   granted_by_admin_id: string | null;
+  // Proposition (task_relais_coverage) à l'origine de cet octroi — nul pour
+  // les octrois créés avant 20260908_coadmin_per_proposal.sql (octroi
+  // "global", pas encore rattaché à une période précise). Voir
+  // app/(admin)/coadmins.tsx : chaque proposition a son propre Valider/
+  // Révoquer, indépendant des autres périodes du même visiteur.
+  coverage_id: string | null;
 }
 
 export interface SupportMessageReply {

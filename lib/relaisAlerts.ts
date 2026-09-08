@@ -85,9 +85,21 @@ export async function fetchOpenRelaisAlerts(
   return candidates.filter((t) => !myCoverage[t.id]?.length);
 }
 
+// "none" = personne n'a encore statué sur cette proposition (voir
+// app/(admin)/coadmins.tsx) ; "active"/"revoked" reflètent
+// patient_space_coadmins.active pour l'octroi rattaché à cette proposition
+// précise (coverage_id, voir 20260908_coadmin_per_proposal.sql) — chaque
+// proposition a son propre statut, indépendant des autres du même visiteur.
+export type CoAdminProposalStatus = "none" | "pending" | "active" | "revoked";
+
+export interface RelaisCoverageRangeWithStatus extends RelaisCoverageRange {
+  id: string;
+  coadminStatus: CoAdminProposalStatus;
+}
+
 export interface RelaisCoverageSummary {
   task: Task;
-  ranges: RelaisCoverageRange[];
+  ranges: RelaisCoverageRangeWithStatus[];
   fullyCovered: boolean;
 }
 
@@ -111,10 +123,35 @@ export async function fetchMyRelaisCoverageHistory(
   if (!tasks.length) return [];
   const myKey = relaisIdentityKey(identity.prenom, identity.nom);
   const myCoverage = await fetchMyRelaisCoverageByTask(tasks.map((t) => t.id), myKey);
+  const myRows = tasks.filter((t) => myCoverage[t.id]?.length).flatMap((t) => myCoverage[t.id]);
+  const coverageIds = myRows.map((r) => r.id);
+
+  // Statut d'octroi par proposition — une seule requête pour tout
+  // l'historique plutôt qu'une par ligne (voir ask "je dois voir ma
+  // proposition dans le message d'alerte", Mes Alertes).
+  const statusByCoverageId = new Map<string, CoAdminProposalStatus>();
+  if (coverageIds.length) {
+    const { data: grants, error: grantsError } = await supabase
+      .from("patient_space_coadmins")
+      .select("coverage_id, active, accepted_at")
+      .in("coverage_id", coverageIds);
+    if (grantsError) console.error("[fetchMyRelaisCoverageHistory] grants query failed:", grantsError);
+    (grants ?? []).forEach((g: any) => {
+      if (!g.coverage_id) return;
+      const status: CoAdminProposalStatus = !g.active ? "revoked" : (g.accepted_at ? "active" : "pending");
+      statusByCoverageId.set(g.coverage_id, status);
+    });
+  }
+
   return tasks
     .filter((t) => myCoverage[t.id]?.length)
     .map((t) => {
-      const ranges = myCoverage[t.id].map((r) => ({ start_date: r.start_date, end_date: r.end_date }));
+      const ranges = myCoverage[t.id].map((r) => ({
+        id: r.id,
+        start_date: r.start_date,
+        end_date: r.end_date,
+        coadminStatus: statusByCoverageId.get(r.id) ?? "none",
+      }));
       const fullyCovered = !!t.relais_start_date && !!t.date_limite
         && isRelaisFullyCovered(ranges, t.relais_start_date, t.date_limite);
       return { task: t, ranges, fullyCovered };
