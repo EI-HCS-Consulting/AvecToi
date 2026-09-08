@@ -188,9 +188,18 @@ export function VisitorSpaceProvider({ token, children }: { token: string; child
     refreshReservations();
     refreshIntervenantProfiles();
 
+    // Suffixe aléatoire sur chaque topic : évite la collision "cannot add
+    // postgres_changes callbacks ... after subscribe()" quand cet effet se
+    // ré-exécute pour le même space (refreshReservations/refreshIntervenant-
+    // Profiles changent d'identité à chaque fetchSpace()) avant que le
+    // removeChannel() précédent (async) n'ait fini côté client — sinon
+    // supabase.channel(mêmeNom) peut renvoyer l'ancien canal déjà souscrit.
+    // Même remède que lib/entraideBadges.ts / lib/coAdmin.ts.
+    const rand = Math.random().toString(36).slice(2);
+
     // Reservations realtime
     const ch1 = supabase
-      .channel(`visitor-reservations:${space.id}`)
+      .channel(`visitor-reservations:${space.id}:${rand}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "reservations", filter: `space_id=eq.${space.id}` }, refreshReservations)
       .subscribe();
 
@@ -198,14 +207,14 @@ export function VisitorSpaceProvider({ token, children }: { token: string; child
     // soin (VisitorSlotsList) doit rester à jour si un intervenant modifie sa
     // fiche ou si un nouveau intervenant rejoint l'espace.
     const ch4 = supabase
-      .channel(`visitor-intervenant-profiles:${space.id}`)
+      .channel(`visitor-intervenant-profiles:${space.id}:${rand}`)
       .on("postgres_changes", { event: "*", schema: "public", table: "intervenant_profiles", filter: `space_id=eq.${space.id}` }, refreshIntervenantProfiles)
       .subscribe();
 
     // Space realtime — re-fetch on any admin update to get the full row
     // (payload.new only includes changed columns without REPLICA IDENTITY FULL)
     const ch2 = supabase
-      .channel(`space-visitor:${space.id}`)
+      .channel(`space-visitor:${space.id}:${rand}`)
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "patient_spaces", filter: `id=eq.${space.id}` },
@@ -216,7 +225,7 @@ export function VisitorSpaceProvider({ token, children }: { token: string; child
     // slot_config realtime — visitor sees updated visit rules immediately.
     const spaceId = space.id;
     const ch3 = supabase
-      .channel(`slot-config-visitor:${spaceId}`)
+      .channel(`slot-config-visitor:${spaceId}:${rand}`)
       .on(
         "postgres_changes",
         { event: "UPDATE", schema: "public", table: "slot_config", filter: `space_id=eq.${spaceId}` },
