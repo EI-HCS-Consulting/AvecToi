@@ -1,30 +1,44 @@
 import { useCallback, useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, Modal, StyleSheet, ActivityIndicator } from "react-native";
+import { useRouter } from "expo-router";
 import { supabase } from "@/lib/supabase";
-import { toFrShort } from "@/lib/slotUtils";
+import { toISO, addDays } from "@/lib/slotUtils";
 import { isRelaisFullyCovered } from "@/lib/relaisCoverage";
-import { revokeCoAdminForCoverage } from "@/lib/coAdmin";
+import { revokeCoAdminForCoverage, checkCoAdminStatus } from "@/lib/coAdmin";
 import MiniCalendar from "@/components/MiniCalendar";
 import ConfirmModal from "@/components/ConfirmModal";
 import type { Theme } from "@/lib/themes";
 
 // Bloc "Mon compte" (admin + visiteur, à côté de MyChecklist) qui récapitule
-// les sous-périodes de relais que cette identité a validées (voir
+// les besoins de relais où cette identité a proposé une période (voir
 // task_relais_coverage, lib/relaisCoverage.ts) — la carte du besoin dans
-// Entraide.tsx montre déjà cette même ligne, mais uniquement tant que le
+// Entraide.tsx montre déjà cette même info, mais uniquement tant que le
 // besoin reste visible dans le Mur d'Entraide ; ici c'est un rappel
 // permanent, propre à la personne, qui ne dépend pas de retrouver la bonne
-// carte. Modifier/Annuler par proposition individuelle (demande explicite :
-// "je dois pouvoir les modifier (donc changer les dates ou annuler ma
-// proposition)").
-interface Row {
+// carte.
+//
+// Regroupé PAR BESOIN (pas par proposition) — demande explicite : montrer la
+// période initialement demandée par l'admin, une barre de progression
+// jour par jour (vert = couvert par au moins un contributeur, rouge = pas
+// encore), puis TOUTES les propositions faites sur ce besoin (pas seulement
+// celles de la personne qui regarde) pour qu'elle voie d'un coup d'œil ce
+// qu'il reste à combler. Modifier/Annuler ne reste possible que sur SES
+// propres propositions (mineRowIds), les autres lignes sont juste
+// informatives.
+interface TaskInfo {
+  id: string; title: string; status: string; deleted_by_admin: boolean;
+  relais_start_date: string | null; date_limite: string | null;
+}
+interface ContribRow {
   id: string;
+  prenom: string;
+  nom: string;
   start_date: string;
   end_date: string;
-  task: {
-    id: string; title: string; status: string; deleted_by_admin: boolean;
-    relais_start_date: string | null; date_limite: string | null;
-  } | null;
+}
+interface TaskGroup {
+  task: TaskInfo;
+  rows: ContribRow[];
 }
 
 interface Props {
@@ -35,11 +49,57 @@ interface Props {
   C: Theme;
 }
 
+// "du 10 au 14 septembre" (un seul nom de mois si les deux bornes tombent
+// dans le même mois/année) ou "du 28 septembre au 3 octobre" sinon.
+function formatFrRange(startIso: string, endIso: string): string {
+  const start = new Date(startIso + "T12:00:00");
+  const end = new Date(endIso + "T12:00:00");
+  if (start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()) {
+    return `du ${start.getDate()} au ${end.toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}`;
+  }
+  return `du ${start.toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} au ${end.toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}`;
+}
+
+// Une case par jour de [startIso, endIso] — vert si ce jour tombe dans au
+// moins une plage de coverageRanges, rouge sinon. Le nombre de jours d'un
+// besoin de relais reste toujours petit (quelques semaines maximum), pas
+// besoin de virtualisation.
+function buildDaySquares(
+  startIso: string,
+  endIso: string,
+  coverageRanges: { start_date: string; end_date: string }[],
+): { iso: string; day: number; covered: boolean }[] {
+  const days: { iso: string; day: number; covered: boolean }[] = [];
+  let cursor = new Date(startIso + "T12:00:00");
+  const end = new Date(endIso + "T12:00:00");
+  while (cursor <= end) {
+    const iso = toISO(cursor);
+    days.push({
+      iso,
+      day: cursor.getDate(),
+      covered: coverageRanges.some((r) => r.start_date <= iso && r.end_date >= iso),
+    });
+    cursor = addDays(cursor, 1);
+  }
+  return days;
+}
+
 export default function MyRelaisCommitments({ spaceId, prenom, nom, pin, C }: Props) {
-  const [rows, setRows] = useState<Row[]>([]);
+  const router = useRouter();
+  const [groups, setGroups] = useState<TaskGroup[]>([]);
+  // ids des lignes task_relais_coverage qui m'appartiennent — seules celles-ci
+  // affichent Modifier/Annuler dans la liste des contributeurs.
+  const [mineRowIds, setMineRowIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
 
-  const [editTarget, setEditTarget] = useState<Row | null>(null);
+  // Statut co-admin de cette identité — pas rattaché au chargement de
+  // groups ci-dessus : un co-admin dont toutes les propositions ont été
+  // annulées peut garder un octroi actif sur une autre (voir
+  // 20260908_coadmin_per_proposal.sql), le bouton "Paramètres
+  // Co-Administrateur" doit rester visible même si groups est vide.
+  const [coAdminActive, setCoAdminActive] = useState(false);
+
+  const [editTarget, setEditTarget] = useState<{ row: ContribRow; task: TaskInfo } | null>(null);
   const [editStep, setEditStep] = useState<"start" | "end">("start");
   const [editStart, setEditStart] = useState("");
   const [editEnd, setEditEnd] = useState("");
@@ -47,29 +107,62 @@ export default function MyRelaisCommitments({ spaceId, prenom, nom, pin, C }: Pr
   const [editEndCalMonth, setEditEndCalMonth] = useState({ year: new Date().getFullYear(), month: new Date().getMonth() });
   const [editSaving, setEditSaving] = useState(false);
 
-  const [cancelTarget, setCancelTarget] = useState<Row | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<{ row: ContribRow; task: TaskInfo } | null>(null);
   const [cancelSaving, setCancelSaving] = useState(false);
 
   const load = useCallback(async () => {
     if (!prenom.trim() || !nom.trim() || !pin) {
-      setRows([]);
+      setGroups([]);
+      setMineRowIds(new Set());
       setLoading(false);
       return;
     }
-    const { data } = await supabase
+    const { data: mine } = await supabase
       .from("task_relais_coverage")
       .select("id, start_date, end_date, task:tasks(id, title, status, deleted_by_admin, space_id, relais_start_date, date_limite)")
       .ilike("prenom", prenom.trim())
       .ilike("nom", nom.trim())
       .eq("pin", pin);
-    const mine = ((data as any[]) ?? [])
-      .filter((r) => r.task?.space_id === spaceId && !r.task?.deleted_by_admin)
-      .sort((a, b) => a.start_date.localeCompare(b.start_date)) as Row[];
-    setRows(mine);
+    const myRows = ((mine as any[]) ?? []).filter((r) => r.task?.space_id === spaceId && !r.task?.deleted_by_admin);
+    const taskById = new Map<string, TaskInfo>();
+    for (const r of myRows) if (r.task) taskById.set(r.task.id, r.task as TaskInfo);
+    setMineRowIds(new Set(myRows.map((r) => r.id)));
+
+    const taskIds = [...taskById.keys()];
+    if (taskIds.length === 0) {
+      setGroups([]);
+      setLoading(false);
+      return;
+    }
+    const { data: allCoverage } = await supabase
+      .from("task_relais_coverage")
+      .select("id, task_id, prenom, nom, start_date, end_date")
+      .in("task_id", taskIds);
+    const rowsByTask = new Map<string, ContribRow[]>();
+    for (const r of (allCoverage as any[]) ?? []) {
+      const arr = rowsByTask.get(r.task_id) ?? [];
+      arr.push({ id: r.id, prenom: r.prenom, nom: r.nom, start_date: r.start_date, end_date: r.end_date });
+      rowsByTask.set(r.task_id, arr);
+    }
+    const built: TaskGroup[] = taskIds
+      .map((id) => ({
+        task: taskById.get(id)!,
+        rows: (rowsByTask.get(id) ?? []).sort((a, b) => a.start_date.localeCompare(b.start_date)),
+      }))
+      .sort((a, b) => (a.task.relais_start_date ?? "").localeCompare(b.task.relais_start_date ?? ""));
+    setGroups(built);
     setLoading(false);
   }, [spaceId, prenom, nom, pin]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!prenom.trim() || !nom.trim()) {
+      setCoAdminActive(false);
+      return;
+    }
+    checkCoAdminStatus(spaceId, prenom, nom).then((status) => setCoAdminActive(status === "active"));
+  }, [spaceId, prenom, nom]);
 
   // Recalcule le statut du besoin après modification/annulation d'UNE
   // proposition — relit toutes les lignes task_relais_coverage du besoin
@@ -90,11 +183,11 @@ export default function MyRelaisCommitments({ spaceId, prenom, nom, pin, C }: Pr
     }
   }
 
-  function openEdit(row: Row) {
-    setEditTarget(row);
+  function openEdit(row: ContribRow, task: TaskInfo) {
+    setEditTarget({ row, task });
     setEditStart(row.start_date);
     setEditEnd(row.end_date);
-    const startBase = row.task?.relais_start_date ? new Date(row.task.relais_start_date + "T12:00:00") : new Date(row.start_date + "T12:00:00");
+    const startBase = task.relais_start_date ? new Date(task.relais_start_date + "T12:00:00") : new Date(row.start_date + "T12:00:00");
     setEditStartCalMonth({ year: startBase.getFullYear(), month: startBase.getMonth() });
     const endBase = new Date(row.start_date + "T12:00:00");
     setEditEndCalMonth({ year: endBase.getFullYear(), month: endBase.getMonth() });
@@ -118,67 +211,101 @@ export default function MyRelaisCommitments({ spaceId, prenom, nom, pin, C }: Pr
     if (!editTarget || !editPeriodValid) return;
     setEditSaving(true);
     const task = editTarget.task;
-    const fullPeriod = !!task?.relais_start_date && !!task?.date_limite
+    const fullPeriod = !!task.relais_start_date && !!task.date_limite
       && editStart === task.relais_start_date && editEnd === task.date_limite;
     await supabase
       .from("task_relais_coverage")
       .update({ start_date: editStart, end_date: editEnd, full_period: fullPeriod })
-      .eq("id", editTarget.id);
-    if (task) {
-      await recomputeTaskStatus(task.id, task.relais_start_date, task.date_limite, task.status);
-    }
+      .eq("id", editTarget.row.id);
+    await recomputeTaskStatus(task.id, task.relais_start_date, task.date_limite, task.status);
     setEditSaving(false);
     setEditTarget(null);
     await load();
   }
 
-  function openCancel(row: Row) {
-    setCancelTarget(row);
+  function openCancel(row: ContribRow, task: TaskInfo) {
+    setCancelTarget({ row, task });
   }
 
   async function confirmCancel() {
     if (!cancelTarget) return;
     setCancelSaving(true);
-    const task = cancelTarget.task;
-    await supabase.from("task_relais_coverage").delete().eq("id", cancelTarget.id);
-    await revokeCoAdminForCoverage(cancelTarget.id);
-    if (task) {
-      await recomputeTaskStatus(task.id, task.relais_start_date, task.date_limite, task.status);
-    }
+    const { row, task } = cancelTarget;
+    await supabase.from("task_relais_coverage").delete().eq("id", row.id);
+    await revokeCoAdminForCoverage(row.id);
+    await recomputeTaskStatus(task.id, task.relais_start_date, task.date_limite, task.status);
     setCancelSaving(false);
     setCancelTarget(null);
     await load();
   }
 
-  if (loading || rows.length === 0) return null;
+  if (loading || (groups.length === 0 && !coAdminActive)) return null;
 
   return (
     <View style={[styles.block, { backgroundColor: C.card, borderColor: C.border }]}>
       <Text style={[styles.title, { color: C.text }]}>🤝 Mes engagements de relais</Text>
-      {rows.map((r) => {
-        const isDone = r.task?.status === "fait";
+
+      {groups.map(({ task, rows }) => {
+        const isDone = task.status === "fait";
+        const daySquares = task.relais_start_date && task.date_limite
+          ? buildDaySquares(task.relais_start_date, task.date_limite, rows)
+          : [];
         return (
-          <View key={r.id} style={styles.row}>
-            <View style={{ flex: 1 }}>
-              <Text style={[styles.taskTitle, { color: C.text }]}>{r.task?.title ?? "Besoin de relais"}</Text>
+          <View key={task.id} style={[styles.taskGroup, { borderColor: C.border }]}>
+            <Text style={[styles.taskTitle, { color: C.text }]}>
+              {task.title}{isDone ? " · ✓ Terminé" : ""}
+            </Text>
+            {task.relais_start_date && task.date_limite && (
               <Text style={[styles.period, { color: C.muted }]}>
-                Du {toFrShort(new Date(r.start_date + "T12:00:00"))} au {toFrShort(new Date(r.end_date + "T12:00:00"))}
-                {isDone ? " · ✓ Terminé" : ""}
+                Besoin de relais demandé {formatFrRange(task.relais_start_date, task.date_limite)}
               </Text>
-            </View>
-            {!isDone && (
-              <View style={styles.rowActions}>
-                <TouchableOpacity onPress={() => openEdit(r)} style={[styles.actionBtn, { borderColor: C.border }]} activeOpacity={0.8}>
-                  <Text style={[styles.actionBtnText, { color: C.text }]}>Modifier</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => openCancel(r)} style={[styles.actionBtn, { borderColor: "rgba(233,69,96,0.4)" }]} activeOpacity={0.8}>
-                  <Text style={[styles.actionBtnText, { color: "#e94560" }]}>Annuler</Text>
-                </TouchableOpacity>
+            )}
+
+            {daySquares.length > 0 && (
+              <View style={styles.daySquaresRow}>
+                {daySquares.map((d) => (
+                  <View
+                    key={d.iso}
+                    style={[styles.daySquare, { backgroundColor: d.covered ? C.success : C.danger }]}
+                  >
+                    <Text style={styles.daySquareText}>{d.day}</Text>
+                  </View>
+                ))}
               </View>
             )}
+
+            <View style={styles.contribList}>
+              {rows.map((r) => (
+                <View key={r.id} style={styles.contribRow}>
+                  <Text style={[styles.contribText, { color: C.text }]}>
+                    {r.prenom} {r.nom} : {formatFrRange(r.start_date, r.end_date)}
+                  </Text>
+                  {mineRowIds.has(r.id) && !isDone && (
+                    <View style={styles.rowActions}>
+                      <TouchableOpacity onPress={() => openEdit(r, task)} style={[styles.actionBtn, { borderColor: C.border }]} activeOpacity={0.8}>
+                        <Text style={[styles.actionBtnText, { color: C.text }]}>Modifier</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => openCancel(r, task)} style={[styles.actionBtn, { borderColor: "rgba(233,69,96,0.4)" }]} activeOpacity={0.8}>
+                        <Text style={[styles.actionBtnText, { color: "#e94560" }]}>Annuler</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              ))}
+            </View>
           </View>
         );
       })}
+
+      {coAdminActive && (
+        <TouchableOpacity
+          onPress={() => router.push("/(admin)/settings" as any)}
+          style={[styles.coAdminBtn, { backgroundColor: C.accent }]}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.coAdminBtnText}>⚙️ Paramètres Co-Administrateur</Text>
+        </TouchableOpacity>
+      )}
 
       <Modal visible={!!editTarget} transparent animationType="fade" onRequestClose={closeEdit}>
         <View style={styles.overlay}>
@@ -250,7 +377,7 @@ export default function MyRelaisCommitments({ spaceId, prenom, nom, pin, C }: Pr
         visible={!!cancelTarget}
         icon="🤝"
         title="Annuler cette proposition ?"
-        message={cancelTarget ? `Tu ne seras plus inscrit·e du ${toFrShort(new Date(cancelTarget.start_date + "T12:00:00"))} au ${toFrShort(new Date(cancelTarget.end_date + "T12:00:00"))} pour « ${cancelTarget.task?.title ?? "ce besoin"} ».` : ""}
+        message={cancelTarget ? `Tu ne seras plus inscrit·e ${formatFrRange(cancelTarget.row.start_date, cancelTarget.row.end_date)} pour « ${cancelTarget.task.title} ».` : ""}
         confirmLabel="Annuler ma proposition"
         destructive
         saving={cancelSaving}
@@ -265,12 +392,20 @@ export default function MyRelaisCommitments({ spaceId, prenom, nom, pin, C }: Pr
 const styles = StyleSheet.create({
   block: { borderWidth: 1, borderRadius: 14, padding: 16, marginTop: 10 },
   title: { fontFamily: "DM_Sans_700Bold", fontSize: 14, marginBottom: 10 },
-  row: { flexDirection: "row", alignItems: "center", marginBottom: 10, gap: 10 },
+  taskGroup: { borderTopWidth: 1, paddingTop: 12, marginTop: 12 },
   taskTitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
   period: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 2 },
+  daySquaresRow: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 8 },
+  daySquare: { width: 26, height: 26, borderRadius: 6, alignItems: "center", justifyContent: "center" },
+  daySquareText: { fontFamily: "DM_Sans_700Bold", fontSize: 11, color: "#fff" },
+  contribList: { marginTop: 10, gap: 8 },
+  contribRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  contribText: { flex: 1, fontFamily: "DM_Sans_400Regular", fontSize: 12 },
   rowActions: { flexDirection: "row", gap: 8 },
   actionBtn: { borderWidth: 1, borderRadius: 8, paddingVertical: 6, paddingHorizontal: 10 },
   actionBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
+  coAdminBtn: { borderRadius: 10, paddingVertical: 12, alignItems: "center", marginTop: 16 },
+  coAdminBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" },
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 20 },
   editSheet: { width: "100%", maxWidth: 420, borderWidth: 1, borderRadius: 18, padding: 20 },
   editTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, marginTop: 4, textAlign: "center" },
