@@ -43,7 +43,10 @@ export async function requestCoAdminCode(
   spaceId: string,
   prenom: string,
   nom: string,
-  email: string,
+  // null pour purpose="reset" — l'adresse est résolue côté serveur depuis
+  // visitor_profiles.email, jamais fournie par le client (voir
+  // resetVisitorPinViaEmail ci-dessous).
+  email: string | null,
   purpose: "accept" | "reset" | "propose",
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const { data, error } = await supabase.functions.invoke("send-coadmin-verification-code", {
@@ -122,6 +125,33 @@ export async function resetCoAdminPinViaEmail(
   });
   if (error) {
     console.error("resetCoAdminPinViaEmail", error);
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
+}
+
+// Réinitialisation du PIN par email généralisée à tout visiteur ayant un
+// email vérifié sur son profil (visitor_profiles.email) — plus seulement les
+// co-administrateurs actifs, voir reset_coadmin_pin_via_email ci-dessus qui
+// reste en base pour compat descendante mais n'est plus appelée côté client
+// (20260908_visitor_email_selfservice.sql). Remplace resetCoAdminPinViaEmail
+// dans app/auth/visitor-identify.tsx.
+export async function resetVisitorPinViaEmail(
+  spaceId: string,
+  prenom: string,
+  nom: string,
+  newPin: string,
+  code: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { error } = await supabase.rpc("reset_visitor_pin_via_email", {
+    p_space_id: spaceId,
+    p_prenom: prenom,
+    p_nom: nom,
+    p_new_pin: newPin,
+    p_code: code,
+  });
+  if (error) {
+    console.error("resetVisitorPinViaEmail", error);
     return { ok: false, error: error.message };
   }
   return { ok: true };

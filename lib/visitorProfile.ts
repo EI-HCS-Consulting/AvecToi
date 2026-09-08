@@ -112,6 +112,70 @@ export async function updateVisitorMottoRelation(
   if (error) console.error("updateVisitorMottoRelation", error);
 }
 
+// Email vérifié par code (voir lib/coAdmin.ts verifyCoAdminProposalCode,
+// écrit côté serveur par verify_coadmin_proposal_code) — lu pour pré-remplir
+// Mon compte / Mes informations et pour sauter les étapes email/code d'une
+// prochaine proposition de relais (voir Entraide.tsx, openClaim).
+export async function getVisitorEmail(
+  spaceId: string,
+  prenom: string,
+  nom: string,
+  pin: string,
+): Promise<string | null> {
+  const { data, error } = await supabase.rpc("rpc_visitor_get_email", {
+    p_space_id: spaceId,
+    p_prenom: prenom,
+    p_nom: nom,
+    p_pin: pin,
+  });
+  if (error) {
+    console.error("getVisitorEmail", error);
+    return null;
+  }
+  return (data as string | null) ?? null;
+}
+
+// Écriture directe depuis Mon compte / Mes informations — pas de
+// vérification par code ici, la session visiteur (PIN déjà saisi à la
+// connexion) suffit, même garde-fou que updateVisitorPhoto/
+// updateVisitorMottoRelation ci-dessus.
+export async function updateVisitorEmail(
+  spaceId: string,
+  prenom: string,
+  nom: string,
+  pin: string,
+  email: string,
+): Promise<void> {
+  const { error } = await supabase.rpc("rpc_visitor_update_email", {
+    p_space_id: spaceId,
+    p_prenom: prenom,
+    p_nom: nom,
+    p_pin: pin,
+    p_email: email,
+  });
+  if (error) console.error("updateVisitorEmail", error);
+}
+
+// Sans pin (le visiteur qui arrive ici l'a justement perdu) — juste un
+// booléen pour savoir si "Réinitialiser mon code par email" doit être
+// affiché sur l'écran "Qui êtes-vous ?" (voir app/auth/visitor-identify.tsx).
+export async function hasVisitorEmailOnFile(
+  spaceId: string,
+  prenom: string,
+  nom: string,
+): Promise<boolean> {
+  const { data, error } = await supabase.rpc("rpc_visitor_has_email", {
+    p_space_id: spaceId,
+    p_prenom: prenom,
+    p_nom: nom,
+  });
+  if (error) {
+    console.error("hasVisitorEmailOnFile", error);
+    return false;
+  }
+  return !!data;
+}
+
 // Admin-only (voir 20260901_visitor_admin_reset_pin.sql) : remet le pin à
 // NULL pour que le visiteur puisse récupérer son profil via l'écran de
 // création existant, avec un nouveau code de son choix.

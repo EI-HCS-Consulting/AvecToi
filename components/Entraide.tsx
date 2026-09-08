@@ -12,6 +12,7 @@ import { File } from "expo-file-system";
 import { supabase } from "@/lib/supabase";
 import { getVisitorSession, rememberAuthorPin, sessionPinMatches } from "@/lib/visitorSession";
 import { requestCoAdminCode, verifyCoAdminProposalCode } from "@/lib/coAdmin";
+import { getVisitorEmail } from "@/lib/visitorProfile";
 import { useWallReadTracking } from "@/lib/wallUnread";
 import { NewIndicator } from "@/components/NewIndicator";
 import PinPad from "@/components/PinPad";
@@ -178,6 +179,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // une nouvelle ligne — l'id du besoin qu'on vient de créer, pour amener
   // l'utilisateur pile dessus au lieu de le laisser en haut de liste.
   const [focusTarget, setFocusTarget] = useState<string | null>(null);
+  // Force l'effet de focus ci-dessous à se redéclencher même quand
+  // setFocusTarget reçoit deux fois de suite le même id (ex: focusTarget
+  // déjà pointé sur ce besoin via ?focusTaskId au moment d'ouvrir la sheet
+  // de claim depuis RelaisAlertModal — "J'ai compris" repointe alors sur une
+  // valeur inchangée et React bail out du re-render sans jamais relancer le
+  // scroll/surlignage, voir les 3 sites d'appel ci-dessous).
+  const [focusTick, setFocusTick] = useState(0);
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState(true);
@@ -818,6 +826,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     && (!claimTarget?.relais_start_date || relaisClaimPeriodStart >= claimTarget.relais_start_date)
     && (!claimTarget?.date_limite || relaisClaimPeriodEnd <= claimTarget.date_limite);
   const [relaisClaimEmail, setRelaisClaimEmail] = useState("");
+  // Email déjà vérifié sur ce profil (visitor_profiles.email, voir openClaim)
+  // — non-null saute directement les étapes "email"/"code" d'une nouvelle
+  // proposition, cet email ayant déjà été confirmé par code une première
+  // fois (voir lib/visitorProfile.ts getVisitorEmail).
+  const [claimKnownEmail, setClaimKnownEmail] = useState<string | null>(null);
   const [relaisClaimCode, setRelaisClaimCode] = useState("");
   const [relaisClaimCodeSaving, setRelaisClaimCodeSaving] = useState(false);
   const [relaisClaimCodeError, setRelaisClaimCodeError] = useState("");
@@ -1055,7 +1068,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     // (mis à jour dans l'effet ci-dessus) — sinon les deux effets tournent
     // dans le même commit avec un focusTarget pas encore rafraîchi et on
     // traite la cible précédente (bug de décalage d'une demande de retard).
-  }, [focusTarget, openClaimParam, tasks, tasksLoading, activeCat, openOnlyFilter, closedOnlyFilter]);
+  }, [focusTarget, focusTick, openClaimParam, tasks, tasksLoading, activeCat, openOnlyFilter, closedOnlyFilter]);
 
   // Arrivée depuis "Mon compte" (?openRelais=1) : ouvre le formulaire Publier
   // pré-rempli sur la catégorie "relais". Attend que l'identité (admin ou
@@ -2052,6 +2065,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       showToast("Besoin modifié ✓");
       focusedRef.current = false;
       setFocusTarget(editTask.id);
+      setFocusTick((n) => n + 1);
     } else {
       // Identité de l'auteur — utile pour toutes les catégories (section
       // "Mes besoins publiés" de Mon compte), pas seulement Transport où
@@ -2158,6 +2172,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       if (insertedTask) {
         focusedRef.current = false;
         setFocusTarget(insertedTask.id);
+        setFocusTick((n) => n + 1);
       }
     }
     setTaskSaving(false);
@@ -2448,6 +2463,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     // Prénom/nom/PIN ne sont plus jamais ressaisis ici : repris de la session
     // visiteur (PIN choisi dès la connexion) ou du profil admin — le champ
     // PIN n'est donc plus affiché dans ce formulaire.
+    setClaimKnownEmail(null);
     if (isAdmin) {
       const { data } = await supabase.auth.getUser();
       setClaimPrenom((data.user?.user_metadata?.firstname ?? "").trim());
@@ -2455,7 +2471,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       setClaimPin("ADMIN");
     } else {
       const s = await getVisitorSession();
-      if (s) { setClaimPrenom(s.prenom); setClaimNom(s.nom); setClaimPin(s.pin ?? ""); }
+      if (s) {
+        setClaimPrenom(s.prenom); setClaimNom(s.nom); setClaimPin(s.pin ?? "");
+        if (t.category === "relais" && s.pin) {
+          getVisitorEmail(spaceId, s.prenom, s.nom, s.pin).then((email) => setClaimKnownEmail(email));
+        }
+      }
     }
     if (t.category === "relais") {
       setRelaisClaimStep("choice");
@@ -2471,6 +2492,19 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     }
   }
 
+  // isAdmin saute directement à "ready" (il ne se propose jamais lui-même
+  // comme co-admin) ; un visiteur dont l'email est déjà vérifié (voir
+  // openClaim/claimKnownEmail) aussi — pas besoin de repasser par email/code
+  // à chaque nouvelle proposition.
+  function relaisStepAfterPeriod(): "ready" | "email" {
+    if (isAdmin) return "ready";
+    if (claimKnownEmail) {
+      setRelaisClaimEmail(claimKnownEmail);
+      return "ready";
+    }
+    return "email";
+  }
+
   // "Je m'en charge (le reste)" — pré-remplit les trous restants plutôt que
   // toute la période d'origine, pour ne jamais chevaucher un contributeur déjà
   // inscrit (voir lib/relaisCoverage.ts, computeRelaisGaps).
@@ -2480,9 +2514,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setRelaisClaimFullPeriod(true);
     // Un visiteur qui se propose sur un besoin relais est un candidat
     // co-admin potentiel (voir loadSosRelaisCandidates) : son email doit être
-    // vérifié avant la feuille finale. L'admin n'a pas à se vérifier
-    // lui-même, il rejoint directement "ready".
-    setRelaisClaimStep(isAdmin ? "ready" : "email");
+    // vérifié avant la feuille finale (sauf si déjà vérifiée une fois, voir
+    // relaisStepAfterPeriod). L'admin n'a pas à se vérifier lui-même, il
+    // rejoint directement "ready".
+    setRelaisClaimStep(relaisStepAfterPeriod());
   }
 
   // Ouvre le popup "Du" directement sur le mois de la période demandée par
@@ -2513,7 +2548,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     if (!relaisClaimPeriodValid) return;
     setRelaisClaimRanges([{ start_date: relaisClaimPeriodStart, end_date: relaisClaimPeriodEnd }]);
     setRelaisClaimFullPeriod(false);
-    setRelaisClaimStep(isAdmin ? "ready" : "email");
+    setRelaisClaimStep(relaisStepAfterPeriod());
   }
 
   // Enchaîne le popup "Adresse email" (voir "Je m'en occupe" / Du / Au /
@@ -5533,6 +5568,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                           if (thanksModalTaskId) {
                             focusedRef.current = false;
                             setFocusTarget(thanksModalTaskId);
+                            setFocusTick((n) => n + 1);
                           }
                         }}
                         style={[styles.btnPrimary, { backgroundColor: C.gold, alignSelf: "stretch", paddingVertical: 18 }]}
