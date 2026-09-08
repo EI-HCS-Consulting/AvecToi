@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { View, ActivityIndicator, Text, StyleSheet } from "react-native";
-import { Tabs, useRouter, usePathname } from "expo-router";
+import { Tabs, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import { AdminSpaceProvider, useSpace } from "@/lib/SpaceContext";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { getVisitorSession } from "@/lib/visitorSession";
 import { checkCoAdminStatus, setCachedCoAdminActive } from "@/lib/coAdmin";
-import { consumePendingAdminRoute } from "@/lib/pendingAdminRoute";
 import PatientOnboarding from "@/components/PatientOnboarding";
 import RgpdAlertModal from "@/components/RgpdAlertModal";
 import RelaisAlertModal from "@/components/RelaisAlertModal";
@@ -24,22 +23,6 @@ function AdminGate() {
   const { loading, hasSpace, space } = useSpace();
   const { theme: C } = useDisplayMode();
   const router = useRouter();
-  const pathname = usePathname();
-
-  // Voir lib/pendingAdminRoute.ts : le bouton "Paramètres Co-Administrateur"
-  // (depuis (visitor)) pousse d'abord vers "/(admin)/home/calendar" (route de
-  // démarrage admin déjà connue pour fonctionner, cf. app/index.tsx) plutôt
-  // que directement vers l'onglet caché visé, et mémorise ce dernier ici.
-  // Une fois les Tabs montées et stables, on consomme cette route en attente
-  // et on pousse VRAIMENT vers elle depuis l'intérieur des Tabs déjà montées
-  // — un router.replace(pathname) tenté avant ce montage échoue silencieuse-
-  // ment car React Navigation a déjà résolu (et retenu) "home" comme route
-  // courante avant que cet effet n'ait la moindre chance de s'exécuter.
-  useEffect(() => {
-    if (loading || !hasSpace) return;
-    const target = consumePendingAdminRoute();
-    if (target) router.push(target as any);
-  }, [loading, hasSpace, pathname, router]);
 
   if (loading) {
     return (
