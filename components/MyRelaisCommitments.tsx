@@ -4,10 +4,8 @@ import { supabase } from "@/lib/supabase";
 import { toISO, addDays } from "@/lib/slotUtils";
 import { isRelaisFullyCovered } from "@/lib/relaisCoverage";
 import { revokeCoAdminForCoverage, checkCoAdminStatus } from "@/lib/coAdmin";
-import { AdminSpaceProvider } from "@/lib/SpaceContext";
 import MiniCalendar from "@/components/MiniCalendar";
 import ConfirmModal from "@/components/ConfirmModal";
-import CoAdminSettingsScreen from "@/app/(admin)/settings";
 import type { Theme } from "@/lib/themes";
 
 // Bloc "Mon compte" (admin + visiteur, à côté de MyChecklist) qui récapitule
@@ -48,6 +46,10 @@ interface Props {
   nom: string;
   pin: string;
   C: Theme;
+  // Ouvre les réglages Co-Admin — géré par l'écran parent (pas ici) car il
+  // doit s'afficher par-dessus TOUT l'écran Mon Compte (frère du <ScrollView>
+  // qui contient ce composant), pas confiné à l'intérieur de cette carte.
+  onOpenCoAdminSettings: () => void;
 }
 
 // "du 10 au 14 septembre" (un seul nom de mois si les deux bornes tombent
@@ -85,7 +87,7 @@ function buildDaySquares(
   return days;
 }
 
-export default function MyRelaisCommitments({ spaceId, prenom, nom, pin, C }: Props) {
+export default function MyRelaisCommitments({ spaceId, prenom, nom, pin, C, onOpenCoAdminSettings }: Props) {
   const [groups, setGroups] = useState<TaskGroup[]>([]);
   // ids des lignes task_relais_coverage qui m'appartiennent — seules celles-ci
   // affichent Modifier/Annuler dans la liste des contributeurs.
@@ -98,15 +100,6 @@ export default function MyRelaisCommitments({ spaceId, prenom, nom, pin, C }: Pr
   // 20260908_coadmin_per_proposal.sql), le bouton "Paramètres
   // Co-Administrateur" doit rester visible même si groups est vide.
   const [coAdminActive, setCoAdminActive] = useState(false);
-  // Affiche directement les réglages (Lieux/Infos/Règles/Histo) dans une
-  // feuille par-dessus Mon Compte, plutôt que de naviguer vers le groupe
-  // (admin) — la navigation vers un onglet caché d'un <Tabs> qui n'existe
-  // pas encore côté visiteur s'est avérée peu fiable (React Navigation
-  // retombe sur le premier onglet déclaré au tout premier montage). En
-  // embarquant directement app/(admin)/settings.tsx, enveloppé dans son
-  // propre AdminSpaceProvider (identité co-admin), on évite entièrement ce
-  // problème de navigation inter-groupes.
-  const [settingsVisible, setSettingsVisible] = useState(false);
 
   const [editTarget, setEditTarget] = useState<{ row: ContribRow; task: TaskInfo } | null>(null);
   const [editStep, setEditStep] = useState<"start" | "end">("start");
@@ -308,26 +301,13 @@ export default function MyRelaisCommitments({ spaceId, prenom, nom, pin, C }: Pr
 
       {coAdminActive && (
         <TouchableOpacity
-          onPress={() => setSettingsVisible(true)}
+          onPress={onOpenCoAdminSettings}
           style={[styles.coAdminBtn, { backgroundColor: C.accent }]}
           activeOpacity={0.85}
         >
           <Text style={styles.coAdminBtnText}>⚙️ Paramètres Co-Administrateur</Text>
         </TouchableOpacity>
       )}
-
-      <Modal visible={settingsVisible} animationType="slide" onRequestClose={() => setSettingsVisible(false)}>
-        <View style={[styles.coAdminSettingsCloseBar, { backgroundColor: C.card, borderBottomColor: C.border }]}>
-          <TouchableOpacity onPress={() => setSettingsVisible(false)} style={styles.coAdminSettingsCloseBtn} activeOpacity={0.8}>
-            <Text style={[styles.coAdminSettingsCloseText, { color: C.accent }]}>✕ Fermer</Text>
-          </TouchableOpacity>
-        </View>
-        {settingsVisible && (
-          <AdminSpaceProvider spaceId={spaceId} coAdminIdentity={{ prenom, nom, pin }}>
-            <CoAdminSettingsScreen />
-          </AdminSpaceProvider>
-        )}
-      </Modal>
 
       <Modal visible={!!editTarget} transparent animationType="fade" onRequestClose={closeEdit}>
         <View style={styles.overlay}>
@@ -428,9 +408,6 @@ const styles = StyleSheet.create({
   actionBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
   coAdminBtn: { borderRadius: 10, paddingVertical: 12, alignItems: "center", marginTop: 16 },
   coAdminBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 14, color: "#fff" },
-  coAdminSettingsCloseBar: { flexDirection: "row", justifyContent: "flex-end", paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1 },
-  coAdminSettingsCloseBtn: { paddingVertical: 4, paddingHorizontal: 8 },
-  coAdminSettingsCloseText: { fontFamily: "DM_Sans_700Bold", fontSize: 15 },
   overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", justifyContent: "center", alignItems: "center", padding: 20 },
   editSheet: { width: "100%", maxWidth: 420, borderWidth: 1, borderRadius: 18, padding: 20 },
   editTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, marginTop: 4, textAlign: "center" },
