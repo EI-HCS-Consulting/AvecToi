@@ -11,6 +11,7 @@ import * as Crypto from "expo-crypto";
 import { File } from "expo-file-system";
 import { supabase } from "@/lib/supabase";
 import { getVisitorSession, rememberAuthorPin, sessionPinMatches } from "@/lib/visitorSession";
+import { requestCoAdminCode, verifyCoAdminProposalCode } from "@/lib/coAdmin";
 import { useWallReadTracking } from "@/lib/wallUnread";
 import { NewIndicator } from "@/components/NewIndicator";
 import PinPad from "@/components/PinPad";
@@ -799,9 +800,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // s'intercale entre l'ouverture du claim et la feuille commune photo/texte.
   // null = pas un besoin relais (ou pas encore choisi) ; "choice" = les deux
   // gros boutons ; "period_start"/"period_end" = les deux popups "Du"/"Au"
-  // enchaînés (un MiniCalendar chacun) ; "ready" = la feuille commune
-  // s'affiche, relaisClaimRanges contient déjà les plages à insérer.
-  const [relaisClaimStep, setRelaisClaimStep] = useState<"choice" | "period_start" | "period_end" | "ready" | null>(null);
+  // enchaînés (un MiniCalendar chacun) ; "email"/"code" = vérification email
+  // avant octroi de co-administration (visiteur uniquement, voir
+  // sendRelaisProposalCode/confirmRelaisProposalCode — l'admin, qui n'a pas à
+  // se proposer lui-même comme co-admin, saute directement à "ready") ;
+  // "ready" = la feuille commune s'affiche, relaisClaimRanges contient déjà
+  // les plages à insérer.
+  const [relaisClaimStep, setRelaisClaimStep] = useState<"choice" | "period_start" | "period_end" | "email" | "code" | "ready" | null>(null);
   const [relaisClaimRanges, setRelaisClaimRanges] = useState<RelaisCoverageRange[]>([]);
   const [relaisClaimFullPeriod, setRelaisClaimFullPeriod] = useState(false);
   const [relaisClaimPeriodStart, setRelaisClaimPeriodStart] = useState("");
@@ -812,9 +817,15 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     && relaisClaimPeriodStart <= relaisClaimPeriodEnd
     && (!claimTarget?.relais_start_date || relaisClaimPeriodStart >= claimTarget.relais_start_date)
     && (!claimTarget?.date_limite || relaisClaimPeriodEnd <= claimTarget.date_limite);
-  // "Du"/"Au" s'affichent en popups centrés (comme thanksModal) plutôt qu'en
-  // feuille coulissante depuis le bas — voir la <Modal> commune plus bas.
-  const relaisClaimStepCentered = relaisClaimStep === "period_start" || relaisClaimStep === "period_end";
+  const [relaisClaimEmail, setRelaisClaimEmail] = useState("");
+  const [relaisClaimCode, setRelaisClaimCode] = useState("");
+  const [relaisClaimCodeSaving, setRelaisClaimCodeSaving] = useState(false);
+  const [relaisClaimCodeError, setRelaisClaimCodeError] = useState("");
+  // "Du"/"Au"/"email"/"code" s'affichent en popups centrés (comme
+  // thanksModal) plutôt qu'en feuille coulissante depuis le bas — voir la
+  // <Modal> commune plus bas.
+  const relaisClaimStepCentered = relaisClaimStep === "period_start" || relaisClaimStep === "period_end"
+    || relaisClaimStep === "email" || relaisClaimStep === "code";
 
   // Toutes les lignes task_relais_coverage des besoins relais actuellement
   // affichés — même pattern que courseContributors/loadCourseContributors
@@ -2141,7 +2152,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       }
     }
     setTaskSaving(false);
-    if (editTask) setTaskForm(false); else setPublishWizardOpen(false);
+    // "relais" est la seule catégorie encore créée via l'ancien taskForm (le
+    // nouvel assistant Publier l'exclut de sa grille, voir publishStep
+    // "category") — les deux modals sont fermés sans condition, comme dans
+    // openChecklistFromForm, puisqu'un seul des deux est réellement ouvert.
+    setTaskForm(false);
+    setPublishWizardOpen(false);
     loadTasks();
   }
 
@@ -2440,6 +2456,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       const d = new Date();
       setRelaisClaimStartCalMonth({ year: d.getFullYear(), month: d.getMonth() });
       setRelaisClaimEndCalMonth({ year: d.getFullYear(), month: d.getMonth() });
+      setRelaisClaimEmail(""); setRelaisClaimCode(""); setRelaisClaimCodeError("");
     } else {
       setRelaisClaimStep(null);
     }
@@ -2452,7 +2469,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     if (!claimTarget?.relais_start_date || !claimTarget.date_limite) return;
     setRelaisClaimRanges(computeRelaisGaps(relaisCoverage[claimTarget.id] ?? [], claimTarget.relais_start_date, claimTarget.date_limite));
     setRelaisClaimFullPeriod(true);
-    setRelaisClaimStep("ready");
+    // Un visiteur qui se propose sur un besoin relais est un candidat
+    // co-admin potentiel (voir loadSosRelaisCandidates) : son email doit être
+    // vérifié avant la feuille finale. L'admin n'a pas à se vérifier
+    // lui-même, il rejoint directement "ready".
+    setRelaisClaimStep(isAdmin ? "ready" : "email");
   }
 
   // Ouvre le popup "Du" directement sur le mois de la période demandée par
@@ -2483,6 +2504,38 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     if (!relaisClaimPeriodValid) return;
     setRelaisClaimRanges([{ start_date: relaisClaimPeriodStart, end_date: relaisClaimPeriodEnd }]);
     setRelaisClaimFullPeriod(false);
+    setRelaisClaimStep(isAdmin ? "ready" : "email");
+  }
+
+  // Enchaîne le popup "Adresse email" (voir "Je m'en occupe" / Du / Au /
+  // Adresse email + validation = envoi du code, puis popup de validation du
+  // code) — jusqu'à ce que l'admin valide ou non sa proposition de période,
+  // le visiteur n'a plus rien d'autre à faire (remplace l'ancien popup
+  // d'acceptation après coup, désormais supprimé).
+  async function sendRelaisProposalCode() {
+    if (!claimTarget || !relaisClaimEmail.trim()) return;
+    setRelaisClaimCodeSaving(true);
+    setRelaisClaimCodeError("");
+    const result = await requestCoAdminCode(spaceId, claimPrenom.trim(), claimNom.trim(), relaisClaimEmail.trim(), "propose");
+    setRelaisClaimCodeSaving(false);
+    if (!result.ok) {
+      setRelaisClaimCodeError(result.error);
+      return;
+    }
+    setRelaisClaimCode("");
+    setRelaisClaimStep("code");
+  }
+
+  async function confirmRelaisProposalCode() {
+    if (!claimTarget || relaisClaimCode.length !== 6) return;
+    setRelaisClaimCodeSaving(true);
+    setRelaisClaimCodeError("");
+    const result = await verifyCoAdminProposalCode(spaceId, claimPrenom.trim(), claimNom.trim(), claimPin, relaisClaimEmail.trim(), relaisClaimCode);
+    setRelaisClaimCodeSaving(false);
+    if (!result.ok) {
+      setRelaisClaimCodeError(result.error);
+      return;
+    }
     setRelaisClaimStep("ready");
   }
 
@@ -2528,6 +2581,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         full_period: relaisClaimFullPeriod,
         claimed_text: claimText.trim() || null,
         claimed_photo: claimedPhotoFilename,
+        // Email vérifié par code juste avant cette feuille (voir "email"/
+        // "code" dans relaisClaimStep) — repris par app/(admin)/coadmins.tsx
+        // pour octroyer directement la co-administration. Jamais renseigné
+        // pour l'admin, qui n'a pas à se proposer lui-même.
+        email: !isAdmin ? relaisClaimEmail.trim() : null,
       }));
       if (rows.length) {
         await supabase.from("task_relais_coverage").insert(rows);
@@ -5608,6 +5666,97 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                         </TouchableOpacity>
                       </View>
                     </>
+                  ) : claimTarget?.category === "relais" && relaisClaimStep === "email" ? (
+                    <>
+                      <View style={{ alignItems: "center", marginBottom: 14 }}>
+                        <Text style={{ fontSize: 32, marginBottom: 6 }}>✉️</Text>
+                        <Text style={[styles.sheetTitle, { color: C.text }]}>Ton adresse email</Text>
+                        <Text style={[styles.sheetSub, { color: C.muted }]}>
+                          Elle permet de confirmer ta proposition — l'administrateur pourra ensuite la
+                          valider et te désigner co-administrateur temporaire.
+                        </Text>
+                      </View>
+
+                      <TextInput
+                        style={[styles.input, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                        placeholder="Adresse email"
+                        placeholderTextColor={C.muted}
+                        value={relaisClaimEmail}
+                        onChangeText={(v) => { setRelaisClaimEmail(v); setRelaisClaimCodeError(""); }}
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                        keyboardType="email-address"
+                        autoFocus
+                      />
+                      {!!relaisClaimCodeError && <Text style={[styles.errorText, { color: C.danger }]}>{relaisClaimCodeError}</Text>}
+
+                      <View style={styles.sheetBtns}>
+                        <TouchableOpacity
+                          onPress={() => setRelaisClaimStep(relaisClaimFullPeriod ? "choice" : "period_end")}
+                          disabled={relaisClaimCodeSaving}
+                          style={[styles.btnSecondary, { borderColor: C.border }]}
+                        >
+                          <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Retour</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={sendRelaisProposalCode}
+                          disabled={!relaisClaimEmail.trim() || relaisClaimCodeSaving}
+                          style={[
+                            styles.btnPrimary,
+                            { backgroundColor: C.accent },
+                            (!relaisClaimEmail.trim() || relaisClaimCodeSaving) && { opacity: 0.5 },
+                          ]}
+                        >
+                          {relaisClaimCodeSaving
+                            ? <ActivityIndicator color="#fff" size="small" />
+                            : <Text style={styles.btnPrimaryText}>Recevoir un code</Text>
+                          }
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  ) : claimTarget?.category === "relais" && relaisClaimStep === "code" ? (
+                    <>
+                      <View style={{ alignItems: "center", marginBottom: 14 }}>
+                        <Text style={{ fontSize: 32, marginBottom: 6 }}>🔢</Text>
+                        <Text style={[styles.sheetTitle, { color: C.text }]}>Code reçu par email</Text>
+                        <Text style={[styles.sheetSub, { color: C.muted }]}>
+                          Saisis le code à 6 chiffres envoyé à {relaisClaimEmail.trim()}.
+                        </Text>
+                      </View>
+
+                      <PinPad
+                        value={relaisClaimCode}
+                        onChange={(v) => { setRelaisClaimCode(v); setRelaisClaimCodeError(""); }}
+                        maxLength={6}
+                        theme={C}
+                        hasError={!!relaisClaimCodeError}
+                      />
+                      {!!relaisClaimCodeError && <Text style={[styles.errorText, { color: C.danger }]}>{relaisClaimCodeError}</Text>}
+
+                      <View style={styles.sheetBtns}>
+                        <TouchableOpacity
+                          onPress={() => setRelaisClaimStep("email")}
+                          disabled={relaisClaimCodeSaving}
+                          style={[styles.btnSecondary, { borderColor: C.border }]}
+                        >
+                          <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Retour</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={confirmRelaisProposalCode}
+                          disabled={relaisClaimCode.length !== 6 || relaisClaimCodeSaving}
+                          style={[
+                            styles.btnPrimary,
+                            { backgroundColor: C.accent },
+                            (relaisClaimCode.length !== 6 || relaisClaimCodeSaving) && { opacity: 0.5 },
+                          ]}
+                        >
+                          {relaisClaimCodeSaving
+                            ? <ActivityIndicator color="#fff" size="small" />
+                            : <Text style={styles.btnPrimaryText}>Confirmer</Text>
+                          }
+                        </TouchableOpacity>
+                      </View>
+                    </>
                   ) : (
                     <>
                       <View style={{ alignItems: "center", marginBottom: 14 }}>
@@ -5698,7 +5847,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
                       <View style={styles.sheetBtns}>
                         <TouchableOpacity
-                          onPress={claimTarget?.category === "relais" ? () => setRelaisClaimStep(relaisClaimFullPeriod ? "choice" : "period_end") : closeClaim}
+                          onPress={claimTarget?.category === "relais" ? () => setRelaisClaimStep(isAdmin ? (relaisClaimFullPeriod ? "choice" : "period_end") : "email") : closeClaim}
                           disabled={claimSaving}
                           style={[styles.btnSecondary, { borderColor: C.border }]}
                         >
@@ -6598,6 +6747,7 @@ const styles = StyleSheet.create({
 
   sheetTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, marginBottom: 4 },
   sheetSub: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginBottom: 4, textAlign: "center" },
+  errorText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, textAlign: "center", marginTop: 8 },
   sheetBtns: { flexDirection: "row", gap: 10, marginTop: 16 },
   btnPrimary: { flex: 1.3, borderRadius: 10, paddingVertical: 14, alignItems: "center", justifyContent: "center" },
   btnPrimaryText: { fontFamily: "DM_Sans_700Bold", fontSize: 15, color: "#fff" },

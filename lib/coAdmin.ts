@@ -44,7 +44,7 @@ export async function requestCoAdminCode(
   prenom: string,
   nom: string,
   email: string,
-  purpose: "accept" | "reset",
+  purpose: "accept" | "reset" | "propose",
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const { data, error } = await supabase.functions.invoke("send-coadmin-verification-code", {
     body: { space_id: spaceId, prenom, nom, email, purpose },
@@ -60,7 +60,15 @@ export async function requestCoAdminCode(
   return { ok: true };
 }
 
-export async function acceptCoAdminInvite(
+// Vérifie le code purpose="propose" reçu au moment où un visiteur propose une
+// période de relais (voir Entraide.tsx, relaisClaimStep "email"/"code") —
+// AVANT qu'aucune ligne patient_space_coadmins n'existe : la vérification se
+// fait au moment de la proposition, pas d'une acceptation séparée après coup
+// (l'admin valide directement la période, voir app/(admin)/coadmins.tsx).
+// Ne fait qu'authentifier l'email pour cette proposition (marque le code
+// utilisé) ; l'email vérifié est ensuite écrit directement sur la ligne
+// task_relais_coverage par l'appelant.
+export async function verifyCoAdminProposalCode(
   spaceId: string,
   prenom: string,
   nom: string,
@@ -68,7 +76,7 @@ export async function acceptCoAdminInvite(
   email: string,
   code: string,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const { error } = await supabase.rpc("accept_coadmin_invite", {
+  const { error } = await supabase.rpc("verify_coadmin_proposal_code", {
     p_space_id: spaceId,
     p_prenom: prenom,
     p_nom: nom,
@@ -77,10 +85,9 @@ export async function acceptCoAdminInvite(
     p_code: code,
   });
   if (error) {
-    console.error("acceptCoAdminInvite", error);
+    console.error("verifyCoAdminProposalCode", error);
     return { ok: false, error: error.message };
   }
-  await setCachedCoAdminActive(spaceId, true);
   return { ok: true };
 }
 
