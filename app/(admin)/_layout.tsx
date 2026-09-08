@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { View, ActivityIndicator, Text, StyleSheet } from "react-native";
-import { Tabs, useRouter } from "expo-router";
+import { Tabs, useRouter, usePathname } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "@/lib/supabase";
 import { AdminSpaceProvider, useSpace } from "@/lib/SpaceContext";
@@ -23,6 +23,20 @@ function AdminGate() {
   const { loading, hasSpace, space } = useSpace();
   const { theme: C } = useDisplayMode();
   const router = useRouter();
+  const pathname = usePathname();
+
+  // Entrée directe sur un onglet caché (ex: "/settings" via le bouton
+  // "Paramètres Co-Administrateur" depuis (visitor)) : le push a lieu AVANT
+  // que ce composant ne monte, pendant la résolution async du gate parent
+  // (AdminLayout) — quand <Tabs> apparaît enfin, React Navigation a déjà
+  // perdu le chemin demandé et retombe sur le premier onglet ("home"). On
+  // réaffirme la navigation une fois, juste après le premier montage des Tabs.
+  const reassertedRef = useRef(false);
+  useEffect(() => {
+    if (loading || !hasSpace || reassertedRef.current) return;
+    reassertedRef.current = true;
+    if (pathname) router.replace(pathname as any);
+  }, [loading, hasSpace, pathname, router]);
 
   if (loading) {
     return (

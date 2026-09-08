@@ -2448,18 +2448,19 @@ export default function SettingsScreen() {
         )}
 
         {/* ── Section : Historique (sous-blocs Visiteurs, Intervenants, puis Historique) ──
-            Onglet entier masqué pour un co-admin : gestion des visiteurs et
-            surtout conservation des données/RGPD sont explicitement hors
-            périmètre co-admin (voir plan co-administration temporaire). ── */}
-        {hasSpace && space && activeSection === "hist" && !isCoAdmin && (
+            Onglet accessible au co-admin (liste visiteurs en lecture seule,
+            historique des champs/publications) ; seuls les blocs Chronologie
+            et Conservation des données restent hors périmètre co-admin plus
+            bas (voir plan co-administration temporaire). ── */}
+        {hasSpace && space && activeSection === "hist" && (
           <VisitorsBlock spaceId={space.id} C={C} adminFirstname={space.admin_firstname} adminLastname={space.admin_lastname} />
         )}
         {/* Rôle Intervenant retiré de la V1 — bloc masqué tant que
             INTERVENANT_ROLE_ENABLED est à false (voir Développement V2/). */}
-        {INTERVENANT_ROLE_ENABLED && hasSpace && space && activeSection === "hist" && !isCoAdmin && (
+        {INTERVENANT_ROLE_ENABLED && hasSpace && space && activeSection === "hist" && (
           <IntervenantsBlock spaceId={space.id} C={C} />
         )}
-        {hasSpace && space && activeSection === "hist" && !isCoAdmin && (
+        {hasSpace && space && activeSection === "hist" && (
           <>
             <Text style={[styles.sectionTitle, { color: C.gold }]}>Historique</Text>
             <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
@@ -2812,29 +2813,31 @@ export default function SettingsScreen() {
               )}
             </View>
 
-            {/* ── Bloc : Chronologie ───────────────────────────────────────── */}
-            <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 16 }]}>
-              <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 0 }]}>🕐 Chronologie</Text>
-              <Text style={[styles.cardDesc, { color: C.muted }]}>
-                Frise chronologique du passage {space.home_care_mode ? "en soin à domicile" : "à l'hôpital"} : infos hospitalières,
-                consignes et règles de visite, visites et nuitées réservées, besoins publiés (hors Transport).
-              </Text>
-              <TouchableOpacity
-                style={[styles.saveNotesBtn, { backgroundColor: C.accent, borderWidth: 1, borderColor: C.accent }]}
-                onPress={() => {
-                  if (!canAccessChronologieLivret(space)) {
-                    setPremiumGateMsg("La Chronologie fait partie de l'offre Premium. Passez votre espace en illimité pour l'activer.");
-                    return;
-                  }
-                  openChronoModal();
-                }}
-              >
-                <Text style={[styles.saveNotesBtnText, { color: "#fff" }]}>Chronologie</Text>
-              </TouchableOpacity>
-            </View>
+            {/* ── Bloc : Chronologie ─── hors périmètre co-admin ────────────── */}
+            {!isCoAdmin && (
+              <View style={[styles.card, { backgroundColor: C.card, borderColor: C.border, marginTop: 16 }]}>
+                <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 0 }]}>🕐 Chronologie</Text>
+                <Text style={[styles.cardDesc, { color: C.muted }]}>
+                  Frise chronologique du passage {space.home_care_mode ? "en soin à domicile" : "à l'hôpital"} : infos hospitalières,
+                  consignes et règles de visite, visites et nuitées réservées, besoins publiés (hors Transport).
+                </Text>
+                <TouchableOpacity
+                  style={[styles.saveNotesBtn, { backgroundColor: C.accent, borderWidth: 1, borderColor: C.accent }]}
+                  onPress={() => {
+                    if (!canAccessChronologieLivret(space)) {
+                      setPremiumGateMsg("La Chronologie fait partie de l'offre Premium. Passez votre espace en illimité pour l'activer.");
+                      return;
+                    }
+                    openChronoModal();
+                  }}
+                >
+                  <Text style={[styles.saveNotesBtnText, { color: "#fff" }]}>Chronologie</Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
-            {/* ── Bloc : Conservation des données ─────────────────────────── */}
-            {(() => {
+            {/* ── Bloc : Conservation des données ─── hors périmètre co-admin ── */}
+            {!isCoAdmin && (() => {
               const purgeDate = new Date(space.purge_scheduled_at);
               const todayMs = new Date().setHours(0, 0, 0, 0);
               const daysLeft = Math.ceil((purgeDate.getTime() - todayMs) / (1000 * 60 * 60 * 24));
@@ -2905,7 +2908,7 @@ export default function SettingsScreen() {
               <Text style={styles.settingsNavIconText}>⚙️</Text>
             </View>
           </View>
-          {SETTINGS_NAV_ORDER.filter((key) => key !== "hist" || !isCoAdmin).map((key) => {
+          {SETTINGS_NAV_ORDER.map((key) => {
             const isDisabled = key === "regles" && !slotConfig;
             const isActive = activeSection === key;
             return (

@@ -32,6 +32,12 @@ interface Props {
   spaceId: string;
   C: Theme;
   isAdmin: boolean;
+  // Présent uniquement pour un co-admin (isAdmin est alors quand même true,
+  // pour conserver l'affichage/visibilité identiques à l'admin réel) — sert à
+  // restreindre les droits de suppression/édition aux seules publications de
+  // CE co-admin, contrairement à l'admin réel qui modère tout le monde. Voir
+  // isCoAdminOwn plus bas.
+  coAdminIdentity?: { prenom: string; nom: string; pin: string } | null;
   capped: boolean;
   // Rôle de la session visiteur (ignoré si isAdmin) — détermine si les
   // publications de CE viewer sont marquées author_role "intervenant" et
@@ -69,7 +75,7 @@ function avatarInitial(prenom: string) {
 }
 
 // ─── Composant principal ──────────────────────────────────────────────────────
-export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "visiteur", newsIntervenantMode }: Props) {
+export default function NewsFeed({ spaceId, C, isAdmin, coAdminIdentity, capped, viewerRole = "visiteur", newsIntervenantMode }: Props) {
   const effectiveRole: "visiteur" | "intervenant" | "admin" = isAdmin ? "admin" : viewerRole;
 
   // IDs des intervenants autorisés à publier pour les visiteurs quand
@@ -272,6 +278,19 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
     return isAdmin
       ? e.author_pin === "ADMIN"
       : (!!sessionPin && e.author_pin === sessionPin && e.author_prenom === formPrenom && e.author_nom === formNom);
+  }
+
+  // Un co-admin publie avec author_pin "ADMIN" comme l'admin réel (même
+  // visibilité/affichage voulus côté visiteurs) — le PIN seul ne distingue
+  // donc pas "mes publications" de celles de l'admin réel : il faut aussi le
+  // prénom/nom de son identité co-admin (même logique que isOwnEntry
+  // ci-dessus pour un visiteur homonyme en PIN).
+  function isCoAdminOwn(pin: string | null, prenom: string, nom: string) {
+    if (!coAdminIdentity || pin !== "ADMIN") return false;
+    return (
+      prenom.trim().toLowerCase() === coAdminIdentity.prenom.trim().toLowerCase() &&
+      nom.trim().toLowerCase() === coAdminIdentity.nom.trim().toLowerCase()
+    );
   }
 
   // Canal intervenants+admin : un visiteur ne voit que les nouvelles
@@ -688,8 +707,17 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
 
   async function requestDelete(entry: NewsEntryWithUrls) {
     // Le PIN enregistré dans "Mon compte" (ou choisi à la publication) fait
-    // foi : s'il correspond (ou si admin), on évite de le redemander.
-    if (isAdmin || (await sessionPinMatches(entry.author_pin, { prenom: entry.author_prenom, nom: entry.author_nom }))) {
+    // foi : s'il correspond (ou si admin), on évite de le redemander. Un
+    // co-admin n'a PAS les droits de modération de l'admin réel : il ne
+    // passe ce garde-fou que pour ses propres publications (partage le PIN
+    // "ADMIN" avec l'admin réel, donc identifié par prénom/nom — voir
+    // isCoAdminOwn) ; pour tout le reste il retombe sur le même parcours PIN
+    // qu'un visiteur normal (dont le pavé numérique ne peut de toute façon
+    // jamais matcher le PIN littéral "ADMIN").
+    const bypassesPin = coAdminIdentity
+      ? isCoAdminOwn(entry.author_pin, entry.author_prenom, entry.author_nom)
+      : isAdmin || (await sessionPinMatches(entry.author_pin, { prenom: entry.author_prenom, nom: entry.author_nom }));
+    if (bypassesPin) {
       setDeleteConfirmTarget(entry);
       return;
     }
@@ -907,7 +935,9 @@ export default function NewsFeed({ spaceId, C, isAdmin, capped, viewerRole = "vi
           return (
             <View style={styles.repliesWrap}>
               {repliesForEntry.map((r) => {
-                const canDeleteReply = isAdmin || (!!sessionPin && r.author_pin === sessionPin);
+                const canDeleteReply = coAdminIdentity
+                  ? isCoAdminOwn(r.author_pin, r.author_prenom, r.author_nom)
+                  : isAdmin || (!!sessionPin && r.author_pin === sessionPin);
                 return (
                   <View key={r.id} style={[styles.replyItem, { borderLeftColor: C.gold }]}>
                     <View style={{ flex: 1 }}>
