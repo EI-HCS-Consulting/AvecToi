@@ -927,6 +927,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [selfDeleteTaskTarget, setSelfDeleteTaskTarget] = useState<Task | null>(null);
   const [selfDeleteTaskSaving, setSelfDeleteTaskSaving] = useState(false);
 
+  // Fermeture manuelle (admin) d'un besoin "relais" — jusqu'ici un besoin ne
+  // passait en "ferme" qu'automatiquement à sa date limite (voir closeOverdue
+  // plus haut) ; l'admin doit pouvoir le clore lui-même à tout moment, qu'il
+  // soit couvert ou non.
+  const [closeRelaisTarget, setCloseRelaisTarget] = useState<Task | null>(null);
+  const [closeRelaisSaving, setCloseRelaisSaving] = useState(false);
+
   // Sélection multiple (admin) : rester appuyé sur un bloc besoin l'entre en
   // mode sélection, un tap simple sur un autre bloc l'ajoute/l'enlève —
   // permet une suppression groupée sans repasser par le picker checklist.
@@ -2257,6 +2264,20 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     loadTasks();
   }
 
+  async function confirmCloseRelais() {
+    if (!closeRelaisTarget) return;
+    setCloseRelaisSaving(true);
+    const { error } = await supabase.from("tasks").update({ status: "ferme" }).eq("id", closeRelaisTarget.id);
+    setCloseRelaisSaving(false);
+    setCloseRelaisTarget(null);
+    if (error) {
+      Alert.alert("Erreur", "Impossible de fermer ce besoin : " + error.message);
+      return;
+    }
+    showToast("Besoin fermé");
+    loadTasks();
+  }
+
   async function confirmSelfDeleteTask() {
     if (!selfDeleteTaskTarget) return;
     const t = selfDeleteTaskTarget;
@@ -3376,6 +3397,16 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               ) : null;
             })()}
           </View>
+        )}
+
+        {isAdmin && t.category === "relais" && (t.status === "ouvert" || t.status === "pris_en_charge") && (
+          <TouchableOpacity
+            style={[styles.actionSmall, { borderColor: C.border, marginTop: 8, alignSelf: "flex-start" }]}
+            onPress={() => setCloseRelaisTarget(t)}
+            activeOpacity={0.85}
+          >
+            <Text style={[styles.actionSmallText, { color: C.muted }]}>🔒 Fermer le besoin</Text>
+          </TouchableOpacity>
         )}
 
         {t.status === "ouvert" && !t.deleted_by_admin && t.category !== "transport"
@@ -6208,6 +6239,22 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         saving={selfDeleteTaskSaving}
         onCancel={() => setSelfDeleteTaskTarget(null)}
         onConfirm={confirmSelfDeleteTask}
+        C={C}
+      />
+
+      <ConfirmModal
+        visible={!!closeRelaisTarget}
+        icon="🔒"
+        title="Fermer ce besoin ?"
+        message={
+          closeRelaisTarget
+            ? `${closeRelaisTarget.title}\n\nLe besoin disparaîtra du mur d'Entraide et du popup de connexion. Cette action ne peut pas être annulée.`
+            : undefined
+        }
+        confirmLabel="Fermer le besoin"
+        saving={closeRelaisSaving}
+        onCancel={() => setCloseRelaisTarget(null)}
+        onConfirm={confirmCloseRelais}
         C={C}
       />
 
