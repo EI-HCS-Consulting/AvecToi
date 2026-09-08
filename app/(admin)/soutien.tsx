@@ -5,7 +5,7 @@ import { isSpaceCapped } from "@/lib/freemiumCap";
 import Soutien from "@/components/Soutien";
 
 export default function AdminSoutienScreen() {
-  const { space, loading, hasSpace, reservations } = useSpace();
+  const { space, loading, hasSpace, reservations, coAdminIdentity } = useSpace();
   const { theme: C } = useDisplayMode();
 
   if (loading) {
@@ -24,7 +24,7 @@ export default function AdminSoutienScreen() {
     );
   }
 
-  return <Soutien spaceId={space.id} C={C} isAdmin={true} capped={isSpaceCapped(space, reservations)} />;
+  return <Soutien spaceId={space.id} C={C} isAdmin={true} coAdminIdentity={coAdminIdentity} capped={isSpaceCapped(space, reservations)} />;
 }
 
 const styles = StyleSheet.create({

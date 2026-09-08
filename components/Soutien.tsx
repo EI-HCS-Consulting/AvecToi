@@ -46,10 +46,16 @@ interface Props {
   spaceId: string;
   C: Theme;
   isAdmin: boolean;
+  // Présent uniquement pour un co-admin (isAdmin est alors quand même true,
+  // pour conserver l'affichage/visibilité identiques à l'admin réel) — sert à
+  // restreindre les droits de suppression aux seules publications de CE
+  // co-admin, contrairement à l'admin réel qui modère tout le monde. Voir
+  // isCoAdminOwn plus bas.
+  coAdminIdentity?: { prenom: string; nom: string; pin: string } | null;
   capped: boolean;
 }
 
-export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
+export default function Soutien({ spaceId, C, isAdmin, coAdminIdentity, capped }: Props) {
   const { focusMessageId } = useLocalSearchParams<{ focusMessageId?: string }>();
   const scrollRef = useRef<ScrollView>(null);
   const msgOffsets = useRef<Record<string, number>>({});
@@ -676,6 +682,19 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
       : (!!sessionPin && r.author_pin === sessionPin && r.author_prenom === msgPrenom && r.author_nom === msgNom);
   }
 
+  // Un co-admin publie avec author_pin "ADMIN" comme l'admin réel (même
+  // visibilité/affichage voulus côté visiteurs) — le PIN seul ne distingue
+  // donc pas "mes publications" de celles de l'admin réel : il faut aussi le
+  // prénom/nom de son identité co-admin (même logique que isOwnMessage
+  // ci-dessus pour un visiteur homonyme en PIN).
+  function isCoAdminOwn(pin: string | null | undefined, prenom: string, nom: string) {
+    if (!coAdminIdentity || pin !== "ADMIN") return false;
+    return (
+      prenom.trim().toLowerCase() === coAdminIdentity.prenom.trim().toLowerCase() &&
+      nom.trim().toLowerCase() === coAdminIdentity.nom.trim().toLowerCase()
+    );
+  }
+
   // Modération admin : un message supprimé "en douceur" (deleted_by_admin)
   // reste visible pour son auteur uniquement, avec un bandeau rouge — voir
   // supabase/migrations/20260811_content_deleted_by_admin.sql.
@@ -836,7 +855,9 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
             // plus une fois le message modéré par l'admin (deleted_by_admin) :
             // seul son auteur le voit encore, donc plus aucune conversation
             // à préserver, et "Supprimer définitivement" doit rester possible.
-            const canDeleteMessage = isAdmin || (own && (m.deleted_by_admin || !replies[m.id]?.length));
+            const canDeleteMessage = coAdminIdentity
+              ? isCoAdminOwn(m.author_pin, m.author_prenom, m.author_nom) && (m.deleted_by_admin || !replies[m.id]?.length)
+              : isAdmin || (own && (m.deleted_by_admin || !replies[m.id]?.length));
             const isNew = newIds.has(m.id);
             return (
             <View
@@ -917,7 +938,9 @@ export default function Soutien({ spaceId, C, isAdmin, capped }: Props) {
                 return (
                   <View style={styles.repliesWrap}>
                     {repliesForMsg.map((r) => {
-                      const canDeleteReply = isAdmin || (!!sessionPin && r.author_pin === sessionPin);
+                      const canDeleteReply = coAdminIdentity
+                        ? isCoAdminOwn(r.author_pin, r.author_prenom, r.author_nom)
+                        : isAdmin || (!!sessionPin && r.author_pin === sessionPin);
                       return (
                         <View key={r.id} style={[styles.replyItem, { borderLeftColor: C.gold }]}>
                           <View style={{ flex: 1 }}>
