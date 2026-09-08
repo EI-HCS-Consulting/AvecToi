@@ -1,5 +1,7 @@
+import { useEffect, useState } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "./supabase";
+import { useWallUnreadIds, type WallRow } from "./wallUnread";
 
 // Plomberie de la co-administration temporaire (Feature 3 du chantier SOS
 // relais). Voir les migrations 20260907_patient_space_coadmins.sql /
@@ -173,4 +175,60 @@ export async function getCachedCoAdminActive(spaceId: string): Promise<boolean> 
 export async function setCachedCoAdminActive(spaceId: string, active: boolean): Promise<void> {
   if (active) await AsyncStorage.setItem(cacheKey(spaceId), "true");
   else await AsyncStorage.removeItem(cacheKey(spaceId));
+}
+
+// Badge "New" posé sur le bouton "🛡️ Co-administrateurs" (Mon compte admin)
+// quand une nouvelle proposition de relais existe sur un Besoin SOS — demande
+// explicite : "le badge New doit apparaître à l'admin quand une nouvelle
+// personne a fait une proposition". Même mécanisme que useEntraideBadges
+// (lib/entraideBadges.ts, task_relais_coverage synthétisé en WallRow) mais
+// scope dédié "coadmin" : ce bouton n'est visible que par l'admin, donc
+// isAdmin toujours vrai ici. Ne flushe jamais lui-même (voir lib/wallUnread.ts)
+// — le flush se produit sur app/(admin)/coadmins.tsx (useWallReadTracking),
+// quand l'admin revient au premier plan après avoir consulté cet écran.
+export function useCoAdminAlertBadge(spaceId: string | null): boolean {
+  const [wallRows, setWallRows] = useState<WallRow[] | null>(null);
+
+  useEffect(() => {
+    if (!spaceId) return;
+    setWallRows(null);
+    let cancelled = false;
+    async function load() {
+      const { data: relaisTasks, error: taskErr } = await supabase
+        .from("tasks")
+        .select("id")
+        .eq("space_id", spaceId)
+        .eq("category", "relais");
+      if (taskErr) { console.error("[useCoAdminAlertBadge] tasks query failed:", taskErr); return; }
+      const taskIds = (relaisTasks ?? []).map((t) => t.id);
+      if (!taskIds.length) { if (!cancelled) setWallRows([]); return; }
+      const { data: coverage, error: covErr } = await supabase
+        .from("task_relais_coverage")
+        .select("id, prenom, nom, created_at")
+        .in("task_id", taskIds);
+      if (covErr) { console.error("[useCoAdminAlertBadge] coverage query failed:", covErr); return; }
+      if (cancelled) return;
+      setWallRows((coverage ?? []).map((c) => ({
+        id: c.id,
+        author_prenom: c.prenom,
+        author_nom: c.nom,
+        author_pin: null,
+        created_at: c.created_at,
+        deleted_by_admin: false,
+      })));
+    }
+    load();
+    // Suffixe aléatoire indispensable (voir même besoin dans
+    // lib/entraideBadges.ts) : task_relais_coverage n'a pas de colonne
+    // space_id, pas de filtre serveur possible, on reload sur tout événement.
+    const ch = supabase
+      .channel(`coadmin-alert-badge:${spaceId}:${Math.random().toString(36).slice(2)}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "task_relais_coverage" }, load)
+      .on("postgres_changes", { event: "*", schema: "public", table: "tasks", filter: `space_id=eq.${spaceId}` }, load)
+      .subscribe();
+    return () => { cancelled = true; supabase.removeChannel(ch); };
+  }, [spaceId]);
+
+  const { unreadIds } = useWallUnreadIds("coadmin", spaceId, true, wallRows);
+  return unreadIds.size > 0;
 }

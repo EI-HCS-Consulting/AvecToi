@@ -23,13 +23,14 @@ import PatientProfileModal from "@/components/PatientProfileModal";
 import VisitorsListModal from "@/components/VisitorsListModal";
 import { isRgpdAlertActive, rgpdAlertMessage, prolongSpace } from "@/lib/rgpd";
 import { canProlongSpace, canPublishRelaisSOS } from "@/lib/freemiumCap";
-import { setCachedCoAdminActive } from "@/lib/coAdmin";
+import { setCachedCoAdminActive, useCoAdminAlertBadge } from "@/lib/coAdmin";
+import { NewIndicator } from "@/components/NewIndicator";
 import { toFrShort, isReservationFullyPast } from "@/lib/slotUtils";
 import { disengageTask as performDisengage } from "@/lib/taskDisengage";
 import ConfirmModal from "@/components/ConfirmModal";
 import PremiumGateModal from "@/components/PremiumGateModal";
 import RecurringBookingModal from "@/components/RecurringBookingModal";
-import { fetchOpenRelaisAlerts, fetchMyRelaisCoverageHistory, type RelaisCoverageSummary } from "@/lib/relaisAlerts";
+import { fetchOpenRelaisAlerts, fetchMyRelaisCoverageHistory, fetchRelaisTaskProposals, type RelaisCoverageSummary, type RelaisTaskProposal } from "@/lib/relaisAlerts";
 import { fetchOpenPinResetRequests, markPinResetRequestSeen, resolvePinResetRequest, fetchPinResetHistory, type PinResetRequest } from "@/lib/pinResetRequests";
 import { adminResetVisitorPin } from "@/lib/visitorProfile";
 import type { Reservation, ReservationChangeHistoryEntry, NewsEntry, NewsEntryReply, SupportMessage, Task } from "@/lib/types";
@@ -96,6 +97,7 @@ export default function AdminAccountScreen() {
     setSelectedDay, setPendingEditReservationId, isCoAdmin,
   } = useSpace();
   const { mode, theme: C, setMode } = useDisplayMode();
+  const hasNewCoAdminProposals = useCoAdminAlertBadge(space?.id ?? null);
 
   // Ancre de scroll pour revenir précisément sur le bouton "Co-administrateurs"
   // quand on quitte app/(admin)/coadmins.tsx via son bouton retour (au lieu de
@@ -165,6 +167,11 @@ export default function AdminAccountScreen() {
   // Besoins de relais déjà pris en charge (en tout ou partie) par l'admin —
   // sortis de relaisAlerts ci-dessus, affichés dans "Historique".
   const [relaisCoverageHistory, setRelaisCoverageHistory] = useState<RelaisCoverageSummary[]>([]);
+  // Autres propositions déjà faites sur chaque besoin de relaisAlerts
+  // ci-dessus (et statut de validation par l'admin) — demande explicite :
+  // "le popup d'alerte doit mentionner les autres propositions déjà faites
+  // (et par qui)". Voir lib/relaisAlerts.ts, fetchRelaisTaskProposals.
+  const [relaisProposalsByTask, setRelaisProposalsByTask] = useState<Record<string, RelaisTaskProposal[]>>({});
   const [desengageTarget, setDesengageTarget] = useState<Task | null>(null);
   const [desengageSaving, setDesengageSaving] = useState(false);
 
@@ -535,6 +542,8 @@ export default function AdminAccountScreen() {
     try {
       const relais = await fetchOpenRelaisAlerts(spaceId, true, { prenom: p, nom: n });
       setRelaisAlerts(relais);
+      const proposals = await fetchRelaisTaskProposals(relais.map((t) => t.id));
+      setRelaisProposalsByTask(proposals);
     } catch (e) {
       console.error("[loadActivity] fetchOpenRelaisAlerts failed:", e);
     }
@@ -954,6 +963,7 @@ export default function AdminAccountScreen() {
           onClaimRelais={handleClaimRelais}
           onDismissRelais={handleDismissRelais}
           relaisCoverageHistory={relaisCoverageHistory}
+          relaisProposalsByTask={relaisProposalsByTask}
           onMarkHistorySeen={handleHistorySeen}
           pinResetRequests={pinResetRequests}
           onResetPinRequest={handleResetPinRequest}
@@ -1170,7 +1180,7 @@ export default function AdminAccountScreen() {
                 </TouchableOpacity>
 
                 {!isCoAdmin && (
-                  <View ref={coadminBtnRef}>
+                  <View ref={coadminBtnRef} style={{ position: "relative" }}>
                     <TouchableOpacity
                       style={[styles.saveBtn, { backgroundColor: C.accent, marginTop: 10 }]}
                       onPress={() => router.push("/(admin)/coadmins" as any)}
@@ -1178,6 +1188,7 @@ export default function AdminAccountScreen() {
                     >
                       <Text style={styles.saveBtnText}>🛡️ Co-administrateurs</Text>
                     </TouchableOpacity>
+                    <NewIndicator isNew={hasNewCoAdminProposals} />
                   </View>
                 )}
 
