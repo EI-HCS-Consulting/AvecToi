@@ -14,7 +14,7 @@ import { supabase } from "@/lib/supabase";
 import { getVisitorSession, saveVisitorSession, clearVisitorSession } from "@/lib/visitorSession";
 import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
 import { enterByDossierCode } from "@/lib/visitorEntry";
-import { updateVisitorPhoto, updateVisitorMottoRelation } from "@/lib/visitorProfile";
+import { updateVisitorPhoto, updateVisitorMottoRelation, getVisitorEmail, updateVisitorEmail } from "@/lib/visitorProfile";
 import { fetchPinResetHistory, type PinResetRequest } from "@/lib/pinResetRequests";
 import { normalizePhone } from "@/lib/phone";
 import { metierLabel } from "@/lib/metiers";
@@ -539,6 +539,20 @@ export default function VisitorAccountScreen() {
             if (!s.motto && data?.motto) setMotto(data.motto);
             if (!s.relation && data?.relation) setRelation(data.relation);
           }
+          // Adresse email — source de vérité désormais visitor_profiles.email
+          // (voir lib/visitorProfile.ts), alimentée par une vérification par
+          // code lors d'une proposition de relais (Entraide.tsx) sur
+          // n'importe quel appareil. Toujours resynchronisée au montage
+          // (contrairement à photo/motto/relation ci-dessus, pas seulement en
+          // repli) pour refléter une vérification faite depuis un autre
+          // appareil que celui-ci.
+          if (s.pin) {
+            const serverEmail = await getVisitorEmail(space.id, s.prenom, s.nom, s.pin);
+            if (serverEmail && serverEmail !== s.email) {
+              setEmail(serverEmail);
+              await saveVisitorSession({ ...s, email: serverEmail });
+            }
+          }
         }
       }
       setLoading(false);
@@ -972,6 +986,11 @@ export default function VisitorAccountScreen() {
     } else {
       if (photoUri) syncProfilePhoto(space.id, prenom.trim(), nom.trim(), photoUri, pin);
       if (prenom.trim() && nom.trim()) syncProfileMottoAndRelation(space.id, prenom.trim(), nom.trim(), motto, relation, pin);
+      // Synchronise visitor_profiles.email — source de vérité réutilisée par
+      // la prochaine proposition de relais (sauter email/code, voir
+      // Entraide.tsx) et par l'auto-réinitialisation du code sur "Qui
+      // êtes-vous ?" (voir app/auth/visitor-identify.tsx).
+      if (prenom.trim() && nom.trim() && pin) updateVisitorEmail(space.id, prenom.trim(), nom.trim(), pin, email.trim());
     }
     setSaving(false);
     if (ok) showToast("Enregistré ✓");

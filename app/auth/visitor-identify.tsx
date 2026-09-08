@@ -6,10 +6,10 @@ import {
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { themes } from "@/lib/themes";
 import PinPad from "@/components/PinPad";
-import { loginVisitorProfile, claimResetVisitorPin } from "@/lib/visitorProfile";
+import { loginVisitorProfile, claimResetVisitorPin, hasVisitorEmailOnFile } from "@/lib/visitorProfile";
 import { requestPinReset } from "@/lib/pinResetRequests";
 import { saveVisitorSession } from "@/lib/visitorSession";
-import { checkCoAdminStatus, requestCoAdminCode, resetCoAdminPinViaEmail } from "@/lib/coAdmin";
+import { requestCoAdminCode, resetVisitorPinViaEmail } from "@/lib/coAdmin";
 
 const C = themes.dark;
 
@@ -34,12 +34,15 @@ export default function VisitorIdentifyScreen() {
   const [pinRequestStatus, setPinRequestStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
   const [pinRequestMsg, setPinRequestMsg] = useState("");
 
-  // Co-administrateur temporaire actif sous ce prénom/nom (voir
-  // lib/coAdmin.ts) — seul cas où un reset de code peut se faire sans passer
-  // par l'admin d'origine (précisément indisponible pendant un relais).
-  const [coAdminActive, setCoAdminActive] = useState(false);
-  const [resetStep, setResetStep] = useState<"hidden" | "email" | "code" | "newpin">("hidden");
-  const [resetEmail, setResetEmail] = useState("");
+  // Email vérifié déjà en base pour ce prénom/nom (voir
+  // lib/visitorProfile.ts, visitor_profiles.email) — seul cas où un reset de
+  // code peut se faire sans passer par l'admin (email confirmé une première
+  // fois via une proposition de relais, voir Entraide.tsx).
+  const [hasEmailOnFile, setHasEmailOnFile] = useState(false);
+  // Plus d'étape "email" : l'adresse est déjà en base, jamais ressaisie ni
+  // révélée au client — on passe directement de "hidden" à "code" dès le
+  // clic (voir handleResetSendCode).
+  const [resetStep, setResetStep] = useState<"hidden" | "code" | "newpin">("hidden");
   const [resetCode, setResetCode] = useState("");
   const [resetNewPin, setResetNewPin] = useState("");
   const [resetLoading, setResetLoading] = useState(false);
@@ -47,34 +50,33 @@ export default function VisitorIdentifyScreen() {
 
   useEffect(() => {
     if (!prenom.trim() || !nom.trim()) {
-      setCoAdminActive(false);
+      setHasEmailOnFile(false);
       return;
     }
     let cancelled = false;
-    checkCoAdminStatus(spaceId, prenom.trim(), nom.trim()).then((status) => {
-      if (!cancelled) setCoAdminActive(status === "active");
+    hasVisitorEmailOnFile(spaceId, prenom.trim(), nom.trim()).then((has) => {
+      if (!cancelled) setHasEmailOnFile(has);
     });
     return () => { cancelled = true; };
   }, [spaceId, prenom, nom]);
 
   async function handleResetSendCode() {
-    if (!resetEmail.trim()) return;
+    setResetStep("code");
     setResetLoading(true);
     setResetError("");
-    const result = await requestCoAdminCode(spaceId, prenom.trim(), nom.trim(), resetEmail.trim(), "reset");
+    const result = await requestCoAdminCode(spaceId, prenom.trim(), nom.trim(), null, "reset");
     setResetLoading(false);
     if (!result.ok) {
       setResetError(result.error);
-      return;
+      setResetStep("hidden");
     }
-    setResetStep("code");
   }
 
   async function handleResetConfirm() {
     if (resetNewPin.length !== 4) return;
     setResetLoading(true);
     setResetError("");
-    const result = await resetCoAdminPinViaEmail(spaceId, prenom.trim(), nom.trim(), resetEmail.trim(), resetNewPin, resetCode);
+    const result = await resetVisitorPinViaEmail(spaceId, prenom.trim(), nom.trim(), resetNewPin, resetCode);
     if (!result.ok) {
       setResetLoading(false);
       setResetError(result.error);
@@ -229,49 +231,30 @@ export default function VisitorIdentifyScreen() {
           </Text>
         )}
 
-        {coAdminActive && resetStep === "hidden" && (
-          <TouchableOpacity
-            style={styles.linkBtn}
-            onPress={() => setResetStep("email")}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.linkText}>🛡️ Réinitialiser mon code par email</Text>
-          </TouchableOpacity>
-        )}
-
-        {resetStep === "email" && (
-          <View style={styles.resetBox}>
-            <Text style={styles.resetLabel}>Adresse email de co-administrateur</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Adresse email"
-              placeholderTextColor={C.muted}
-              value={resetEmail}
-              onChangeText={(v) => { setResetEmail(v); setResetError(""); }}
-              autoCapitalize="none"
-              autoCorrect={false}
-              keyboardType="email-address"
-            />
-            {!!resetError && <Text style={styles.errorText}>{resetError}</Text>}
+        {hasEmailOnFile && resetStep === "hidden" && (
+          <>
             <TouchableOpacity
-              style={[styles.btn, (!resetEmail.trim() || resetLoading) && styles.btnDisabled]}
+              style={styles.linkBtn}
               onPress={handleResetSendCode}
-              disabled={!resetEmail.trim() || resetLoading}
-              activeOpacity={0.85}
+              activeOpacity={0.7}
             >
-              <Text style={styles.btnText}>{resetLoading ? "Envoi…" : "Recevoir un code"}</Text>
+              <Text style={styles.linkText}>🛡️ Réinitialiser mon code par email</Text>
             </TouchableOpacity>
-          </View>
+            {!!resetError && <Text style={styles.errorText}>{resetError}</Text>}
+          </>
         )}
 
         {resetStep === "code" && (
           <View style={styles.resetBox}>
-            <Text style={styles.resetLabel}>Code reçu par email</Text>
+            <Text style={styles.resetLabel}>
+              {resetLoading ? "Envoi du code à ton adresse enregistrée…" : "Code reçu par email"}
+            </Text>
             <PinPad value={resetCode} onChange={(v) => { setResetCode(v); setResetError(""); }} maxLength={6} theme={C} />
+            {!!resetError && <Text style={styles.errorText}>{resetError}</Text>}
             <TouchableOpacity
-              style={[styles.btn, resetCode.length !== 6 && styles.btnDisabled]}
+              style={[styles.btn, (resetCode.length !== 6 || resetLoading) && styles.btnDisabled]}
               onPress={() => setResetStep("newpin")}
-              disabled={resetCode.length !== 6}
+              disabled={resetCode.length !== 6 || resetLoading}
               activeOpacity={0.85}
             >
               <Text style={styles.btnText}>Continuer</Text>

@@ -22,7 +22,7 @@ Deno.serve(async (req: Request) => {
   try {
     const { space_id, prenom, nom, email, purpose } = await req.json();
 
-    if (!space_id || !prenom || !nom || !email || !purpose) {
+    if (!space_id || !prenom || !nom || !purpose || (purpose !== "reset" && !email)) {
       return json({ error: "Missing required fields" }, 400);
     }
     if (purpose !== "accept" && purpose !== "reset" && purpose !== "propose") {
@@ -33,6 +33,13 @@ Deno.serve(async (req: Request) => {
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
+
+    // Adresse effectivement utilisée pour l'insert + l'envoi ci-dessous —
+    // pour 'reset', c'est TOUJOURS celle déjà en base (jamais celle du corps
+    // de la requête, le client n'en fournit d'ailleurs plus aucune) : le
+    // visiteur qui a perdu son code n'a rien à ressaisir, voir
+    // 20260908_visitor_email_selfservice.sql.
+    let resolvedEmail: string = email;
 
     // 'propose' est envoyé AVANT toute ligne patient_space_coadmins (le
     // visiteur propose une période de relais, l'admin valide ensuite — voir
@@ -49,29 +56,42 @@ Deno.serve(async (req: Request) => {
       if (!profile) {
         return json({ error: "No matching visitor record" }, 404);
       }
-    } else {
-      // Le demandeur doit correspondre à une invitation en attente (accept) ou
-      // à un co-admin déjà actif+accepté avec cet email (reset) — sinon on ne
-      // révèle rien et on ne génère aucun code.
-      let query = supabaseAdmin
-        .from("patient_space_coadmins")
+    } else if (purpose === "reset") {
+      // Généralisé à tout visiteur ayant un email vérifié sur son profil
+      // (visitor_profiles.email, alimenté par 'propose' ci-dessus) — plus
+      // seulement les co-administrateurs actifs, voir
+      // 20260908_visitor_email_selfservice.sql. L'email n'est jamais exposé
+      // au client (ni demandé, ni renvoyé) : seule sa présence en base
+      // déclenche l'envoi, à l'adresse qui y est déjà enregistrée.
+      const { data: profile } = await supabaseAdmin
+        .from("visitor_profiles")
         .select("id, email")
         .eq("space_id", space_id)
         .ilike("prenom", prenom.trim())
         .ilike("nom", nom.trim())
+        .maybeSingle();
+      if (!profile || !profile.email) {
+        return json({ error: "No email on file" }, 404);
+      }
+      resolvedEmail = profile.email;
+    } else {
+      // purpose === "accept" — flux legacy d'invitation de co-administration,
+      // plus déclenché côté client depuis 20260908_coadmin_propose_verification.sql
+      // (email vérifié dès la proposition), conservé pour compat descendante.
+      const { data: coadminRow } = await supabaseAdmin
+        .from("patient_space_coadmins")
+        .select("id")
+        .eq("space_id", space_id)
+        .ilike("prenom", prenom.trim())
+        .ilike("nom", nom.trim())
         .eq("active", true)
+        .is("accepted_at", null)
         .order("granted_at", { ascending: false })
-        .limit(1);
-
-      query = purpose === "accept" ? query.is("accepted_at", null) : query.not("accepted_at", "is", null);
-
-      const { data: coadminRow } = await query.maybeSingle();
+        .limit(1)
+        .maybeSingle();
 
       if (!coadminRow) {
         return json({ error: "No matching co-admin record" }, 404);
-      }
-      if (purpose === "reset" && coadminRow.email?.toLowerCase().trim() !== String(email).toLowerCase().trim()) {
-        return json({ error: "Email does not match" }, 404);
       }
     }
 
@@ -101,7 +121,7 @@ Deno.serve(async (req: Request) => {
       space_id,
       prenom: prenom.trim(),
       nom: nom.trim(),
-      email,
+      email: resolvedEmail,
       purpose,
       code,
       expires_at: expiresAt,
@@ -142,7 +162,7 @@ Deno.serve(async (req: Request) => {
       },
       body: JSON.stringify({
         from: "AvecToi <notifications@notifications.avectoi.care>",
-        to: [email],
+        to: [resolvedEmail],
         subject: purpose === "propose"
           ? "AvecToi — Confirmez votre proposition"
           : purpose === "accept"
