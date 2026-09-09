@@ -118,7 +118,7 @@ export default function RelaisAlertModal({ spaceId, isAdmin }: { spaceId: string
               <Text style={[styles.detailRow, { color: C.text, marginBottom: 2 }]}>🙋 Propositions déjà faites :</Text>
               {otherProposals.map((p) => (
                 <View key={p.id} style={{ marginTop: 6 }}>
-                  <Text style={[styles.proposalLine, { color: C.text }]} numberOfLines={1}>
+                  <Text style={[styles.proposalLine, { color: C.text }]}>
                     {p.prenom} {p.nom} — du {toFrShort(new Date(p.startDate + "T12:00:00"))} au {toFrShort(new Date(p.endDate + "T12:00:00"))}{p.fullPeriod ? " (période complète)" : ""}
                   </Text>
                   {!!coAdminStatusLabel(p.coadminStatus) && (
