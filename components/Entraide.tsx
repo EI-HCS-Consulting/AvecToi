@@ -3470,7 +3470,9 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         {t.category === "relais" && (relaisCoverage[t.id]?.length ?? 0) > 0 && (
           <View style={[styles.claimerRow, { borderColor: C.border, backgroundColor: `${C.accent}11` }]}>
             {!!t.relais_start_date && !!t.date_limite && (
-              <RelaisDayProgress startIso={t.relais_start_date} endIso={t.date_limite} coverage={relaisCoverage[t.id] ?? []} C={C} />
+              <View style={{ marginBottom: 4 }}>
+                <RelaisDayProgress startIso={t.relais_start_date} endIso={t.date_limite} coverage={relaisCoverage[t.id] ?? []} C={C} />
+              </View>
             )}
             {(relaisCoverage[t.id] ?? []).map((cov) => (
               <View key={cov.id} style={{ marginBottom: 6 }}>

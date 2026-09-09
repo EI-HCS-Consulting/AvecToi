@@ -382,6 +382,10 @@ function VisitorTabs() {
         name="mes-souvenirs"
         options={{ href: null }}
       />
+      <Tabs.Screen
+        name="settings"
+        options={{ href: null }}
+      />
     </Tabs>
     </>
   );

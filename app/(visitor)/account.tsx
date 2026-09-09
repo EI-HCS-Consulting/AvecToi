@@ -32,7 +32,6 @@ import { switchToLinkedSpace } from "@/lib/intervenantSpaceSwitch";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import MyChecklist from "@/components/MyChecklist";
 import MyRelaisCommitments from "@/components/MyRelaisCommitments";
-import CoAdminSettingsOverlay from "@/components/CoAdminSettingsOverlay";
 import MyAlertsModal from "@/components/MyAlertsModal";
 import { fetchOpenRelaisAlerts, fetchMyRelaisCoverageHistory, fetchRelaisTaskProposals, type RelaisCoverageSummary, type RelaisTaskProposal } from "@/lib/relaisAlerts";
 import type { Reservation, ReservationChangeHistoryEntry, NewsEntry, NewsEntryReply, SupportMessage, Task } from "@/lib/types";
@@ -168,7 +167,6 @@ export default function VisitorAccountScreen() {
   const [toast, setToast] = useState("");
   const [patientProfileVisible, setPatientProfileVisible] = useState(false);
   const [visitorsListVisible, setVisitorsListVisible] = useState(false);
-  const [coAdminSettingsVisible, setCoAdminSettingsVisible] = useState(false);
   const [role, setRole] = useState<"visiteur" | "intervenant">("visiteur");
   const [intervenantProfileId, setIntervenantProfileId] = useState<string | null>(null);
   const [ficheModalVisible, setFicheModalVisible] = useState(false);
@@ -1789,7 +1787,7 @@ export default function VisitorAccountScreen() {
           nom={nom}
           pin={pin}
           C={C}
-          onOpenCoAdminSettings={() => setCoAdminSettingsVisible(true)}
+          onOpenCoAdminSettings={() => router.push("/(visitor)/settings" as any)}
         />
 
         <TouchableOpacity
@@ -1828,18 +1826,6 @@ export default function VisitorAccountScreen() {
           <Text style={[styles.logoutBtnText, { color: "#e94560" }]}>🚪 Se déconnecter</Text>
         </TouchableOpacity>
       </ScrollView>
-
-      {!!space && (
-        <CoAdminSettingsOverlay
-          visible={coAdminSettingsVisible}
-          onClose={() => setCoAdminSettingsVisible(false)}
-          spaceId={space.id}
-          prenom={prenom}
-          nom={nom}
-          pin={pin}
-          C={C}
-        />
-      )}
 
       {!!toast && (
         <View style={[styles.toast, { backgroundColor: C.success }]}>
