@@ -59,3 +59,28 @@ export function computeRelaisGaps(
   }
   return gaps;
 }
+
+// Une case par jour de [startIso, endIso] — vert si ce jour tombe dans au
+// moins une plage de coverageRanges, rouge sinon. Le nombre de jours d'un
+// besoin de relais reste toujours petit (quelques semaines maximum), pas
+// besoin de virtualisation. Partagé entre MyRelaisCommitments (Mon Compte),
+// CoAdminsScreen (Besoins SOS admin) et Entraide (mur d'entraide).
+export function buildDaySquares(
+  startIso: string,
+  endIso: string,
+  coverageRanges: RelaisCoverageRange[],
+): { iso: string; day: number; covered: boolean }[] {
+  const days: { iso: string; day: number; covered: boolean }[] = [];
+  let cursor = new Date(startIso + "T12:00:00");
+  const end = new Date(endIso + "T12:00:00");
+  while (cursor <= end) {
+    const iso = toISO(cursor);
+    days.push({
+      iso,
+      day: cursor.getDate(),
+      covered: coverageRanges.some((r) => r.start_date <= iso && r.end_date >= iso),
+    });
+    cursor = addDays(cursor, 1);
+  }
+  return days;
+}

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { View, Text, TouchableOpacity, Modal, StyleSheet, ActivityIndicator } from "react-native";
 import { supabase } from "@/lib/supabase";
-import { toISO, addDays } from "@/lib/slotUtils";
 import { isRelaisFullyCovered } from "@/lib/relaisCoverage";
 import { revokeCoAdminForCoverage, checkCoAdminStatus } from "@/lib/coAdmin";
 import MiniCalendar from "@/components/MiniCalendar";
 import ConfirmModal from "@/components/ConfirmModal";
+import RelaisDayProgress from "@/components/RelaisDayProgress";
 import type { Theme } from "@/lib/themes";
 
 // Bloc "Mon compte" (admin + visiteur, à côté de MyChecklist) qui récapitule
@@ -61,30 +61,6 @@ function formatFrRange(startIso: string, endIso: string): string {
     return `du ${start.getDate()} au ${end.toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}`;
   }
   return `du ${start.toLocaleDateString("fr-FR", { day: "numeric", month: "long" })} au ${end.toLocaleDateString("fr-FR", { day: "numeric", month: "long" })}`;
-}
-
-// Une case par jour de [startIso, endIso] — vert si ce jour tombe dans au
-// moins une plage de coverageRanges, rouge sinon. Le nombre de jours d'un
-// besoin de relais reste toujours petit (quelques semaines maximum), pas
-// besoin de virtualisation.
-function buildDaySquares(
-  startIso: string,
-  endIso: string,
-  coverageRanges: { start_date: string; end_date: string }[],
-): { iso: string; day: number; covered: boolean }[] {
-  const days: { iso: string; day: number; covered: boolean }[] = [];
-  let cursor = new Date(startIso + "T12:00:00");
-  const end = new Date(endIso + "T12:00:00");
-  while (cursor <= end) {
-    const iso = toISO(cursor);
-    days.push({
-      iso,
-      day: cursor.getDate(),
-      covered: coverageRanges.some((r) => r.start_date <= iso && r.end_date >= iso),
-    });
-    cursor = addDays(cursor, 1);
-  }
-  return days;
 }
 
 export default function MyRelaisCommitments({ spaceId, prenom, nom, pin, C, onOpenCoAdminSettings }: Props) {
@@ -249,9 +225,6 @@ export default function MyRelaisCommitments({ spaceId, prenom, nom, pin, C, onOp
 
       {groups.map(({ task, rows }) => {
         const isDone = task.status === "fait";
-        const daySquares = task.relais_start_date && task.date_limite
-          ? buildDaySquares(task.relais_start_date, task.date_limite, rows)
-          : [];
         return (
           <View key={task.id} style={[styles.taskGroup, { borderColor: C.border }]}>
             <Text style={[styles.taskTitle, { color: C.text }]}>
@@ -263,17 +236,8 @@ export default function MyRelaisCommitments({ spaceId, prenom, nom, pin, C, onOp
               </Text>
             )}
 
-            {daySquares.length > 0 && (
-              <View style={styles.daySquaresRow}>
-                {daySquares.map((d) => (
-                  <View
-                    key={d.iso}
-                    style={[styles.daySquare, { backgroundColor: d.covered ? C.success : C.danger }]}
-                  >
-                    <Text style={styles.daySquareText}>{d.day}</Text>
-                  </View>
-                ))}
-              </View>
+            {task.relais_start_date && task.date_limite && (
+              <RelaisDayProgress startIso={task.relais_start_date} endIso={task.date_limite} coverage={rows} C={C} />
             )}
 
             <View style={styles.contribList}>
@@ -397,9 +361,6 @@ const styles = StyleSheet.create({
   taskGroup: { borderTopWidth: 1, paddingTop: 12, marginTop: 12 },
   taskTitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
   period: { fontFamily: "DM_Sans_400Regular", fontSize: 12, marginTop: 2 },
-  daySquaresRow: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 8 },
-  daySquare: { width: 26, height: 26, borderRadius: 6, alignItems: "center", justifyContent: "center" },
-  daySquareText: { fontFamily: "DM_Sans_700Bold", fontSize: 11, color: "#fff" },
   contribList: { marginTop: 10, gap: 8 },
   contribRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   contribText: { flex: 1, fontFamily: "DM_Sans_400Regular", fontSize: 12 },
