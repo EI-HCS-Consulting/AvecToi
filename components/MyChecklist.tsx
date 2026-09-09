@@ -9,7 +9,7 @@ import ConfirmModal from "@/components/ConfirmModal";
 import PremiumGateModal from "@/components/PremiumGateModal";
 import MiniCalendar from "@/components/MiniCalendar";
 import { normalizePhone } from "@/lib/phone";
-import { CHECKLIST_TEMPLATES, CHECKLIST_SUB_MENUS, addDaysIso, checklistItemDescription, findTemplateItemByTitle, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
+import { CHECKLIST_TEMPLATES, CHECKLIST_SUB_MENUS, addDaysIso, checklistItemDescription, checklistItemLinks, findTemplateItemByTitle, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
 import { findLetterTemplateForChecklistItem, LETTER_TEMPLATES, type LetterTemplate } from "@/lib/letterTemplates";
 import { canGenerateDocumentType } from "@/lib/freemiumCap";
 import { saveAndShareDoc, splitAlignedLines } from "@/lib/mediaShare";
@@ -918,15 +918,16 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
             <Text style={[styles.itemDesc, { color: C.muted, marginTop: 0 }]}>📅 Échéance : {item.date_limite}</Text>
           </View>
         )}
-        {!!tplItem?.lienExterne && (
+        {tplItem && checklistItemLinks(tplItem).map((lien) => (
           <TouchableOpacity
+            key={lien.url}
             style={styles.itemLinkWrap}
-            onPress={() => Linking.openURL(tplItem.lienExterne!.url).catch(() => {})}
+            onPress={() => Linking.openURL(lien.url).catch(() => {})}
             hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
           >
-            <Text style={[styles.itemLink, { color: C.gold }]}>🔗 {tplItem.lienExterne.label}</Text>
+            <Text style={[styles.itemLink, { color: C.gold }]}>🔗 {lien.label}</Text>
           </TouchableOpacity>
-        )}
+        ))}
         {!!letterTpl && (
           <TouchableOpacity
             style={styles.itemLinkWrap}
@@ -1640,14 +1641,15 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                                   📎 Pièces à réunir (deviendront des sous-items à cocher) : {item.piecesRequises.join(", ")}
                                 </Text>
                               )}
-                              {!!item.lienExterne && !dup && (
+                              {!dup && checklistItemLinks(item).map((lien) => (
                                 <TouchableOpacity
-                                  onPress={() => Linking.openURL(item.lienExterne!.url).catch(() => {})}
+                                  key={lien.url}
+                                  onPress={() => Linking.openURL(lien.url).catch(() => {})}
                                   hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
                                 >
-                                  <Text style={[styles.itemLink, { color }]}>🔗 {item.lienExterne.label}</Text>
+                                  <Text style={[styles.itemLink, { color }]}>🔗 {lien.label}</Text>
                                 </TouchableOpacity>
-                              )}
+                              ))}
                               {item.recurrent === "mensuel" && !dup && (
                                 <Text style={[styles.itemDesc, { color: C.muted }]}>🔁 Rappel à renouveler chaque mois</Text>
                               )}

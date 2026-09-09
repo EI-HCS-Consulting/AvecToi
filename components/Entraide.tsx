@@ -27,7 +27,7 @@ import { googleMapsSearchUrl, joinAddress, resolvePlaceFromMapsUrl } from "@/lib
 import { addGenericEventToNativeCalendar } from "@/lib/calendarSync";
 import type { Task, TransportProposal, TaskRelaisCoverage } from "@/lib/types";
 import { CHECKLIST_COLORS, type Theme } from "@/lib/themes";
-import { CHECKLIST_TEMPLATES, CHECKLIST_SUB_MENUS, addDaysIso, checklistItemDescription, findTemplateItemByTitle, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
+import { CHECKLIST_TEMPLATES, CHECKLIST_SUB_MENUS, addDaysIso, checklistItemDescription, checklistItemLinks, findTemplateItemByTitle, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
 import { isRelaisFullyCovered, computeRelaisGaps, type RelaisCoverageRange } from "@/lib/relaisCoverage";
 
 const PHOTO_BUCKET = "entraide-photos";
@@ -3348,14 +3348,20 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           // Lien officiel re-dérivé du template d'origine (tasks n'a pas de
           // colonne dédiée) — reste affiché après publication, pas seulement
           // pendant la sélection de la checklist. Voir findTemplateItemByTitle.
-          const tplLink = findTemplateItemByTitle(t.title)?.lienExterne;
-          return tplLink ? (
-            <TouchableOpacity
-              onPress={() => Linking.openURL(tplLink.url).catch(() => {})}
-              hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-            >
-              <Text style={[styles.checklistItemLink, { color: C.accent }]}>🔗 {tplLink.label}</Text>
-            </TouchableOpacity>
+          const tplItem = findTemplateItemByTitle(t.title);
+          const tplLinks = tplItem ? checklistItemLinks(tplItem) : [];
+          return tplLinks.length ? (
+            <>
+              {tplLinks.map((tplLink) => (
+                <TouchableOpacity
+                  key={tplLink.url}
+                  onPress={() => Linking.openURL(tplLink.url).catch(() => {})}
+                  hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                >
+                  <Text style={[styles.checklistItemLink, { color: C.accent }]}>🔗 {tplLink.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </>
           ) : null;
         })()}
         {t.category === "relais" && t.relais_start_date && t.date_limite && (
@@ -5047,14 +5053,15 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                                       📎 Pièces à réunir : {item.piecesRequises.join(", ")}
                                     </Text>
                                   )}
-                                  {!!item.lienExterne && (
+                                  {checklistItemLinks(item).map((lien) => (
                                     <TouchableOpacity
-                                      onPress={() => Linking.openURL(item.lienExterne!.url).catch(() => {})}
+                                      key={lien.url}
+                                      onPress={() => Linking.openURL(lien.url).catch(() => {})}
                                       hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
                                     >
-                                      <Text style={[styles.checklistItemLink, { color }]}>🔗 {item.lienExterne.label}</Text>
+                                      <Text style={[styles.checklistItemLink, { color }]}>🔗 {lien.label}</Text>
                                     </TouchableOpacity>
-                                  )}
+                                  ))}
                                   {item.recurrent === "mensuel" && (
                                     <Text style={[styles.checklistItemDesc, { color: C.muted }]}>🔁 Rappel à renouveler chaque mois</Text>
                                   )}

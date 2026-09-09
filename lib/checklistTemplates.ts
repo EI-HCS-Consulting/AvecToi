@@ -44,8 +44,11 @@ export interface ChecklistItem {
   // Pièces à réunir avant d'entamer la démarche — jamais de stockage de
   // document ici, uniquement des libellés texte informatifs.
   piecesRequises?: string[];
-  // Lien vers un site officiel uniquement (jamais commercial).
-  lienExterne?: { label: string; url: string };
+  // Lien(s) vers un site officiel uniquement (jamais commercial). Un objet
+  // seul reste valide (cas le plus courant) ; un tableau permet de proposer
+  // plusieurs sources complémentaires (ex. démarche officielle générale +
+  // page pratique dédiée) — voir checklistItemLinks pour la normalisation.
+  lienExterne?: { label: string; url: string } | { label: string; url: string }[];
   // Marque un item dont le rappel peut être proposé en version récurrente
   // mensuelle au moment du "Je m'en occupe" (ex. déclaration AJPA).
   recurrent?: "mensuel";
@@ -252,7 +255,11 @@ export const CHECKLIST_TEMPLATES: Record<ChecklistContext, ChecklistTemplate> = 
             category: "administratif",
             sharedWithVisitors: false,
             piecesRequises: ["Pièce d'identité", "Dernier avis d'imposition", "RIB"],
-            lienExterne: { label: "Service-Public — Aides à l'autonomie à domicile", url: "https://www.service-public.gouv.fr/particuliers/vosdroits/F10009" },
+            lienExterne: [
+              { label: "Service-Public — Aides à l'autonomie à domicile", url: "https://www.service-public.gouv.fr/particuliers/vosdroits/F10009" },
+              { label: "Pour les personnes âgées — Faire une demande d'aides à l'autonomie à domicile", url: "https://www.pour-les-personnes-agees.gouv.fr/vivre-a-domicile/beneficier-d-aide-a-domicile/faire-une-demande-d-aides-a-l-autonomie-a-domicile" },
+              { label: "Formulaire papier (Cerfa 16301-01)", url: "https://www.pour-les-personnes-agees.gouv.fr/api/v1/file/7e87084a-e7a2-4eb6-a92e-4618b729b936/Formulaire_demande_autonomie_cerfa_16301-01.pdf" },
+            ],
           },
           { title: "Contacter la caisse de retraite", description: "Pertinent même si la personne reste globalement autonome : peut financer ménage, linge, courses, téléassistance.", category: "administratif", sharedWithVisitors: false },
           { title: "Contacter le CCAS / la mairie", description: "Utile si les revenus sont modestes — peut orienter vers l'aide-ménagère départementale et vers les services locaux.", category: "administratif", sharedWithVisitors: false },
@@ -324,7 +331,11 @@ export const CHECKLIST_TEMPLATES: Record<ChecklistContext, ChecklistTemplate> = 
             category: "administratif",
             sharedWithVisitors: false,
             piecesRequises: ["Pièce d'identité", "Dernier avis d'imposition", "RIB"],
-            lienExterne: { label: "Service-Public — Aides à l'autonomie à domicile", url: "https://www.service-public.gouv.fr/particuliers/vosdroits/F10009" },
+            lienExterne: [
+              { label: "Service-Public — Aides à l'autonomie à domicile", url: "https://www.service-public.gouv.fr/particuliers/vosdroits/F10009" },
+              { label: "Pour les personnes âgées — Faire une demande d'aides à l'autonomie à domicile", url: "https://www.pour-les-personnes-agees.gouv.fr/vivre-a-domicile/beneficier-d-aide-a-domicile/faire-une-demande-d-aides-a-l-autonomie-a-domicile" },
+              { label: "Formulaire papier (Cerfa 16301-01)", url: "https://www.pour-les-personnes-agees.gouv.fr/api/v1/file/7e87084a-e7a2-4eb6-a92e-4618b729b936/Formulaire_demande_autonomie_cerfa_16301-01.pdf" },
+            ],
           },
           { title: "Contacter la caisse de retraite", description: "Peut financer une partie du portage de repas pour un retraité autonome ou peu dépendant.", category: "administratif", sharedWithVisitors: false },
           { title: "Contacter le CCAS / la mairie", description: "Certaines communes proposent un service de portage de repas subventionné, indépendant de l'APA.", category: "administratif", sharedWithVisitors: false },
@@ -772,10 +783,17 @@ export function addDaysIso(days: number): string {
 // informations pratiques (pièces à réunir, lien officiel, rappel récurrent)
 // qui n'ont pas de colonne dédiée sur `tasks` — pour ne pas les perdre une
 // fois l'item publié sur le Mur d'Entraide / dans "Ma Checklist".
+// Normalise item.lienExterne (objet seul ou tableau) en tableau — à utiliser
+// partout où un ou plusieurs liens officiels doivent être affichés/listés.
+export function checklistItemLinks(item: ChecklistItem): { label: string; url: string }[] {
+  if (!item.lienExterne) return [];
+  return Array.isArray(item.lienExterne) ? item.lienExterne : [item.lienExterne];
+}
+
 export function checklistItemDescription(item: ChecklistItem): string {
   const parts = [item.description];
   if (item.piecesRequises?.length) parts.push(`Pièces à réunir : ${item.piecesRequises.join(", ")}`);
-  if (item.lienExterne) parts.push(`Info : ${item.lienExterne.label} — ${item.lienExterne.url}`);
+  for (const lien of checklistItemLinks(item)) parts.push(`Info : ${lien.label} — ${lien.url}`);
   if (item.recurrent === "mensuel") parts.push("🔁 À renouveler chaque mois.");
   return parts.filter(Boolean).join("\n\n");
 }
