@@ -21,6 +21,7 @@ import SegmentedSwitch from "@/components/SegmentedSwitch";
 import TimeClockPicker from "@/components/TimeClockPicker";
 import ConfirmModal from "@/components/ConfirmModal";
 import ShoppingListModal from "@/components/ShoppingListModal";
+import RelaisDayProgress from "@/components/RelaisDayProgress";
 import { toFrShort, toISO } from "@/lib/slotUtils";
 import { googleMapsSearchUrl, joinAddress, resolvePlaceFromMapsUrl } from "@/lib/address";
 import { addGenericEventToNativeCalendar } from "@/lib/calendarSync";
@@ -3468,6 +3469,9 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             que la période n'est pas intégralement couverte. */}
         {t.category === "relais" && (relaisCoverage[t.id]?.length ?? 0) > 0 && (
           <View style={[styles.claimerRow, { borderColor: C.border, backgroundColor: `${C.accent}11` }]}>
+            {!!t.relais_start_date && !!t.date_limite && (
+              <RelaisDayProgress startIso={t.relais_start_date} endIso={t.date_limite} coverage={relaisCoverage[t.id] ?? []} C={C} />
+            )}
             {(relaisCoverage[t.id] ?? []).map((cov) => (
               <View key={cov.id} style={{ marginBottom: 6 }}>
                 <Text style={[styles.claimerText, { color: C.text }]}>

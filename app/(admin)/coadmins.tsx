@@ -14,6 +14,7 @@ import { useWallReadTracking, type WallRow } from "@/lib/wallUnread";
 import PatientAvatar from "@/components/PatientAvatar";
 import ConfirmModal from "@/components/ConfirmModal";
 import PremiumGateModal from "@/components/PremiumGateModal";
+import RelaisDayProgress from "@/components/RelaisDayProgress";
 import type { PatientSpaceCoadmin } from "@/lib/types";
 
 interface RelaisTaskLite {
@@ -403,6 +404,9 @@ export default function CoAdminsScreen() {
                 <Text style={[styles.periodText, { color: C.muted, marginTop: 2 }]}>
                   📅 Besoin du {toFrShort(new Date(task.relais_start_date + "T12:00:00"))} au {toFrShort(new Date(task.date_limite + "T12:00:00"))}
                 </Text>
+              )}
+              {!!task.relais_start_date && !!task.date_limite && (
+                <RelaisDayProgress startIso={task.relais_start_date} endIso={task.date_limite} coverage={proposals} C={C} />
               )}
 
               {proposals.length === 0 ? (
