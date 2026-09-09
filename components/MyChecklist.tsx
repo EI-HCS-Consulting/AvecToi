@@ -9,7 +9,7 @@ import ConfirmModal from "@/components/ConfirmModal";
 import PremiumGateModal from "@/components/PremiumGateModal";
 import MiniCalendar from "@/components/MiniCalendar";
 import { normalizePhone } from "@/lib/phone";
-import { CHECKLIST_TEMPLATES, addDaysIso, checklistItemDescription, findTemplateItemByTitle, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
+import { CHECKLIST_TEMPLATES, CHECKLIST_SUB_MENUS, addDaysIso, checklistItemDescription, findTemplateItemByTitle, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
 import { findLetterTemplateForChecklistItem, LETTER_TEMPLATES, type LetterTemplate } from "@/lib/letterTemplates";
 import { canGenerateDocumentType } from "@/lib/freemiumCap";
 import { saveAndShareDoc, splitAlignedLines } from "@/lib/mediaShare";
@@ -123,6 +123,11 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
   const [deleteGroupSaving, setDeleteGroupSaving] = useState(false);
 
   const [picker, setPicker] = useState(false);
+  // Sous-menu affiché à la place de la liste principale quand une carte
+  // couvre plusieurs situations distinctes (voir CHECKLIST_SUB_MENUS, même
+  // pattern que components/Entraide.tsx) — ex. "Soin à domicile". picker
+  // reste false pendant que ce sous-écran est ouvert (Modal séparé).
+  const [importSubMenuCtx, setImportSubMenuCtx] = useState<ChecklistContext | null>(null);
   const [importCtx, setImportCtx] = useState<ChecklistContext | null>(null);
   const [importChecked, setImportChecked] = useState<Record<number, boolean>>({});
   const [importCustomItems, setImportCustomItems] = useState<string[]>([]);
@@ -630,8 +635,23 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     setPicker(false);
   }
 
+  function openImportSubMenu(ctx: ChecklistContext) {
+    setImportSubMenuCtx(ctx);
+    setPicker(false);
+  }
+
+  function closeImportSubMenu() {
+    setImportSubMenuCtx(null);
+    setPicker(true);
+  }
+
   function returnToImportPicker() {
     setImportCtx(null);
+    // Si l'écran de sélection a été ouvert depuis un sous-menu (ex. "Soin à
+    // domicile"), revenir au sous-menu plutôt qu'à la liste principale —
+    // importSubMenuCtx reste posé tant qu'on n'a pas explicitement fait
+    // "← Retour" depuis le sous-menu lui-même (voir closeImportSubMenu).
+    if (importSubMenuCtx) return;
     setPicker(true);
   }
 
@@ -801,6 +821,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
       return;
     }
     setImportCtx(null);
+    setImportSubMenuCtx(null);
     setImportSelected([]);
     setImportWizardList([]);
     setImportWizardStep(0);
@@ -1450,21 +1471,26 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
               Choisis la situation qui correspond — les items importés rejoignent ta checklist privée, visible de toi seul. Tu pourras décocher ce qui ne s'applique pas avant d'importer.
             </Text>
             <ScrollView style={styles.scroll} showsVerticalScrollIndicator nestedScrollEnabled>
-              {(Object.keys(CHECKLIST_TEMPLATES) as ChecklistContext[]).map((ctx) => {
+              {(Object.keys(CHECKLIST_TEMPLATES) as ChecklistContext[])
+                .filter((ctx) => !CHECKLIST_TEMPLATES[ctx].hiddenFromMenu)
+                .map((ctx) => {
                 const tpl = CHECKLIST_TEMPLATES[ctx];
                 const count = tpl.groups.flatMap((g) => g.items).filter((it) => isAdmin || it.sharedWithVisitors).length;
                 const color = CHECKLIST_COLORS[tpl.colorKey];
+                const subMenu = CHECKLIST_SUB_MENUS[ctx];
                 return (
                   <TouchableOpacity
                     key={ctx}
                     style={[styles.checklistCard, { borderColor: color, backgroundColor: color + "14" }]}
-                    onPress={() => openImportContext(ctx)}
+                    onPress={() => (subMenu ? openImportSubMenu(ctx) : openImportContext(ctx))}
                     activeOpacity={0.8}
                   >
                     <Text style={styles.checklistCardIcon}>{tpl.icon}</Text>
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.checklistCardTitle, { color: C.text }]}>{tpl.label}</Text>
-                      <Text style={[styles.checklistCardCount, { color: C.muted }]}>{count} items suggérés</Text>
+                      <Text style={[styles.checklistCardCount, { color: C.muted }]}>
+                        {subMenu ? `${subMenu.length} situations` : `${count} items suggérés`}
+                      </Text>
                     </View>
                     <Text style={[styles.checklistCardArrow, { color }]}>→</Text>
                   </TouchableOpacity>
@@ -1485,6 +1511,64 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
               }}
             >
               <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.muted }}>Annuler</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ── MODAL : sous-menu d'une carte (ex. "Soin à domicile") — même
+          présentation que le picker principal ci-dessus, contenu tiré de
+          CHECKLIST_SUB_MENUS[importSubMenuCtx]. Voir Entraide.tsx pour le
+          même pattern côté outil admin. */}
+      <Modal visible={!!importSubMenuCtx} transparent animationType="fade" onRequestClose={closeImportSubMenu}>
+        <View style={styles.overlay}>
+          <TouchableOpacity style={StyleSheet.absoluteFill} activeOpacity={1} onPress={closeImportSubMenu} />
+          <View style={[styles.sheet, { backgroundColor: C.card, borderColor: C.gold }]}>
+            {importSubMenuCtx && (() => {
+              const tpl = CHECKLIST_TEMPLATES[importSubMenuCtx];
+              return (
+                <>
+                  <Text style={[styles.sheetTitle, { color: C.text }]}>{tpl.icon} {tpl.label}</Text>
+                  <Text style={[styles.intro, { color: C.muted }]}>Choisis la situation qui correspond le mieux.</Text>
+                  <ScrollView style={styles.scroll} showsVerticalScrollIndicator nestedScrollEnabled>
+                    {(CHECKLIST_SUB_MENUS[importSubMenuCtx] ?? []).map((opt) => {
+                      const optTpl = CHECKLIST_TEMPLATES[opt.templateKey];
+                      const count = optTpl.groups.flatMap((g) => g.items).filter((it) => isAdmin || it.sharedWithVisitors).length;
+                      const color = CHECKLIST_COLORS[optTpl.colorKey];
+                      return (
+                        <TouchableOpacity
+                          key={opt.key}
+                          style={[styles.checklistCard, { borderColor: color, backgroundColor: color + "14" }]}
+                          onPress={() => openImportContext(opt.templateKey)}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={styles.checklistCardIcon}>{opt.icon}</Text>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.checklistCardTitle, { color: C.text }]}>{opt.label}</Text>
+                            <Text style={[styles.checklistCardCount, { color: C.muted }]}>{count} items suggérés</Text>
+                          </View>
+                          <Text style={[styles.checklistCardArrow, { color }]}>→</Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+                </>
+              );
+            })()}
+            <TouchableOpacity
+              onPress={closeImportSubMenu}
+              style={{
+                width: "100%",
+                height: 48,
+                borderRadius: 10,
+                borderWidth: 1,
+                borderColor: C.border,
+                alignItems: "center",
+                justifyContent: "center",
+                marginTop: 10,
+              }}
+            >
+              <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.muted }}>← Retour</Text>
             </TouchableOpacity>
           </View>
         </View>
