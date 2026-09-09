@@ -258,6 +258,7 @@ export const CHECKLIST_TEMPLATES: Record<ChecklistContext, ChecklistTemplate> = 
             lienExterne: [
               { label: "Service-Public — Aides à l'autonomie à domicile", url: "https://www.service-public.gouv.fr/particuliers/vosdroits/F10009" },
               { label: "Pour les personnes âgées — Faire une demande d'aides à l'autonomie à domicile", url: "https://www.pour-les-personnes-agees.gouv.fr/vivre-a-domicile/beneficier-d-aide-a-domicile/faire-une-demande-d-aides-a-l-autonomie-a-domicile" },
+              { label: "Formulaire papier (Cerfa 16301-01)", url: "https://www.pour-les-personnes-agees.gouv.fr/api/v1/file/7e87084a-e7a2-4eb6-a92e-4618b729b936/Formulaire_demande_autonomie_cerfa_16301-01.pdf" },
             ],
           },
           { title: "Contacter la caisse de retraite", description: "Pertinent même si la personne reste globalement autonome : peut financer ménage, linge, courses, téléassistance.", category: "administratif", sharedWithVisitors: false },
@@ -333,6 +334,7 @@ export const CHECKLIST_TEMPLATES: Record<ChecklistContext, ChecklistTemplate> = 
             lienExterne: [
               { label: "Service-Public — Aides à l'autonomie à domicile", url: "https://www.service-public.gouv.fr/particuliers/vosdroits/F10009" },
               { label: "Pour les personnes âgées — Faire une demande d'aides à l'autonomie à domicile", url: "https://www.pour-les-personnes-agees.gouv.fr/vivre-a-domicile/beneficier-d-aide-a-domicile/faire-une-demande-d-aides-a-l-autonomie-a-domicile" },
+              { label: "Formulaire papier (Cerfa 16301-01)", url: "https://www.pour-les-personnes-agees.gouv.fr/api/v1/file/7e87084a-e7a2-4eb6-a92e-4618b729b936/Formulaire_demande_autonomie_cerfa_16301-01.pdf" },
             ],
           },
           { title: "Contacter la caisse de retraite", description: "Peut financer une partie du portage de repas pour un retraité autonome ou peu dépendant.", category: "administratif", sharedWithVisitors: false },
