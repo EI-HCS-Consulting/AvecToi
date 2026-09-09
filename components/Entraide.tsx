@@ -1565,6 +1565,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setChecklistSaving(false);
     setChecklistContext(null);
     setChecklistPicker(false);
+    setChecklistSubMenuCtx(null);
     setChecklistCustomItems([]);
     setChecklistItemDraft("");
     setChecklistWizardList([]);
