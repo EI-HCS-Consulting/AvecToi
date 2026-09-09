@@ -16,7 +16,11 @@ export type ChecklistContext =
   | "conge_proche_aidant"
   | "maintien_domicile"
   | "handicap"
-  | "fin_de_vie";
+  | "fin_de_vie"
+  | "telesurveillance"
+  | "materiel_medical"
+  | "aide_domicile_menage"
+  | "portage_repas";
 
 type TaskCategory = Task["category"];
 
@@ -64,6 +68,10 @@ export interface ChecklistTemplate {
   // place dans le sélecteur Entraide (qui publie des besoins pour le
   // patient) et reste uniquement proposée dans "Ma Checklist" / Mon Compte.
   personalOnly?: boolean;
+  // Checklist uniquement accessible via un sous-menu (voir CHECKLIST_SUB_MENUS)
+  // plutôt que comme carte de premier niveau du bandeau "✨ Checklists
+  // suggérées" d'Entraide.tsx — ex. les déclinaisons de "Soin à domicile".
+  hiddenFromMenu?: boolean;
 }
 
 export const CHECKLIST_TEMPLATES: Record<ChecklistContext, ChecklistTemplate> = {
@@ -143,6 +151,223 @@ export const CHECKLIST_TEMPLATES: Record<ChecklistContext, ChecklistTemplate> = 
           { title: "Planning des intervenants", description: "Infirmier·ère, kiné, aide à domicile.", sharedWithVisitors: true },
           { title: "Congé proche aidant / AJPA", description: "Même démarche qu'en hospitalisation si tu es l'aidant principal.", urgent: true, sharedWithVisitors: false },
           { title: "Procuration bancaire", description: "Si la personne ne peut plus gérer ses comptes.", sharedWithVisitors: false },
+        ],
+      },
+    ],
+  },
+
+  telesurveillance: {
+    icon: "📞",
+    label: "Mettre en place une téléassistance",
+    colorKey: "gold",
+    hiddenFromMenu: true,
+    groups: [
+      {
+        phase: "Faire le point",
+        items: [
+          { title: "Identifier le besoin", description: "Vivre seul, risque de chute, éloignement de la famille.", category: "administratif", sharedWithVisitors: false },
+        ],
+      },
+      {
+        phase: "Vérifier les financements",
+        items: [
+          {
+            title: "Vérifier si la téléassistance peut être intégrée à un plan d'aide APA",
+            description: "",
+            category: "administratif",
+            sharedWithVisitors: false,
+            lienExterne: { label: "Service-Public — APA", url: "https://www.service-public.gouv.fr/particuliers/vosdroits/F10009" },
+          },
+          { title: "Vérifier les aides de la caisse de retraite", description: "", category: "administratif", sharedWithVisitors: false },
+          { title: "Vérifier une éventuelle prise en charge par la mutuelle", description: "", category: "administratif", sharedWithVisitors: false },
+        ],
+      },
+      {
+        phase: "Choisir le prestataire",
+        items: [
+          { title: "Comparer 2 à 3 offres de téléassistance", description: "Médaillon, bracelet, détection automatique de chute, abonnement mensuel.", category: "administratif", sharedWithVisitors: true },
+          { title: "Vérifier la couverture réseau au domicile", description: "", category: "administratif", sharedWithVisitors: false },
+        ],
+      },
+      {
+        phase: "Réduire le reste à charge",
+        items: [
+          {
+            title: "Vérifier le crédit d'impôt de 50 % pour les services à la personne",
+            description: "S'applique aussi à la téléassistance dans les conditions en vigueur.",
+            category: "administratif",
+            sharedWithVisitors: false,
+            lienExterne: { label: "impots.gouv.fr — Emploi à domicile", url: "https://www.impots.gouv.fr/particulier/emploi-domicile" },
+          },
+        ],
+      },
+    ],
+  },
+
+  materiel_medical: {
+    icon: "🛏️",
+    label: "Organiser le matériel médical à domicile",
+    colorKey: "orange",
+    hiddenFromMenu: true,
+    groups: [
+      {
+        phase: "Organisation logistique",
+        items: [
+          { title: "Noter le prestataire fournisseur et ses coordonnées", description: "Fourni par l'HAD ou le médecin prescripteur.", category: "administratif", sharedWithVisitors: false },
+          { title: "Vérifier la date et l'heure de livraison", description: "", category: "administratif", sharedWithVisitors: false },
+          { title: "Vérifier l'accès au logement pour l'installation", description: "Ascenseur, largeur des portes, place disponible dans la pièce.", category: "affaires", sharedWithVisitors: true },
+          { title: "Identifier qui sera présent à la livraison", description: "", category: "autre", sharedWithVisitors: true },
+        ],
+      },
+      {
+        phase: "Suivi",
+        items: [
+          { title: "Noter le contact à joindre en cas de panne ou de problème technique", description: "", category: "administratif", sharedWithVisitors: false },
+          { title: "Anticiper la restitution du matériel à la fin de la prise en charge", description: "", category: "administratif", sharedWithVisitors: false },
+        ],
+      },
+    ],
+  },
+
+  aide_domicile_menage: {
+    icon: "🧹",
+    label: "Mettre en place une aide à domicile (ménage)",
+    colorKey: "gold",
+    hiddenFromMenu: true,
+    groups: [
+      {
+        phase: "1. Faire le point",
+        items: [
+          { title: "Évaluer le niveau d'autonomie", description: "Toilette, repas, déplacements, chutes récentes, hospitalisation récente. Ce point conditionne si l'APA est pertinente ou non.", category: "administratif", sharedWithVisitors: false },
+          { title: "Définir le besoin précis", description: "Nombre d'heures souhaitées par semaine, tâches concernées (ménage, linge, courses, repas).", category: "administratif", sharedWithVisitors: false },
+        ],
+      },
+      {
+        phase: "2. Demander l'évaluation des droits",
+        items: [
+          {
+            title: "Remplir le formulaire national d'aides à l'autonomie à domicile",
+            description: "Oriente automatiquement vers l'APA (Département) ou vers la caisse de retraite selon la situation.",
+            urgent: true,
+            category: "administratif",
+            sharedWithVisitors: false,
+            piecesRequises: ["Pièce d'identité", "Dernier avis d'imposition", "RIB"],
+            lienExterne: { label: "Service-Public — Aides à l'autonomie à domicile", url: "https://www.service-public.gouv.fr/particuliers/vosdroits/F10009" },
+          },
+          { title: "Contacter la caisse de retraite", description: "Pertinent même si la personne reste globalement autonome : peut financer ménage, linge, courses, téléassistance.", category: "administratif", sharedWithVisitors: false },
+          { title: "Contacter le CCAS / la mairie", description: "Utile si les revenus sont modestes — peut orienter vers l'aide-ménagère départementale et vers les services locaux.", category: "administratif", sharedWithVisitors: false },
+        ],
+      },
+      {
+        phase: "3. Dossier",
+        items: [
+          {
+            title: "Rassembler les pièces du dossier",
+            description: "Mêmes pièces généralement demandées par le Département et la caisse de retraite.",
+            category: "administratif",
+            sharedWithVisitors: false,
+            piecesRequises: ["Justificatif d'identité", "RIB", "Dernier avis d'imposition ou de non-imposition", "Certificat médical (si demandé)"],
+          },
+          { title: "Désigner un proche référent pour suivre le dossier", description: "Utile si la personne âgée a des difficultés administratives.", category: "autre", sharedWithVisitors: true },
+        ],
+      },
+      {
+        phase: "4. Évaluation à domicile",
+        items: [
+          { title: "Préparer la visite d'évaluation", description: "Lister les difficultés réelles du quotidien sans les minimiser (chutes, oublis, ménage, cuisine, toilette).", category: "administratif", sharedWithVisitors: false },
+          { title: "Demander explicitement si le ménage peut être inclus dans le plan d'aide", description: "", category: "administratif", sharedWithVisitors: false },
+        ],
+      },
+      {
+        phase: "5. Choisir le prestataire",
+        items: [
+          { title: "Comparer 2 à 3 organismes d'aide à domicile", description: "Vérifier tarif horaire, remplacements en cas d'absence, horaires disponibles, interlocuteur unique.", category: "administratif", sharedWithVisitors: true },
+          { title: "Vérifier que l'organisme accepte les financements obtenus", description: "APA et/ou aide de la caisse de retraite selon le cas.", category: "administratif", sharedWithVisitors: false },
+        ],
+      },
+      {
+        phase: "6. Réduire le reste à charge",
+        items: [
+          {
+            title: "Vérifier le crédit d'impôt de 50 % pour les services à la personne",
+            description: "S'applique même sans APA.",
+            category: "administratif",
+            sharedWithVisitors: false,
+            lienExterne: { label: "impots.gouv.fr — Emploi à domicile", url: "https://www.impots.gouv.fr/particulier/emploi-domicile" },
+          },
+          { title: "Vérifier l'éligibilité à l'Avance immédiate (Urssaf)", description: "Le crédit d'impôt est déduit directement, sans avance de trésorerie.", category: "administratif", sharedWithVisitors: false },
+          { title: "Conserver les factures et attestations fiscales", description: "Libellés seulement, aucun document stocké dans l'app.", category: "administratif", sharedWithVisitors: false },
+        ],
+      },
+    ],
+  },
+
+  portage_repas: {
+    icon: "🍽️",
+    label: "Organiser le portage de repas",
+    colorKey: "gold",
+    hiddenFromMenu: true,
+    groups: [
+      {
+        phase: "1. Faire le point",
+        items: [
+          { title: "Évaluer le besoin réel", description: "Nombre de repas par semaine, régime particulier (mixé, sans sel, diabète), capacité à réchauffer seul.", category: "administratif", sharedWithVisitors: false },
+        ],
+      },
+      {
+        phase: "2. Demander l'évaluation des droits",
+        items: [
+          {
+            title: "Remplir le formulaire national d'aides à l'autonomie à domicile",
+            description: "Le portage de repas peut être inclus dans un plan d'aide APA ou dans une prise en charge de la caisse de retraite.",
+            urgent: true,
+            category: "administratif",
+            sharedWithVisitors: false,
+            piecesRequises: ["Pièce d'identité", "Dernier avis d'imposition", "RIB"],
+            lienExterne: { label: "Service-Public — Aides à l'autonomie à domicile", url: "https://www.service-public.gouv.fr/particuliers/vosdroits/F10009" },
+          },
+          { title: "Contacter la caisse de retraite", description: "Peut financer une partie du portage de repas pour un retraité autonome ou peu dépendant.", category: "administratif", sharedWithVisitors: false },
+          { title: "Contacter le CCAS / la mairie", description: "Certaines communes proposent un service de portage de repas subventionné, indépendant de l'APA.", category: "administratif", sharedWithVisitors: false },
+        ],
+      },
+      {
+        phase: "3. Dossier",
+        items: [
+          {
+            title: "Rassembler les pièces du dossier",
+            description: "",
+            category: "administratif",
+            sharedWithVisitors: false,
+            piecesRequises: ["Justificatif d'identité", "RIB", "Dernier avis d'imposition ou de non-imposition"],
+          },
+          { title: "Désigner un proche référent pour suivre le dossier", description: "", category: "autre", sharedWithVisitors: true },
+        ],
+      },
+      {
+        phase: "4. Évaluation à domicile",
+        items: [
+          { title: "Préparer la visite d'évaluation", description: "Indiquer le régime alimentaire, les difficultés à cuisiner ou à se déplacer pour faire les courses.", category: "administratif", sharedWithVisitors: false },
+          { title: "Demander explicitement si le portage de repas peut être inclus dans le plan d'aide", description: "", category: "administratif", sharedWithVisitors: false },
+        ],
+      },
+      {
+        phase: "5. Choisir le prestataire",
+        items: [
+          { title: "Comparer 2 à 3 services de portage de repas", description: "Vérifier le prix au repas, la fréquence de livraison, la possibilité de menus adaptés (mixé, sans sel, diabétique).", category: "repas", sharedWithVisitors: true },
+          { title: "Vérifier que le prestataire accepte les financements obtenus", description: "APA, caisse de retraite et/ou aide de la commune selon le cas.", category: "administratif", sharedWithVisitors: false },
+        ],
+      },
+      {
+        phase: "6. Réduire le reste à charge",
+        items: [
+          {
+            title: "Vérifier le crédit d'impôt de 50 % pour les services à la personne",
+            description: "S'applique également au portage de repas, dans les conditions en vigueur.",
+            category: "administratif",
+            sharedWithVisitors: false,
+            lienExterne: { label: "impots.gouv.fr — Emploi à domicile", url: "https://www.impots.gouv.fr/particulier/emploi-domicile" },
+          },
+          { title: "Conserver les factures et attestations fiscales", description: "Libellés seulement, aucun document stocké dans l'app.", category: "administratif", sharedWithVisitors: false },
         ],
       },
     ],
@@ -511,6 +736,29 @@ export const CHECKLIST_TEMPLATES: Record<ChecklistContext, ChecklistTemplate> = 
       },
     ],
   },
+};
+
+// Sous-menu affiché à la place de la liste d'items lorsqu'une carte du
+// bandeau "✨ Checklists suggérées" (Entraide.tsx) couvre plusieurs situations
+// distinctes — ex. "Soin à domicile" éclate en options plus précises et plus
+// rassurantes pour une famille qui découvre le sujet. Les templateKey visés
+// ont hiddenFromMenu: true pour ne pas apparaître aussi en carte de premier
+// niveau. Clé = ChecklistContext de la carte "porte d'entrée".
+export interface ChecklistSubMenuOption {
+  key: string;
+  icon: string;
+  label: string;
+  templateKey: ChecklistContext;
+}
+
+export const CHECKLIST_SUB_MENUS: Partial<Record<ChecklistContext, ChecklistSubMenuOption[]>> = {
+  domicile: [
+    { key: "menage", icon: "🧹", label: "Organiser l'aide au ménage", templateKey: "aide_domicile_menage" },
+    { key: "repas", icon: "🍽️", label: "Portage des repas", templateKey: "portage_repas" },
+    { key: "telesurveillance", icon: "📞", label: "Télésurveillance / téléassistance", templateKey: "telesurveillance" },
+    { key: "materiel", icon: "🛏️", label: "Matériel médical", templateKey: "materiel_medical" },
+    { key: "general", icon: "📋", label: "Mise en place générale", templateKey: "domicile" },
+  ],
 };
 
 export function addDaysIso(days: number): string {
