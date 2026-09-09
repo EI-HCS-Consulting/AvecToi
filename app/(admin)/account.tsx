@@ -18,7 +18,6 @@ import PinPad from "@/components/PinPad";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
 import MyChecklist from "@/components/MyChecklist";
 import MyRelaisCommitments from "@/components/MyRelaisCommitments";
-import CoAdminSettingsOverlay from "@/components/CoAdminSettingsOverlay";
 import MyAlertsModal from "@/components/MyAlertsModal";
 import PatientProfileModal from "@/components/PatientProfileModal";
 import VisitorsListModal from "@/components/VisitorsListModal";
@@ -273,7 +272,6 @@ export default function AdminAccountScreen() {
   const [confirmModal, setConfirmModal] = useState<"logout" | "removePhoto" | null>(null);
 
   const [toast, setToast] = useState("");
-  const [coAdminSettingsVisible, setCoAdminSettingsVisible] = useState(false);
   const [activeContrib, setActiveContrib] = useState<ContribKey | null>(null);
   // Repliage des sous-sections "Historique" (Mes réservations / Entraide) —
   // seule cette partie se déplie/replie, "À venir"/"Planifié" reste toujours visible.
@@ -1163,7 +1161,7 @@ export default function AdminAccountScreen() {
                   nom={adminLastname}
                   pin="ADMIN"
                   C={C}
-                  onOpenCoAdminSettings={() => setCoAdminSettingsVisible(true)}
+                  onOpenCoAdminSettings={() => router.push("/(admin)/settings")}
                 />
 
                 <TouchableOpacity
@@ -1249,18 +1247,6 @@ export default function AdminAccountScreen() {
           </View>
         )}
       </ScrollView>
-
-      {!!space && (
-        <CoAdminSettingsOverlay
-          visible={coAdminSettingsVisible}
-          onClose={() => setCoAdminSettingsVisible(false)}
-          spaceId={space.id}
-          prenom={adminFirstname}
-          nom={adminLastname}
-          pin="ADMIN"
-          C={C}
-        />
-      )}
 
       {!!toast && (
         <View style={[styles.toast, { backgroundColor: C.success }]}>
