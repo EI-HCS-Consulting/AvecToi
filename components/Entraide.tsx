@@ -27,7 +27,7 @@ import { googleMapsSearchUrl, joinAddress, resolvePlaceFromMapsUrl } from "@/lib
 import { addGenericEventToNativeCalendar } from "@/lib/calendarSync";
 import type { Task, TransportProposal, TaskRelaisCoverage } from "@/lib/types";
 import { CHECKLIST_COLORS, type Theme } from "@/lib/themes";
-import { CHECKLIST_TEMPLATES, addDaysIso, checklistItemDescription, findTemplateItemByTitle, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
+import { CHECKLIST_TEMPLATES, CHECKLIST_SUB_MENUS, addDaysIso, checklistItemDescription, findTemplateItemByTitle, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
 import { isRelaisFullyCovered, computeRelaisGaps, type RelaisCoverageRange } from "@/lib/relaisCoverage";
 
 const PHOTO_BUCKET = "entraide-photos";
@@ -457,6 +457,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // voir openChecklistFromForm.
   const [checklistPicker, setChecklistPicker] = useState(false);
   const [checklistContext, setChecklistContext] = useState<ChecklistContext | null>(null);
+  // Sous-menu affiché à la place de la liste principale quand une carte
+  // couvre plusieurs situations distinctes (voir CHECKLIST_SUB_MENUS) — ex.
+  // "Soin à domicile". checklistPicker reste true en arrière-plan tant que ce
+  // sous-écran est ouvert, seul l'affichage bascule (voir rendu plus bas).
+  const [checklistSubMenuCtx, setChecklistSubMenuCtx] = useState<ChecklistContext | null>(null);
   const [checklistChecked, setChecklistChecked] = useState<Record<number, boolean>>({});
   const [checklistSaving, setChecklistSaving] = useState(false);
   // Items perso ajoutés au même lot qu'une checklist suggérée — liste de
@@ -1296,6 +1301,17 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       return;
     }
     setChecklistPicker(true);
+  }
+
+  // Ouvre le sous-menu d'une carte du bandeau (ex. "Soin à domicile") au lieu
+  // d'aller directement à la sélection d'items — checklistPicker reste tel
+  // quel, seul l'affichage bascule vers le sous-menu (voir rendu plus bas).
+  function openChecklistSubMenu(ctx: ChecklistContext) {
+    setChecklistSubMenuCtx(ctx);
+  }
+
+  function closeChecklistSubMenu() {
+    setChecklistSubMenuCtx(null);
   }
 
   function openChecklistContext(ctx: ChecklistContext) {
@@ -4940,13 +4956,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           Modal et ne faire varier que le contenu JS élimine cette course
           pour de bon, sans dépendre d'un timing natif non garanti. */}
       <Modal
-        visible={checklistPicker || !!checklistContext || checklistWizardList.length > 0}
+        visible={checklistPicker || !!checklistContext || checklistWizardList.length > 0 || !!checklistSubMenuCtx}
         transparent
         animationType="fade"
         onRequestClose={() => {
           if (checklistSaving) return;
           if (checklistWizardList.length > 0) { checklistWizardBack(); return; }
           if (checklistContext) { returnToChecklistPicker(); return; }
+          if (checklistSubMenuCtx) { closeChecklistSubMenu(); return; }
           setChecklistPicker(false);
         }}
       >
@@ -4958,6 +4975,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               if (checklistSaving) return;
               if (checklistWizardList.length > 0) { checklistWizardBack(); return; }
               if (checklistContext) { returnToChecklistPicker(); return; }
+              if (checklistSubMenuCtx) { closeChecklistSubMenu(); return; }
               setChecklistPicker(false);
             }}
           />
@@ -5238,7 +5256,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             );
           })()}
 
-          {!checklistContext && checklistWizardList.length === 0 && checklistPicker && (
+          {!checklistContext && checklistWizardList.length === 0 && checklistPicker && !checklistSubMenuCtx && (
           <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.gold, maxHeight: "82%" }]}>
             <Text style={[styles.sheetTitle, { color: C.text }]}>✨ Checklists suggérées</Text>
             <Text style={[styles.checklistIntro, { color: C.muted }]}>
@@ -5253,22 +5271,25 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             </TouchableOpacity>
             <ScrollView style={styles.checklistPickerScroll} showsVerticalScrollIndicator nestedScrollEnabled>
               {(Object.keys(CHECKLIST_TEMPLATES) as ChecklistContext[])
-                .filter((ctx) => !CHECKLIST_TEMPLATES[ctx].personalOnly)
+                .filter((ctx) => !CHECKLIST_TEMPLATES[ctx].personalOnly && !CHECKLIST_TEMPLATES[ctx].hiddenFromMenu)
                 .map((ctx) => {
                 const tpl = CHECKLIST_TEMPLATES[ctx];
                 const count = tpl.groups.reduce((n, g) => n + g.items.length, 0);
                 const color = CHECKLIST_COLORS[tpl.colorKey];
+                const subMenu = CHECKLIST_SUB_MENUS[ctx];
                 return (
                   <TouchableOpacity
                     key={ctx}
                     style={[styles.checklistCard, { borderColor: color, backgroundColor: color + "14" }]}
-                    onPress={() => openChecklistContext(ctx)}
+                    onPress={() => (subMenu ? openChecklistSubMenu(ctx) : openChecklistContext(ctx))}
                     activeOpacity={0.8}
                   >
                     <Text style={styles.checklistCardIcon}>{tpl.icon}</Text>
                     <View style={{ flex: 1 }}>
                       <Text style={[styles.checklistCardTitle, { color: C.text }]}>{tpl.label}</Text>
-                      <Text style={[styles.checklistCardCount, { color: C.muted }]}>{count} besoins suggérés</Text>
+                      <Text style={[styles.checklistCardCount, { color: C.muted }]}>
+                        {subMenu ? `${subMenu.length} situations` : `${count} besoins suggérés`}
+                      </Text>
                     </View>
                     <Text style={[styles.checklistCardArrow, { color }]}>→</Text>
                   </TouchableOpacity>
@@ -5280,6 +5301,48 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", marginTop: 10 }}
             >
               <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.muted }}>Annuler</Text>
+            </TouchableOpacity>
+          </View>
+          )}
+
+          {/* ── Sous-menu d'une carte (ex. "Soin à domicile") : même
+              présentation que la liste principale ci-dessus, contenu tiré de
+              CHECKLIST_SUB_MENUS[checklistSubMenuCtx]. */}
+          {checklistSubMenuCtx && !checklistContext && checklistWizardList.length === 0 && (
+          <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: C.gold, maxHeight: "82%" }]}>
+            <Text style={[styles.sheetTitle, { color: C.text }]}>
+              {CHECKLIST_TEMPLATES[checklistSubMenuCtx].icon} {CHECKLIST_TEMPLATES[checklistSubMenuCtx].label}
+            </Text>
+            <Text style={[styles.checklistIntro, { color: C.muted }]}>
+              Choisis la situation qui correspond le mieux.
+            </Text>
+            <ScrollView style={styles.checklistPickerScroll} showsVerticalScrollIndicator nestedScrollEnabled>
+              {(CHECKLIST_SUB_MENUS[checklistSubMenuCtx] ?? []).map((opt) => {
+                const tpl = CHECKLIST_TEMPLATES[opt.templateKey];
+                const count = tpl.groups.reduce((n, g) => n + g.items.length, 0);
+                const color = CHECKLIST_COLORS[tpl.colorKey];
+                return (
+                  <TouchableOpacity
+                    key={opt.key}
+                    style={[styles.checklistCard, { borderColor: color, backgroundColor: color + "14" }]}
+                    onPress={() => openChecklistContext(opt.templateKey)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.checklistCardIcon}>{opt.icon}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.checklistCardTitle, { color: C.text }]}>{opt.label}</Text>
+                      <Text style={[styles.checklistCardCount, { color: C.muted }]}>{count} besoins suggérés</Text>
+                    </View>
+                    <Text style={[styles.checklistCardArrow, { color }]}>→</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+            <TouchableOpacity
+              onPress={closeChecklistSubMenu}
+              style={{ width: "100%", height: 48, borderRadius: 10, borderWidth: 1, borderColor: C.border, alignItems: "center", justifyContent: "center", marginTop: 10 }}
+            >
+              <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: C.muted }}>← Retour</Text>
             </TouchableOpacity>
           </View>
           )}
