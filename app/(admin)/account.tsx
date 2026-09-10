@@ -418,6 +418,12 @@ export default function AdminAccountScreen() {
       if (updateErr) throw updateErr;
 
       setAdminPhotoUrl(photoUrl);
+      // Recopie dans patient_spaces (auth.users n'est pas exposé) — même
+      // principe que admin_pin/admin_firstname/admin_lastname ci-dessus,
+      // sinon la photo de l'admin ne peut jamais être affichée aux visiteurs.
+      if (adminUserId) {
+        await supabase.from("patient_spaces").update({ admin_photo_url: photoUrl }).eq("admin_id", adminUserId);
+      }
       showToast("Photo mise à jour ✓");
     } catch (e: any) {
       showToast("Erreur : " + (e?.message ?? "inconnue"));
@@ -435,6 +441,7 @@ export default function AdminAccountScreen() {
     if (!adminUserId) return;
     await supabase.storage.from("admin-photos").remove([`${adminUserId}/photo.jpg`]);
     await supabase.auth.updateUser({ data: { photo_url: null } });
+    await supabase.from("patient_spaces").update({ admin_photo_url: null }).eq("admin_id", adminUserId);
     setAdminPhotoUrl(null);
     showToast("Photo supprimée ✓");
   }

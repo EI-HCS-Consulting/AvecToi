@@ -14,6 +14,7 @@ import { getVisitorSession, rememberAuthorPin, sessionPinMatches } from "@/lib/v
 import { requestCoAdminCode, verifyCoAdminProposalCode } from "@/lib/coAdmin";
 import { getVisitorEmail } from "@/lib/visitorProfile";
 import { useWallReadTracking } from "@/lib/wallUnread";
+import { markTransportProposalsSeen } from "@/lib/transportAlerts";
 import { NewIndicator } from "@/components/NewIndicator";
 import PinPad from "@/components/PinPad";
 import MiniCalendar from "@/components/MiniCalendar";
@@ -150,7 +151,7 @@ function relaisRequestedPeriodLabel(t: Task | null): string | null {
 }
 
 export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, allergies, patientFirstname }: Props) {
-  const { focusTaskId, openClaim: openClaimParam, openRelais } = useLocalSearchParams<{ focusTaskId?: string; openClaim?: string; openRelais?: string }>();
+  const { focusTaskId, openClaim: openClaimParam, openRelais, openProposals: openProposalsParam } = useLocalSearchParams<{ focusTaskId?: string; openClaim?: string; openRelais?: string; openProposals?: string }>();
   const router = useRouter();
 
   // Dimensions fixes de l'assistant "Publier" (même largeur/plafond de
@@ -1013,6 +1014,29 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     return out;
   }, [relaisCoverage]);
 
+  // Mêmes principe que relaisCoverageWallRows ci-dessus, pour les
+  // propositions de transport (transport_proposals, stocké sur la task
+  // elle-même) : sans ça, une nouvelle proposition sur un besoin transport
+  // déjà vu n'allumait jamais le badge New (demande explicite : "un badge New
+  // doit apparaitre dans le mur d'entraide sur ce besoin").
+  const transportProposalWallRows = useMemo(() => {
+    const out: { id: string; author_prenom: string | null; author_nom: string | null; author_pin: string | null; created_at: string; deleted_by_admin: boolean }[] = [];
+    for (const t of tasks) {
+      if (t.category !== "transport") continue;
+      for (const p of t.transport_proposals ?? []) {
+        out.push({
+          id: p.id,
+          author_prenom: p.prenom,
+          author_nom: p.nom,
+          author_pin: p.pin,
+          created_at: p.created_at,
+          deleted_by_admin: false,
+        });
+      }
+    }
+    return out;
+  }, [tasks]);
+
   // Badge "New" sur chaque besoin non encore vu (voir lib/wallUnread.ts) —
   // même Set que celui qui alimente le point rouge de la barre d'onglets
   // (EntraideTabIcon), volontairement liés.
@@ -1020,7 +1044,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     "entraide",
     spaceId,
     isAdmin,
-    tasksLoading ? null : [...tasks, ...relaisCoverageWallRows],
+    tasksLoading ? null : [...tasks, ...relaisCoverageWallRows, ...transportProposalWallRows],
   );
 
   // Arrivée depuis "Mon compte" via un lien profond (?focusTaskId=...) —
@@ -1069,12 +1093,24 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       openClaim(target);
       router.setParams({ openClaim: undefined } as any);
     }
+    // Depuis TransportProposalAlertModal ("Voir les propositions") : ouvre
+    // directement la modale "Propositions reçues" sur ce besoin. Marque aussi
+    // toutes les propositions non déclinées comme vues (ouverture explicite
+    // de la liste, pas une fermeture — voir avectoi_alerts_close_marks_seen_gotcha)
+    // pour que le popup ne revienne pas tant qu'aucune nouvelle proposition
+    // n'arrive.
+    if (focusTarget === focusTaskId && openProposalsParam === "1") {
+      setProposalsTarget(target);
+      const unseenIds = target.transport_proposals.filter((p) => !p.declined && !p.seen_by_author).map((p) => p.id);
+      if (unseenIds.length) markTransportProposalsSeen(target.id, unseenIds).then(loadTasks);
+      router.setParams({ openProposals: undefined } as any);
+    }
     // focusTaskId volontairement absent des deps : cet effet ne doit se
     // redéclencher que sur un changement de focusTarget, pas de focusTaskId
     // (mis à jour dans l'effet ci-dessus) — sinon les deux effets tournent
     // dans le même commit avec un focusTarget pas encore rafraîchi et on
     // traite la cible précédente (bug de décalage d'une demande de retard).
-  }, [focusTarget, focusTick, openClaimParam, tasks, tasksLoading, activeCat, openOnlyFilter, closedOnlyFilter]);
+  }, [focusTarget, focusTick, openClaimParam, openProposalsParam, tasks, tasksLoading, activeCat, openOnlyFilter, closedOnlyFilter]);
 
   // Arrivée depuis "Mon compte" (?openRelais=1) : ouvre le formulaire Publier
   // pré-rempli sur la catégorie "relais". Attend que l'identité (admin ou
@@ -2967,7 +3003,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // lib/wallUnread.ts).
   function taskHasNew(t: Task): boolean {
     if (newIds.has(t.id)) return true;
-    return (relaisCoverage[t.id] ?? []).some((cov) => newIds.has(cov.id));
+    if ((relaisCoverage[t.id] ?? []).some((cov) => newIds.has(cov.id))) return true;
+    return (t.transport_proposals ?? []).some((p) => newIds.has(p.id));
   }
 
   function compareOpenSectionWithNew(a: Task, b: Task): number {
@@ -3065,6 +3102,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       response: null,
       response_seen: false,
       declined: false,
+      seen_by_author: false,
     };
     // Relit transport_proposals juste avant d'écrire pour limiter le risque
     // d'écraser une proposition envoyée entre-temps par quelqu'un d'autre

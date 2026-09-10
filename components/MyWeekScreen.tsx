@@ -139,6 +139,12 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
     ((profilesRes.data as { prenom: string; nom: string; photo: string | null }[] | null) ?? []).forEach((p) => {
       photos[visitorIdentityKey(p.prenom, p.nom)] = p.photo ? visitorPhotoUrl(space.id, p.photo) : null;
     });
+    // Photo de l'admin : pas dans visitor_profiles (réservé aux visiteurs),
+    // dénormalisée à part sur patient_spaces.admin_photo_url (auth.users
+    // n'est pas exposé) — voir account.tsx.
+    if (space.admin_firstname && space.admin_lastname) {
+      photos[visitorIdentityKey(space.admin_firstname, space.admin_lastname)] = space.admin_photo_url ?? null;
+    }
     setPhotoByKey(photos);
 
     setLoading(false);
@@ -175,6 +181,22 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
     [shoppingByTask, myPrenom, myNom],
   );
 
+  // Couleur d'un article de courses : vert si coché par moi, orange si coché
+  // par quelqu'un d'autre, couleur de texte par défaut si pas encore coché —
+  // comparaison par nom uniquement (pas de PIN sur shopping_list_items),
+  // même clé que courseContributedByMe ci-dessus.
+  const courseItemColor = useCallback(
+    (item: ShoppingListItem): string => {
+      if (!item.bought) return C.text;
+      if (item.bought_by_prenom && item.bought_by_nom && myPrenom && myNom) {
+        const same = visitorIdentityKey(item.bought_by_prenom, item.bought_by_nom) === visitorIdentityKey(myPrenom, myNom);
+        if (same) return C.success;
+      }
+      return C.orange;
+    },
+    [myPrenom, myNom, C],
+  );
+
   const relaisEngagedByMe = useCallback(
     (t: Task): boolean => (relaisCoverageByTask[t.id] ?? []).some((c) => samePerson(c.prenom, c.nom, c.pin)),
     [relaisCoverageByTask, samePerson],
@@ -186,33 +208,51 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
   const weekEndIso = useMemo(() => toISO(getWeekDates(new Date())[6]), []);
   const inWeek = useCallback((iso: string) => iso >= weekStartIso && iso <= weekEndIso, [weekStartIso, weekEndIso]);
 
-  // Barre de progression d'un besoin relais dans "Mes engagements" — variante
-  // à 3 couleurs (vert = moi, orange = quelqu'un d'autre, rouge = personne)
-  // du damier à 2 couleurs de RelaisDayProgress.tsx (Mon Compte / Besoins SOS
-  // admin / mur d'entraide), et bornée à la semaine en cours quand le besoin
-  // s'étend sur plusieurs semaines — les deux différences demandées pour
-  // cette tuile la rendent non réutilisable telle quelle.
+  interface RelaisDayInfo {
+    iso: string;
+    day: number;
+    state: "me" | "other" | "none";
+    coverPrenom: string | null;
+    coverNom: string | null;
+  }
+
+  // Barre de progression d'un besoin relais dans "Mes engagements", bornée à
+  // la semaine en cours quand le besoin s'étend sur plusieurs semaines — côté
+  // visiteur, variante à 3 couleurs (vert = moi, orange = quelqu'un d'autre,
+  // rouge = personne) du damier à 2 couleurs de RelaisDayProgress.tsx (Mon
+  // Compte / Besoins SOS admin / mur d'entraide) ; côté admin, réduite à 2
+  // couleurs (vert = pris en charge par quiconque, rouge = non pris en
+  // charge — l'admin ne fait pas partie des contributeurs, "moi/autre" n'a
+  // pas de sens ici). coverPrenom/coverNom identifient qui couvre ce jour
+  // précis (1er contributeur trouvé), pour la photo/l'avatar affiché dessous.
   const relaisWeekDays = useCallback(
-    (t: Task, coverage: TaskRelaisCoverage[]): { iso: string; day: number; state: "me" | "other" | "none" }[] => {
+    (t: Task, coverage: TaskRelaisCoverage[]): RelaisDayInfo[] => {
       const periodStart = t.relais_start_date || t.date_limite;
       const periodEnd = t.date_limite || t.relais_start_date;
       if (!periodStart || !periodEnd) return [];
       const rangeStart = periodStart > weekStartIso ? periodStart : weekStartIso;
       const rangeEnd = periodEnd < weekEndIso ? periodEnd : weekEndIso;
       if (rangeStart > rangeEnd) return [];
-      const days: { iso: string; day: number; state: "me" | "other" | "none" }[] = [];
+      const days: RelaisDayInfo[] = [];
       let cursor = new Date(rangeStart + "T12:00:00");
       const end = new Date(rangeEnd + "T12:00:00");
       while (cursor <= end) {
         const iso = toISO(cursor);
-        const coveredByMe = coverage.some((c) => c.start_date <= iso && c.end_date >= iso && samePerson(c.prenom, c.nom, c.pin));
-        const coveredByOther = !coveredByMe && coverage.some((c) => c.start_date <= iso && c.end_date >= iso);
-        days.push({ iso, day: cursor.getDate(), state: coveredByMe ? "me" : coveredByOther ? "other" : "none" });
+        const dayCoverage = coverage.filter((c) => c.start_date <= iso && c.end_date >= iso);
+        const cover = dayCoverage[0] ?? null;
+        let state: "me" | "other" | "none";
+        if (isAdmin) {
+          state = dayCoverage.length > 0 ? "me" : "none";
+        } else {
+          const coveredByMe = dayCoverage.some((c) => samePerson(c.prenom, c.nom, c.pin));
+          state = coveredByMe ? "me" : dayCoverage.length > 0 ? "other" : "none";
+        }
+        days.push({ iso, day: cursor.getDate(), state, coverPrenom: cover?.prenom ?? null, coverNom: cover?.nom ?? null });
         cursor = addDays(cursor, 1);
       }
       return days;
     },
-    [weekStartIso, weekEndIso, samePerson],
+    [weekStartIso, weekEndIso, samePerson, isAdmin],
   );
 
   // ── Tuile "Mon agenda" : mes visites/nuitées de la semaine + transports où
@@ -371,7 +411,19 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
       if (t.category === "relais") return relaisEngagedByMe(t);
       return false;
     }
-    return tasks.filter((t) => isMyBesoin(t) && relevantThisWeek(t));
+    // Tri chronologique (date de début pour un relais, échéance sinon) — un
+    // besoin sans date connue passe en dernier plutôt que de garder l'ordre
+    // de récupération (created_at desc) issu de `tasks`.
+    return tasks
+      .filter((t) => isMyBesoin(t) && relevantThisWeek(t))
+      .sort((a, b) => {
+        const da = effectiveDate(a);
+        const db = effectiveDate(b);
+        if (da && db) return da.localeCompare(db);
+        if (da) return -1;
+        if (db) return 1;
+        return 0;
+      });
   }, [tasks, inWeek, samePerson, courseContributedByMe, relaisEngagedByMe]);
 
   if (loading && !tasks.length) {
@@ -456,10 +508,12 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
         >
           <Text style={[styles.cardTitle, { color: C.text }]}>
             {CATEGORY_ICONS[t.category]} Besoin {CATEGORY_LABELS[t.category]}
-            {t.category !== "relais" && t.date_limite ? ` pour le ${dueDateLabel(t.date_limite)}` : ""}
           </Text>
+          {t.category !== "relais" && !!t.date_limite && (
+            <Text style={[styles.cardSubtitle, { color: C.muted }]}>pour le {dueDateLabel(t.date_limite)}</Text>
+          )}
           <Text style={[styles.cardSubtitle, { color: C.muted }]}>
-            Ouvert par {t.author_prenom} {t.author_nom}
+            Publié par {t.author_prenom} {t.author_nom}
           </Text>
           <Text style={[styles.cardSubtitle, { color: C.muted }]}>
             {t.category === "relais"
@@ -473,24 +527,38 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
 
           {t.category === "relais" && (
             <View style={styles.relaisDaysRow}>
-              {relaisWeekDays(t, relaisCoverageByTask[t.id] ?? []).map((d) => (
-                <View
-                  key={d.iso}
-                  style={[
-                    styles.relaisDaySquare,
-                    { backgroundColor: d.state === "me" ? C.success : d.state === "other" ? C.orange : C.danger },
-                  ]}
-                >
-                  <Text style={styles.relaisDayText}>{d.day}</Text>
-                </View>
-              ))}
+              {relaisWeekDays(t, relaisCoverageByTask[t.id] ?? []).map((d) => {
+                const coverKey = d.coverPrenom && d.coverNom ? visitorIdentityKey(d.coverPrenom, d.coverNom) : null;
+                const coverUrl = coverKey ? photoByKey[coverKey] : null;
+                return (
+                  <View key={d.iso} style={styles.relaisDayCol}>
+                    <View
+                      style={[
+                        styles.relaisDaySquare,
+                        { backgroundColor: d.state === "me" ? C.success : d.state === "other" ? C.orange : C.danger },
+                      ]}
+                    >
+                      <Text style={styles.relaisDayText}>{d.day}</Text>
+                    </View>
+                    {!!coverKey && (
+                      coverUrl ? (
+                        <Image source={{ uri: coverUrl }} style={styles.relaisDayAvatar} />
+                      ) : (
+                        <View style={[styles.relaisDayAvatarFallback, { borderColor: C.border }]}>
+                          <Text style={{ color: C.muted, fontSize: 9 }}>{d.coverPrenom![0]}</Text>
+                        </View>
+                      )
+                    )}
+                  </View>
+                );
+              })}
             </View>
           )}
 
           {t.category === "courses" && (
             <View style={styles.courseList}>
               {(shoppingByTask[t.id] ?? []).map((item) => (
-                <Text key={item.id} style={[styles.courseItem, { color: item.bought ? C.success : C.text }]}>
+                <Text key={item.id} style={[styles.courseItem, { color: courseItemColor(item) }]}>
                   {item.bought ? "☑" : "☐"} {item.label}
                 </Text>
               ))}
@@ -536,8 +604,11 @@ const styles = StyleSheet.create({
   cardTitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15 },
   cardSubtitle: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginTop: 4 },
   relaisDaysRow: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 8 },
+  relaisDayCol: { alignItems: "center", gap: 3 },
   relaisDaySquare: { width: 26, height: 26, borderRadius: 6, alignItems: "center", justifyContent: "center" },
   relaisDayText: { fontFamily: "DM_Sans_700Bold", fontSize: 11, color: "#fff" },
+  relaisDayAvatar: { width: 20, height: 20, borderRadius: 10 },
+  relaisDayAvatarFallback: { width: 20, height: 20, borderRadius: 10, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   courseList: { marginTop: 8 },
   courseItem: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginBottom: 2 },
   avatarRow: { flexDirection: "row", marginTop: 8, gap: 6 },

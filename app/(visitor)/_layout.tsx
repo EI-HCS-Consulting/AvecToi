@@ -15,6 +15,7 @@ import PatientAvatar from "@/components/PatientAvatar";
 import RebookingAlertModal from "@/components/RebookingAlertModal";
 import BookingProposalAlertModal from "@/components/BookingProposalAlertModal";
 import RelaisAlertModal from "@/components/RelaisAlertModal";
+import TransportProposalAlertModal from "@/components/TransportProposalAlertModal";
 import BirthdayAlertModal from "@/components/BirthdayAlertModal";
 import DeletedContentAlertModal from "@/components/DeletedContentAlertModal";
 import IntervenantOnboardingFlow from "@/components/IntervenantOnboardingFlow";
@@ -272,6 +273,10 @@ function VisitorTabs() {
 
       {identityKnown === true && (role !== "intervenant" || !!intervenantProfileId) && consentGiven === true && !!space && (
         <RelaisAlertModal spaceId={space.id} isAdmin={false} />
+      )}
+
+      {identityKnown === true && (role !== "intervenant" || !!intervenantProfileId) && consentGiven === true && !!space && (
+        <TransportProposalAlertModal spaceId={space.id} isAdmin={false} />
       )}
 
       {identityKnown === true && (role !== "intervenant" || !!intervenantProfileId) && consentGiven === true && !!space && (
