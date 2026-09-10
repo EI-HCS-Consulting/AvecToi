@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase";
 import type { PatientSpace, Reservation, Task, ShoppingListItem, TaskRelaisCoverage } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 import { LOGO_ORANGE, LOGO_GREEN } from "@/lib/themes";
-import { isMyReservation, getSlotOccupancy, getWeekDates, toISO, toFrLong } from "@/lib/slotUtils";
+import { isMyReservation, getSlotOccupancy, getWeekDates, toISO, toFrLong, toFrShort, addDays } from "@/lib/slotUtils";
 import { visitorIdentityKey } from "@/lib/visitorRoster";
 
 // Dupliqué depuis components/Entraide.tsx (non exportés là-bas) — jeu réduit,
@@ -25,6 +25,16 @@ const CATEGORY_LABELS: Record<Task["category"], string> = {
 function visitorPhotoUrl(spaceId: string, filename: string): string {
   const { data } = supabase.storage.from("visitor-photos").getPublicUrl(`${spaceId}/${filename}`);
   return data.publicUrl;
+}
+
+// "samedi 12/09/2026" — jour de la semaine + JJ/MM/AAAA, ni l'un
+// (toFrLong, pas d'année) ni l'autre (toFrShort, pas de jour) des formats
+// existants dans slotUtils.ts ne suffisant seuls pour l'échéance affichée
+// dans "Mes engagements".
+function dueDateLabel(iso: string): string {
+  const d = new Date(iso + "T12:00:00");
+  const weekday = d.toLocaleDateString("fr-FR", { weekday: "long" });
+  return `${weekday} ${toFrShort(d)}`;
 }
 
 // Cible de navigation au tap d'une entrée — "reservation" réutilise le
@@ -175,6 +185,35 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
   const weekStartIso = useMemo(() => toISO(getWeekDates(new Date())[0]), []);
   const weekEndIso = useMemo(() => toISO(getWeekDates(new Date())[6]), []);
   const inWeek = useCallback((iso: string) => iso >= weekStartIso && iso <= weekEndIso, [weekStartIso, weekEndIso]);
+
+  // Barre de progression d'un besoin relais dans "Mes engagements" — variante
+  // à 3 couleurs (vert = moi, orange = quelqu'un d'autre, rouge = personne)
+  // du damier à 2 couleurs de RelaisDayProgress.tsx (Mon Compte / Besoins SOS
+  // admin / mur d'entraide), et bornée à la semaine en cours quand le besoin
+  // s'étend sur plusieurs semaines — les deux différences demandées pour
+  // cette tuile la rendent non réutilisable telle quelle.
+  const relaisWeekDays = useCallback(
+    (t: Task, coverage: TaskRelaisCoverage[]): { iso: string; day: number; state: "me" | "other" | "none" }[] => {
+      const periodStart = t.relais_start_date || t.date_limite;
+      const periodEnd = t.date_limite || t.relais_start_date;
+      if (!periodStart || !periodEnd) return [];
+      const rangeStart = periodStart > weekStartIso ? periodStart : weekStartIso;
+      const rangeEnd = periodEnd < weekEndIso ? periodEnd : weekEndIso;
+      if (rangeStart > rangeEnd) return [];
+      const days: { iso: string; day: number; state: "me" | "other" | "none" }[] = [];
+      let cursor = new Date(rangeStart + "T12:00:00");
+      const end = new Date(rangeEnd + "T12:00:00");
+      while (cursor <= end) {
+        const iso = toISO(cursor);
+        const coveredByMe = coverage.some((c) => c.start_date <= iso && c.end_date >= iso && samePerson(c.prenom, c.nom, c.pin));
+        const coveredByOther = !coveredByMe && coverage.some((c) => c.start_date <= iso && c.end_date >= iso);
+        days.push({ iso, day: cursor.getDate(), state: coveredByMe ? "me" : coveredByOther ? "other" : "none" });
+        cursor = addDays(cursor, 1);
+      }
+      return days;
+    },
+    [weekStartIso, weekEndIso, samePerson],
+  );
 
   // ── Tuile "Mon agenda" : mes visites/nuitées de la semaine + transports où
   // je conduis, fusionnés en une seule chronologie. ──────────────────────
@@ -416,11 +455,37 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
           onPress={() => router.push(`${entraideBasePath}?focusTaskId=${t.id}` as any)}
         >
           <Text style={[styles.cardTitle, { color: C.text }]}>
-            {CATEGORY_ICONS[t.category]} {t.title || CATEGORY_LABELS[t.category]}
+            {CATEGORY_ICONS[t.category]} Besoin {CATEGORY_LABELS[t.category]}
+            {t.category !== "relais" && t.date_limite ? ` pour le ${dueDateLabel(t.date_limite)}` : ""}
           </Text>
           <Text style={[styles.cardSubtitle, { color: C.muted }]}>
-            {t.status === "fait" ? "✓ Fait" : t.status === "ferme" ? "🔒 Fermé" : t.status === "pris_en_charge" ? "🤝 Pris en charge" : "⏳ Ouvert"}
+            Ouvert par {t.author_prenom} {t.author_nom}
           </Text>
+          <Text style={[styles.cardSubtitle, { color: C.muted }]}>
+            {t.category === "relais"
+              ? t.status === "pris_en_charge"
+                ? "🤝 Pris en charge"
+                : (relaisCoverageByTask[t.id]?.length ?? 0) > 0
+                  ? "🤝 Pris en charge partiellement"
+                  : "⏳ Ouvert"
+              : t.status === "fait" ? "✓ Fait" : t.status === "ferme" ? "🔒 Fermé" : t.status === "pris_en_charge" ? "🤝 Pris en charge" : "⏳ Ouvert"}
+          </Text>
+
+          {t.category === "relais" && (
+            <View style={styles.relaisDaysRow}>
+              {relaisWeekDays(t, relaisCoverageByTask[t.id] ?? []).map((d) => (
+                <View
+                  key={d.iso}
+                  style={[
+                    styles.relaisDaySquare,
+                    { backgroundColor: d.state === "me" ? C.success : d.state === "other" ? C.orange : C.danger },
+                  ]}
+                >
+                  <Text style={styles.relaisDayText}>{d.day}</Text>
+                </View>
+              ))}
+            </View>
+          )}
 
           {t.category === "courses" && (
             <View style={styles.courseList}>
@@ -450,15 +515,6 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
               </View>
             </View>
           )}
-
-          {t.category === "relais" && (
-            <Text style={[styles.cardSubtitle, { color: C.muted }]}>
-              {(relaisCoverageByTask[t.id] ?? [])
-                .filter((c) => samePerson(c.prenom, c.nom, c.pin))
-                .map((c) => `${c.start_date} → ${c.end_date}`)
-                .join(", ")}
-            </Text>
-          )}
         </TouchableOpacity>
       ))}
     </ScrollView>
@@ -479,6 +535,9 @@ const styles = StyleSheet.create({
   cardDate: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 },
   cardTitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15 },
   cardSubtitle: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginTop: 4 },
+  relaisDaysRow: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 8 },
+  relaisDaySquare: { width: 26, height: 26, borderRadius: 6, alignItems: "center", justifyContent: "center" },
+  relaisDayText: { fontFamily: "DM_Sans_700Bold", fontSize: 11, color: "#fff" },
   courseList: { marginTop: 8 },
   courseItem: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginBottom: 2 },
   avatarRow: { flexDirection: "row", marginTop: 8, gap: 6 },
