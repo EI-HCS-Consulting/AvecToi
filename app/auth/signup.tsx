@@ -62,7 +62,7 @@ export default function SignupScreen() {
 
     if (data.session) {
       // Email confirmation disabled on this project — straight into onboarding.
-      router.replace("/(admin)/home/calendar");
+      router.replace("/(admin)/home/ma-semaine");
       return;
     }
 

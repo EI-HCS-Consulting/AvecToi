@@ -63,7 +63,7 @@ export default function VisitorCreateProfileScreen() {
       motto: result.row.motto ?? "",
       relation: result.row.relation ?? "",
     });
-    router.replace({ pathname: "/(visitor)/home/calendar", params: { spaceId, token } });
+    router.replace({ pathname: "/(visitor)/home/ma-semaine", params: { spaceId, token } });
   }
 
   return (

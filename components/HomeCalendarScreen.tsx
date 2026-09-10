@@ -259,6 +259,22 @@ export default function HomeCalendarScreen({
       (companionsByMainId[r.group_id] ??= []).push(r);
     }
   }
+  // Libellés affichables des accompagnants d'une ligne principale — repli sur
+  // companion_firstnames (ancien champ texte libre, prénom seul, pas de nom
+  // conservé) quand aucun accompagnant group_id n'est rattaché : couvre les
+  // réservations créées avant l'introduction de group_id (même repli que
+  // BookingFlow.tsx pour l'export calendrier natif).
+  const companionLabelsByMainId: Record<string, string[]> = {};
+  for (const r of visitesAll) {
+    if (r.group_id && r.group_id !== r.id) continue;
+    const linked = companionsByMainId[r.id];
+    if (linked?.length) {
+      companionLabelsByMainId[r.id] = linked.map((c) => `${c.prenom} ${c.nom}`);
+    } else if (r.companion_firstnames) {
+      const names = r.companion_firstnames.split(",").map((c) => c.trim()).filter(Boolean);
+      if (names.length) companionLabelsByMainId[r.id] = names;
+    }
+  }
 
   // Réservations Visite pour les panneaux sous le calendrier — ajoute le
   // filtre légende visiteur à la liste complète. Utilisé tel quel par
@@ -687,7 +703,7 @@ export default function HomeCalendarScreen({
             locationBySpaceId={{}}
             onSoinPress={openVisiteActions}
             reservationType="Visite"
-            companionsById={companionsByMainId}
+            companionsById={companionLabelsByMainId}
             onEmptyPress={handleCreneauxPress}
             onCreneauxPress={handleCreneauxPress}
             remainingBySlotId={remainingByMainId}
@@ -710,7 +726,7 @@ export default function HomeCalendarScreen({
             onDayPress={() => {}}
             onSoinPress={openVisiteActions}
             reservationType="Visite"
-            companionsById={companionsByMainId}
+            companionsById={companionLabelsByMainId}
           />
 
           <SoinsPlanifiesBlock

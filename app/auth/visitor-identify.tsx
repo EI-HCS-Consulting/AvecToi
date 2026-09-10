@@ -92,7 +92,7 @@ export default function VisitorIdentifyScreen() {
       token, spaceId, prenom: row.prenom, nom: row.nom, pin: resetNewPin,
       motto: row.motto ?? "", relation: row.relation ?? "",
     });
-    router.replace({ pathname: "/(visitor)/home/calendar", params: { spaceId, token } });
+    router.replace({ pathname: "/(visitor)/home/ma-semaine", params: { spaceId, token } });
   }
 
   const canSubmit = prenom.trim() && nom.trim() && pin.length === 4 && !loading;
@@ -144,7 +144,7 @@ export default function VisitorIdentifyScreen() {
       motto: row.motto ?? "",
       relation: row.relation ?? "",
     });
-    router.replace({ pathname: "/(visitor)/home/calendar", params: { spaceId, token } });
+    router.replace({ pathname: "/(visitor)/home/ma-semaine", params: { spaceId, token } });
   }
 
   return (

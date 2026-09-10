@@ -1,0 +1,465 @@
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, Image, ActivityIndicator } from "react-native";
+import { useRouter, useLocalSearchParams } from "expo-router";
+import { useFocusEffect } from "@react-navigation/native";
+import { supabase } from "@/lib/supabase";
+import type { PatientSpace, Reservation, Task, ShoppingListItem, TaskRelaisCoverage } from "@/lib/types";
+import type { Theme } from "@/lib/themes";
+import { LOGO_ORANGE, LOGO_GREEN } from "@/lib/themes";
+import { isMyReservation, getSlotOccupancy, getWeekDates, toISO, toFrLong } from "@/lib/slotUtils";
+import { visitorIdentityKey } from "@/lib/visitorRoster";
+import { fetchOpenRelaisAlerts, resolveRelaisIdentity } from "@/lib/relaisAlerts";
+
+// Dupliqué depuis components/Entraide.tsx (non exportés là-bas) — jeu réduit,
+// pas de sous-titre auto ni de catégorie "Publier un besoin".
+const CATEGORY_ICONS: Record<Task["category"], string> = {
+  repas: "🍽️", affaires: "👕", courses: "🛒", transport: "🚗",
+  administratif: "🗂️", autre: "💡", relais: "🆘",
+};
+const CATEGORY_LABELS: Record<Task["category"], string> = {
+  repas: "Repas", affaires: "Affaires", courses: "Courses", transport: "Transport",
+  administratif: "Administratif", autre: "Autre", relais: "Relais",
+};
+
+// Même helper que lib/visitorRoster.ts (privé là-bas) — pas d'export ajouté
+// pour un usage à cet unique endroit en plus des 2 déjà existants.
+function visitorPhotoUrl(spaceId: string, filename: string): string {
+  const { data } = supabase.storage.from("visitor-photos").getPublicUrl(`${spaceId}/${filename}`);
+  return data.publicUrl;
+}
+
+interface AgendaEntry {
+  id: string;
+  date: string;
+  time: string | null;
+  title: string;
+  subtitle: string | null;
+}
+
+interface Props {
+  space: PatientSpace;
+  reservations: Reservation[];
+  basePath: "/(visitor)/home" | "/(admin)/home";
+  myPin: string | null;
+  myPrenom: string | null;
+  myNom: string | null;
+  isAdmin: boolean;
+  C: Theme;
+}
+
+/**
+ * Onglet "Ma semaine" (dernier de la 2ème barre, voir SpaceHeader.tsx) —
+ * vue par défaut à l'ouverture de l'app (hors intervenant). 2 tuiles : "Mon
+ * agenda" (mes visites/nuitées de la semaine + transports où je conduis,
+ * fusionnés chronologiquement) et "Mes engagements" (besoins sur lesquels je
+ * suis engagé, hors transport déjà couvert par la 1ère tuile, + courses +
+ * alertes). Reste sous le header patient et les 2 barres d'onglets — ouvrir
+ * une tuile ne quitte jamais cet écran, retaper "Ma semaine" (via
+ * resetTiles, voir SpaceHeader.tsx) referme la tuile.
+ */
+export default function MyWeekScreen({ space, reservations, basePath, myPin, myPrenom, myNom, isAdmin, C }: Props) {
+  const router = useRouter();
+  const params = useLocalSearchParams<{ resetTiles?: string }>();
+  const [openTile, setOpenTile] = useState<"agenda" | "engagements" | null>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (params.resetTiles) setOpenTile(null);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [params.resetTiles]),
+  );
+
+  const identityReady = !!myPrenom && !!myNom;
+
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [shoppingByTask, setShoppingByTask] = useState<Record<string, ShoppingListItem[]>>({});
+  const [relaisCoverageByTask, setRelaisCoverageByTask] = useState<Record<string, TaskRelaisCoverage[]>>({});
+  const [photoByKey, setPhotoByKey] = useState<Record<string, string | null>>({});
+  const [relaisAlertsCount, setRelaisAlertsCount] = useState(0);
+  const [changeHistoryCount, setChangeHistoryCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const { data: taskRows } = await supabase
+      .from("tasks")
+      .select("*")
+      .eq("space_id", space.id)
+      .order("created_at", { ascending: false });
+    const allTasks = (taskRows as Task[] | null) ?? [];
+    setTasks(allTasks);
+
+    const courseIds = allTasks.filter((t) => t.category === "courses").map((t) => t.id);
+    const relaisIds = allTasks.filter((t) => t.category === "relais").map((t) => t.id);
+
+    const [shopRes, covRes, profilesRes] = await Promise.all([
+      courseIds.length
+        ? supabase.from("shopping_list_items").select("*").in("task_id", courseIds).order("position", { ascending: true })
+        : Promise.resolve({ data: [] as ShoppingListItem[] }),
+      relaisIds.length
+        ? supabase.from("task_relais_coverage").select("*").in("task_id", relaisIds)
+        : Promise.resolve({ data: [] as TaskRelaisCoverage[] }),
+      supabase.from("visitor_profiles").select("prenom,nom,photo").eq("space_id", space.id),
+    ]);
+
+    const shopByTask: Record<string, ShoppingListItem[]> = {};
+    ((shopRes.data as ShoppingListItem[] | null) ?? []).forEach((row) => {
+      (shopByTask[row.task_id] ??= []).push(row);
+    });
+    setShoppingByTask(shopByTask);
+
+    const covByTask: Record<string, TaskRelaisCoverage[]> = {};
+    ((covRes.data as TaskRelaisCoverage[] | null) ?? []).forEach((row) => {
+      (covByTask[row.task_id] ??= []).push(row);
+    });
+    setRelaisCoverageByTask(covByTask);
+
+    const photos: Record<string, string | null> = {};
+    ((profilesRes.data as { prenom: string; nom: string; photo: string | null }[] | null) ?? []).forEach((p) => {
+      photos[visitorIdentityKey(p.prenom, p.nom)] = p.photo ? visitorPhotoUrl(space.id, p.photo) : null;
+    });
+    setPhotoByKey(photos);
+
+    const identity = isAdmin ? await resolveRelaisIdentity(true) : { prenom: myPrenom ?? "", nom: myNom ?? "" };
+    const openRelais = identity.prenom && identity.nom ? await fetchOpenRelaisAlerts(space.id, isAdmin, identity) : [];
+    setRelaisAlertsCount(openRelais.length);
+
+    if (identityReady) {
+      const { count } = await supabase
+        .from("reservation_change_history")
+        .select("id", { count: "exact", head: true })
+        .eq("space_id", space.id)
+        .ilike("prenom", myPrenom!.trim())
+        .ilike("nom", myNom!.trim())
+        .eq("seen", false);
+      setChangeHistoryCount(count ?? 0);
+    } else {
+      setChangeHistoryCount(0);
+    }
+
+    setLoading(false);
+  }, [space.id, isAdmin, myPrenom, myNom, identityReady]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  // Identité "moi" pour les champs Task (author/claimed/relais coverage) —
+  // même garde ADMIN sentinel que isMyBesoin() dans Entraide.tsx : côté
+  // admin on ignore tout PIN/prénom réel, seul le sentinel compte.
+  const samePerson = useCallback(
+    (prenom: string | null, nom: string | null, pin: string | null): boolean => {
+      if (isAdmin) return pin === "ADMIN";
+      if (!myPin || !myPrenom || !myNom || !pin || !prenom || !nom) return false;
+      return (
+        pin === myPin &&
+        prenom.trim().toLowerCase() === myPrenom.trim().toLowerCase() &&
+        nom.trim().toLowerCase() === myNom.trim().toLowerCase()
+      );
+    },
+    [isAdmin, myPin, myPrenom, myNom],
+  );
+
+  const courseContributedByMe = useCallback(
+    (t: Task): boolean => {
+      if (!myPrenom || !myNom) return false;
+      const key = visitorIdentityKey(myPrenom, myNom);
+      return (shoppingByTask[t.id] ?? []).some(
+        (i) => i.bought && i.bought_by_prenom && i.bought_by_nom && visitorIdentityKey(i.bought_by_prenom, i.bought_by_nom) === key,
+      );
+    },
+    [shoppingByTask, myPrenom, myNom],
+  );
+
+  const relaisEngagedByMe = useCallback(
+    (t: Task): boolean => (relaisCoverageByTask[t.id] ?? []).some((c) => samePerson(c.prenom, c.nom, c.pin)),
+    [relaisCoverageByTask, samePerson],
+  );
+
+  // ── Semaine en cours (lundi -> dimanche), comparée en "YYYY-MM-DD" comme
+  // les colonnes date/date_limite/transport_*_date en base. ──────────────
+  const weekStartIso = useMemo(() => toISO(getWeekDates(new Date())[0]), []);
+  const weekEndIso = useMemo(() => toISO(getWeekDates(new Date())[6]), []);
+  const inWeek = useCallback((iso: string) => iso >= weekStartIso && iso <= weekEndIso, [weekStartIso, weekEndIso]);
+
+  // ── Tuile "Mon agenda" : mes visites/nuitées de la semaine + transports où
+  // je conduis, fusionnés en une seule chronologie. ──────────────────────
+  const agendaEntries = useMemo<AgendaEntry[]>(() => {
+    const visitesAll = reservations.filter((r) => r.type === "Visite");
+    const visitesById: Record<string, Reservation> = {};
+    visitesAll.forEach((r) => { visitesById[r.id] = r; });
+    const companionsByMainId: Record<string, Reservation[]> = {};
+    visitesAll.forEach((r) => {
+      if (!r.group_id || r.group_id === r.id) return;
+      const main = visitesById[r.group_id];
+      if (main && main.date === r.date && main.creneau === r.creneau) {
+        (companionsByMainId[r.group_id] ??= []).push(r);
+      }
+    });
+
+    const entries: AgendaEntry[] = [];
+
+    reservations
+      .filter((r) => (r.type === "Visite" || r.type === "Nuit") && inWeek(r.date) && isMyReservation(r, myPin, null, myPrenom, myNom))
+      .forEach((r) => {
+        if (r.type === "Nuit") {
+          entries.push({ id: r.id, date: r.date, time: null, title: "🌙 Nuitée", subtitle: null });
+          return;
+        }
+        // N'affiche que les lignes "principales" — un accompagnant dont la
+        // date/créneau colle encore au groupe est déjà repris dans le
+        // sous-titre de sa ligne principale (voir companionsByMainId).
+        if (r.group_id && r.group_id !== r.id && companionsByMainId[r.group_id]?.some((c) => c.id === r.id)) return;
+        const linkedCompanions = companionsByMainId[r.id] ?? [];
+        // Repli sur companion_firstnames (ancien champ texte libre, prénom
+        // seul, pas de nom conservé) quand aucun accompagnant group_id n'est
+        // rattaché — mêmes réservations pré-migration que HomeCalendarScreen.tsx.
+        const companionLabels = linkedCompanions.length
+          ? linkedCompanions.map((c) => `${c.prenom} ${c.nom}`)
+          : (r.companion_firstnames ?? "").split(",").map((c) => c.trim()).filter(Boolean);
+        const others = getSlotOccupancy(reservations, r.date, r.creneau, r.id).filter(
+          (o) => (o.group_id || o.id) !== (r.group_id || r.id),
+        );
+        const bits: string[] = [];
+        if (companionLabels.length) bits.push(`Avec ${companionLabels.join(", ")}`);
+        if (others.length) bits.push(`Aussi ce créneau : ${others.map((o) => `${o.prenom} ${o.nom}`).join(", ")}`);
+        entries.push({
+          id: r.id,
+          date: r.date,
+          time: r.creneau,
+          title: "📅 Visite",
+          subtitle: bits.length ? bits.join(" · ") : null,
+        });
+      });
+
+    tasks
+      .filter((t) => t.category === "transport")
+      .forEach((t) => {
+        const iAmOut = samePerson(t.claimed_by_prenom, t.claimed_by_nom, t.claimed_by_pin);
+        const returnClaimedSeparately = !!t.transport_return_claimed_by_prenom;
+        const iAmReturn = returnClaimedSeparately
+          ? samePerson(t.transport_return_claimed_by_prenom, t.transport_return_claimed_by_nom, t.transport_return_claimed_by_pin)
+          : iAmOut && t.transport_round_trip;
+        if (!iAmOut && !iAmReturn) return;
+        const forWho = t.transport_for_prenom && t.transport_for_nom ? ` pour ${t.transport_for_prenom} ${t.transport_for_nom}` : "";
+        const trajet = [t.transport_from, t.transport_to].filter(Boolean).join(" → ");
+        if (iAmOut) {
+          const date = t.transport_confirmed_date || t.transport_date;
+          if (date && inWeek(date)) {
+            entries.push({
+              id: `${t.id}-aller`,
+              date,
+              time: t.transport_confirmed_out_time || t.transport_out_time || null,
+              title: `🚗 Transport aller${forWho}`,
+              subtitle: trajet || null,
+            });
+          }
+        }
+        if (iAmReturn) {
+          const date = t.transport_confirmed_date || t.transport_date;
+          if (date && inWeek(date)) {
+            entries.push({
+              id: `${t.id}-retour`,
+              date,
+              time: t.transport_confirmed_return_time || t.transport_return_time || null,
+              title: `🚗 Transport retour${forWho}`,
+              subtitle: trajet ? trajet.split(" → ").reverse().join(" → ") : null,
+            });
+          }
+        }
+      });
+
+    return entries.sort((a, b) => {
+      if (a.date !== b.date) return a.date.localeCompare(b.date);
+      if (!a.time && !b.time) return 0;
+      if (!a.time) return 1;
+      if (!b.time) return -1;
+      return a.time.localeCompare(b.time);
+    });
+  }, [reservations, tasks, inWeek, myPin, myPrenom, myNom, samePerson]);
+
+  // ── Tuile "Mes engagements" : besoins (hors transport, déjà dans "Mon
+  // agenda") sur lesquels je suis engagé, pertinents cette semaine. ─────
+  const mesEngagementsBesoins = useMemo(() => {
+    function effectiveDate(t: Task): string | null {
+      if (t.category === "relais") return t.relais_start_date || t.date_limite;
+      return t.date_limite;
+    }
+    // Toujours visible tant qu'ouvert/pris en charge (engagement actif, peu
+    // importe l'échéance) ; une fois fait/fermé, seulement si sa date (ou, à
+    // défaut, la dernière trace d'activité) tombe cette semaine — accord
+    // explicite : un besoin fermé sans aucune date reste visible tant qu'il
+    // date de cette semaine plutôt que de disparaître immédiatement.
+    function relevantThisWeek(t: Task): boolean {
+      if (t.status === "ouvert" || t.status === "pris_en_charge") return true;
+      const d = effectiveDate(t);
+      if (d) return inWeek(d);
+      const touch = t.claimed_at || t.modified_at || t.created_at;
+      return !!touch && inWeek(touch.slice(0, 10));
+    }
+    function isMyBesoin(t: Task): boolean {
+      if (t.category === "transport") return false;
+      if (samePerson(t.author_prenom, t.author_nom, t.author_pin)) return true;
+      if (samePerson(t.claimed_by_prenom, t.claimed_by_nom, t.claimed_by_pin)) return true;
+      if (t.category === "courses" && courseContributedByMe(t)) return true;
+      if (t.category === "relais") return relaisEngagedByMe(t);
+      return false;
+    }
+    return tasks.filter((t) => isMyBesoin(t) && relevantThisWeek(t));
+  }, [tasks, inWeek, samePerson, courseContributedByMe, relaisEngagedByMe]);
+
+  const alertsCount = useMemo(() => {
+    const myReservationAlerts = reservations.filter(
+      (r) => r.alert_message && !r.alert_seen && isMyReservation(r, myPin, null, myPrenom, myNom),
+    ).length;
+    return relaisAlertsCount + changeHistoryCount + myReservationAlerts;
+  }, [reservations, myPin, myPrenom, myNom, relaisAlertsCount, changeHistoryCount]);
+
+  function openAlerts() {
+    router.push({ pathname: `${basePath === "/(visitor)/home" ? "/(visitor)/account" : "/(admin)/account"}`, params: { openAlerts: "1" } } as any);
+  }
+
+  if (loading && !tasks.length) {
+    return (
+      <View style={[styles.center, { backgroundColor: C.bg }]}>
+        <ActivityIndicator color={C.accent} size="large" />
+      </View>
+    );
+  }
+
+  if (openTile === null) {
+    return (
+      <View style={[styles.tilesRow, { backgroundColor: C.bg }]}>
+        <TouchableOpacity
+          style={[styles.tile, { backgroundColor: LOGO_ORANGE }]}
+          onPress={() => setOpenTile("agenda")}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.tileCount}>{agendaEntries.length}</Text>
+          <Text style={styles.tileLabel}>📅 Mon agenda</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.tile, { backgroundColor: LOGO_GREEN }]}
+          onPress={() => setOpenTile("engagements")}
+          activeOpacity={0.85}
+        >
+          <Text style={styles.tileCount}>{mesEngagementsBesoins.length}</Text>
+          <Text style={styles.tileLabel}>🤝 Mes engagements</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (openTile === "agenda") {
+    return (
+      <ScrollView style={[styles.detail, { backgroundColor: C.bg }]} contentContainerStyle={styles.detailContent}>
+        <Text style={[styles.detailTitle, { color: LOGO_ORANGE }]}>📅 Mon agenda — cette semaine</Text>
+        {agendaEntries.length === 0 && (
+          <Text style={[styles.emptyText, { color: C.muted }]}>Rien de prévu cette semaine.</Text>
+        )}
+        {agendaEntries.map((e) => (
+          <View key={e.id} style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
+            <Text style={[styles.cardDate, { color: C.gold }]}>
+              {toFrLong(new Date(e.date + "T12:00:00"))}{e.time ? ` · ${e.time}` : ""}
+            </Text>
+            <Text style={[styles.cardTitle, { color: C.text }]}>{e.title}</Text>
+            {!!e.subtitle && <Text style={[styles.cardSubtitle, { color: C.muted }]}>{e.subtitle}</Text>}
+          </View>
+        ))}
+      </ScrollView>
+    );
+  }
+
+  return (
+    <ScrollView style={[styles.detail, { backgroundColor: C.bg }]} contentContainerStyle={styles.detailContent}>
+      <Text style={[styles.detailTitle, { color: LOGO_GREEN }]}>🤝 Mes engagements — cette semaine</Text>
+
+      <TouchableOpacity style={[styles.alertsRow, { backgroundColor: C.card, borderColor: C.border }]} onPress={openAlerts} activeOpacity={0.8}>
+        <Text style={[styles.cardTitle, { color: C.text }]}>🔔 Mes alertes</Text>
+        <View style={[styles.badge, { backgroundColor: alertsCount ? C.danger : C.overlay }]}>
+          <Text style={[styles.badgeText, { color: alertsCount ? "#fff" : C.muted }]}>{alertsCount}</Text>
+        </View>
+      </TouchableOpacity>
+
+      {mesEngagementsBesoins.length === 0 && (
+        <Text style={[styles.emptyText, { color: C.muted }]}>Aucun besoin en cours cette semaine.</Text>
+      )}
+
+      {mesEngagementsBesoins.map((t) => (
+        <View key={t.id} style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
+          <Text style={[styles.cardTitle, { color: C.text }]}>
+            {CATEGORY_ICONS[t.category]} {t.title || CATEGORY_LABELS[t.category]}
+          </Text>
+          <Text style={[styles.cardSubtitle, { color: C.muted }]}>
+            {t.status === "fait" ? "✓ Fait" : t.status === "ferme" ? "🔒 Fermé" : t.status === "pris_en_charge" ? "🤝 Pris en charge" : "⏳ Ouvert"}
+          </Text>
+
+          {t.category === "courses" && (
+            <View style={styles.courseList}>
+              {(shoppingByTask[t.id] ?? []).map((item) => (
+                <Text key={item.id} style={[styles.courseItem, { color: item.bought ? C.success : C.text }]}>
+                  {item.bought ? "☑" : "☐"} {item.label}
+                </Text>
+              ))}
+              <View style={styles.avatarRow}>
+                {Array.from(
+                  new Map(
+                    (shoppingByTask[t.id] ?? [])
+                      .filter((i) => i.bought && i.bought_by_prenom && i.bought_by_nom)
+                      .map((i) => [visitorIdentityKey(i.bought_by_prenom!, i.bought_by_nom!), i]),
+                  ).values(),
+                ).map((i) => {
+                  const key = visitorIdentityKey(i.bought_by_prenom!, i.bought_by_nom!);
+                  const url = photoByKey[key];
+                  return url ? (
+                    <Image key={key} source={{ uri: url }} style={styles.avatar} />
+                  ) : (
+                    <View key={key} style={[styles.avatarFallback, { borderColor: C.border }]}>
+                      <Text style={{ color: C.muted, fontSize: 11 }}>{i.bought_by_prenom![0]}</Text>
+                    </View>
+                  );
+                })}
+              </View>
+            </View>
+          )}
+
+          {t.category === "relais" && (
+            <Text style={[styles.cardSubtitle, { color: C.muted }]}>
+              {(relaisCoverageByTask[t.id] ?? [])
+                .filter((c) => samePerson(c.prenom, c.nom, c.pin))
+                .map((c) => `${c.start_date} → ${c.end_date}`)
+                .join(", ")}
+            </Text>
+          )}
+        </View>
+      ))}
+    </ScrollView>
+  );
+}
+
+const styles = StyleSheet.create({
+  center: { flex: 1, alignItems: "center", justifyContent: "center" },
+  tilesRow: { flex: 1, flexDirection: "row", padding: 16, gap: 12 },
+  tile: { flex: 1, borderRadius: 20, alignItems: "center", justifyContent: "center", paddingVertical: 32 },
+  tileCount: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 48, color: "#fff" },
+  tileLabel: { fontFamily: "DM_Sans_600SemiBold", fontSize: 14, color: "#fff", marginTop: 8, textAlign: "center" },
+  detail: { flex: 1 },
+  detailContent: { padding: 16, paddingBottom: 40 },
+  detailTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, marginBottom: 14 },
+  emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 14, textAlign: "center", marginTop: 24 },
+  card: { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 },
+  cardDate: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 },
+  cardTitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15 },
+  cardSubtitle: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginTop: 4 },
+  alertsRow: {
+    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
+    borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 14,
+  },
+  badge: { minWidth: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
+  badgeText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
+  courseList: { marginTop: 8 },
+  courseItem: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginBottom: 2 },
+  avatarRow: { flexDirection: "row", marginTop: 8, gap: 6 },
+  avatar: { width: 28, height: 28, borderRadius: 14 },
+  avatarFallback: { width: 28, height: 28, borderRadius: 14, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+});

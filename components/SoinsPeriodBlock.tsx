@@ -46,10 +46,12 @@ interface Props {
   // vue intervenant). Passer "Visite" pour le planning des visites
   // (home/calendar.tsx, mode Visites).
   reservationType?: "Intervention" | "Visite";
-  // Accompagnants d'une réservation, indexés par son id (voir
-  // home/calendar.tsx, companionsByMainId) — affichés sous le nom du
-  // réservant principal. Absent : rien n'est affiché (usages hors visites).
-  companionsById?: Record<string, Reservation[]>;
+  // Libellés des accompagnants d'une réservation, indexés par son id (voir
+  // home/calendar.tsx, companionLabelsByMainId) — déjà formatés en "Prénom
+  // Nom" (ou prénom seul pour un accompagnant issu de l'ancien champ texte
+  // libre companion_firstnames) — affichés sous le nom du réservant
+  // principal. Absent : rien n'est affiché (usages hors visites).
+  companionsById?: Record<string, string[]>;
 }
 
 export default function SoinsPeriodBlock({
@@ -195,7 +197,7 @@ export default function SoinsPeriodBlock({
                               )}
                               {!!companions?.length && (
                                 <Text style={[styles.soinBy, { color: C.muted }]} numberOfLines={1}>
-                                  + {companions.map((c) => `${c.prenom} ${c.nom}`).join(", ")}
+                                  + {companions.join(", ")}
                                 </Text>
                               )}
                             </View>

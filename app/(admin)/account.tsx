@@ -90,7 +90,7 @@ const SHEET_MAX_HEIGHT = Dimensions.get("window").height * 0.72;
 
 export default function AdminAccountScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ scrollTo?: string }>();
+  const params = useLocalSearchParams<{ scrollTo?: string; openAlerts?: string }>();
   const {
     space, loading, hasSpace, getConfigForDate, patchSpace,
     slotConfig, slots, reservations: allReservations, refreshReservations,
@@ -132,6 +132,11 @@ export default function AdminAccountScreen() {
   const [recurringModalVisible, setRecurringModalVisible] = useState(false);
   const [changeHistory, setChangeHistory] = useState<ReservationChangeHistoryEntry[]>([]);
   const [alertsModalVisible, setAlertsModalVisible] = useState(false);
+  // Ouverture directe depuis "Ma semaine" (tuile "Mes engagements" > bloc
+  // alertes) — voir components/MyWeekScreen.tsx.
+  useEffect(() => {
+    if (params.openAlerts === "1") setAlertsModalVisible(true);
+  }, [params.openAlerts]);
   const [patientProfileVisible, setPatientProfileVisible] = useState(false);
   const [visitorsListVisible, setVisitorsListVisible] = useState(false);
   const [news, setNews] = useState<NewsEntry[]>([]);
@@ -712,7 +717,7 @@ export default function AdminAccountScreen() {
       // patient_space_coadmins reste active en base, revérifiée au prochain
       // montage de (admin)/_layout.tsx (voir checkCoAdminStatus).
       if (space) await setCachedCoAdminActive(space.id, false);
-      router.replace("/(visitor)/home/calendar" as any);
+      router.replace("/(visitor)/home/ma-semaine" as any);
       return;
     }
     await supabase.auth.signOut();
