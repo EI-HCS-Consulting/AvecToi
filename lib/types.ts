@@ -7,6 +7,7 @@ export interface PatientSpace {
   admin_lastname: string | null;
   admin_email: string | null;
   admin_pin: string | null;
+  admin_photo_url: string | null;
   patient_firstname: string;
   patient_lastname: string;
   patient_photo_url: string | null;
@@ -357,6 +358,13 @@ export interface TransportProposal {
   // proposition reste visible (jamais supprimée du tableau) mais affichée
   // avec un tag "Déclinée" et sans bouton de validation.
   declined: boolean;
+  // Vrai une fois que l'auteur/bénéficiaire a ouvert "Voir les propositions"
+  // depuis le popup d'alerte (voir TransportProposalAlertModal.tsx) — tant
+  // que c'est faux, cette proposition redéclenche le popup à chaque
+  // connexion (même principe que relais_dismissed_by pour les besoins de
+  // relais, mais par proposition plutôt que par besoin entier, pour ne pas
+  // re-notifier sur des propositions déjà vues si une nouvelle arrive après).
+  seen_by_author: boolean;
 }
 
 export interface Task {
