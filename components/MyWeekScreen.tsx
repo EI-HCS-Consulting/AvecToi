@@ -8,7 +8,6 @@ import type { Theme } from "@/lib/themes";
 import { LOGO_ORANGE, LOGO_GREEN } from "@/lib/themes";
 import { isMyReservation, getSlotOccupancy, getWeekDates, toISO, toFrLong } from "@/lib/slotUtils";
 import { visitorIdentityKey } from "@/lib/visitorRoster";
-import { fetchOpenRelaisAlerts, resolveRelaisIdentity } from "@/lib/relaisAlerts";
 
 // Dupliqué depuis components/Entraide.tsx (non exportés là-bas) — jeu réduit,
 // pas de sous-titre auto ni de catégorie "Publier un besoin".
@@ -28,12 +27,21 @@ function visitorPhotoUrl(spaceId: string, filename: string): string {
   return data.publicUrl;
 }
 
+// Cible de navigation au tap d'une entrée — "reservation" réutilise le
+// pattern focusDate/focusCreneau de VisitorProfileModal.tsx (slots/nights
+// scrollent jusqu'à la ligne exacte), "task" réutilise focusTaskId
+// d'Entraide.tsx (scroll + surlignage du besoin dans le mur d'entraide).
+type AgendaNav =
+  | { kind: "reservation"; type: "Visite" | "Nuit"; date: string; creneau: string | null }
+  | { kind: "task"; taskId: string };
+
 interface AgendaEntry {
   id: string;
   date: string;
   time: string | null;
   title: string;
   subtitle: string | null;
+  nav: AgendaNav;
 }
 
 interface Props {
@@ -50,12 +58,14 @@ interface Props {
 /**
  * Onglet "Ma semaine" (dernier de la 2ème barre, voir SpaceHeader.tsx) —
  * vue par défaut à l'ouverture de l'app (hors intervenant). 2 tuiles : "Mon
- * agenda" (mes visites/nuitées de la semaine + transports où je conduis,
- * fusionnés chronologiquement) et "Mes engagements" (besoins sur lesquels je
- * suis engagé, hors transport déjà couvert par la 1ère tuile, + courses +
- * alertes). Reste sous le header patient et les 2 barres d'onglets — ouvrir
- * une tuile ne quitte jamais cet écran, retaper "Ma semaine" (via
- * resetTiles, voir SpaceHeader.tsx) referme la tuile.
+ * agenda" (mes visites/nuitées de la semaine + transports où je conduis ou
+ * dont je suis la personne concernée, fusionnés chronologiquement) et "Mes
+ * engagements" (besoins sur lesquels je suis engagé, hors transport déjà
+ * couvert par la 1ère tuile). Chaque entrée renvoie vers son équivalent dans
+ * le mur d'entraide (besoins) ou dans slots/nights (visites/nuitées). Reste
+ * sous le header patient et les 2 barres d'onglets — ouvrir une tuile ne
+ * quitte jamais cet écran, retaper "Ma semaine" (via resetTiles, voir
+ * SpaceHeader.tsx) referme la tuile.
  */
 export default function MyWeekScreen({ space, reservations, basePath, myPin, myPrenom, myNom, isAdmin, C }: Props) {
   const router = useRouter();
@@ -69,14 +79,15 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
     }, [params.resetTiles]),
   );
 
-  const identityReady = !!myPrenom && !!myNom;
+  // Chemin du mur d'entraide correspondant, pour les renvois focusTaskId
+  // depuis "Mes engagements" et "Mon agenda" — basePath inclut déjà "/home",
+  // contrairement à celui de VisitorProfileModal.tsx.
+  const entraideBasePath = basePath === "/(visitor)/home" ? "/(visitor)/entraide" : "/(admin)/entraide";
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [shoppingByTask, setShoppingByTask] = useState<Record<string, ShoppingListItem[]>>({});
   const [relaisCoverageByTask, setRelaisCoverageByTask] = useState<Record<string, TaskRelaisCoverage[]>>({});
   const [photoByKey, setPhotoByKey] = useState<Record<string, string | null>>({});
-  const [relaisAlertsCount, setRelaisAlertsCount] = useState(0);
-  const [changeHistoryCount, setChangeHistoryCount] = useState(0);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
@@ -120,25 +131,8 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
     });
     setPhotoByKey(photos);
 
-    const identity = isAdmin ? await resolveRelaisIdentity(true) : { prenom: myPrenom ?? "", nom: myNom ?? "" };
-    const openRelais = identity.prenom && identity.nom ? await fetchOpenRelaisAlerts(space.id, isAdmin, identity) : [];
-    setRelaisAlertsCount(openRelais.length);
-
-    if (identityReady) {
-      const { count } = await supabase
-        .from("reservation_change_history")
-        .select("id", { count: "exact", head: true })
-        .eq("space_id", space.id)
-        .ilike("prenom", myPrenom!.trim())
-        .ilike("nom", myNom!.trim())
-        .eq("seen", false);
-      setChangeHistoryCount(count ?? 0);
-    } else {
-      setChangeHistoryCount(0);
-    }
-
     setLoading(false);
-  }, [space.id, isAdmin, myPrenom, myNom, identityReady]);
+  }, [space.id]);
 
   useEffect(() => {
     load();
@@ -203,7 +197,14 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
       .filter((r) => (r.type === "Visite" || r.type === "Nuit") && inWeek(r.date) && isMyReservation(r, myPin, null, myPrenom, myNom))
       .forEach((r) => {
         if (r.type === "Nuit") {
-          entries.push({ id: r.id, date: r.date, time: null, title: "🌙 Nuitée", subtitle: null });
+          entries.push({
+            id: r.id,
+            date: r.date,
+            time: null,
+            title: "🌙 Nuitée",
+            subtitle: null,
+            nav: { kind: "reservation", type: "Nuit", date: r.date, creneau: null },
+          });
           return;
         }
         // N'affiche que les lignes "principales" — un accompagnant dont la
@@ -222,13 +223,14 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
         );
         const bits: string[] = [];
         if (companionLabels.length) bits.push(`Avec ${companionLabels.join(", ")}`);
-        if (others.length) bits.push(`Aussi ce créneau : ${others.map((o) => `${o.prenom} ${o.nom}`).join(", ")}`);
+        if (others.length) bits.push(`Aussi dans ce créneau : ${others.map((o) => `${o.prenom} ${o.nom}`).join(", ")}`);
         entries.push({
           id: r.id,
           date: r.date,
           time: r.creneau,
           title: "📅 Visite",
           subtitle: bits.length ? bits.join(" · ") : null,
+          nav: { kind: "reservation", type: "Visite", date: r.date, creneau: r.creneau },
         });
       });
 
@@ -240,30 +242,55 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
         const iAmReturn = returnClaimedSeparately
           ? samePerson(t.transport_return_claimed_by_prenom, t.transport_return_claimed_by_nom, t.transport_return_claimed_by_pin)
           : iAmOut && t.transport_round_trip;
-        if (!iAmOut && !iAmReturn) return;
-        const forWho = t.transport_for_prenom && t.transport_for_nom ? ` pour ${t.transport_for_prenom} ${t.transport_for_nom}` : "";
+        // Personne concernée par le transport (celle transportée) —
+        // transport_for_* seulement quand posté "pour quelqu'un d'autre"
+        // (voir Entraide.tsx), sinon l'auteur du besoin est lui-même la
+        // personne concernée. Comparaison par nom uniquement, comme
+        // isForPerson() dans Entraide.tsx (pas de PIN dédié à ce rôle).
+        const concernedPrenom = t.transport_for_prenom || t.author_prenom;
+        const concernedNom = t.transport_for_nom || t.author_nom;
+        const iAmConcerned =
+          t.transport_for_prenom && t.transport_for_nom
+            ? !!myPrenom &&
+              !!myNom &&
+              t.transport_for_prenom.trim().toLowerCase() === myPrenom.trim().toLowerCase() &&
+              t.transport_for_nom.trim().toLowerCase() === myNom.trim().toLowerCase()
+            : samePerson(t.author_prenom, t.author_nom, t.author_pin);
+        if (!iAmOut && !iAmReturn && !iAmConcerned) return;
         const trajet = [t.transport_from, t.transport_to].filter(Boolean).join(" → ");
-        if (iAmOut) {
+        // Affiche toujours "l'autre partie" du point de vue du lecteur : le
+        // conducteur voit qui est transporté, la personne transportée voit
+        // qui conduit (ou un texte d'attente si personne n'a encore pris en
+        // charge ce trajet).
+        function otherParty(driving: boolean, driverPrenom: string | null, driverNom: string | null): string {
+          if (driving) return `${concernedPrenom} ${concernedNom}`;
+          return driverPrenom && driverNom ? `${driverPrenom} ${driverNom}` : "conducteur non attribué";
+        }
+        if (iAmOut || iAmConcerned) {
           const date = t.transport_confirmed_date || t.transport_date;
           if (date && inWeek(date)) {
             entries.push({
               id: `${t.id}-aller`,
               date,
               time: t.transport_confirmed_out_time || t.transport_out_time || null,
-              title: `🚗 Transport aller${forWho}`,
+              title: `🚗 Transport aller : ${otherParty(iAmOut, t.claimed_by_prenom, t.claimed_by_nom)}`,
               subtitle: trajet || null,
+              nav: { kind: "task", taskId: t.id },
             });
           }
         }
-        if (iAmReturn) {
+        if (iAmReturn || (iAmConcerned && t.transport_round_trip)) {
           const date = t.transport_confirmed_date || t.transport_date;
           if (date && inWeek(date)) {
+            const returnDriverPrenom = returnClaimedSeparately ? t.transport_return_claimed_by_prenom : t.claimed_by_prenom;
+            const returnDriverNom = returnClaimedSeparately ? t.transport_return_claimed_by_nom : t.claimed_by_nom;
             entries.push({
               id: `${t.id}-retour`,
               date,
               time: t.transport_confirmed_return_time || t.transport_return_time || null,
-              title: `🚗 Transport retour${forWho}`,
+              title: `🚗 Transport retour : ${otherParty(iAmReturn, returnDriverPrenom, returnDriverNom)}`,
               subtitle: trajet ? trajet.split(" → ").reverse().join(" → ") : null,
+              nav: { kind: "task", taskId: t.id },
             });
           }
         }
@@ -308,17 +335,6 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
     return tasks.filter((t) => isMyBesoin(t) && relevantThisWeek(t));
   }, [tasks, inWeek, samePerson, courseContributedByMe, relaisEngagedByMe]);
 
-  const alertsCount = useMemo(() => {
-    const myReservationAlerts = reservations.filter(
-      (r) => r.alert_message && !r.alert_seen && isMyReservation(r, myPin, null, myPrenom, myNom),
-    ).length;
-    return relaisAlertsCount + changeHistoryCount + myReservationAlerts;
-  }, [reservations, myPin, myPrenom, myNom, relaisAlertsCount, changeHistoryCount]);
-
-  function openAlerts() {
-    router.push({ pathname: `${basePath === "/(visitor)/home" ? "/(visitor)/account" : "/(admin)/account"}`, params: { openAlerts: "1" } } as any);
-  }
-
   if (loading && !tasks.length) {
     return (
       <View style={[styles.center, { backgroundColor: C.bg }]}>
@@ -358,13 +374,27 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
           <Text style={[styles.emptyText, { color: C.muted }]}>Rien de prévu cette semaine.</Text>
         )}
         {agendaEntries.map((e) => (
-          <View key={e.id} style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
+          <TouchableOpacity
+            key={e.id}
+            style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}
+            activeOpacity={0.8}
+            onPress={() => {
+              if (e.nav.kind === "task") {
+                router.push(`${entraideBasePath}?focusTaskId=${e.nav.taskId}` as any);
+              } else {
+                router.push({
+                  pathname: `${basePath}/${e.nav.type === "Nuit" ? "nights" : "slots"}`,
+                  params: e.nav.type === "Nuit" ? { focusDate: e.nav.date } : { focusDate: e.nav.date, focusCreneau: e.nav.creneau },
+                } as any);
+              }
+            }}
+          >
             <Text style={[styles.cardDate, { color: C.gold }]}>
               {toFrLong(new Date(e.date + "T12:00:00"))}{e.time ? ` · ${e.time}` : ""}
             </Text>
             <Text style={[styles.cardTitle, { color: C.text }]}>{e.title}</Text>
             {!!e.subtitle && <Text style={[styles.cardSubtitle, { color: C.muted }]}>{e.subtitle}</Text>}
-          </View>
+          </TouchableOpacity>
         ))}
       </ScrollView>
     );
@@ -374,19 +404,17 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
     <ScrollView style={[styles.detail, { backgroundColor: C.bg }]} contentContainerStyle={styles.detailContent}>
       <Text style={[styles.detailTitle, { color: LOGO_GREEN }]}>🤝 Mes engagements — cette semaine</Text>
 
-      <TouchableOpacity style={[styles.alertsRow, { backgroundColor: C.card, borderColor: C.border }]} onPress={openAlerts} activeOpacity={0.8}>
-        <Text style={[styles.cardTitle, { color: C.text }]}>🔔 Mes alertes</Text>
-        <View style={[styles.badge, { backgroundColor: alertsCount ? C.danger : C.overlay }]}>
-          <Text style={[styles.badgeText, { color: alertsCount ? "#fff" : C.muted }]}>{alertsCount}</Text>
-        </View>
-      </TouchableOpacity>
-
       {mesEngagementsBesoins.length === 0 && (
         <Text style={[styles.emptyText, { color: C.muted }]}>Aucun besoin en cours cette semaine.</Text>
       )}
 
       {mesEngagementsBesoins.map((t) => (
-        <View key={t.id} style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}>
+        <TouchableOpacity
+          key={t.id}
+          style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}
+          activeOpacity={0.8}
+          onPress={() => router.push(`${entraideBasePath}?focusTaskId=${t.id}` as any)}
+        >
           <Text style={[styles.cardTitle, { color: C.text }]}>
             {CATEGORY_ICONS[t.category]} {t.title || CATEGORY_LABELS[t.category]}
           </Text>
@@ -431,7 +459,7 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
                 .join(", ")}
             </Text>
           )}
-        </View>
+        </TouchableOpacity>
       ))}
     </ScrollView>
   );
@@ -451,12 +479,6 @@ const styles = StyleSheet.create({
   cardDate: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 },
   cardTitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15 },
   cardSubtitle: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginTop: 4 },
-  alertsRow: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 14,
-  },
-  badge: { minWidth: 26, height: 26, borderRadius: 13, alignItems: "center", justifyContent: "center", paddingHorizontal: 6 },
-  badgeText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
   courseList: { marginTop: 8 },
   courseItem: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginBottom: 2 },
   avatarRow: { flexDirection: "row", marginTop: 8, gap: 6 },
