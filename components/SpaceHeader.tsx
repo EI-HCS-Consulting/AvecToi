@@ -1,12 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { View, Text, Image, TouchableOpacity, StyleSheet, Linking, Modal } from "react-native";
 import { useRouter } from "expo-router";
 import type { PatientSpace } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 import { activeAddressParts, addressLines, googleMapsSearchUrl, joinAddress } from "@/lib/address";
+import { getVisitorSession } from "@/lib/visitorSession";
 import PatientProfileModal from "@/components/PatientProfileModal";
 
-export type HomeTab = "calendar" | "slots" | "nights" | "info" | "share";
+export type HomeTab = "ma-semaine" | "calendar" | "slots" | "nights" | "info" | "share";
 
 const TABS: { id: HomeTab; label: string }[] = [
   { id: "calendar", label: "📅 Calendrier" },
@@ -14,6 +15,7 @@ const TABS: { id: HomeTab; label: string }[] = [
   { id: "nights", label: "🌙 Nuits" },
   { id: "info", label: "ℹ️ Infos" },
   { id: "share", label: "📱 Partager" },
+  { id: "ma-semaine", label: "🗓️ Ma semaine" },
 ];
 
 /**
@@ -37,6 +39,22 @@ export default function SpaceHeader({
   const [lightbox, setLightbox] = useState(false);
   const [patientProfile, setPatientProfile] = useState(false);
   const isVisitor = basePath === "/(visitor)/home";
+
+  // "Ma semaine" ne concerne pas les intervenants (planning professionnel,
+  // pas de notion d'engagement personnel) — masqué pour ce rôle uniquement.
+  // Admin et co-admin (session visiteur role "visiteur") le voient.
+  const [hideMaSemaine, setHideMaSemaine] = useState(false);
+  useEffect(() => {
+    if (!isVisitor) return;
+    let cancelled = false;
+    getVisitorSession().then((s) => {
+      if (!cancelled) setHideMaSemaine(s?.role === "intervenant");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isVisitor]);
+  const visibleTabs = hideMaSemaine ? TABS.filter((t) => t.id !== "ma-semaine") : TABS;
 
   // 2 lignes visées : nom de l'hôpital, puis "Service X · Chambre Y" — le
   // secteur (déjà visible dans "Infos hospitalières" et redondant avec le
@@ -122,22 +140,29 @@ export default function SpaceHeader({
       )}
 
       <View style={[styles.tabsRow, { borderTopColor: C.border }]}>
-        {TABS.map((t) => {
+        {visibleTabs.map((t) => {
           const isActive = active === t.id;
           return (
             <TouchableOpacity
               key={t.id}
               style={styles.tabBtn}
-              onPress={() =>
+              onPress={() => {
                 // "Calendrier" revient sur la date du jour, tout mode
                 // confondu (Mensuel/Hebdo) — contrairement à l'onglet bas
                 // "Accueil", qui lui conserve le jour/vue déjà sélectionnés.
                 // Voir le useFocusEffect de HomeCalendarScreen.tsx qui lit ce
                 // param pour déclencher son reset.
-                t.id === "calendar"
-                  ? router.replace({ pathname: `${basePath}/calendar`, params: { resetToday: "1" } } as any)
-                  : router.replace(`${basePath}/${t.id}` as any)
-              }
+                if (t.id === "calendar") {
+                  router.replace({ pathname: `${basePath}/calendar`, params: { resetToday: "1" } } as any);
+                } else if (t.id === "ma-semaine") {
+                  // Un appui sur "Ma semaine" ramène toujours à la vue des 2
+                  // tuiles (referme une tuile ouverte), même si on y était
+                  // déjà — même mécanisme que resetToday ci-dessus.
+                  router.replace({ pathname: `${basePath}/ma-semaine`, params: { resetTiles: "1" } } as any);
+                } else {
+                  router.replace(`${basePath}/${t.id}` as any);
+                }
+              }}
               activeOpacity={0.75}
             >
               <Text

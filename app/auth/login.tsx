@@ -29,7 +29,7 @@ export default function LoginScreen() {
     if (error) {
       Alert.alert("Connexion impossible", error.message);
     } else {
-      router.replace("/(admin)/home/calendar");
+      router.replace("/(admin)/home/ma-semaine");
     }
   }
 

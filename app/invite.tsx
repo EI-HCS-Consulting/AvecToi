@@ -39,7 +39,7 @@ export default function InviteScreen() {
       await completeVisitorEntry(result);
 
       router.replace({
-        pathname: "/(visitor)/home/calendar",
+        pathname: "/(visitor)/home/ma-semaine",
         params: { spaceId: result.spaceId, token: result.token },
       });
     }

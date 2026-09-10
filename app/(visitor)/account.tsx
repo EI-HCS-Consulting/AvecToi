@@ -6,7 +6,7 @@ import {
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import { File, Paths } from "expo-file-system";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import { useVisitorSpace } from "@/lib/VisitorContext";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
@@ -201,6 +201,12 @@ export default function VisitorAccountScreen() {
   // native pour l'une et une modale custom pour l'autre.
   const [confirmModal, setConfirmModal] = useState<"logout" | "switchSpace" | null>(null);
   const [alertsModalVisible, setAlertsModalVisible] = useState(false);
+  // Ouverture directe depuis "Ma semaine" (tuile "Mes engagements" > bloc
+  // alertes) — voir components/MyWeekScreen.tsx.
+  const { openAlerts } = useLocalSearchParams<{ openAlerts?: string }>();
+  useEffect(() => {
+    if (openAlerts === "1") setAlertsModalVisible(true);
+  }, [openAlerts]);
   // Besoins de relais ouverts ciblant cette identité — voir lib/relaisAlerts.ts,
   // même source que le popup RelaisAlertModal, ici consultable à tout moment.
   const [relaisAlerts, setRelaisAlerts] = useState<Task[]>([]);
