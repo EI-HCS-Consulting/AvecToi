@@ -148,6 +148,24 @@ export function AdminSpaceProvider(props: AdminSpaceProviderProps) {
         spaceData.admin_firstname = metaFirstname;
         spaceData.admin_lastname = metaLastname;
       }
+      // Même trappe que ci-dessus pour admin_photo_url (colonne ajoutée après
+      // coup, migration 20260910_patient_spaces_admin_photo.sql) : un admin
+      // ayant uploadé sa photo avant cette colonne — ou avant un build
+      // intégrant la recopie de account.tsx — restait avec admin_photo_url
+      // vide en base malgré une photo bien présente dans user_metadata,
+      // invisible ensuite aux visiteurs (ex. avatars "Mes engagements"). Gardé
+      // derrière `userData.user` (comme le bloc nom ci-dessus) pour ne jamais
+      // écraser une photo existante suite à un getUser() en échec transitoire.
+      if (userData.user) {
+        const metaPhotoUrl = userData.user.user_metadata?.photo_url || null;
+        if (metaPhotoUrl !== spaceData.admin_photo_url) {
+          await supabase
+            .from("patient_spaces")
+            .update({ admin_photo_url: metaPhotoUrl })
+            .eq("id", spaceData.id);
+          spaceData.admin_photo_url = metaPhotoUrl;
+        }
+      }
     }
 
     setSpace(spaceData);
