@@ -3135,9 +3135,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
   // Valide une seule jambe (aller ou retour) d'une proposition — l'autre
   // jambe, si elle n'est pas déjà attribuée, reste ouverte aux autres
-  // propositions. Le statut ne passe à "pris_en_charge" (et la liste de
-  // propositions n'est vidée) qu'une fois les deux jambes attribuées (ou la
-  // seule jambe, pour un besoin simple aller uniquement).
+  // propositions. Le besoin passe directement à "ferme" (transport résolu,
+  // pas de "C'est fait" à attendre) une fois les deux jambes attribuées (ou
+  // la seule jambe, pour un besoin simple aller uniquement) — la liste de
+  // propositions est conservée (pas vidée) pour que le badge "Validée" reste
+  // visible en rouvrant la modale "Propositions reçues" sur un besoin fermé.
   async function validateTransportLeg(t: Task, p: TransportProposal, leg: "out" | "return") {
     const otherLegDone = leg === "out"
       ? (!t.transport_round_trip || !!t.transport_return_claimed_by_prenom)
@@ -3155,11 +3157,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       patch.transport_confirmed_return_time = p.return_time;
     }
     if (otherLegDone) {
-      patch.status = "pris_en_charge";
-      patch.transport_proposals = [];
+      patch.status = "ferme";
     }
     await supabase.from("tasks").update(patch).eq("id", t.id);
-    showToast(otherLegDone ? "Horaire validé ✓" : leg === "out" ? "Aller validé — en attente du retour" : "Retour validé — en attente de l'aller");
+    showToast(otherLegDone ? "Proposition validée — besoin fermé ✓" : leg === "out" ? "Aller validé — en attente du retour" : "Retour validé — en attente de l'aller");
     if (otherLegDone) setProposalsTarget(null);
     loadTasks();
   }
@@ -3612,12 +3613,28 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           </View>
         )}
 
-        {t.status === "pris_en_charge" && !isAdmin && myTransportLegs(t).length > 0 && (
+        {t.status !== "ouvert" && t.category === "transport" && t.transport_proposals.length > 0 && (
+          <TouchableOpacity
+            style={[styles.actionSmall, { borderColor: C.border, marginTop: 8, alignSelf: "flex-start" }]}
+            onPress={() => setProposalsTarget(t)}
+            activeOpacity={0.85}
+          >
+            <Text style={[styles.actionSmallText, { color: C.muted }]}>
+              🕐 Propositions ({t.transport_proposals.length})
+            </Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Un transport validé via propositions passe directement à "ferme"
+            (voir validateTransportLeg) — "C'est fait"/"Se désinscrire" n'ont
+            plus de sens sur un besoin déjà clos, mais "Ajouter au calendrier"
+            doit rester accessible pour la personne qui conduit. */}
+        {(t.status === "pris_en_charge" || (t.status === "ferme" && t.category === "transport")) && !isAdmin && myTransportLegs(t).length > 0 && (
           <View style={{ flexDirection: "row", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
             {/* "C'est fait" n'a plus lieu d'être une fois que la carte affiche
                 déjà "Fait" (voir transportOverdue) — évite le doublon visuel
                 d'un bouton d'action à côté d'un tag qui dit déjà que c'est fait. */}
-            {!transportOverdue(t) && (
+            {t.status === "pris_en_charge" && !transportOverdue(t) && (
               <TouchableOpacity
                 style={[styles.actionSmall, { borderColor: C.success, backgroundColor: `${C.success}18` }]}
                 onPress={() => openDone(t)}
@@ -3625,7 +3642,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                 <Text style={[styles.actionSmallText, { color: C.success }]}>✓ C'est fait</Text>
               </TouchableOpacity>
             )}
-            {!isTaskClosedPast(t) && (myTransportLegs(t).length > 1 ? (
+            {t.status === "pris_en_charge" && !isTaskClosedPast(t) && (myTransportLegs(t).length > 1 ? (
               <>
                 <TouchableOpacity
                   style={[styles.actionSmall, { borderColor: C.border }]}
@@ -6192,11 +6209,22 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                   )}
 
                   {proposalsTarget?.transport_proposals.map((p) => {
-                    const canManage = canValidateTransport(proposalsTarget) && !confirmRejectAll;
+                    // Une fois le besoin fermé/pris en charge, la modale reste
+                    // consultable (badge "Validée") mais plus modifiable — voir
+                    // le bouton "🕐 Propositions" ajouté hors du bloc "ouvert"
+                    // pour rouvrir cette modale en lecture seule après clôture.
+                    const stillManageable = proposalsTarget.status === "ouvert" || proposalsTarget.status === "pris_en_charge";
+                    const canManage = stillManageable && canValidateTransport(proposalsTarget) && !confirmRejectAll;
                     const offersOut = p.offers_out ?? true;
                     const offersReturn = p.offers_return ?? !!p.return_time;
                     const outDone = !!proposalsTarget.claimed_by_prenom;
                     const returnDone = !!proposalsTarget.transport_return_claimed_by_prenom;
+                    const sameIdentity = (prenom: string | null, nom: string | null, pin: string | null) =>
+                      prenom === p.prenom && nom === p.nom && pin === p.pin;
+                    const validatedOut = offersOut && outDone
+                      && sameIdentity(proposalsTarget.claimed_by_prenom, proposalsTarget.claimed_by_nom, proposalsTarget.claimed_by_pin);
+                    const validatedReturn = proposalsTarget.transport_round_trip && offersReturn && returnDone
+                      && sameIdentity(proposalsTarget.transport_return_claimed_by_prenom, proposalsTarget.transport_return_claimed_by_nom, proposalsTarget.transport_return_claimed_by_pin);
                     const menuOpen = canManage && proposalMenuId === p.id;
                     const replying = canManage && proposalReplyId === p.id;
                     const openLegs: ("out" | "return")[] = p.declined ? [] : [
@@ -6215,6 +6243,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                           {offersReturn && (
                             <Text style={[styles.proposalText, { color: C.text }]}>
                               Retour : {p.return_time ? p.return_time.replace(":", "h") : "—"}
+                            </Text>
+                          )}
+                          {(validatedOut || validatedReturn) && (
+                            <Text style={[styles.proposalNote, { color: C.success, fontFamily: "DM_Sans_700Bold" }]}>
+                              ✅ Validée{proposalsTarget.transport_round_trip
+                                ? (validatedOut && validatedReturn ? " (aller + retour)" : validatedOut ? " (aller)" : " (retour)")
+                                : ""}
                             </Text>
                           )}
                           {p.note && <Text style={[styles.proposalNote, { color: C.muted }]}>{p.note}</Text>}
@@ -6306,7 +6341,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                     );
                   })}
 
-                  {proposalsTarget && canValidateTransport(proposalsTarget) && proposalsTarget.transport_proposals.some((p) => !p.declined) && (
+                  {proposalsTarget && (proposalsTarget.status === "ouvert" || proposalsTarget.status === "pris_en_charge")
+                    && canValidateTransport(proposalsTarget) && proposalsTarget.transport_proposals.some((p) => !p.declined) && (
                     confirmRejectAll ? (
                       <View style={{ marginTop: 10, padding: 12, borderRadius: 10, borderWidth: 1, borderColor: C.danger, backgroundColor: `${C.danger}10` }}>
                         <Text style={[styles.sheetSub, { color: C.text, marginBottom: 10, textAlign: "left" }]}>

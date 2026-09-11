@@ -5,7 +5,7 @@ import { useFocusEffect } from "@react-navigation/native";
 import { supabase } from "@/lib/supabase";
 import type { PatientSpace, Reservation, Task, ShoppingListItem, TaskRelaisCoverage } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
-import { LOGO_ORANGE, LOGO_GREEN } from "@/lib/themes";
+import { LOGO_ORANGE, LOGO_GREEN, LOGO_NAVY, LOGO_PURPLE, LOGO_SKYBLUE, PASTEL_COLORS } from "@/lib/themes";
 import { isMyReservation, getSlotOccupancy, getWeekDates, toISO, toFrLong, toFrShort, addDays } from "@/lib/slotUtils";
 import { visitorIdentityKey } from "@/lib/visitorRoster";
 
@@ -19,6 +19,12 @@ const CATEGORY_LABELS: Record<Task["category"], string> = {
   repas: "Repas", affaires: "Affaires", courses: "Courses", transport: "Transport",
   administratif: "Administratif", autre: "Autre", relais: "Relais",
 };
+
+// Palette des liserés/textes par contributeur d'un besoin courses (voir
+// courseContributorColors) — couleurs du logo utilisées en priorité, ordre
+// vert/orange en premier car ce sont les 2 cas les plus fréquents (moi +
+// 1 autre personne).
+const COURSE_PALETTE = [LOGO_GREEN, LOGO_ORANGE, LOGO_NAVY, LOGO_PURPLE, LOGO_SKYBLUE];
 
 // Même helper que lib/visitorRoster.ts (privé là-bas) — pas d'export ajouté
 // pour un usage à cet unique endroit en plus des 2 déjà existants.
@@ -181,20 +187,37 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
     [shoppingByTask, myPrenom, myNom],
   );
 
-  // Couleur d'un article de courses : vert si coché par moi, orange si coché
-  // par quelqu'un d'autre, couleur de texte par défaut si pas encore coché —
-  // comparaison par nom uniquement (pas de PIN sur shopping_list_items),
-  // même clé que courseContributedByMe ci-dessus.
-  const courseItemColor = useCallback(
-    (item: ShoppingListItem): string => {
-      if (!item.bought) return C.text;
-      if (item.bought_by_prenom && item.bought_by_nom && myPrenom && myNom) {
-        const same = visitorIdentityKey(item.bought_by_prenom, item.bought_by_nom) === visitorIdentityKey(myPrenom, myNom);
-        if (same) return C.success;
+  // Couleur par contributeur d'un besoin courses : moi = toujours vert (je
+  // suis forcément parmi les contributeurs, voir courseContributedByMe qui
+  // filtre mesEngagementsBesoins), les suivants reprennent la palette du
+  // logo dans l'ordre de leur 1er article coché ; au-delà de 5 contributeurs
+  // on boucle sur PASTEL_COLORS. Comparaison par nom uniquement (pas de PIN
+  // sur shopping_list_items), même clé que courseContributedByMe ci-dessus.
+  const courseContributorColors = useCallback(
+    (t: Task): Map<string, string> => {
+      const myKey = myPrenom && myNom ? visitorIdentityKey(myPrenom, myNom) : null;
+      const orderedKeys: string[] = [];
+      for (const i of shoppingByTask[t.id] ?? []) {
+        if (!i.bought || !i.bought_by_prenom || !i.bought_by_nom) continue;
+        const key = visitorIdentityKey(i.bought_by_prenom, i.bought_by_nom);
+        if (!orderedKeys.includes(key)) orderedKeys.push(key);
       }
-      return C.orange;
+      if (myKey && orderedKeys.includes(myKey)) {
+        orderedKeys.splice(orderedKeys.indexOf(myKey), 1);
+        orderedKeys.unshift(myKey);
+      }
+      const colors = new Map<string, string>();
+      orderedKeys.forEach((key, index) => {
+        colors.set(
+          key,
+          index < COURSE_PALETTE.length
+            ? COURSE_PALETTE[index]
+            : PASTEL_COLORS[(index - COURSE_PALETTE.length) % PASTEL_COLORS.length],
+        );
+      });
+      return colors;
     },
-    [myPrenom, myNom, C],
+    [shoppingByTask, myPrenom, myNom],
   );
 
   const relaisEngagedByMe = useCallback(
@@ -207,6 +230,7 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
   const weekStartIso = useMemo(() => toISO(getWeekDates(new Date())[0]), []);
   const weekEndIso = useMemo(() => toISO(getWeekDates(new Date())[6]), []);
   const inWeek = useCallback((iso: string) => iso >= weekStartIso && iso <= weekEndIso, [weekStartIso, weekEndIso]);
+  const todayIsoStr = useMemo(() => toISO(new Date()), []);
 
   interface RelaisDayInfo {
     iso: string;
@@ -384,6 +408,22 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
     });
   }, [reservations, tasks, inWeek, myPin, myPrenom, myNom, samePerson]);
 
+  // Les entrées d'aujourd'hui, une fois triées chronologiquement, forment
+  // toujours un bloc contigu (comparaison de dates ISO) — pas besoin de
+  // toucher à l'ordre de la semaine pour les regrouper sous un même liseret
+  // vert : on segmente juste agendaEntries en tronçons "aujourd'hui"/"autre".
+  type AgendaGroup = { isToday: boolean; entries: AgendaEntry[] };
+  const agendaGroups = useMemo<AgendaGroup[]>(() => {
+    const groups: AgendaGroup[] = [];
+    for (const e of agendaEntries) {
+      const isToday = e.date === todayIsoStr;
+      const last = groups[groups.length - 1];
+      if (last && last.isToday === isToday) last.entries.push(e);
+      else groups.push({ isToday, entries: [e] });
+    }
+    return groups;
+  }, [agendaEntries, todayIsoStr]);
+
   // ── Tuile "Mes engagements" : besoins (hors transport, déjà dans "Mon
   // agenda") sur lesquels je suis engagé, pertinents cette semaine. ─────
   const mesEngagementsBesoins = useMemo(() => {
@@ -464,29 +504,41 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
         {agendaEntries.length === 0 && (
           <Text style={[styles.emptyText, { color: C.muted }]}>Rien de prévu cette semaine.</Text>
         )}
-        {agendaEntries.map((e) => (
-          <TouchableOpacity
-            key={e.id}
-            style={[styles.card, { backgroundColor: C.card, borderColor: C.border }]}
-            activeOpacity={0.8}
-            onPress={() => {
-              if (e.nav.kind === "task") {
-                router.push(`${entraideBasePath}?focusTaskId=${e.nav.taskId}` as any);
-              } else {
-                router.push({
-                  pathname: `${basePath}/${e.nav.type === "Nuit" ? "nights" : "slots"}`,
-                  params: e.nav.type === "Nuit" ? { focusDate: e.nav.date } : { focusDate: e.nav.date, focusCreneau: e.nav.creneau },
-                } as any);
-              }
-            }}
-          >
-            <Text style={[styles.cardDate, { color: C.gold }]}>
-              {toFrLong(new Date(e.date + "T12:00:00"))}{e.time ? ` · ${e.time}` : ""}
-            </Text>
-            <Text style={[styles.cardTitle, { color: C.text }]}>{e.title}</Text>
-            {!!e.subtitle && <Text style={[styles.cardSubtitle, { color: C.muted }]}>{e.subtitle}</Text>}
-          </TouchableOpacity>
-        ))}
+        {agendaGroups.map((group, gi) => {
+          const cards = group.entries.map((e, ei) => (
+            <TouchableOpacity
+              key={e.id}
+              style={[
+                styles.card,
+                { backgroundColor: C.card, borderColor: C.border },
+                group.isToday && ei === group.entries.length - 1 && styles.cardInTodayGroupLast,
+              ]}
+              activeOpacity={0.8}
+              onPress={() => {
+                if (e.nav.kind === "task") {
+                  router.push(`${entraideBasePath}?focusTaskId=${e.nav.taskId}` as any);
+                } else {
+                  router.push({
+                    pathname: `${basePath}/${e.nav.type === "Nuit" ? "nights" : "slots"}`,
+                    params: e.nav.type === "Nuit" ? { focusDate: e.nav.date } : { focusDate: e.nav.date, focusCreneau: e.nav.creneau },
+                  } as any);
+                }
+              }}
+            >
+              <Text style={[styles.cardDate, { color: C.gold }]}>
+                {toFrLong(new Date(e.date + "T12:00:00"))}{e.time ? ` · ${e.time}` : ""}
+              </Text>
+              <Text style={[styles.cardTitle, { color: C.text }]}>{e.title}</Text>
+              {!!e.subtitle && <Text style={[styles.cardSubtitle, { color: C.muted }]}>{e.subtitle}</Text>}
+            </TouchableOpacity>
+          ));
+          if (!group.isToday) return cards;
+          return (
+            <View key={`today-${gi}`} style={[styles.todayGroup, { borderColor: LOGO_GREEN }]}>
+              {cards}
+            </View>
+          );
+        })}
       </ScrollView>
     );
   }
@@ -555,34 +607,45 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
             </View>
           )}
 
-          {t.category === "courses" && (
-            <View style={styles.courseList}>
-              {(shoppingByTask[t.id] ?? []).map((item) => (
-                <Text key={item.id} style={[styles.courseItem, { color: courseItemColor(item) }]}>
-                  {item.bought ? "☑" : "☐"} {item.label}
-                </Text>
-              ))}
-              <View style={styles.avatarRow}>
-                {Array.from(
-                  new Map(
-                    (shoppingByTask[t.id] ?? [])
-                      .filter((i) => i.bought && i.bought_by_prenom && i.bought_by_nom)
-                      .map((i) => [visitorIdentityKey(i.bought_by_prenom!, i.bought_by_nom!), i]),
-                  ).values(),
-                ).map((i) => {
-                  const key = visitorIdentityKey(i.bought_by_prenom!, i.bought_by_nom!);
-                  const url = photoByKey[key];
-                  return url ? (
-                    <Image key={key} source={{ uri: url }} style={styles.avatar} />
-                  ) : (
-                    <View key={key} style={[styles.avatarFallback, { borderColor: C.border }]}>
-                      <Text style={{ color: C.muted, fontSize: 11 }}>{i.bought_by_prenom![0]}</Text>
-                    </View>
+          {t.category === "courses" && (() => {
+            const contributorColors = courseContributorColors(t);
+            return (
+              <View style={styles.courseList}>
+                {(shoppingByTask[t.id] ?? []).map((item) => {
+                  const itemKey =
+                    item.bought && item.bought_by_prenom && item.bought_by_nom
+                      ? visitorIdentityKey(item.bought_by_prenom, item.bought_by_nom)
+                      : null;
+                  const color = itemKey ? contributorColors.get(itemKey) ?? C.orange : C.text;
+                  return (
+                    <Text key={item.id} style={[styles.courseItem, { color }]}>
+                      {item.bought ? "☑" : "☐"} {item.label}
+                    </Text>
                   );
                 })}
+                <View style={styles.avatarRow}>
+                  {Array.from(
+                    new Map(
+                      (shoppingByTask[t.id] ?? [])
+                        .filter((i) => i.bought && i.bought_by_prenom && i.bought_by_nom)
+                        .map((i) => [visitorIdentityKey(i.bought_by_prenom!, i.bought_by_nom!), i]),
+                    ).values(),
+                  ).map((i) => {
+                    const key = visitorIdentityKey(i.bought_by_prenom!, i.bought_by_nom!);
+                    const url = photoByKey[key];
+                    const borderColor = contributorColors.get(key) ?? C.border;
+                    return url ? (
+                      <Image key={key} source={{ uri: url }} style={[styles.avatar, { borderColor }]} />
+                    ) : (
+                      <View key={key} style={[styles.avatarFallback, { borderColor }]}>
+                        <Text style={{ color: C.muted, fontSize: 11 }}>{i.bought_by_prenom![0]}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
               </View>
-            </View>
-          )}
+            );
+          })()}
         </TouchableOpacity>
       ))}
     </ScrollView>
@@ -600,6 +663,8 @@ const styles = StyleSheet.create({
   detailTitle: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, marginBottom: 14 },
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 14, textAlign: "center", marginTop: 24 },
   card: { borderWidth: 1, borderRadius: 14, padding: 14, marginBottom: 10 },
+  todayGroup: { borderWidth: 2, borderRadius: 18, padding: 8, marginBottom: 10 },
+  cardInTodayGroupLast: { marginBottom: 0 },
   cardDate: { fontFamily: "DM_Sans_600SemiBold", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 4 },
   cardTitle: { fontFamily: "DM_Sans_600SemiBold", fontSize: 15 },
   cardSubtitle: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginTop: 4 },
@@ -612,6 +677,6 @@ const styles = StyleSheet.create({
   courseList: { marginTop: 8 },
   courseItem: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginBottom: 2 },
   avatarRow: { flexDirection: "row", marginTop: 8, gap: 6 },
-  avatar: { width: 28, height: 28, borderRadius: 14 },
-  avatarFallback: { width: 28, height: 28, borderRadius: 14, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  avatar: { width: 28, height: 28, borderRadius: 14, borderWidth: 2 },
+  avatarFallback: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, alignItems: "center", justifyContent: "center" },
 });
