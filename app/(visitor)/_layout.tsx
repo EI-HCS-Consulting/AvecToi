@@ -18,6 +18,7 @@ import RelaisAlertModal from "@/components/RelaisAlertModal";
 import TransportProposalAlertModal from "@/components/TransportProposalAlertModal";
 import BirthdayAlertModal from "@/components/BirthdayAlertModal";
 import DeletedContentAlertModal from "@/components/DeletedContentAlertModal";
+import TaskDueTodayAlertModal from "@/components/TaskDueTodayAlertModal";
 import IntervenantOnboardingFlow from "@/components/IntervenantOnboardingFlow";
 import EntraideTabIcon from "@/components/EntraideTabIcon";
 import UnreadDotIcon from "@/components/UnreadDotIcon";
@@ -285,6 +286,10 @@ function VisitorTabs() {
 
       {identityKnown === true && (role !== "intervenant" || !!intervenantProfileId) && consentGiven === true && !!space && (
         <DeletedContentAlertModal spaceId={space.id} />
+      )}
+
+      {identityKnown === true && (role !== "intervenant" || !!intervenantProfileId) && consentGiven === true && !!space && (
+        <TaskDueTodayAlertModal spaceId={space.id} isAdmin={false} />
       )}
 
     <Tabs

@@ -13,6 +13,7 @@ import RelaisAlertModal from "@/components/RelaisAlertModal";
 import TransportProposalAlertModal from "@/components/TransportProposalAlertModal";
 import PinResetAlertModal from "@/components/PinResetAlertModal";
 import BirthdayAlertModal from "@/components/BirthdayAlertModal";
+import TaskDueTodayAlertModal from "@/components/TaskDueTodayAlertModal";
 import EntraideTabIcon from "@/components/EntraideTabIcon";
 import UnreadDotIcon from "@/components/UnreadDotIcon";
 
@@ -44,6 +45,7 @@ function AdminGate() {
       {!!space && <TransportProposalAlertModal spaceId={space.id} isAdmin />}
       {!!space && <PinResetAlertModal spaceId={space.id} />}
       {!!space && <BirthdayAlertModal spaceId={space.id} birthdate={space.patient_birthdate} patientFirstname={space.patient_firstname} />}
+      {!!space && <TaskDueTodayAlertModal spaceId={space.id} isAdmin />}
       <Tabs
         screenOptions={{
           headerShown: false,
