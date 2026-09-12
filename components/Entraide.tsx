@@ -152,7 +152,7 @@ function relaisRequestedPeriodLabel(t: Task | null): string | null {
 }
 
 export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, allergies, patientFirstname }: Props) {
-  const { focusTaskId, openClaim: openClaimParam, openRelais, openProposals: openProposalsParam } = useLocalSearchParams<{ focusTaskId?: string; openClaim?: string; openRelais?: string; openProposals?: string }>();
+  const { focusTaskId, openClaim: openClaimParam, openRelais, openProposals: openProposalsParam, openDone: openDoneParam } = useLocalSearchParams<{ focusTaskId?: string; openClaim?: string; openRelais?: string; openProposals?: string; openDone?: string }>();
   const router = useRouter();
 
   // Dimensions fixes de l'assistant "Publier" (même largeur/plafond de
@@ -1118,6 +1118,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       openClaim(target);
       router.setParams({ openClaim: undefined } as any);
     }
+    // Depuis TaskDueTodayAlertModal ("✓ C'est fait") : ouvre directement la
+    // sheet de confirmation "Marquer fait" (PIN + photo optionnelle) sur ce
+    // besoin, même mécanisme que openClaim ci-dessus.
+    if (focusTarget === focusTaskId && openDoneParam === "1" && target.status === "pris_en_charge") {
+      openDone(target);
+      router.setParams({ openDone: undefined } as any);
+    }
     // Depuis TransportProposalAlertModal ("Voir les propositions") : ouvre
     // directement la modale "Propositions reçues" sur ce besoin. Marque aussi
     // toutes les propositions non déclinées comme vues (ouverture explicite
@@ -1135,7 +1142,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     // (mis à jour dans l'effet ci-dessus) — sinon les deux effets tournent
     // dans le même commit avec un focusTarget pas encore rafraîchi et on
     // traite la cible précédente (bug de décalage d'une demande de retard).
-  }, [focusTarget, focusTick, openClaimParam, openProposalsParam, tasks, tasksLoading, activeCat, openOnlyFilter, closedOnlyFilter]);
+  }, [focusTarget, focusTick, openClaimParam, openDoneParam, openProposalsParam, tasks, tasksLoading, activeCat, openOnlyFilter, closedOnlyFilter]);
 
   // Arrivée depuis "Mon compte" (?openRelais=1) : ouvre le formulaire Publier
   // pré-rempli sur la catégorie "relais". Attend que l'identité (admin ou

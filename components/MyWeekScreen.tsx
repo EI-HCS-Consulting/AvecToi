@@ -431,15 +431,23 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
       if (t.category === "relais") return t.relais_start_date || t.date_limite;
       return t.date_limite;
     }
-    // Toujours visible tant qu'ouvert/pris en charge (engagement actif, peu
-    // importe l'échéance) ; une fois fait/fermé, seulement si sa date (ou, à
-    // défaut, la dernière trace d'activité) tombe cette semaine — accord
-    // explicite : un besoin fermé sans aucune date reste visible tant qu'il
-    // date de cette semaine plutôt que de disparaître immédiatement.
+    // Visible seulement si son échéance (date de début pour un relais, sinon
+    // date_limite) tombe cette semaine — demande explicite : un engagement
+    // pris aujourd'hui pour une échéance dans une semaine future ne doit
+    // apparaître QUE la semaine de son échéance, pas dès sa prise en charge.
+    // Un relais est visible dès que sa période [début, fin] chevauche la
+    // semaine (pas seulement son jour de début), pour rester affiché tant
+    // qu'il est en cours sur plusieurs semaines. Sans date connue, on retombe
+    // sur la dernière trace d'activité (comme avant) plutôt que de masquer
+    // un besoin fermé sans aucune date.
     function relevantThisWeek(t: Task): boolean {
-      if (t.status === "ouvert" || t.status === "pris_en_charge") return true;
-      const d = effectiveDate(t);
-      if (d) return inWeek(d);
+      if (t.category === "relais") {
+        const start = t.relais_start_date || t.date_limite;
+        const end = t.date_limite || t.relais_start_date;
+        if (start && end) return start <= weekEndIso && end >= weekStartIso;
+      } else if (t.date_limite) {
+        return inWeek(t.date_limite);
+      }
       const touch = t.claimed_at || t.modified_at || t.created_at;
       return !!touch && inWeek(touch.slice(0, 10));
     }
