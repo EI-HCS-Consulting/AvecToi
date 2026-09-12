@@ -42,8 +42,14 @@ function isEligible(t: Task, identity: TransportIdentity): boolean {
 // Propositions pas encore vues par l'ayant droit (voir seen_by_author dans
 // lib/types.ts) et pas déclinées — une proposition déclinée reste dans le
 // tableau (voir rejectTransportProposals) mais ne doit plus jamais redéclencher
-// le popup.
+// le popup. Le besoin doit en plus être encore "ouvert" : depuis que
+// validateTransportLeg ferme le besoin sans vider transport_proposals (pour
+// garder le badge "Validée" visible dans le popup Propositions reçues, voir
+// Entraide.tsx), les propositions d'un besoin déjà validé/fermé restent dans
+// le tableau et remonteraient sinon indéfiniment ici alors qu'il n'y a plus
+// rien à décider.
 export function unseenProposalsFor(t: Task, identity: TransportIdentity): TransportProposal[] {
+  if (t.status !== "ouvert") return [];
   if (!isEligible(t, identity)) return [];
   return (t.transport_proposals ?? []).filter((p) => !p.declined && !p.seen_by_author);
 }
@@ -55,9 +61,8 @@ export interface TransportProposalAlert {
 
 // Besoins de transport de cet espace comportant au moins une proposition non
 // vue par l'identité donnée — utilisé par TransportProposalAlertModal (popup
-// à la connexion). Pas de filtre sur le statut : une fois validé,
-// transport_proposals est vidé (voir validateTransportLeg), donc un besoin
-// "pris_en_charge" ne peut plus remonter ici de lui-même.
+// à la connexion). Le filtre de statut ("ouvert" uniquement) est fait dans
+// unseenProposalsFor ci-dessus.
 export async function fetchOpenTransportProposalAlerts(
   spaceId: string,
   identity: TransportIdentity,
