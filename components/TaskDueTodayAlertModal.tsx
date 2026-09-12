@@ -92,7 +92,7 @@ export default function TaskDueTodayAlertModal({ spaceId, isAdmin }: { spaceId: 
             )}
           </View>
           <Text style={[styles.body, { color: C.muted }]}>
-            Tu t'en étais occupé·e — marque-le comme fait une fois que c'est fini.
+            Tu as pris en charge ce besoin {current.title} ({(CATEGORY_LABELS[current.category] ?? current.category).toLowerCase()}) et c'est pour aujourd'hui. Marque-le comme fait si tu t'en es déjà occupé.
           </Text>
           <TouchableOpacity
             style={[styles.btnFull, { backgroundColor: C.accent }]}
