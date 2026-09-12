@@ -420,7 +420,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // coché un article et de la personne ayant cliqué "Je m'en occupe" (qui
   // rejoint la liste sans effacer ce que les autres ont déjà fait). Suffixe
   // "partiellement" tant qu'il reste au moins un article non coché.
-  function courseContributorsLabel(t: Task): string | null {
+  // Contributeurs distincts d'un besoin courses (union cochage + "Je m'en
+  // occupe") — extrait de courseContributorsLabel ci-dessous pour être
+  // réutilisé par la rangée d'avatars groupés affichée avant la phrase.
+  function courseContributorsList(t: Task): { prenom: string; nom: string }[] {
     const list = [...(courseContributors[t.id] ?? [])];
     if (t.claimed_by_prenom && t.claimed_by_nom) {
       const key = relaisIdentityKey(t.claimed_by_prenom, t.claimed_by_nom);
@@ -428,6 +431,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         list.push({ prenom: t.claimed_by_prenom, nom: t.claimed_by_nom });
       }
     }
+    return list;
+  }
+
+  function courseContributorsLabel(t: Task): string | null {
+    const list = courseContributorsList(t);
     if (list.length === 0) return null;
     const names = list.map((p) => `${p.prenom} ${p.nom}`);
     const joined = names.length > 1
@@ -3530,10 +3538,17 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           ? !!courseContributorsLabel(t)
           : t.status !== "ouvert" && t.claimed_by_prenom) && (!t.transport_round_trip || !t.transport_return_claimed_by_prenom) && (
           <View style={[styles.claimerRow, { borderColor: C.border, backgroundColor: `${C.accent}11` }]}>
+            {t.category === "courses" && (
+              <View style={styles.claimerAvatarRow}>
+                {courseContributorsList(t).map((p) => (
+                  <View key={visitorIdentityKey(p.prenom, p.nom)}>{claimerAvatar(p.prenom, p.nom)}</View>
+                ))}
+              </View>
+            )}
             <View style={styles.claimerHeader}>
               {t.category !== "courses" && !!t.claimed_by_prenom && !!t.claimed_by_nom && claimerAvatar(t.claimed_by_prenom, t.claimed_by_nom)}
               <Text style={[styles.claimerText, { color: C.text }]}>
-                {t.category === "courses" ? `👤 ${courseContributorsLabel(t)}` : `${t.claimed_by_prenom} ${t.claimed_by_nom} s'en occupe`}
+                {t.category === "courses" ? courseContributorsLabel(t) : `${t.claimed_by_prenom} ${t.claimed_by_nom} s'en occupe`}
               </Text>
             </View>
             {t.claimed_photo && (
@@ -6896,6 +6911,7 @@ const styles = StyleSheet.create({
   taskPhoto: { width: "100%", height: 140, borderRadius: 10, marginBottom: 6 },
   claimerRow: { borderWidth: 1, borderRadius: 8, padding: 8, marginVertical: 8 },
   claimerHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
+  claimerAvatarRow: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 6 },
   claimerAvatar: { width: 24, height: 24, borderRadius: 12 },
   claimerAvatarFallback: { width: 24, height: 24, borderRadius: 12, borderWidth: 1, alignItems: "center", justifyContent: "center" },
   claimerText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, flexShrink: 1 },
