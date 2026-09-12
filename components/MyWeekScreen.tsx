@@ -443,9 +443,11 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
       const touch = t.claimed_at || t.modified_at || t.created_at;
       return !!touch && inWeek(touch.slice(0, 10));
     }
+    // Uniquement les besoins sur lesquels je me suis engagé (pris en charge,
+    // contribué aux courses, couvert un créneau relais) — pas ceux que j'ai
+    // simplement publiés (voir "Mes besoins" dans Mon Compte pour ceux-là).
     function isMyBesoin(t: Task): boolean {
       if (t.category === "transport") return false;
-      if (samePerson(t.author_prenom, t.author_nom, t.author_pin)) return true;
       if (samePerson(t.claimed_by_prenom, t.claimed_by_nom, t.claimed_by_pin)) return true;
       if (t.category === "courses" && courseContributedByMe(t)) return true;
       if (t.category === "relais") return relaisEngagedByMe(t);
@@ -576,6 +578,22 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
                   : "⏳ Ouvert"
               : t.status === "fait" ? "✓ Fait" : t.status === "ferme" ? "🔒 Fermé" : t.status === "pris_en_charge" ? "🤝 Pris en charge" : "⏳ Ouvert"}
           </Text>
+
+          {t.category !== "relais" && t.category !== "courses" && !!t.claimed_by_prenom && !!t.claimed_by_nom && (() => {
+            const key = visitorIdentityKey(t.claimed_by_prenom, t.claimed_by_nom);
+            const url = photoByKey[key];
+            return (
+              <View style={styles.avatarRow}>
+                {url ? (
+                  <Image source={{ uri: url }} style={[styles.avatar, { borderColor: C.border }]} />
+                ) : (
+                  <View style={[styles.avatarFallback, { borderColor: C.border }]}>
+                    <Text style={{ color: C.muted, fontSize: 11 }}>{t.claimed_by_prenom[0]}</Text>
+                  </View>
+                )}
+              </View>
+            );
+          })()}
 
           {t.category === "relais" && (
             <View style={styles.relaisDaysRow}>

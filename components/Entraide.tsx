@@ -15,6 +15,7 @@ import { requestCoAdminCode, verifyCoAdminProposalCode } from "@/lib/coAdmin";
 import { getVisitorEmail } from "@/lib/visitorProfile";
 import { useWallReadTracking } from "@/lib/wallUnread";
 import { markTransportProposalsSeen } from "@/lib/transportAlerts";
+import { loadPhotoRoster, visitorIdentityKey } from "@/lib/visitorRoster";
 import { NewIndicator } from "@/components/NewIndicator";
 import PinPad from "@/components/PinPad";
 import MiniCalendar from "@/components/MiniCalendar";
@@ -991,6 +992,22 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   }, [spaceId]);
 
   useEffect(() => { loadTasks(); }, [loadTasks]);
+
+  // Photo par identité (visiteurs + admin) pour l'avatar affiché à la place
+  // du "👤" générique dans les lignes "X s'en occupe" ci-dessous.
+  const [photoByKey, setPhotoByKey] = useState<Record<string, string | null>>({});
+  useEffect(() => { loadPhotoRoster(spaceId).then(setPhotoByKey); }, [spaceId]);
+
+  function claimerAvatar(prenom: string, nom: string) {
+    const url = photoByKey[visitorIdentityKey(prenom, nom)];
+    return url ? (
+      <Image source={{ uri: url }} style={styles.claimerAvatar} />
+    ) : (
+      <View style={[styles.claimerAvatarFallback, { borderColor: C.border }]}>
+        <Text style={{ color: C.muted, fontSize: 11 }}>{prenom[0]}</Text>
+      </View>
+    );
+  }
 
   // Les propositions "Je m'en occupe" (task_relais_coverage) sont stockées à
   // part des tasks — sans les injecter ici, une nouvelle prise en charge sur
@@ -3513,9 +3530,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           ? !!courseContributorsLabel(t)
           : t.status !== "ouvert" && t.claimed_by_prenom) && (!t.transport_round_trip || !t.transport_return_claimed_by_prenom) && (
           <View style={[styles.claimerRow, { borderColor: C.border, backgroundColor: `${C.accent}11` }]}>
-            <Text style={[styles.claimerText, { color: C.text }]}>
-              👤 {t.category === "courses" ? courseContributorsLabel(t) : `${t.claimed_by_prenom} ${t.claimed_by_nom} s'en occupe`}
-            </Text>
+            <View style={styles.claimerHeader}>
+              {t.category !== "courses" && !!t.claimed_by_prenom && !!t.claimed_by_nom && claimerAvatar(t.claimed_by_prenom, t.claimed_by_nom)}
+              <Text style={[styles.claimerText, { color: C.text }]}>
+                {t.category === "courses" ? `👤 ${courseContributorsLabel(t)}` : `${t.claimed_by_prenom} ${t.claimed_by_nom} s'en occupe`}
+              </Text>
+            </View>
             {t.claimed_photo && (
               <Image source={{ uri: taskPhotoUrl(spaceId, t.claimed_photo) }} style={styles.claimedPhoto} resizeMode="cover" />
             )}
@@ -3538,10 +3558,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             )}
             {(relaisCoverage[t.id] ?? []).map((cov) => (
               <View key={cov.id} style={{ marginBottom: 6 }}>
-                <Text style={[styles.claimerText, { color: C.text }]}>
-                  {newIds.has(cov.id) && <Text style={{ color: C.danger, fontWeight: "700" }}>🆕 </Text>}
-                  👤 {cov.prenom} {cov.nom} — du {toFrShort(new Date(cov.start_date + "T12:00:00"))} au {toFrShort(new Date(cov.end_date + "T12:00:00"))}
-                </Text>
+                <View style={styles.claimerHeader}>
+                  {claimerAvatar(cov.prenom, cov.nom)}
+                  <Text style={[styles.claimerText, { color: C.text }]}>
+                    {newIds.has(cov.id) && <Text style={{ color: C.danger, fontWeight: "700" }}>🆕 </Text>}
+                    {cov.prenom} {cov.nom} — du {toFrShort(new Date(cov.start_date + "T12:00:00"))} au {toFrShort(new Date(cov.end_date + "T12:00:00"))}
+                  </Text>
+                </View>
                 {cov.claimed_text && (
                   <Text style={[styles.claimerText, { color: C.muted, marginTop: 2 }]}>{cov.claimed_text}</Text>
                 )}
@@ -6872,7 +6895,10 @@ const styles = StyleSheet.create({
   taskModified: { fontFamily: "DM_Sans_400Regular", fontSize: 11.5, fontStyle: "italic", marginBottom: 6 },
   taskPhoto: { width: "100%", height: 140, borderRadius: 10, marginBottom: 6 },
   claimerRow: { borderWidth: 1, borderRadius: 8, padding: 8, marginVertical: 8 },
-  claimerText: { fontFamily: "DM_Sans_400Regular", fontSize: 13 },
+  claimerHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
+  claimerAvatar: { width: 24, height: 24, borderRadius: 12 },
+  claimerAvatarFallback: { width: 24, height: 24, borderRadius: 12, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  claimerText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, flexShrink: 1 },
   claimedPhoto: { width: "100%", height: 120, borderRadius: 8, marginTop: 8 },
   claimBtn: { borderRadius: 10, paddingVertical: 10, alignItems: "center", marginTop: 8 },
   claimBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 13, color: "#fff" },

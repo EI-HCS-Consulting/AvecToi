@@ -16,6 +16,28 @@ function visitorPhotoUrl(spaceId: string, filename: string) {
   return data.publicUrl;
 }
 
+// Photo (URL publique ou null) par identité "prenom|nom", visiteurs +
+// admin — même construction que MyWeekScreen.tsx (photoByKey), extraite ici
+// pour être réutilisée par Entraide.tsx sans dupliquer la requête
+// visitor_profiles + la dénormalisation admin_photo_url (voir account.tsx /
+// SpaceContext.tsx pour pourquoi la photo admin vit sur patient_spaces et pas
+// dans visitor_profiles).
+export async function loadPhotoRoster(spaceId: string): Promise<Record<string, string | null>> {
+  const [profilesRes, spaceRes] = await Promise.all([
+    supabase.from("visitor_profiles").select("prenom,nom,photo").eq("space_id", spaceId),
+    supabase.from("patient_spaces").select("admin_firstname,admin_lastname,admin_photo_url").eq("id", spaceId).single(),
+  ]);
+  const photos: Record<string, string | null> = {};
+  (profilesRes.data || []).forEach((p: { prenom: string; nom: string; photo: string | null }) => {
+    photos[visitorIdentityKey(p.prenom, p.nom)] = p.photo ? visitorPhotoUrl(spaceId, p.photo) : null;
+  });
+  const admin = spaceRes.data;
+  if (admin?.admin_firstname && admin?.admin_lastname) {
+    photos[visitorIdentityKey(admin.admin_firstname, admin.admin_lastname)] = admin.admin_photo_url ?? null;
+  }
+  return photos;
+}
+
 // Insensible aux accents en plus de la casse — même principe que
 // identityKey() dans VisitorsBlock.tsx/app/(visitor)/account.tsx.
 export function visitorIdentityKey(prenom: string, nom: string) {
