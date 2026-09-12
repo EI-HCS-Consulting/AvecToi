@@ -7,7 +7,7 @@ import type { PatientSpace, Reservation, Task, ShoppingListItem, TaskRelaisCover
 import type { Theme } from "@/lib/themes";
 import { LOGO_ORANGE, LOGO_GREEN, LOGO_NAVY, LOGO_PURPLE, LOGO_SKYBLUE, PASTEL_COLORS } from "@/lib/themes";
 import { isMyReservation, getSlotOccupancy, getWeekDates, toISO, toFrLong, toFrShort, addDays } from "@/lib/slotUtils";
-import { visitorIdentityKey } from "@/lib/visitorRoster";
+import { visitorIdentityKey, initials } from "@/lib/visitorRoster";
 
 // Dupliqué depuis components/Entraide.tsx (non exportés là-bas) — jeu réduit,
 // pas de sous-titre auto ni de catégorie "Publier un besoin".
@@ -588,7 +588,7 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
                   <Image source={{ uri: url }} style={[styles.avatar, { borderColor: C.border }]} />
                 ) : (
                   <View style={[styles.avatarFallback, { borderColor: C.border }]}>
-                    <Text style={{ color: C.muted, fontSize: 11 }}>{t.claimed_by_prenom[0]}</Text>
+                    <Text style={{ color: C.muted, fontSize: 11 }}>{initials(t.claimed_by_prenom, t.claimed_by_nom)}</Text>
                   </View>
                 )}
               </View>
@@ -615,7 +615,7 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
                         <Image source={{ uri: coverUrl }} style={styles.relaisDayAvatar} />
                       ) : (
                         <View style={[styles.relaisDayAvatarFallback, { borderColor: C.border }]}>
-                          <Text style={{ color: C.muted, fontSize: 9 }}>{d.coverPrenom![0]}</Text>
+                          <Text style={{ color: C.muted, fontSize: 9 }}>{initials(d.coverPrenom!, d.coverNom!)}</Text>
                         </View>
                       )
                     )}
@@ -656,7 +656,7 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
                       <Image key={key} source={{ uri: url }} style={[styles.avatar, { borderColor }]} />
                     ) : (
                       <View key={key} style={[styles.avatarFallback, { borderColor }]}>
-                        <Text style={{ color: C.muted, fontSize: 11 }}>{i.bought_by_prenom![0]}</Text>
+                        <Text style={{ color: C.muted, fontSize: 11 }}>{initials(i.bought_by_prenom!, i.bought_by_nom!)}</Text>
                       </View>
                     );
                   })}

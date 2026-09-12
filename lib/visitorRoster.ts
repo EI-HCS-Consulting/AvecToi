@@ -38,6 +38,13 @@ export async function loadPhotoRoster(spaceId: string): Promise<Record<string, s
   return photos;
 }
 
+// Initiales prénom+nom (ex: "Jean Dupont" -> "JD") pour les avatars de
+// secours (fallback) quand la personne n'a pas de photo — utilisé par
+// Entraide.tsx et MyWeekScreen.tsx partout où un avatar est affiché.
+export function initials(prenom: string, nom: string): string {
+  return `${prenom[0] ?? ""}${nom[0] ?? ""}`.toUpperCase();
+}
+
 // Insensible aux accents en plus de la casse — même principe que
 // identityKey() dans VisitorsBlock.tsx/app/(visitor)/account.tsx.
 export function visitorIdentityKey(prenom: string, nom: string) {
