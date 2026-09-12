@@ -2742,6 +2742,22 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           transport_confirmed_return_time: claimTarget.transport_return_time,
         } : {}),
       }).eq("id", claimTarget.id);
+      // "Je m'en occupe" sur une liste de courses partiellement dispatchée
+      // (voir courseContributorsLabel) coche d'un coup les articles restants
+      // et les attribue au preneur — la prise en charge formelle du besoin
+      // vaut engagement à finir la liste.
+      if (claimTarget.category === "courses") {
+        await supabase
+          .from("shopping_list_items")
+          .update({
+            bought: true,
+            bought_by_prenom: claimPrenom.trim(),
+            bought_by_nom: claimNom.trim(),
+            bought_at: new Date().toISOString(),
+          })
+          .eq("task_id", claimTarget.id)
+          .eq("bought", false);
+      }
     }
     // "Je m'en occupe" ne colle plus automatiquement le besoin dans "Ma
     // Checklist" du preneur : seul le choix explicite fait au moment de la
@@ -3331,9 +3347,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           if (selectable && !selectionMode) enterSelection(t.id);
           // Sur un besoin "fait", la sélection multiple est désactivée (voir
           // `selectable`) — ce clic prolongé libéré ouvre directement
-          // "Modifier le besoin" pour l'admin (accès au bouton "Je m'en
-          // occupe", voir plus bas).
-          else if (isAdmin && !selectable && t.author_pin === "ADMIN") openEditTask(t);
+          // "Modifier le besoin" pour son auteur (admin ou visiteur, voir
+          // `mine`) — accès au bouton "Je m'en occupe" pour l'admin, et pour
+          // le visiteur la possibilité de corriger une échéance oubliée à la
+          // publication (voir avectoi_besoin_editable_par_auteur).
+          else if (!selectable && mine) openEditTask(t);
         }}
         onPress={() => { if (selectable && selectionMode) toggleTaskSelected(t.id); }}
         pointerEvents={selectable && selectionMode ? "box-only" : "auto"}
@@ -3373,7 +3391,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               {transportOverdue(t) ? STATUS_LABELS.fait : STATUS_LABELS[t.status]}
             </Text>
           </View>
-          {isAdmin && t.author_pin === "ADMIN" && (
+          {mine && (
             <TouchableOpacity onPress={() => openEditTask(t)} style={[styles.iconBtn, { borderColor: C.border }]}>
               <Text style={{ fontSize: 13 }}>✏️</Text>
             </TouchableOpacity>

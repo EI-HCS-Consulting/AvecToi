@@ -181,6 +181,16 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin, 
     // Enrichit "Produits récurrents" (voir Entraide.tsx) — insert en conflit
     // (même libellé déjà catalogué pour l'espace) ignoré silencieusement.
     await supabase.from("recurring_shopping_items").insert({ space_id: spaceId, label });
+    // Un nouvel article dans une liste déjà cochée "Fait" annule ce constat —
+    // même logique de retour en arrière que le décochage d'un article
+    // (toggleBought ci-dessus) : le besoin redevient "pris_en_charge" ou
+    // "ouvert" (partiellement pris en charge) selon qu'il a été formellement
+    // pris en charge ou dispatché librement.
+    if (task && task.status === "fait") {
+      const revertStatus = task.claimed_by_prenom ? "pris_en_charge" : "ouvert";
+      await supabase.from("tasks").update({ status: revertStatus }).eq("id", task.id);
+      await supabase.from("personal_checklist_items").update({ status: "a_faire" }).eq("task_id", task.id);
+    }
   }
 
   const boughtCount = items.filter((it) => it.bought).length;
