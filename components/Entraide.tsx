@@ -15,7 +15,7 @@ import { requestCoAdminCode, verifyCoAdminProposalCode } from "@/lib/coAdmin";
 import { getVisitorEmail } from "@/lib/visitorProfile";
 import { useWallReadTracking } from "@/lib/wallUnread";
 import { markTransportProposalsSeen } from "@/lib/transportAlerts";
-import { loadPhotoRoster, visitorIdentityKey } from "@/lib/visitorRoster";
+import { loadPhotoRoster, visitorIdentityKey, initials } from "@/lib/visitorRoster";
 import { NewIndicator } from "@/components/NewIndicator";
 import PinPad from "@/components/PinPad";
 import MiniCalendar from "@/components/MiniCalendar";
@@ -1012,7 +1012,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       <Image source={{ uri: url }} style={styles.claimerAvatar} />
     ) : (
       <View style={[styles.claimerAvatarFallback, { borderColor: C.border }]}>
-        <Text style={{ color: C.muted, fontSize: 11 }}>{prenom[0]}</Text>
+        <Text style={{ color: C.muted, fontSize: 11 }}>{initials(prenom, nom)}</Text>
       </View>
     );
   }
