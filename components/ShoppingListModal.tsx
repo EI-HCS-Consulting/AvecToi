@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
-import { View, Text, TextInput, TouchableOpacity, Modal, ScrollView, StyleSheet, ActivityIndicator, Alert } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { View, Text, TextInput, TouchableOpacity, Modal, ScrollView, StyleSheet, ActivityIndicator, Alert, Image } from "react-native";
 import { supabase } from "@/lib/supabase";
 import { getVisitorSession } from "@/lib/visitorSession";
+import { loadPhotoRoster, initials, visitorIdentityKey } from "@/lib/visitorRoster";
 import type { Task, ShoppingListItem } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -52,6 +53,10 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin, 
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const canManageList = isAdmin || isAuthor;
+  // Photo/avatar par personne pour l'en-tête de chaque groupe d'articles
+  // (voir groupedSections ci-dessous) — même roster qu'Entraide.tsx.
+  const [photoByKey, setPhotoByKey] = useState<Record<string, string | null>>({});
+  useEffect(() => { loadPhotoRoster(spaceId).then(setPhotoByKey); }, [spaceId]);
 
   useEffect(() => {
     (async () => {
@@ -182,18 +187,129 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin, 
     // (même libellé déjà catalogué pour l'espace) ignoré silencieusement.
     await supabase.from("recurring_shopping_items").insert({ space_id: spaceId, label });
     // Un nouvel article dans une liste déjà cochée "Fait" annule ce constat —
-    // même logique de retour en arrière que le décochage d'un article
-    // (toggleBought ci-dessus) : le besoin redevient "pris_en_charge" ou
-    // "ouvert" (partiellement pris en charge) selon qu'il a été formellement
-    // pris en charge ou dispatché librement.
+    // le besoin repasse en "ouvert" (partiellement pris en charge, cf.
+    // courseContributorsLabel dans Entraide.tsx) et la prise en charge
+    // formelle éventuelle est effacée : le nouvel article n'appartient à
+    // personne, donc "Je m'en occupe" doit redevenir cliquable pour tout le
+    // monde et l'ancien preneur ne doit plus bloquer les autres via
+    // claimedByOther (voir plus haut).
     if (task && task.status === "fait") {
-      const revertStatus = task.claimed_by_prenom ? "pris_en_charge" : "ouvert";
-      await supabase.from("tasks").update({ status: revertStatus }).eq("id", task.id);
+      await supabase.from("tasks").update({
+        status: "ouvert",
+        claimed_by_prenom: null,
+        claimed_by_nom: null,
+        claimed_by_pin: null,
+        claimed_at: null,
+      }).eq("id", task.id);
       await supabase.from("personal_checklist_items").update({ status: "a_faire" }).eq("task_id", task.id);
     }
   }
 
   const boughtCount = items.filter((it) => it.bought).length;
+
+  // Regroupe les articles cochés par la personne qui s'en occupe (une seule
+  // photo/avatar par personne, pas par article), alphabétique dans chaque
+  // groupe — demande explicite. Le groupe de l'utilisateur qui consulte
+  // apparaît en premier, puis les non-attribués (pas encore cochés, donc
+  // encore à dispatcher — les faire suivre immédiatement son propre groupe
+  // les garde visibles sans les perdre en bas de liste), puis les autres
+  // personnes par ordre alphabétique.
+  interface Group { key: string; prenom: string; nom: string; items: ShoppingListItem[] }
+  const groupedSections = useMemo(() => {
+    const byKey = new Map<string, Group>();
+    const unassigned: ShoppingListItem[] = [];
+    for (const item of items) {
+      if (item.bought && item.bought_by_prenom?.trim() && item.bought_by_nom?.trim()) {
+        const key = visitorIdentityKey(item.bought_by_prenom, item.bought_by_nom);
+        if (!byKey.has(key)) {
+          byKey.set(key, { key, prenom: item.bought_by_prenom.trim(), nom: item.bought_by_nom.trim(), items: [] });
+        }
+        byKey.get(key)!.items.push(item);
+      } else {
+        unassigned.push(item);
+      }
+    }
+    const groups = Array.from(byKey.values());
+    for (const g of groups) g.items.sort((a, b) => a.label.localeCompare(b.label, "fr"));
+    const myKey = visitorIdentityKey(myPrenom, myNom);
+    const mine = groups.filter((g) => g.key === myKey);
+    const others = groups
+      .filter((g) => g.key !== myKey)
+      .sort((a, b) => a.nom.localeCompare(b.nom, "fr") || a.prenom.localeCompare(b.prenom, "fr"));
+    return { mine, unassigned, others };
+  }, [items, myPrenom, myNom]);
+
+  function renderAvatar(prenom: string, nom: string) {
+    const url = photoByKey[visitorIdentityKey(prenom, nom)];
+    return url ? (
+      <Image source={{ uri: url }} style={styles.groupAvatar} />
+    ) : (
+      <View style={[styles.groupAvatarFallback, { borderColor: C.border }]}>
+        <Text style={{ color: C.muted, fontSize: 10 }}>{initials(prenom, nom)}</Text>
+      </View>
+    );
+  }
+
+  function renderItemRow(item: ShoppingListItem, showBoughtBy: boolean) {
+    const selected = selectedIds.has(item.id);
+    return (
+      <View key={item.id} style={[styles.itemRow, selected && { backgroundColor: "rgba(233,69,96,0.12)", borderRadius: 8 }]}>
+        <TouchableOpacity
+          onPress={() => toggleBought(item)}
+          disabled={selectMode || claimedByOther || itemLockedForMe(item)}
+          style={[
+            styles.checkbox,
+            { borderColor: item.bought ? C.accent : C.border, backgroundColor: item.bought ? C.accent : "transparent" },
+            (selectMode || claimedByOther || itemLockedForMe(item)) && { opacity: 0.4 },
+          ]}
+        >
+          {item.bought && <Text style={styles.checkboxMark}>✓</Text>}
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.itemLabelCol}
+          activeOpacity={selectMode ? 0.6 : 1}
+          onPress={() => selectMode && toggleSelected(item.id)}
+          onLongPress={() => startSelect(item.id)}
+          disabled={!selectMode && !canManageList}
+        >
+          <Text
+            style={[
+              styles.itemLabel,
+              { color: item.bought ? C.muted : C.text, textDecorationLine: item.bought ? "line-through" : "none" },
+            ]}
+          >
+            {item.label}
+          </Text>
+          {showBoughtBy && item.bought && (item.bought_by_prenom || item.bought_by_nom) && (
+            <Text style={[styles.itemBoughtBy, { color: C.muted }]}>
+              par {item.bought_by_prenom} {item.bought_by_nom}
+            </Text>
+          )}
+        </TouchableOpacity>
+        {selectMode ? (
+          <View style={[styles.checkbox, { marginRight: 0, borderColor: selected ? C.danger : C.border, backgroundColor: selected ? C.danger : "transparent" }]}>
+            {selected && <Text style={styles.checkboxMark}>✓</Text>}
+          </View>
+        ) : canManageList ? (
+          <TouchableOpacity onPress={() => removeItem(item)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <Text style={{ color: C.muted, fontSize: 16, marginLeft: 8 }}>✕</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    );
+  }
+
+  function renderGroup(g: Group) {
+    return (
+      <View key={g.key} style={styles.group}>
+        <View style={styles.groupHeader}>
+          {renderAvatar(g.prenom, g.nom)}
+          <Text style={[styles.groupHeaderText, { color: C.text }]}>{g.prenom} {g.nom}</Text>
+        </View>
+        {g.items.map((item) => renderItemRow(item, false))}
+      </View>
+    );
+  }
 
   return (
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
@@ -229,54 +345,18 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin, 
             ) : items.length === 0 ? (
               <Text style={[styles.emptyText, { color: C.muted }]}>Aucun article pour le moment.</Text>
             ) : (
-              items.map((item) => {
-                const selected = selectedIds.has(item.id);
-                return (
-                <View key={item.id} style={[styles.itemRow, selected && { backgroundColor: "rgba(233,69,96,0.12)", borderRadius: 8 }]}>
-                  <TouchableOpacity
-                    onPress={() => toggleBought(item)}
-                    disabled={selectMode || claimedByOther || itemLockedForMe(item)}
-                    style={[
-                      styles.checkbox,
-                      { borderColor: item.bought ? C.accent : C.border, backgroundColor: item.bought ? C.accent : "transparent" },
-                      (selectMode || claimedByOther || itemLockedForMe(item)) && { opacity: 0.4 },
-                    ]}
-                  >
-                    {item.bought && <Text style={styles.checkboxMark}>✓</Text>}
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.itemLabelCol}
-                    activeOpacity={selectMode ? 0.6 : 1}
-                    onPress={() => selectMode && toggleSelected(item.id)}
-                    onLongPress={() => startSelect(item.id)}
-                    disabled={!selectMode && !canManageList}
-                  >
-                    <Text
-                      style={[
-                        styles.itemLabel,
-                        { color: item.bought ? C.muted : C.text, textDecorationLine: item.bought ? "line-through" : "none" },
-                      ]}
-                    >
-                      {item.label}
-                    </Text>
-                    {item.bought && (item.bought_by_prenom || item.bought_by_nom) && (
-                      <Text style={[styles.itemBoughtBy, { color: C.muted }]}>
-                        par {item.bought_by_prenom} {item.bought_by_nom}
-                      </Text>
+              <>
+                {groupedSections.mine.map(renderGroup)}
+                {groupedSections.unassigned.length > 0 && (
+                  <View style={styles.group}>
+                    {(groupedSections.mine.length > 0 || groupedSections.others.length > 0) && (
+                      <Text style={[styles.groupHeaderText, { color: C.muted, marginBottom: 6 }]}>À prendre en charge</Text>
                     )}
-                  </TouchableOpacity>
-                  {selectMode ? (
-                    <View style={[styles.checkbox, { marginRight: 0, borderColor: selected ? C.danger : C.border, backgroundColor: selected ? C.danger : "transparent" }]}>
-                      {selected && <Text style={styles.checkboxMark}>✓</Text>}
-                    </View>
-                  ) : canManageList ? (
-                    <TouchableOpacity onPress={() => removeItem(item)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                      <Text style={{ color: C.muted, fontSize: 16, marginLeft: 8 }}>✕</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
-                );
-              })
+                    {groupedSections.unassigned.map((item) => renderItemRow(item, true))}
+                  </View>
+                )}
+                {groupedSections.others.map(renderGroup)}
+              </>
             )}
           </ScrollView>
 
@@ -319,6 +399,12 @@ const styles = StyleSheet.create({
   selectBarAction: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
   scroll: { maxHeight: 380 },
   emptyText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, marginVertical: 12, lineHeight: 19 },
+
+  group: { marginBottom: 10 },
+  groupHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 2 },
+  groupHeaderText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12.5 },
+  groupAvatar: { width: 22, height: 22, borderRadius: 11 },
+  groupAvatarFallback: { width: 22, height: 22, borderRadius: 11, borderWidth: 1, alignItems: "center", justifyContent: "center" },
 
   itemRow: { flexDirection: "row", alignItems: "center", paddingVertical: 8 },
   checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, alignItems: "center", justifyContent: "center", marginRight: 10 },

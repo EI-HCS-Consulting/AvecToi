@@ -152,7 +152,7 @@ function relaisRequestedPeriodLabel(t: Task | null): string | null {
 }
 
 export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, allergies, patientFirstname }: Props) {
-  const { focusTaskId, openClaim: openClaimParam, openRelais, openProposals: openProposalsParam, openDone: openDoneParam } = useLocalSearchParams<{ focusTaskId?: string; openClaim?: string; openRelais?: string; openProposals?: string; openDone?: string }>();
+  const { focusTaskId, openClaim: openClaimParam, openRelais, openProposals: openProposalsParam, openDone: openDoneParam, openShoppingList: openShoppingListParam } = useLocalSearchParams<{ focusTaskId?: string; openClaim?: string; openRelais?: string; openProposals?: string; openDone?: string; openShoppingList?: string }>();
   const router = useRouter();
 
   // Dimensions fixes de l'assistant "Publier" (même largeur/plafond de
@@ -379,6 +379,17 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // carte) — même ShoppingListModal que "📄 Mes documents" (MyChecklist.tsx),
   // donc toute modification se répercute des deux côtés sans synchronisation.
   const [shoppingListTask, setShoppingListTask] = useState<Task | null>(null);
+  // Resynchronise la tâche affichée dans le modal avec la version à jour de
+  // `tasks` (rechargée après chaque écriture, y compris celles déclenchées
+  // par le modal lui-même comme le revert de statut sur ajout d'article) —
+  // sans ça `task` resterait figé sur le snapshot du moment de l'ouverture
+  // et la bannière "Pris en charge par..."/le verrouillage des articles
+  // n'évolueraient pas tant que le modal reste ouvert.
+  useEffect(() => {
+    if (!shoppingListTask) return;
+    const fresh = tasks.find((t) => t.id === shoppingListTask.id);
+    if (fresh && fresh !== shoppingListTask) setShoppingListTask(fresh);
+  }, [tasks, shoppingListTask]);
   // Identités ayant coché au moins un article de chaque besoin "courses"
   // (shopping_list_items.bought_by_*), pour afficher "X, Y et Z s'en
   // occupent" sur la carte même avant toute prise en charge explicite —
@@ -441,12 +452,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     const joined = names.length > 1
       ? `${names.slice(0, -1).join(", ")} et ${names[names.length - 1]}`
       : names[0];
-    // "partiellement" ne s'affiche que tant que personne n'a formellement
-    // cliqué "Je m'en occupe" (status encore "ouvert") : le dispatch libre
-    // des articles peut être incomplet, mais dès qu'une prise en charge
-    // explicite existe, le besoin est simplement "Pris en charge", plus
-    // question de partiel même si la liste n'est pas encore terminée.
-    const partial = t.status === "ouvert" && courseListComplete[t.id] === false ? " partiellement" : "";
+    // "partiellement" s'affiche tant que personne n'a formellement cliqué
+    // "Je m'en occupe" (status "ouvert") : le dispatch libre des articles
+    // peut être incomplet, mais dès qu'une prise en charge explicite existe,
+    // le besoin est simplement "Pris en charge", plus question de partiel
+    // même si la liste n'est pas encore terminée. Persiste aussi une fois le
+    // besoin auto-fermé ("ferme", échéance dépassée) — pour qu'on sache après
+    // coup que la liste n'a jamais été intégralement couverte.
+    const partial = (t.status === "ouvert" || t.status === "ferme") && courseListComplete[t.id] === false ? " partiellement" : "";
     return `${joined} ${names.length > 1 ? "s'en occupent" : "s'en occupe"}${partial}`;
   }
 
@@ -1137,12 +1150,20 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       if (unseenIds.length) markTransportProposalsSeen(target.id, unseenIds).then(loadTasks);
       router.setParams({ openProposals: undefined } as any);
     }
+    // Depuis TaskDueTodayAlertModal, cas "courses" ("Voir ma liste") : ouvre
+    // directement l'aperçu de la liste plutôt que la sheet "Marquer fait"
+    // (une liste de courses se termine par cochage d'articles, pas par un
+    // bouton "Fait" manuel — voir toggleBought dans ShoppingListModal.tsx).
+    if (focusTarget === focusTaskId && openShoppingListParam === "1" && target.category === "courses") {
+      setShoppingListTask(target);
+      router.setParams({ openShoppingList: undefined } as any);
+    }
     // focusTaskId volontairement absent des deps : cet effet ne doit se
     // redéclencher que sur un changement de focusTarget, pas de focusTaskId
     // (mis à jour dans l'effet ci-dessus) — sinon les deux effets tournent
     // dans le même commit avec un focusTarget pas encore rafraîchi et on
     // traite la cible précédente (bug de décalage d'une demande de retard).
-  }, [focusTarget, focusTick, openClaimParam, openDoneParam, openProposalsParam, tasks, tasksLoading, activeCat, openOnlyFilter, closedOnlyFilter]);
+  }, [focusTarget, focusTick, openClaimParam, openDoneParam, openProposalsParam, openShoppingListParam, tasks, tasksLoading, activeCat, openOnlyFilter, closedOnlyFilter]);
 
   // Arrivée depuis "Mon compte" (?openRelais=1) : ouvre le formulaire Publier
   // pré-rempli sur la catégorie "relais". Attend que l'identité (admin ou
@@ -2757,6 +2778,17 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           })
           .eq("task_id", claimTarget.id)
           .eq("bought", false);
+        // Ce cochage en masse rend la liste forcément complète (tout ce qui
+        // restait non coché vient de l'être) — sauf si elle était vide, auquel
+        // cas "pris_en_charge" ci-dessus reste l'état correct (rien à finir).
+        const { count } = await supabase
+          .from("shopping_list_items")
+          .select("id", { count: "exact", head: true })
+          .eq("task_id", claimTarget.id);
+        if ((count ?? 0) > 0) {
+          await supabase.from("tasks").update({ status: "fait" }).eq("id", claimTarget.id);
+          await supabase.from("personal_checklist_items").update({ status: "fait" }).eq("task_id", claimTarget.id);
+        }
       }
     }
     // "Je m'en occupe" ne colle plus automatiquement le besoin dans "Ma
