@@ -505,16 +505,16 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   }
 
   // Éligible au bouton "Fait" (courses) : moi-même ayant coché ≥1 article de
-  // la liste, OU moi étant la personne ayant formellement cliqué "Je m'en
-  // occupe" (claimed_by_*) même si aucun article ne m'est encore attribué —
-  // ce second cas couvre une liste restée bloquée par un bug/donnée ancienne
-  // (le cochage automatique au claim n'existait pas encore, voir handleClaim)
-  // et permet à la preneuse de la débloquer elle-même, y compris une fois le
-  // besoin fermé/en Historique.
+  // la liste — jamais en fonction de la seule prise en charge formelle
+  // (claimed_by_*), sans quoi le bouton resterait affiché sans rien avoir à
+  // confirmer (voir markCoursesFait, qui ne touche plus que mes articles
+  // déjà attribués).
   function courseFaitEligible(t: Task): boolean {
     if (t.category !== "courses" || t.status === "fait" || !myFullName) return false;
     const myKey = relaisIdentityKey(myFullName.prenom, myFullName.nom);
-    return courseContributorsList(t).some((p) => relaisIdentityKey(p.prenom, p.nom) === myKey);
+    return (courseItems[t.id] ?? []).some(
+      (it) => it.bought_by_prenom && it.bought_by_nom && relaisIdentityKey(it.bought_by_prenom, it.bought_by_nom) === myKey,
+    );
   }
 
   // Vrai si j'ai déjà confirmé "C'est fait" pour tous les articles qui me
@@ -531,16 +531,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     return mine.length > 0 && mine.every((it) => it.bought);
   }
 
-  // Marque achetés les articles que j'ai pris en charge (bought_by_* = moi),
-  // jamais ceux attribués à quelqu'un d'autre — le cochage reste une prise en
-  // charge, "Fait" ne fait que confirmer l'achat de ce qui m'appartient déjà.
-  // Filet de sécurité pour une liste restée bloquée par un cas ancien (prise
-  // en charge formelle du besoin sans qu'aucun article ne me soit attribué,
-  // voir courseFaitEligible) : les articles encore non attribués sont alors
-  // pris à mon nom et marqués achetés en même temps. Referme le besoin
+  // Marque achetés UNIQUEMENT les articles que j'ai pris en charge
+  // (bought_by_* = moi) — jamais ceux non attribués ou attribués à quelqu'un
+  // d'autre : "C'est fait" confirme l'achat de ma part, un article encore
+  // non coché doit rester non coché et disponible pour quelqu'un d'autre, pas
+  // être récupéré/acheté automatiquement à ma place. Referme le besoin
   // ("fait") seulement quand plus aucun article de la liste n'est en attente
   // d'achat, c'est-à-dire quand toutes les personnes engagées ont fait de
-  // même.
+  // même ET que tous les articles ont été pris en charge par quelqu'un.
   async function markCoursesFait(t: Task) {
     if (!myFullName) return;
     await supabase
@@ -550,17 +548,6 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       .eq("bought", false)
       .ilike("bought_by_prenom", myFullName.prenom)
       .ilike("bought_by_nom", myFullName.nom);
-    await supabase
-      .from("shopping_list_items")
-      .update({
-        bought: true,
-        bought_by_prenom: myFullName.prenom,
-        bought_by_nom: myFullName.nom,
-        bought_at: new Date().toISOString(),
-      })
-      .eq("task_id", t.id)
-      .eq("bought", false)
-      .is("bought_by_prenom", null);
     const { count } = await supabase
       .from("shopping_list_items")
       .select("id", { count: "exact", head: true })
@@ -3672,12 +3659,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               <Text style={styles.claimBtnText}>👁️ Aperçu de la liste</Text>
             </TouchableOpacity>
             {/* Bouton "C'est fait" : visible pour toute personne ayant coché
-                ≥1 article ou étant la preneuse formelle — voir
-                courseFaitEligible — et tant que je n'ai pas déjà confirmé
-                l'achat de tout ce qui m'est attribué (courseMyFaitDone).
-                Reste accessible même en Historique pour débloquer une liste
-                restée bloquée par une donnée ancienne (cochage jamais
-                automatisé à l'époque du claim). */}
+                ≥1 article de la liste (jamais pour la seule prise en charge
+                formelle sans article attribué, voir courseFaitEligible) et
+                tant que je n'ai pas déjà confirmé l'achat de tout ce qui
+                m'est attribué (courseMyFaitDone). Ne marque achetés que MES
+                articles (voir markCoursesFait) : les articles non cochés par
+                personne restent non cochés et disponibles pour d'autres. */}
             {courseFaitEligible(t) && !courseMyFaitDone(t) && (
               <TouchableOpacity
                 style={[styles.claimBtn, { backgroundColor: C.success, flex: 1, marginTop: 0 }]}

@@ -118,16 +118,15 @@ export default function TaskDueTodayAlertModal({ spaceId, isAdmin }: { spaceId: 
     if (wasLast) goHome();
   }
 
-  // "Fait" (courses uniquement) : marque achetés les articles que j'ai pris
-  // en charge (bought_by_* = moi) — jamais ceux attribués à quelqu'un
-  // d'autre, le cochage restant une prise en charge distincte de l'achat.
-  // Filet de sécurité pour une liste restée bloquée par un cas ancien
-  // (articles jamais attribués) : ceux-là sont alors pris à mon nom et
-  // marqués achetés en même temps — même logique que markCoursesFait dans
+  // "Fait" (courses uniquement) : marque achetés UNIQUEMENT les articles que
+  // j'ai pris en charge (bought_by_* = moi) — jamais ceux non attribués ou
+  // attribués à quelqu'un d'autre, qui doivent rester non cochés et
+  // disponibles pour quelqu'un d'autre. Même logique que markCoursesFait dans
   // Entraide.tsx (voir aussi le bouton "Fait" du mur), dupliquée ici pour
   // éviter un aller-retour d'écran. Ne referme le besoin ("fait") que quand
   // plus aucun article de la liste n'est en attente d'achat, c'est-à-dire
-  // quand toutes les personnes engagées ont fait de même.
+  // quand toutes les personnes engagées ont fait de même ET que tous les
+  // articles ont été pris en charge par quelqu'un.
   async function handleFait() {
     if (!current || !identity) return;
     const wasLast = alerts.length <= 1;
@@ -139,17 +138,6 @@ export default function TaskDueTodayAlertModal({ spaceId, isAdmin }: { spaceId: 
       .eq("bought", false)
       .ilike("bought_by_prenom", identity.prenom)
       .ilike("bought_by_nom", identity.nom);
-    await supabase
-      .from("shopping_list_items")
-      .update({
-        bought: true,
-        bought_by_prenom: identity.prenom,
-        bought_by_nom: identity.nom,
-        bought_at: new Date().toISOString(),
-      })
-      .eq("task_id", current.task.id)
-      .eq("bought", false)
-      .is("bought_by_prenom", null);
     const { count } = await supabase
       .from("shopping_list_items")
       .select("id", { count: "exact", head: true })
