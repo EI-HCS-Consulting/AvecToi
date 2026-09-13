@@ -2960,6 +2960,21 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       if (task.claimed_photo) {
         await supabase.storage.from(PHOTO_BUCKET).remove([`${spaceId}/${task.claimed_photo}`]);
       }
+      // Se désinscrire d'un besoin courses libère aussi mes articles (cochage
+      // ET achat) pour que quelqu'un d'autre puisse les prendre en charge —
+      // sans ça, ils restaient verrouillés à mon nom pour toujours (voir
+      // itemLockedForMe dans ShoppingListModal.tsx) alors même que je ne suis
+      // plus engagée sur le besoin. Basé sur claimed_by_prenom/nom (l'identité
+      // qu'on efface juste après), pas myFullName, pour rester correct même
+      // si un jour un admin désinscrit quelqu'un d'autre en son nom.
+      if (task.category === "courses" && task.claimed_by_prenom && task.claimed_by_nom) {
+        await supabase
+          .from("shopping_list_items")
+          .update({ bought: false, bought_by_prenom: null, bought_by_nom: null, bought_at: null })
+          .eq("task_id", task.id)
+          .ilike("bought_by_prenom", task.claimed_by_prenom)
+          .ilike("bought_by_nom", task.claimed_by_nom);
+      }
       await supabase.from("tasks").update({
         status: "ouvert",
         claimed_by_prenom: null,
@@ -3531,14 +3546,20 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           {(() => {
             // Badge "Pris en charge partiellement" (2 lignes, "partiellement"
             // seul sur la 2e ligne) quand la liste de courses n'est pas
-            // intégralement COCHÉE (courseListComplete) malgré une prise en
-            // charge formelle — ne porte pas sur l'achat (courseListIncomplete
-            // sert uniquement à l'alerte rouge ci-dessous). Ne concerne que
-            // "pris_en_charge" : une fois fermée ("ferme"), le badge redevient
-            // normal (l'indication "partiellement" reste portée par
-            // courseContributorsLabel).
-            const coursesPartial = t.status === "pris_en_charge" && t.category === "courses" && courseListComplete[t.id] === false;
-            const color = transportOverdue(t) ? statusColors.fait : statusColors[t.status];
+            // intégralement COCHÉE (courseListComplete) — ne porte pas sur
+            // l'achat (courseListIncomplete sert uniquement à l'alerte rouge
+            // ci-dessous). Couvre "pris_en_charge" (prise en charge formelle
+            // avec liste incomplète) ainsi que "ouvert" tant qu'il reste au
+            // moins un·e contributeur·rice engagé·e (ex. après une
+            // désinscription qui a libéré une partie de la liste mais pas
+            // toute — voir performUnclaim) : sans contributeur restant, le
+            // besoin redevient un "Ouvert" ordinaire. Une fois fermée
+            // ("ferme"), le badge redevient normal (l'indication
+            // "partiellement" reste portée par courseContributorsLabel).
+            const coursesPartial = t.category === "courses" && courseListComplete[t.id] === false && (
+              t.status === "pris_en_charge" || (t.status === "ouvert" && courseContributorsList(t).length > 0)
+            );
+            const color = transportOverdue(t) ? statusColors.fait : (coursesPartial ? statusColors.pris_en_charge : statusColors[t.status]);
             return (
               <View style={[styles.statusBadge, { borderColor: color }]}>
                 <Text style={[styles.statusLabel, { color, textAlign: "center" }]}>
