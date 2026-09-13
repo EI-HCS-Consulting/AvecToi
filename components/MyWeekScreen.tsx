@@ -181,7 +181,7 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
       if (!myPrenom || !myNom) return false;
       const key = visitorIdentityKey(myPrenom, myNom);
       return (shoppingByTask[t.id] ?? []).some(
-        (i) => i.bought && i.bought_by_prenom && i.bought_by_nom && visitorIdentityKey(i.bought_by_prenom, i.bought_by_nom) === key,
+        (i) => i.bought_by_prenom && i.bought_by_nom && visitorIdentityKey(i.bought_by_prenom, i.bought_by_nom) === key,
       );
     },
     [shoppingByTask, myPrenom, myNom],
@@ -198,7 +198,7 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
       const myKey = myPrenom && myNom ? visitorIdentityKey(myPrenom, myNom) : null;
       const orderedKeys: string[] = [];
       for (const i of shoppingByTask[t.id] ?? []) {
-        if (!i.bought || !i.bought_by_prenom || !i.bought_by_nom) continue;
+        if (!i.bought_by_prenom || !i.bought_by_nom) continue;
         const key = visitorIdentityKey(i.bought_by_prenom, i.bought_by_nom);
         if (!orderedKeys.includes(key)) orderedKeys.push(key);
       }
@@ -639,7 +639,7 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
               <View style={styles.courseList}>
                 {(shoppingByTask[t.id] ?? []).map((item) => {
                   const itemKey =
-                    item.bought && item.bought_by_prenom && item.bought_by_nom
+                    item.bought_by_prenom && item.bought_by_nom
                       ? visitorIdentityKey(item.bought_by_prenom, item.bought_by_nom)
                       : null;
                   const color = itemKey ? contributorColors.get(itemKey) ?? C.orange : C.text;
@@ -653,7 +653,7 @@ export default function MyWeekScreen({ space, reservations, basePath, myPin, myP
                   {Array.from(
                     new Map(
                       (shoppingByTask[t.id] ?? [])
-                        .filter((i) => i.bought && i.bought_by_prenom && i.bought_by_nom)
+                        .filter((i) => i.bought_by_prenom && i.bought_by_nom)
                         .map((i) => [visitorIdentityKey(i.bought_by_prenom!, i.bought_by_nom!), i]),
                     ).values(),
                   ).map((i) => {

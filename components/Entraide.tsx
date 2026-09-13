@@ -397,24 +397,30 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // du popup liste), pas en temps réel entre deux cochages d'autres
   // personnes pendant qu'on reste sur l'écran.
   const [courseContributors, setCourseContributors] = useState<Record<string, { prenom: string; nom: string }[]>>({});
-  // Liste complète = tous les articles cochés (sert à afficher "... partiellement"
-  // tant qu'il reste au moins un article non coché, cf. courseContributorsLabel).
+  // Liste complète = tous les articles pris en charge par quelqu'un (cochés),
+  // qu'ils soient achetés ou non — sert à afficher "... partiellement" tant
+  // qu'il reste au moins un article non attribué (cf. courseContributorsLabel)
+  // et à distinguer du taux d'achat (courseListPurchased ci-dessous).
   const [courseListComplete, setCourseListComplete] = useState<Record<string, boolean>>({});
+  // Tous les articles achetés (bouton "Fait") — distinct de courseListComplete
+  // depuis que cocher un article (prise en charge) et l'acheter (bouton
+  // "Fait") sont deux actions séparées. Sert au badge "Pris en charge
+  // partiellement" (voir courseListIncomplete).
+  const [courseListPurchased, setCourseListPurchased] = useState<Record<string, boolean>>({});
   const loadCourseContributors = useCallback(async (taskIds: string[]) => {
-    if (!taskIds.length) { setCourseContributors({}); setCourseListComplete({}); return; }
+    if (!taskIds.length) { setCourseContributors({}); setCourseListComplete({}); setCourseListPurchased({}); return; }
     const { data } = await supabase
       .from("shopping_list_items")
       .select("task_id, bought, bought_by_prenom, bought_by_nom")
       .in("task_id", taskIds);
     const byTask: Record<string, { prenom: string; nom: string }[]> = {};
     const completeByTask: Record<string, boolean> = {};
+    const purchasedByTask: Record<string, boolean> = {};
     (data ?? []).forEach((row) => {
-      if (row.task_id in completeByTask) {
-        completeByTask[row.task_id] = completeByTask[row.task_id] && row.bought;
-      } else {
-        completeByTask[row.task_id] = row.bought;
-      }
-      if (!row.bought || !row.bought_by_prenom || !row.bought_by_nom) return;
+      const claimed = !!row.bought_by_prenom && !!row.bought_by_nom;
+      completeByTask[row.task_id] = row.task_id in completeByTask ? completeByTask[row.task_id] && claimed : claimed;
+      purchasedByTask[row.task_id] = row.task_id in purchasedByTask ? purchasedByTask[row.task_id] && row.bought : row.bought;
+      if (!claimed) return;
       const list = byTask[row.task_id] ?? (byTask[row.task_id] = []);
       const key = relaisIdentityKey(row.bought_by_prenom, row.bought_by_nom);
       if (!list.some((p) => relaisIdentityKey(p.prenom, p.nom) === key)) {
@@ -423,6 +429,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     });
     setCourseContributors(byTask);
     setCourseListComplete(completeByTask);
+    setCourseListPurchased(purchasedByTask);
   }, []);
   useEffect(() => {
     loadCourseContributors(tasks.filter((t) => t.category === "courses").map((t) => t.id));
@@ -474,12 +481,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     return (courseContributors[t.id] ?? []).some((p) => relaisIdentityKey(p.prenom, p.nom) === myKey);
   }
 
-  // Vrai tant que la liste n'est pas intégralement cochée — sert au texte
-  // d'alerte rouge et au badge "Pris en charge partiellement" sur un besoin
-  // courses formellement pris en charge (contrairement à "partiellement" dans
-  // courseContributorsLabel, ce cas couvre spécifiquement "pris_en_charge").
+  // Vrai tant que la liste n'est pas intégralement achetée (bouton "Fait") —
+  // sert au texte d'alerte rouge et au badge "Pris en charge partiellement"
+  // sur un besoin courses formellement pris en charge (contrairement à
+  // "partiellement" dans courseContributorsLabel, qui porte sur la prise en
+  // charge/cochage et concerne "ouvert"/"ferme", ce cas couvre spécifiquement
+  // "pris_en_charge", où la liste est par définition déjà entièrement cochée).
   function courseListIncomplete(t: Task): boolean {
-    return t.category === "courses" && courseListComplete[t.id] === false;
+    return t.category === "courses" && courseListPurchased[t.id] === false;
   }
 
   // Éligible au bouton "Fait" (courses) : moi-même ayant coché ≥1 article de
@@ -495,11 +504,25 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     return courseContributorsList(t).some((p) => relaisIdentityKey(p.prenom, p.nom) === myKey);
   }
 
-  // Coche tout ce qui reste (attribué à moi) et referme la liste — même
-  // logique que le cochage en masse de handleClaim, déclenchable ici sans
-  // passer par "Je m'en occupe" (bouton "Fait", voir courseFaitEligible).
+  // Marque achetés les articles que j'ai pris en charge (bought_by_* = moi),
+  // jamais ceux attribués à quelqu'un d'autre — le cochage reste une prise en
+  // charge, "Fait" ne fait que confirmer l'achat de ce qui m'appartient déjà.
+  // Filet de sécurité pour une liste restée bloquée par un cas ancien (prise
+  // en charge formelle du besoin sans qu'aucun article ne me soit attribué,
+  // voir courseFaitEligible) : les articles encore non attribués sont alors
+  // pris à mon nom et marqués achetés en même temps. Referme le besoin
+  // ("fait") seulement quand plus aucun article de la liste n'est en attente
+  // d'achat, c'est-à-dire quand toutes les personnes engagées ont fait de
+  // même.
   async function markCoursesFait(t: Task) {
     if (!myFullName) return;
+    await supabase
+      .from("shopping_list_items")
+      .update({ bought: true })
+      .eq("task_id", t.id)
+      .eq("bought", false)
+      .ilike("bought_by_prenom", myFullName.prenom)
+      .ilike("bought_by_nom", myFullName.nom);
     await supabase
       .from("shopping_list_items")
       .update({
@@ -509,15 +532,23 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         bought_at: new Date().toISOString(),
       })
       .eq("task_id", t.id)
+      .eq("bought", false)
+      .is("bought_by_prenom", null);
+    const { count } = await supabase
+      .from("shopping_list_items")
+      .select("id", { count: "exact", head: true })
+      .eq("task_id", t.id)
       .eq("bought", false);
-    await supabase.from("tasks").update({ status: "fait" }).eq("id", t.id);
-    await supabase.from("personal_checklist_items").update({ status: "fait" }).eq("task_id", t.id);
+    if ((count ?? 0) === 0) {
+      await supabase.from("tasks").update({ status: "fait" }).eq("id", t.id);
+      await supabase.from("personal_checklist_items").update({ status: "fait" }).eq("task_id", t.id);
+    }
   }
 
   function confirmCoursesFait(t: Task) {
     Alert.alert(
-      "Marquer la liste comme faite",
-      "Les articles restants seront cochés à ton nom. Confirmer ?",
+      "Marquer mes articles comme achetés",
+      "Tes articles de la liste seront marqués comme achetés. Confirmer ?",
       [
         { text: "Annuler", style: "cancel" },
         { text: "Confirmer", onPress: () => { markCoursesFait(t); } },
@@ -1203,8 +1234,9 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     }
     // Depuis TaskDueTodayAlertModal, cas "courses" ("Voir ma liste") : ouvre
     // directement l'aperçu de la liste plutôt que la sheet "Marquer fait"
-    // (une liste de courses se termine par cochage d'articles, pas par un
-    // bouton "Fait" manuel — voir toggleBought dans ShoppingListModal.tsx).
+    // (le cochage y sert à s'attribuer des articles, voir toggleClaim dans
+    // ShoppingListModal.tsx — le bouton "Fait" qui marque l'achat vit sur le
+    // bloc du mur et dans TaskDueTodayAlertModal, pas dans cet aperçu).
     if (focusTarget === focusTaskId && openShoppingListParam === "1" && target.category === "courses") {
       setShoppingListTask(target);
       router.setParams({ openShoppingList: undefined } as any);
@@ -2815,31 +2847,20 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         } : {}),
       }).eq("id", claimTarget.id);
       // "Je m'en occupe" sur une liste de courses partiellement dispatchée
-      // (voir courseContributorsLabel) coche d'un coup les articles restants
-      // et les attribue au preneur — la prise en charge formelle du besoin
-      // vaut engagement à finir la liste.
+      // (voir courseContributorsLabel) attribue au preneur les articles
+      // encore non pris en charge — une prise en charge, pas un achat : le
+      // statut reste "pris_en_charge" (déjà posé ci-dessus), à charge pour le
+      // preneur de cliquer "Fait" une fois les courses effectivement faites.
       if (claimTarget.category === "courses") {
         await supabase
           .from("shopping_list_items")
           .update({
-            bought: true,
             bought_by_prenom: claimPrenom.trim(),
             bought_by_nom: claimNom.trim(),
             bought_at: new Date().toISOString(),
           })
           .eq("task_id", claimTarget.id)
-          .eq("bought", false);
-        // Ce cochage en masse rend la liste forcément complète (tout ce qui
-        // restait non coché vient de l'être) — sauf si elle était vide, auquel
-        // cas "pris_en_charge" ci-dessus reste l'état correct (rien à finir).
-        const { count } = await supabase
-          .from("shopping_list_items")
-          .select("id", { count: "exact", head: true })
-          .eq("task_id", claimTarget.id);
-        if ((count ?? 0) > 0) {
-          await supabase.from("tasks").update({ status: "fait" }).eq("id", claimTarget.id);
-          await supabase.from("personal_checklist_items").update({ status: "fait" }).eq("task_id", claimTarget.id);
-        }
+          .is("bought_by_prenom", null);
       }
     }
     // "Je m'en occupe" ne colle plus automatiquement le besoin dans "Ma
@@ -3695,11 +3716,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
         {/* Alerte rouge directement sur le bloc besoin quand une liste de
             courses formellement prise en charge n'est pas encore
-            intégralement cochée — voir courseListIncomplete et le badge "Pris
-            en charge partiellement" ci-dessus. */}
+            intégralement achetée — voir courseListIncomplete (mesure
+            désormais l'achat, pas l'attribution) et le badge "Pris en charge
+            partiellement" ci-dessus. */}
         {t.category === "courses" && t.status === "pris_en_charge" && courseListIncomplete(t) && (
           <Text style={[styles.taskDesc, { color: C.danger, marginTop: 4 }]}>
-            ⚠️ Certains articles ne sont pas encore pris en charge
+            ⚠️ Certains articles ne sont pas encore achetés
           </Text>
         )}
 
@@ -3760,12 +3782,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           </TouchableOpacity>
         )}
 
-        {/* "Je m'en occupe" reste affiché sur une liste de courses déjà
-            "pris_en_charge" tant qu'il reste des articles non cochés — permet
-            à quelqu'un d'autre de reprendre/finir une liste incomplète (voir
-            courseListIncomplete). Exclu si j'ai déjà coché un article moi-même
-            (j'ai alors accès au bouton "Fait", voir courseFaitEligible). */}
-        {(t.status === "ouvert" || (t.status === "pris_en_charge" && t.category === "courses" && courseListIncomplete(t)))
+        {/* "Je m'en occupe" ne concerne que les listes de courses encore
+            "ouvert" (dispatch libre, articles pas tous attribués) — une fois
+            "pris_en_charge", tous les articles ont déjà un preneur (invariant
+            de la transition ouvert -> pris_en_charge, voir toggleClaim dans
+            ShoppingListModal.tsx) donc il n'y a plus rien à "prendre en
+            charge" via ce bouton ; il ne reste qu'à acheter, via "Fait". */}
+        {t.status === "ouvert"
           && !t.deleted_by_admin && t.category !== "transport"
           && !(t.category === "courses" && courseContributedByMe(t)) && (
           <TouchableOpacity

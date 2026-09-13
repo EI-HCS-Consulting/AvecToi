@@ -87,11 +87,14 @@ async function fetchDueTodayCourses(spaceId: string, today: string, identity: Du
   }
   const tasks = taskRows as Task[];
 
+  // "bought" = acheté (bouton "Fait"), pas "coché" (attribution) — le rappel
+  // porte sur ce qu'il reste à acheter, donc les articles déjà attribués à
+  // cette identité mais pas encore marqués achetés.
   const { data: itemRows, error: itemErr } = await supabase
     .from("shopping_list_items")
     .select("task_id, label, bought_by_prenom, bought_by_nom")
     .in("task_id", tasks.map((t) => t.id))
-    .eq("bought", true);
+    .eq("bought", false);
   if (itemErr) {
     console.error("[fetchDueTodayCourses] items query failed:", itemErr);
     return [];

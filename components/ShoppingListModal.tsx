@@ -16,18 +16,26 @@ function normalizeShoppingLabel(s: string) {
 // "👁️ Aperçu" d'un besoin category="courses" (Entraide.tsx) et "📄 Mes
 // documents" (MyChecklist.tsx) — les deux ouvrent ce même composant sur le
 // même task, donc une modification faite d'un côté (ajout, suppression,
-// coché "acheté") est visible de l'autre sans aucune synchronisation
-// explicite : c'est la même table shopping_list_items qui est lue/écrite.
+// cochage) est visible de l'autre sans aucune synchronisation explicite :
+// c'est la même table shopping_list_items qui est lue/écrite.
 // Ouvert à tout visiteur ou admin de l'espace, comme la modification de la
 // description d'un besoin (saveModifyDesc dans Entraide.tsx) — pas de
 // restriction à l'auteur du besoin. Seul le cochage des articles est
 // restreint : une fois que quelqu'un a cliqué "Je m'en occupe" sur le besoin
 // (claimed_by_prenom/nom renseignés), seule cette personne peut cocher/
 // décocher — tant que personne ne l'a pris en charge, la liste reste ouverte
-// à tous pour dispatcher les articles. Même sans prise en charge du besoin,
-// un article déjà coché par quelqu'un ne peut être décoché que par cette
-// même personne (itemLockedForMe) — on peut cocher les articles restants,
-// jamais annuler le travail d'un autre.
+// à tous pour dispatcher les articles.
+//
+// Cocher un article ≠ l'avoir acheté : la case à cocher n'exprime qu'une
+// prise en charge ("je m'en occupe"), via bought_by_prenom/nom/bought_at.
+// L'achat effectif (bought=true) n'est marqué que par l'action "Fait"
+// (bouton du mur d'entraide / alerte d'échéance, voir markCoursesFait et
+// handleFait dans Entraide.tsx et TaskDueTodayAlertModal.tsx) — jamais ici.
+// Un article déjà attribué à quelqu'un ne peut être décoché que par cette
+// même personne, et seulement tant qu'il n'est pas acheté (itemLockedForMe +
+// le check "item.bought" qui verrouille la case une fois l'achat confirmé) —
+// on peut cocher les articles restants, jamais annuler le travail d'un
+// autre, ni défaire un achat déjà confirmé par un simple tap.
 interface Props {
   visible: boolean;
   onClose: () => void;
@@ -82,11 +90,12 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin, 
   // compris "fait", pour ne pas rouvrir le cochage à tous après coup).
   const claimedByOther = !!task?.claimed_by_prenom && !isSamePerson(task.claimed_by_prenom, task.claimed_by_nom);
 
-  // Un article déjà coché par quelqu'un d'autre ne peut pas être décoché,
+  // Un article déjà attribué à quelqu'un d'autre ne peut pas être décoché,
   // même sans prise en charge du besoin — évite qu'une personne annule le
-  // travail d'une autre pendant le dispatch libre de la liste.
+  // travail d'une autre pendant le dispatch libre de la liste. S'applique
+  // que l'article soit déjà acheté ou seulement pris en charge.
   const itemLockedForMe = (item: ShoppingListItem) =>
-    item.bought && !!(item.bought_by_prenom || item.bought_by_nom) && !isSamePerson(item.bought_by_prenom, item.bought_by_nom);
+    !!(item.bought_by_prenom || item.bought_by_nom) && !isSamePerson(item.bought_by_prenom, item.bought_by_nom);
 
   useEffect(() => {
     if (!visible || !task) { setItems([]); return; }
@@ -107,32 +116,35 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin, 
     return () => { cancelled = true; };
   }, [visible, task]);
 
-  async function toggleBought(item: ShoppingListItem) {
+  // Cocher = prendre en charge un article ("je m'en occupe"), pas l'acheter
+  // — l'achat (bought) n'est marqué que par l'action "Fait" (voir en-tête de
+  // fichier). Un article déjà acheté n'est plus décochable (voir disabled
+  // dans renderItemRow) : toggleClaim ne s'occupe donc que d'attribuer/
+  // désattribuer un article encore à acheter.
+  async function toggleClaim(item: ShoppingListItem) {
     if (claimedByOther) return;
+    if (item.bought) return;
     if (itemLockedForMe(item)) return;
-    const nextBought = !item.bought;
-    const boughtBy = nextBought
-      ? { bought_by_prenom: myPrenom || null, bought_by_nom: myNom || null, bought_at: new Date().toISOString() }
-      : { bought_by_prenom: null, bought_by_nom: null, bought_at: null };
-    const nextItems = items.map((it) => (it.id === item.id ? { ...it, bought: nextBought, ...boughtBy } : it));
+    const isMine = !!item.bought_by_prenom;
+    const patch = isMine
+      ? { bought_by_prenom: null, bought_by_nom: null, bought_at: null }
+      : { bought_by_prenom: myPrenom || null, bought_by_nom: myNom || null, bought_at: new Date().toISOString() };
+    const nextItems = items.map((it) => (it.id === item.id ? { ...it, ...patch } : it));
     setItems(nextItems);
-    await supabase.from("shopping_list_items").update({ bought: nextBought, ...boughtBy }).eq("id", item.id);
-    // Coche le dernier article → plus besoin de repasser par "C'est fait"
-    // (photo + PIN, voir confirmDone dans Entraide.tsx) : la liste pleine
-    // vaut déjà preuve que les courses sont faites.
-    if (nextBought && task && task.status !== "fait" && nextItems.length > 0 && nextItems.every((it) => it.bought)) {
-      await supabase.from("tasks").update({ status: "fait" }).eq("id", task.id);
-      // Miroir pour "Ma Checklist" (voir syncPersonalChecklistStatus dans
-      // Entraide.tsx) : ce chemin de complétion automatique passe par ici,
-      // pas par les autres endroits qui font déjà ce miroir.
-      await supabase.from("personal_checklist_items").update({ status: "fait" }).eq("task_id", task.id);
-    }
-    // Redécocher un article après coup annule ce constat : le besoin repasse
-    // à l'état où il était avant d'être marqué "fait" tout seul.
-    if (!nextBought && task && task.status === "fait") {
-      const revertStatus = task.claimed_by_prenom ? "pris_en_charge" : "ouvert";
-      await supabase.from("tasks").update({ status: revertStatus }).eq("id", task.id);
-      await supabase.from("personal_checklist_items").update({ status: "a_faire" }).eq("task_id", task.id);
+    await supabase.from("shopping_list_items").update(patch).eq("id", item.id);
+    // Tous les articles pris en charge (par qui que ce soit) → le besoin
+    // passe "Pris en charge", même sans "Je m'en occupe" formel. Ne s'annule
+    // que dans l'autre sens si personne n'a formellement pris en charge le
+    // besoin (task.claimed_by_prenom) — sinon la prise en charge formelle
+    // prime et le besoin reste "pris_en_charge" (voir courseListIncomplete
+    // dans Entraide.tsx pour le badge "partiellement" qui prend le relais).
+    if (task && task.status !== "fait") {
+      const allClaimed = nextItems.length > 0 && nextItems.every((it) => !!it.bought_by_prenom);
+      if (allClaimed && task.status === "ouvert") {
+        await supabase.from("tasks").update({ status: "pris_en_charge" }).eq("id", task.id);
+      } else if (!allClaimed && task.status === "pris_en_charge" && !task.claimed_by_prenom) {
+        await supabase.from("tasks").update({ status: "ouvert" }).eq("id", task.id);
+      }
     }
   }
 
@@ -186,40 +198,41 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin, 
     // Enrichit "Produits récurrents" (voir Entraide.tsx) — insert en conflit
     // (même libellé déjà catalogué pour l'espace) ignoré silencieusement.
     await supabase.from("recurring_shopping_items").insert({ space_id: spaceId, label });
-    // Un nouvel article dans une liste déjà cochée "Fait" annule ce constat —
-    // le besoin repasse en "ouvert" (partiellement pris en charge, cf.
-    // courseContributorsLabel dans Entraide.tsx) et la prise en charge
-    // formelle éventuelle est effacée : le nouvel article n'appartient à
-    // personne, donc "Je m'en occupe" doit redevenir cliquable pour tout le
-    // monde et l'ancien preneur ne doit plus bloquer les autres via
-    // claimedByOther (voir plus haut).
-    if (task && task.status === "fait") {
-      await supabase.from("tasks").update({
-        status: "ouvert",
-        claimed_by_prenom: null,
-        claimed_by_nom: null,
-        claimed_by_pin: null,
-        claimed_at: null,
-      }).eq("id", task.id);
-      await supabase.from("personal_checklist_items").update({ status: "a_faire" }).eq("task_id", task.id);
+    // Un nouvel article, forcément non attribué, annule "tous les articles
+    // pris en charge" : le besoin ne peut plus rester "fait" (tout acheté) ni
+    // "pris_en_charge" par pur dispatch. Une prise en charge formelle ("Je
+    // m'en occupe", task.claimed_by_prenom) reste valable malgré tout — le
+    // besoin redescend alors à "pris_en_charge" (pas "ouvert") et le preneur
+    // n'est pas effacé, contrairement au cas sans preneur formel où "Je m'en
+    // occupe" doit redevenir cliquable pour tout le monde.
+    if (task && (task.status === "fait" || task.status === "pris_en_charge")) {
+      if (task.claimed_by_prenom) {
+        if (task.status === "fait") {
+          await supabase.from("tasks").update({ status: "pris_en_charge" }).eq("id", task.id);
+          await supabase.from("personal_checklist_items").update({ status: "a_faire" }).eq("task_id", task.id);
+        }
+      } else {
+        await supabase.from("tasks").update({ status: "ouvert" }).eq("id", task.id);
+        await supabase.from("personal_checklist_items").update({ status: "a_faire" }).eq("task_id", task.id);
+      }
     }
   }
 
   const boughtCount = items.filter((it) => it.bought).length;
 
-  // Regroupe les articles cochés par la personne qui s'en occupe (une seule
-  // photo/avatar par personne, pas par article), alphabétique dans chaque
-  // groupe — demande explicite. Le groupe de l'utilisateur qui consulte
-  // apparaît en premier, puis les non-attribués (pas encore cochés, donc
-  // encore à dispatcher — les faire suivre immédiatement son propre groupe
-  // les garde visibles sans les perdre en bas de liste), puis les autres
-  // personnes par ordre alphabétique.
+  // Regroupe les articles par la personne qui s'en occupe (une seule photo/
+  // avatar par personne, pas par article), qu'ils soient déjà achetés ou
+  // encore à acheter — alphabétique dans chaque groupe — demande explicite.
+  // Le groupe de l'utilisateur qui consulte apparaît en premier, puis les
+  // non-attribués (pas encore pris en charge, donc encore à dispatcher — les
+  // faire suivre immédiatement son propre groupe les garde visibles sans les
+  // perdre en bas de liste), puis les autres personnes par ordre alphabétique.
   interface Group { key: string; prenom: string; nom: string; items: ShoppingListItem[] }
   const groupedSections = useMemo(() => {
     const byKey = new Map<string, Group>();
     const unassigned: ShoppingListItem[] = [];
     for (const item of items) {
-      if (item.bought && item.bought_by_prenom?.trim() && item.bought_by_nom?.trim()) {
+      if (item.bought_by_prenom?.trim() && item.bought_by_nom?.trim()) {
         const key = visitorIdentityKey(item.bought_by_prenom, item.bought_by_nom);
         if (!byKey.has(key)) {
           byKey.set(key, { key, prenom: item.bought_by_prenom.trim(), nom: item.bought_by_nom.trim(), items: [] });
@@ -255,15 +268,15 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin, 
     return (
       <View key={item.id} style={[styles.itemRow, selected && { backgroundColor: "rgba(233,69,96,0.12)", borderRadius: 8 }]}>
         <TouchableOpacity
-          onPress={() => toggleBought(item)}
-          disabled={selectMode || claimedByOther || itemLockedForMe(item)}
+          onPress={() => toggleClaim(item)}
+          disabled={selectMode || claimedByOther || item.bought || itemLockedForMe(item)}
           style={[
             styles.checkbox,
-            { borderColor: item.bought ? C.accent : C.border, backgroundColor: item.bought ? C.accent : "transparent" },
-            (selectMode || claimedByOther || itemLockedForMe(item)) && { opacity: 0.4 },
+            { borderColor: item.bought_by_prenom ? C.accent : C.border, backgroundColor: item.bought_by_prenom ? C.accent : "transparent" },
+            (selectMode || claimedByOther || item.bought || itemLockedForMe(item)) && { opacity: 0.4 },
           ]}
         >
-          {item.bought && <Text style={styles.checkboxMark}>✓</Text>}
+          {!!item.bought_by_prenom && <Text style={styles.checkboxMark}>✓</Text>}
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.itemLabelCol}
@@ -299,12 +312,22 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin, 
     );
   }
 
+  // Badge "Fait"/"À faire" par personne — reflète l'action "Fait" (achat),
+  // pas le cochage : "Fait" tant que tous ses articles pris en charge sont
+  // marqués achetés (voir markCoursesFait/handleFait dans Entraide.tsx et
+  // TaskDueTodayAlertModal.tsx, seuls endroits qui passent bought à true).
   function renderGroup(g: Group) {
+    const allBought = g.items.every((it) => it.bought);
     return (
       <View key={g.key} style={styles.group}>
         <View style={styles.groupHeader}>
           {renderAvatar(g.prenom, g.nom)}
           <Text style={[styles.groupHeaderText, { color: C.text }]}>{g.prenom} {g.nom}</Text>
+          <View style={[styles.faitBadge, { borderColor: allBought ? C.success : C.orange }]}>
+            <Text style={[styles.faitBadgeText, { color: allBought ? C.success : C.orange }]}>
+              {allBought ? "Fait" : "À faire"}
+            </Text>
+          </View>
         </View>
         {g.items.map((item) => renderItemRow(item, false))}
       </View>
@@ -402,9 +425,11 @@ const styles = StyleSheet.create({
 
   group: { marginBottom: 10 },
   groupHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 2 },
-  groupHeaderText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12.5 },
+  groupHeaderText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12.5, flex: 1 },
   groupAvatar: { width: 22, height: 22, borderRadius: 11 },
   groupAvatarFallback: { width: 22, height: 22, borderRadius: 11, borderWidth: 1, alignItems: "center", justifyContent: "center" },
+  faitBadge: { borderWidth: 1, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2 },
+  faitBadgeText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 10.5 },
 
   itemRow: { flexDirection: "row", alignItems: "center", paddingVertical: 8 },
   checkbox: { width: 22, height: 22, borderRadius: 6, borderWidth: 1.5, alignItems: "center", justifyContent: "center", marginRight: 10 },
