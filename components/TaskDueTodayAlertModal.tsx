@@ -1,16 +1,17 @@
-import { useEffect, useState } from "react";
-import { View, Text, TouchableOpacity, Modal, StyleSheet } from "react-native";
+import { useCallback, useEffect, useState } from "react";
+import { AppState, View, Text, TouchableOpacity, Modal, StyleSheet } from "react-native";
 import { useRouter } from "expo-router";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { getVisitorSession } from "@/lib/visitorSession";
-import { fetchDueTodayCommitments } from "@/lib/dueTodayAlerts";
+import { supabase } from "@/lib/supabase";
+import { fetchDueTodayCommitments, type DueTodayAlert } from "@/lib/dueTodayAlerts";
 import type { Task } from "@/lib/types";
 
 const CATEGORY_ICONS: Partial<Record<Task["category"], string>> = {
-  repas: "🍽️", affaires: "👕", administratif: "🗂️", autre: "💡",
+  repas: "🍽️", affaires: "👕", administratif: "🗂️", autre: "💡", courses: "🛒",
 };
 const CATEGORY_LABELS: Partial<Record<Task["category"], string>> = {
-  repas: "Repas", affaires: "Affaires", administratif: "Administratif", autre: "Autre",
+  repas: "Repas", affaires: "Affaires", administratif: "Administratif", autre: "Autre", courses: "Courses",
 };
 
 // Popup affiché à la connexion (admin et visiteur, voir montage dans
@@ -24,36 +25,62 @@ const CATEGORY_LABELS: Partial<Record<Task["category"], string>> = {
 // ici. "Fermer" passe à l'alerte suivante ou, une fois la dernière traitée,
 // revient sur "Ma semaine".
 //
-// Alertes "regardées" pendant cette session d'app uniquement (jamais
-// persisté, même principe que sessionHiddenIds dans RelaisAlertModal) : le
-// popup ne doit pas revenir tant que l'app tourne, mais doit réapparaître à
-// la prochaine connexion si le besoin est toujours en attente ce jour-là.
+// Alertes "regardées" le temps de rester sur l'écran courant uniquement
+// (jamais persisté) : le popup ne doit pas réapparaître en boucle pendant
+// qu'on clique "Fermer" alerte après alerte, mais doit revenir à chaque
+// nouvelle connexion/réouverture de l'app (y compris un simple retour au
+// premier plan depuis l'arrière-plan, pas seulement un relancement complet)
+// tant que le besoin n'a pas été marqué "fait" — demande explicite : le
+// rappel doit "revenir toute la journée à chaque connexion". On re-fetch et
+// on vide sessionHiddenIds à chaque passage à "active" pour ça.
 export default function TaskDueTodayAlertModal({ spaceId, isAdmin }: { spaceId: string; isAdmin: boolean }) {
   const router = useRouter();
   const { theme: C } = useDisplayMode();
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const [alertsData, setAlertsData] = useState<DueTodayAlert[]>([]);
   const [sessionHiddenIds, setSessionHiddenIds] = useState<Set<string>>(new Set());
 
-  useEffect(() => {
-    (async () => {
-      if (isAdmin) {
-        const rows = await fetchDueTodayCommitments(spaceId, { isAdmin: true, prenom: "", nom: "", pin: "ADMIN" });
-        setTasks(rows);
-        return;
-      }
-      const session = await getVisitorSession();
+  const refresh = useCallback(async () => {
+    if (isAdmin) {
+      // Le matching des articles de courses (bought_by_prenom/nom) se fait
+      // sur le vrai nom de l'admin, pas un sentinel — comme dans
+      // ShoppingListModal.tsx, seul endroit qui écrit ces colonnes.
+      const { data } = await supabase.auth.getUser();
       const rows = await fetchDueTodayCommitments(spaceId, {
-        isAdmin: false,
-        prenom: session?.prenom ?? "",
-        nom: session?.nom ?? "",
-        pin: session?.pin ?? "",
+        isAdmin: true,
+        prenom: (data.user?.user_metadata?.firstname ?? "").trim(),
+        nom: (data.user?.user_metadata?.lastname ?? "").trim(),
+        pin: "ADMIN",
       });
-      setTasks(rows);
-    })();
+      setAlertsData(rows);
+      return;
+    }
+    const session = await getVisitorSession();
+    const rows = await fetchDueTodayCommitments(spaceId, {
+      isAdmin: false,
+      prenom: session?.prenom ?? "",
+      nom: session?.nom ?? "",
+      pin: session?.pin ?? "",
+    });
+    setAlertsData(rows);
   }, [spaceId, isAdmin]);
 
-  const alerts = tasks.filter((t) => !sessionHiddenIds.has(t.id));
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (next) => {
+      if (next === "active") {
+        setSessionHiddenIds(new Set());
+        refresh();
+      }
+    });
+    return () => sub.remove();
+  }, [refresh]);
+
+  const alerts = alertsData.filter((a) => !sessionHiddenIds.has(a.task.id));
   const current = alerts[0];
+  const isCourses = current?.task.category === "courses";
   const basePath = `/(${isAdmin ? "admin" : "visitor"})`;
 
   function goHome() {
@@ -63,19 +90,25 @@ export default function TaskDueTodayAlertModal({ spaceId, isAdmin }: { spaceId: 
   function handleDone() {
     if (!current) return;
     const wasLast = alerts.length <= 1;
-    setSessionHiddenIds((prev) => new Set(prev).add(current.id));
-    router.push(`${basePath}/entraide?focusTaskId=${current.id}&openDone=1` as any);
+    setSessionHiddenIds((prev) => new Set(prev).add(current.task.id));
+    // Courses n'a pas de bouton "Fait" manuel — elle se termine par cochage
+    // des articles (voir toggleBought dans ShoppingListModal.tsx) : le
+    // deep-link ouvre donc directement l'aperçu de la liste plutôt que la
+    // sheet "Marquer fait" utilisée par les autres catégories.
+    const param = isCourses ? "openShoppingList" : "openDone";
+    router.push(`${basePath}/entraide?focusTaskId=${current.task.id}&${param}=1` as any);
     void wasLast;
   }
 
   function handleClose() {
     if (!current) return;
     const wasLast = alerts.length <= 1;
-    setSessionHiddenIds((prev) => new Set(prev).add(current.id));
+    setSessionHiddenIds((prev) => new Set(prev).add(current.task.id));
     if (wasLast) goHome();
   }
 
   if (!current) return null;
+  const { task, items } = current;
 
   return (
     <Modal visible transparent animationType="fade" statusBarTranslucent>
@@ -85,21 +118,28 @@ export default function TaskDueTodayAlertModal({ spaceId, isAdmin }: { spaceId: 
           <Text style={[styles.title, { color: C.text }]}>C'est aujourd'hui !</Text>
           <View style={[styles.detailBox, { borderColor: C.border }]}>
             <Text style={[styles.detailRow, { color: C.text }]}>
-              {CATEGORY_ICONS[current.category] ?? "💡"} Besoin {CATEGORY_LABELS[current.category] ?? current.category}
+              {CATEGORY_ICONS[task.category] ?? "💡"} Besoin {CATEGORY_LABELS[task.category] ?? task.category}
             </Text>
-            {!!current.description && (
-              <Text style={[styles.detailBody, { color: C.muted }]}>{current.description}</Text>
+            {!!task.description && (
+              <Text style={[styles.detailBody, { color: C.muted }]}>{task.description}</Text>
+            )}
+            {!!items?.length && (
+              <Text style={[styles.detailBody, { color: C.muted }]}>
+                Tu t'es chargé(e) de : {items.join(", ")}
+              </Text>
             )}
           </View>
           <Text style={[styles.body, { color: C.muted }]}>
-            Tu as pris en charge ce besoin {current.title} ({(CATEGORY_LABELS[current.category] ?? current.category).toLowerCase()}) et c'est pour aujourd'hui. Marque-le comme fait si tu t'en es déjà occupé.
+            {isCourses
+              ? `Tu t'es occupé(e) de ${items?.length ?? 0} article${(items?.length ?? 0) > 1 ? "s" : ""} de la liste ${task.title} et c'est pour aujourd'hui.`
+              : `Tu as pris en charge ce besoin ${task.title} et c'est pour aujourd'hui. Marque-le comme fait si tu t'en es déjà occupé.`}
           </Text>
           <TouchableOpacity
             style={[styles.btnFull, { backgroundColor: C.accent }]}
             onPress={handleDone}
             activeOpacity={0.85}
           >
-            <Text style={styles.btnPrimaryText}>✓ C'est fait</Text>
+            <Text style={styles.btnPrimaryText}>{isCourses ? "🛒 Voir ma liste" : "✓ C'est fait"}</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[styles.btn, styles.btnSecondary, { borderColor: C.border }]}
