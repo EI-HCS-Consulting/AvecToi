@@ -18,12 +18,18 @@ const CATEGORY_LABELS: Partial<Record<Task["category"], string>> = {
 // (admin)/_layout.tsx et (visitor)/_layout.tsx) pour chaque besoin pris en
 // charge par cette identité dont l'échéance (date_limite) tombe aujourd'hui
 // — demande explicite : un rappel le jour même, avec un bouton "Fait" qui
-// valide directement le besoin. "Fait" ouvre la sheet de confirmation
-// "Marquer fait" d'Entraide.tsx (PIN pré-vérifié pour son propre engagement
-// + photo optionnelle) via ?openDone=1, même mécanisme que RelaisAlertModal
-// ("Je m'en occupe" -> ?openClaim=1) plutôt que de dupliquer cette logique
-// ici. "Fermer" passe à l'alerte suivante ou, une fois la dernière traitée,
-// revient sur "Ma semaine".
+// valide directement le besoin. Pour repas/affaires/administratif/autre,
+// "Fait" ouvre la sheet de confirmation "Marquer fait" d'Entraide.tsx (PIN
+// pré-vérifié pour son propre engagement + photo optionnelle) via
+// ?openDone=1, même mécanisme que RelaisAlertModal ("Je m'en occupe" ->
+// ?openClaim=1) plutôt que de dupliquer cette logique ici. Pour courses (pas
+// de PIN par article), le bouton principal ouvre directement l'aperçu de la
+// liste (?openShoppingList=1) et un second bouton "✓ Fait" (voir handleFait)
+// coche ici même tout ce qui reste à mon nom et referme le besoin — utilisable
+// par toute personne ayant coché ≥1 article, pas seulement la preneuse
+// formelle (même logique que courseFaitEligible dans Entraide.tsx). "Fermer"
+// passe à l'alerte suivante ou, une fois la dernière traitée, revient sur "Ma
+// semaine".
 //
 // Alertes "regardées" le temps de rester sur l'écran courant uniquement
 // (jamais persisté) : le popup ne doit pas réapparaître en boucle pendant
@@ -38,6 +44,10 @@ export default function TaskDueTodayAlertModal({ spaceId, isAdmin }: { spaceId: 
   const { theme: C } = useDisplayMode();
   const [alertsData, setAlertsData] = useState<DueTodayAlert[]>([]);
   const [sessionHiddenIds, setSessionHiddenIds] = useState<Set<string>>(new Set());
+  // Identité courante — gardée à part de fetchDueTodayCommitments pour être
+  // réutilisée par le bouton "Fait" (courses, voir handleFait) sans re-
+  // résoudre l'identité une 2e fois.
+  const [identity, setIdentity] = useState<{ prenom: string; nom: string } | null>(null);
 
   const refresh = useCallback(async () => {
     if (isAdmin) {
@@ -45,16 +55,15 @@ export default function TaskDueTodayAlertModal({ spaceId, isAdmin }: { spaceId: 
       // sur le vrai nom de l'admin, pas un sentinel — comme dans
       // ShoppingListModal.tsx, seul endroit qui écrit ces colonnes.
       const { data } = await supabase.auth.getUser();
-      const rows = await fetchDueTodayCommitments(spaceId, {
-        isAdmin: true,
-        prenom: (data.user?.user_metadata?.firstname ?? "").trim(),
-        nom: (data.user?.user_metadata?.lastname ?? "").trim(),
-        pin: "ADMIN",
-      });
+      const prenom = (data.user?.user_metadata?.firstname ?? "").trim();
+      const nom = (data.user?.user_metadata?.lastname ?? "").trim();
+      setIdentity({ prenom, nom });
+      const rows = await fetchDueTodayCommitments(spaceId, { isAdmin: true, prenom, nom, pin: "ADMIN" });
       setAlertsData(rows);
       return;
     }
     const session = await getVisitorSession();
+    setIdentity({ prenom: session?.prenom ?? "", nom: session?.nom ?? "" });
     const rows = await fetchDueTodayCommitments(spaceId, {
       isAdmin: false,
       prenom: session?.prenom ?? "",
@@ -107,6 +116,30 @@ export default function TaskDueTodayAlertModal({ spaceId, isAdmin }: { spaceId: 
     if (wasLast) goHome();
   }
 
+  // "Fait" (courses uniquement) : coche à mon nom tout ce qui reste de la
+  // liste et referme le besoin directement depuis le popup, sans passer par
+  // "Voir ma liste" — même logique que markCoursesFait/confirmCoursesFait
+  // dans Entraide.tsx (voir aussi le bouton "Fait" du mur), dupliquée ici
+  // pour éviter un aller-retour d'écran.
+  async function handleFait() {
+    if (!current || !identity) return;
+    const wasLast = alerts.length <= 1;
+    setSessionHiddenIds((prev) => new Set(prev).add(current.task.id));
+    await supabase
+      .from("shopping_list_items")
+      .update({
+        bought: true,
+        bought_by_prenom: identity.prenom,
+        bought_by_nom: identity.nom,
+        bought_at: new Date().toISOString(),
+      })
+      .eq("task_id", current.task.id)
+      .eq("bought", false);
+    await supabase.from("tasks").update({ status: "fait" }).eq("id", current.task.id);
+    await supabase.from("personal_checklist_items").update({ status: "fait" }).eq("task_id", current.task.id);
+    if (wasLast) goHome();
+  }
+
   if (!current) return null;
   const { task, items } = current;
 
@@ -141,6 +174,15 @@ export default function TaskDueTodayAlertModal({ spaceId, isAdmin }: { spaceId: 
           >
             <Text style={styles.btnPrimaryText}>{isCourses ? "🛒 Voir ma liste" : "✓ C'est fait"}</Text>
           </TouchableOpacity>
+          {isCourses && (
+            <TouchableOpacity
+              style={[styles.btn, styles.btnSecondary, { borderColor: C.success, marginBottom: 10 }]}
+              onPress={handleFait}
+              activeOpacity={0.85}
+            >
+              <Text style={[styles.btnSecondaryText, { color: C.success }]}>✓ Fait</Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity
             style={[styles.btn, styles.btnSecondary, { borderColor: C.border }]}
             onPress={handleClose}
