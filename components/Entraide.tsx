@@ -3498,7 +3498,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           // `mine`) — accès au bouton "Je m'en occupe" pour l'admin, et pour
           // le visiteur la possibilité de corriger une échéance oubliée à la
           // publication (voir avectoi_besoin_editable_par_auteur).
-          else if (!selectable && mine) openEditTask(t);
+          else if (!selectable && mine && !taskPastDeadline(t)) openEditTask(t);
         }}
         onPress={() => { if (selectable && selectionMode) toggleTaskSelected(t.id); }}
         pointerEvents={selectable && selectionMode ? "box-only" : "auto"}
@@ -3555,7 +3555,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               </View>
             );
           })()}
-          {mine && (
+          {mine && !taskPastDeadline(t) && (
             <TouchableOpacity onPress={() => openEditTask(t)} style={[styles.iconBtn, { borderColor: C.border }]}>
               <Text style={{ fontSize: 13 }}>✏️</Text>
             </TouchableOpacity>
@@ -4253,7 +4253,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                     </TouchableOpacity>
                   )}
 
-                  {fCat !== "relais" && (
+                  {!editTask && fCat !== "relais" && (
                   <>
                   <Text style={[styles.fieldLabel, { color: C.gold }]}>Catégorie</Text>
                   <View style={styles.catGrid}>
@@ -4280,7 +4280,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                   </>
                   )}
 
-                  {fCat === "relais" && (
+                  {!editTask && fCat === "relais" && (
                     <Text style={[styles.fieldLabel, { color: C.gold }]}>🆘 Besoin de relais</Text>
                   )}
 
@@ -4488,7 +4488,6 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
                   {fCat !== "transport" && fCat !== "relais" && (
                     <>
-                      <Text style={[styles.fieldLabel, { color: C.gold }]}>Photo (optionnelle)</Text>
                       {(fPhotoUri || fExistingPhoto) ? (
                         <View style={styles.photoPreviewRow}>
                           <Image
@@ -4560,11 +4559,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                     activeOpacity={0.8}
                   >
                     <Text style={[styles.claimOnCreateText, { color: fUrgent ? "#fff" : C.text }]}>
-                      {fUrgent ? "🔴 Besoin urgent" : "⚪ Marquer comme urgent"}
+                      Urgent
                     </Text>
                   </TouchableOpacity>
 
-                  {!!editTask?.claimed_by_prenom && (
+                  {!!editTask && isMine(editTask) && (
                     <TouchableOpacity
                       style={[styles.claimOnCreateBtn, { backgroundColor: C.bg, borderColor: C.border, marginTop: 10 }]}
                       onPress={() => setDesengageEditTarget(editTask)}
