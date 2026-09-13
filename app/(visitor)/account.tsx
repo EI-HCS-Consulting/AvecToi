@@ -16,6 +16,7 @@ import { updateLinkedCalendarEvent } from "@/lib/calendarSync";
 import { enterByDossierCode } from "@/lib/visitorEntry";
 import { updateVisitorPhoto, updateVisitorMottoRelation, getVisitorEmail, updateVisitorEmail } from "@/lib/visitorProfile";
 import { fetchPinResetHistory, type PinResetRequest } from "@/lib/pinResetRequests";
+import { fetchOpenDisengageAlertsForAuthor, markDisengageAlertSeenByAuthor, type TaskDisengageAlert } from "@/lib/taskDisengageAlerts";
 import { normalizePhone } from "@/lib/phone";
 import { metierLabel } from "@/lib/metiers";
 import { relationLabel } from "@/lib/relations";
@@ -221,6 +222,10 @@ export default function VisitorAccountScreen() {
   // (rattachement par identité, voir requestPinReset) — message d'historique
   // symétrique visiteur/admin, voir MyAlertsModal (pinResetHistoryLine).
   const [pinResetHistory, setPinResetHistory] = useState<PinResetRequest[]>([]);
+  // Alertes de désengagement (J-2 ou moins) sur un besoin que ce visiteur a
+  // publié, non encore vues par lui — voir lib/taskDisengageAlerts.ts, posées
+  // par performUnclaim / performRelaisCoverageUnclaim dans Entraide.tsx.
+  const [disengageAlerts, setDisengageAlerts] = useState<TaskDisengageAlert[]>([]);
   const [pinModalVisible, setPinModalVisible] = useState(false);
   const [pinPhase, setPinPhase] = useState<"verify" | "new" | "confirm">("verify");
   const [pinInput, setPinInput] = useState("");
@@ -459,6 +464,12 @@ export default function VisitorAccountScreen() {
       setPinResetHistory(pinHistory);
     } catch (e) {
       console.error("[loadRelaisAlerts] fetchPinResetHistory failed:", e);
+    }
+    try {
+      const disengage = await fetchOpenDisengageAlertsForAuthor(spaceId, { prenom: p, nom: n });
+      setDisengageAlerts(disengage);
+    } catch (e) {
+      console.error("[loadRelaisAlerts] fetchOpenDisengageAlertsForAuthor failed:", e);
     }
   }, []);
 
@@ -1257,6 +1268,11 @@ export default function VisitorAccountScreen() {
     await supabase.from("reservation_change_history").update({ seen: true }).eq("id", h.id);
   }
 
+  async function handleDismissDisengageAlert(a: TaskDisengageAlert) {
+    setDisengageAlerts((prev) => prev.filter((x) => x.id !== a.id));
+    await markDisengageAlertSeenByAuthor(a.id);
+  }
+
   async function handleAlertModify(r: Reservation) {
     // Intervention proposée par l'admin (voir BookingProposalAlertModal) :
     // pas d'édition en place possible, on supprime la réservation puis on
@@ -1333,12 +1349,12 @@ export default function VisitorAccountScreen() {
         )}
 
         <TouchableOpacity
-          style={[styles.patientProfileBtn, (myActiveAlerts.length + relaisAlerts.length) > 0 && { backgroundColor: "#e94560" }]}
+          style={[styles.patientProfileBtn, (myActiveAlerts.length + relaisAlerts.length + disengageAlerts.length) > 0 && { backgroundColor: "#e94560" }]}
           onPress={() => setAlertsModalVisible(true)}
           activeOpacity={0.85}
         >
           <Text style={styles.patientProfileBtnText}>
-            🔔 Mes alertes{(myActiveAlerts.length + relaisAlerts.length) > 0 ? ` (${myActiveAlerts.length + relaisAlerts.length})` : ""}
+            🔔 Mes alertes{(myActiveAlerts.length + relaisAlerts.length + disengageAlerts.length) > 0 ? ` (${myActiveAlerts.length + relaisAlerts.length})` : ""}
           </Text>
         </TouchableOpacity>
 
@@ -2001,6 +2017,8 @@ export default function VisitorAccountScreen() {
         pinResetHistory={pinResetHistory}
         adminFirstname={space?.admin_firstname}
         adminLastname={space?.admin_lastname}
+        disengageAlerts={disengageAlerts}
+        onDismissDisengageAlert={handleDismissDisengageAlert}
       />
 
       {space && role === "intervenant" && intervenantProfileId && (

@@ -31,6 +31,7 @@ import type { Task, TransportProposal, TaskRelaisCoverage } from "@/lib/types";
 import { CHECKLIST_COLORS, type Theme } from "@/lib/themes";
 import { CHECKLIST_TEMPLATES, CHECKLIST_SUB_MENUS, addDaysIso, checklistItemDescription, checklistItemLinks, findTemplateItemByTitle, type ChecklistContext, type ChecklistItem } from "@/lib/checklistTemplates";
 import { isRelaisFullyCovered, computeRelaisGaps, type RelaisCoverageRange } from "@/lib/relaisCoverage";
+import { maybeRecordDisengageAlert } from "@/lib/taskDisengageAlerts";
 
 const PHOTO_BUCKET = "entraide-photos";
 
@@ -2920,6 +2921,34 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // Sinon (besoin simple, ou même personne sur les deux jambes), tout est
   // libéré d'un coup comme avant.
   async function performUnclaim(task: Task, leg: "out" | "return" = "out") {
+    // Une désinscription est une modification du besoin comme une autre —
+    // posé sur les 3 branches ci-dessous pour apparaître dans le même
+    // affichage "✏️ Modifié le... par..." que saveModifyDesc (côté Admin
+    // notamment, pour suivre les changements d'engagement). Même calcul
+    // d'identité que saveModifyDesc : admin -> métadonnées du compte,
+    // visiteur -> mySession (la personne qui se désengage, pas forcément
+    // celle qui était engagée si jamais un admin désinscrit quelqu'un
+    // d'autre en son nom).
+    let editorPrenom = "", editorNom = "";
+    if (isAdmin) {
+      const { data } = await supabase.auth.getUser();
+      editorPrenom = (data.user?.user_metadata?.firstname ?? "").trim();
+      editorNom = (data.user?.user_metadata?.lastname ?? "").trim();
+    } else if (mySession) {
+      editorPrenom = mySession.prenom;
+      editorNom = mySession.nom;
+    }
+    const modifiedFields = {
+      modified_at: new Date().toISOString(),
+      modified_by_prenom: editorPrenom || null,
+      modified_by_nom: editorNom || null,
+    };
+    // Personne réellement désengagée (pas forcément editorPrenom/Nom — un
+    // admin peut désinscrire quelqu'un d'autre en son nom) — sert à l'alerte
+    // J-2 ci-dessous, prise AVANT que les colonnes claimed_by_* ne soient
+    // effacées par les updates plus bas.
+    const disengagedPrenom = leg === "return" ? (task.transport_return_claimed_by_prenom ?? "") : (task.claimed_by_prenom ?? "");
+    const disengagedNom = leg === "return" ? (task.transport_return_claimed_by_nom ?? "") : (task.claimed_by_nom ?? "");
     const splitLegs = task.transport_round_trip && !!task.transport_return_claimed_by_prenom;
     if (splitLegs && leg === "return") {
       await supabase.from("tasks").update({
@@ -2928,6 +2957,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         transport_return_claimed_by_nom: null,
         transport_return_claimed_by_pin: null,
         transport_confirmed_return_time: null,
+        ...modifiedFields,
       }).eq("id", task.id);
     } else if (splitLegs && leg === "out") {
       if (task.claimed_photo) {
@@ -2942,23 +2972,29 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         claimed_photo: null,
         claimed_text: null,
         transport_confirmed_out_time: null,
+        ...modifiedFields,
       }).eq("id", task.id);
     } else {
       if (task.claimed_photo) {
         await supabase.storage.from(PHOTO_BUCKET).remove([`${spaceId}/${task.claimed_photo}`]);
       }
-      // Se désinscrire d'un besoin courses libère aussi mes articles (cochage
-      // ET achat) pour que quelqu'un d'autre puisse les prendre en charge —
-      // sans ça, ils restaient verrouillés à mon nom pour toujours (voir
-      // itemLockedForMe dans ShoppingListModal.tsx) alors même que je ne suis
-      // plus engagée sur le besoin. Basé sur claimed_by_prenom/nom (l'identité
-      // qu'on efface juste après), pas myFullName, pour rester correct même
-      // si un jour un admin désinscrit quelqu'un d'autre en son nom.
+      // Se désinscrire d'un besoin courses libère aussi mes articles encore
+      // "À faire" (cochage ET achat) pour que quelqu'un d'autre puisse les
+      // prendre en charge — sans ça, ils restaient verrouillés à mon nom
+      // pour toujours (voir itemLockedForMe dans ShoppingListModal.tsx) alors
+      // même que je ne suis plus engagée sur le besoin. Le filtre
+      // .eq("bought", false) est essentiel : un article que j'ai déjà acheté
+      // ne doit pas être remis à zéro par ma désinscription, il reste
+      // attribué et acheté (trace de l'achat conservée). Basé sur
+      // claimed_by_prenom/nom (l'identité qu'on efface juste après), pas
+      // myFullName, pour rester correct même si un jour un admin désinscrit
+      // quelqu'un d'autre en son nom.
       if (task.category === "courses" && task.claimed_by_prenom && task.claimed_by_nom) {
         await supabase
           .from("shopping_list_items")
           .update({ bought: false, bought_by_prenom: null, bought_by_nom: null, bought_at: null })
           .eq("task_id", task.id)
+          .eq("bought", false)
           .ilike("bought_by_prenom", task.claimed_by_prenom)
           .ilike("bought_by_nom", task.claimed_by_nom);
       }
@@ -2975,6 +3011,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           transport_confirmed_out_time: null,
           transport_confirmed_return_time: null,
         } : {}),
+        ...modifiedFields,
       }).eq("id", task.id);
       // Se désinscrire retire aussi le besoin de "Ma Checklist" du preneur —
       // il n'est plus le sien, un autre item (créé par un autre propriétaire)
@@ -2988,6 +3025,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           .eq("owner_nom", task.claimed_by_nom ?? "");
       }
     }
+    // Alerte J-2 : informe l'admin ET l'auteur du besoin qu'une désinscription
+    // vient d'avoir lieu proche de l'échéance — voir lib/taskDisengageAlerts.ts.
+    // N'insère rien si l'échéance n'est pas dans les 2 jours (ou inconnue).
+    void maybeRecordDisengageAlert(spaceId, task, disengagedPrenom, disengagedNom);
     showToast("Tu t'es désinscrit ✓");
     loadTasks();
   }
@@ -2997,12 +3038,35 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // besoin si la période n'est plus intégralement couverte sans lui.
   async function performRelaisCoverageUnclaim(task: Task, coverage: TaskRelaisCoverage) {
     await supabase.from("task_relais_coverage").delete().eq("id", coverage.id);
+    // Même traçabilité que performUnclaim : un retrait de couverture relais
+    // est aussi un changement d'engagement, posé même si le besoin reste
+    // "pris_en_charge" grâce aux autres contributeurs (pas seulement en cas
+    // de réouverture).
+    let editorPrenom = "", editorNom = "";
+    if (isAdmin) {
+      const { data } = await supabase.auth.getUser();
+      editorPrenom = (data.user?.user_metadata?.firstname ?? "").trim();
+      editorNom = (data.user?.user_metadata?.lastname ?? "").trim();
+    } else if (mySession) {
+      editorPrenom = mySession.prenom;
+      editorNom = mySession.nom;
+    }
+    const modifiedFields = {
+      modified_at: new Date().toISOString(),
+      modified_by_prenom: editorPrenom || null,
+      modified_by_nom: editorNom || null,
+    };
     if (task.status === "pris_en_charge" && task.relais_start_date && task.date_limite) {
       const remaining = (relaisCoverage[task.id] ?? []).filter((c) => c.id !== coverage.id);
       if (!isRelaisFullyCovered(remaining, task.relais_start_date, task.date_limite)) {
-        await supabase.from("tasks").update({ status: "ouvert" }).eq("id", task.id);
+        await supabase.from("tasks").update({ status: "ouvert", ...modifiedFields }).eq("id", task.id);
+      } else {
+        await supabase.from("tasks").update(modifiedFields).eq("id", task.id);
       }
+    } else {
+      await supabase.from("tasks").update(modifiedFields).eq("id", task.id);
     }
+    void maybeRecordDisengageAlert(spaceId, task, coverage.prenom, coverage.nom);
     showToast("Tu t'es désinscrit ✓");
     loadTasks();
   }
@@ -3674,15 +3738,24 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                 <Text style={styles.claimBtnText}>✓ C'est fait</Text>
               </TouchableOpacity>
             )}
-            {/* Une fois ma part achetée (courseMyFaitDone), "C'est fait" laisse
-                sa place à "Se désinscrire" — uniquement si je suis la
-                preneuse formelle du besoin (isMine) : les autres
-                contributeurs n'ont rien à désinscrire au niveau du besoin,
-                seulement leurs articles (gérable depuis l'aperçu). Réutilise
-                le même mécanisme que transport/relais (performUnclaim via
-                openPinModal), qui ne touche que claimed_by_* et remet le
-                besoin "ouvert" — les articles déjà achetés restent intacts. */}
-            {!isAdmin && courseMyFaitDone(t) && isMine(t) && !isTaskClosedPast(t) && (
+            {/* "Se désinscrire" reste disponible tant que ma part n'est pas
+                achetée (contrairement à l'ancien !courseMyFaitDone qui ne le
+                montrait qu'une fois terminé, l'inverse de ce qui est utile :
+                on veut pouvoir se désengager d'un besoin pris en charge pour
+                le réouvrir) — uniquement si je suis la preneuse formelle du
+                besoin (isMine) : les autres contributeurs n'ont rien à
+                désinscrire au niveau du besoin, seulement leurs articles
+                (gérable depuis l'aperçu). Peut donc s'afficher en même temps
+                que "C'est fait" si une partie de mes articles est déjà
+                achetée et une autre non. Réutilise le même mécanisme que
+                transport/relais (performUnclaim via openPinModal), qui ne
+                touche que claimed_by_* et les articles encore "À faire"
+                (bought=false) — les articles déjà achetés restent intacts
+                (voir le filtre .eq("bought", false) dans performUnclaim).
+                Gardé disponible tant que l'échéance n'est pas passée
+                (taskPastDeadline), pas isTaskClosedPast : le statut n'entre
+                pas en compte, seule la date compte. */}
+            {!isAdmin && isMine(t) && !taskPastDeadline(t) && (
               <TouchableOpacity
                 style={[styles.claimBtn, { borderWidth: 1, borderColor: C.border, flex: 1, marginTop: 0 }]}
                 onPress={() => openPinModal(t, "unclaim", "out")}
@@ -3821,7 +3894,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                 {cov.claimed_photo && (
                   <Image source={{ uri: taskPhotoUrl(spaceId, cov.claimed_photo) }} style={styles.claimedPhoto} resizeMode="cover" />
                 )}
-                {!isAdmin && samePerson(cov.prenom, cov.nom, cov.pin) && !isTaskClosedPast(t) && (
+                {!isAdmin && samePerson(cov.prenom, cov.nom, cov.pin) && !taskPastDeadline(t) && (
                   <TouchableOpacity
                     style={[styles.actionSmall, { borderColor: C.border, marginTop: 4, alignSelf: "flex-start" }]}
                     onPress={() => openRelaisCoverageUnclaim(t, cov)}
@@ -3936,7 +4009,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                 <Text style={[styles.actionSmallText, { color: C.success }]}>✓ C'est fait</Text>
               </TouchableOpacity>
             )}
-            {t.status === "pris_en_charge" && !isTaskClosedPast(t) && (myTransportLegs(t).length > 1 ? (
+            {t.status === "pris_en_charge" && !taskPastDeadline(t) && (myTransportLegs(t).length > 1 ? (
               <>
                 <TouchableOpacity
                   style={[styles.actionSmall, { borderColor: C.border }]}

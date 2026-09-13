@@ -32,6 +32,7 @@ import PremiumGateModal from "@/components/PremiumGateModal";
 import RecurringBookingModal from "@/components/RecurringBookingModal";
 import { fetchOpenRelaisAlerts, fetchMyRelaisCoverageHistory, fetchRelaisTaskProposals, type RelaisCoverageSummary, type RelaisTaskProposal } from "@/lib/relaisAlerts";
 import { fetchOpenPinResetRequests, markPinResetRequestSeen, resolvePinResetRequest, fetchPinResetHistory, type PinResetRequest } from "@/lib/pinResetRequests";
+import { fetchOpenDisengageAlertsForAdmin, markDisengageAlertSeenByAdmin, type TaskDisengageAlert } from "@/lib/taskDisengageAlerts";
 import { adminResetVisitorPin } from "@/lib/visitorProfile";
 import type { Reservation, ReservationChangeHistoryEntry, NewsEntry, NewsEntryReply, SupportMessage, Task } from "@/lib/types";
 import { TASK_CATEGORY_COLORS } from "@/lib/themes";
@@ -169,6 +170,10 @@ export default function AdminAccountScreen() {
   // Demandes déjà traitées — message d'historique symétrique visiteur/admin,
   // voir MyAlertsModal (pinResetHistoryLine).
   const [pinResetHistory, setPinResetHistory] = useState<PinResetRequest[]>([]);
+  // Alertes de désengagement (J-2 ou moins) non encore vues par l'admin —
+  // voir lib/taskDisengageAlerts.ts, posées par performUnclaim /
+  // performRelaisCoverageUnclaim dans Entraide.tsx.
+  const [disengageAlerts, setDisengageAlerts] = useState<TaskDisengageAlert[]>([]);
   // Besoins de relais déjà pris en charge (en tout ou partie) par l'admin —
   // sortis de relaisAlerts ci-dessus, affichés dans "Historique".
   const [relaisCoverageHistory, setRelaisCoverageHistory] = useState<RelaisCoverageSummary[]>([]);
@@ -578,6 +583,12 @@ export default function AdminAccountScreen() {
     } catch (e) {
       console.error("[loadActivity] fetchPinResetHistory failed:", e);
     }
+    try {
+      const disengage = await fetchOpenDisengageAlertsForAdmin(spaceId);
+      setDisengageAlerts(disengage);
+    } catch (e) {
+      console.error("[loadActivity] fetchOpenDisengageAlertsForAdmin failed:", e);
+    }
   }
 
   // Alertes actives = réservations "Visite"/"Nuit" de l'admin lui-même
@@ -608,7 +619,12 @@ export default function AdminAccountScreen() {
   const [rgpdProlonging, setRgpdProlonging] = useState(false);
   const [premiumGateMsg, setPremiumGateMsg] = useState<string | null>(null);
   const rgpdAlertActive = !!space && isRgpdAlertActive(space);
-  const alertsBadgeCount = myActiveAlerts.length + relaisAlerts.length + pinResetRequests.length + (rgpdAlertActive ? 1 : 0);
+  const alertsBadgeCount = myActiveAlerts.length + relaisAlerts.length + pinResetRequests.length + disengageAlerts.length + (rgpdAlertActive ? 1 : 0);
+
+  async function handleDismissDisengageAlert(a: TaskDisengageAlert) {
+    setDisengageAlerts((prev) => prev.filter((x) => x.id !== a.id));
+    await markDisengageAlertSeenByAdmin(a.id);
+  }
 
   async function handleResetPinRequest(r: PinResetRequest) {
     if (!space) return;
@@ -985,6 +1001,8 @@ export default function AdminAccountScreen() {
           adminFirstname={space?.admin_firstname}
           adminLastname={space?.admin_lastname}
           pinResetHistoryIsAdmin
+          disengageAlerts={disengageAlerts}
+          onDismissDisengageAlert={handleDismissDisengageAlert}
         />
 
         {/* Section Mon affichage */}

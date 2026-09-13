@@ -8,6 +8,7 @@ import {
   type RelaisCoverageSummary, type RelaisCoverageRangeWithStatus, type RelaisTaskProposal,
 } from "@/lib/relaisAlerts";
 import type { PinResetRequest } from "@/lib/pinResetRequests";
+import type { TaskDisengageAlert } from "@/lib/taskDisengageAlerts";
 
 function relaisCoverageIntro(s: RelaisCoverageSummary): string {
   return s.fullyCovered ? "Tu as pris en charge la totalité de la période :" : "Tu as pris en charge une partie de la période :";
@@ -100,6 +101,13 @@ interface Props {
   // visiteur voit qui a traité. Défaut visiteur (les deux autres appelants —
   // intervenant compris — n'utilisent jamais pinResetHistory).
   pinResetHistoryIsAdmin?: boolean;
+  // Alertes de désengagement proche de l'échéance (J-2 ou moins) — voir
+  // supabase/migrations/20260913_task_disengage_alerts.sql et
+  // lib/taskDisengageAlerts.ts. L'appelant filtre déjà par destinataire :
+  // l'admin reçoit toutes celles non vues par l'admin (seen_by_admin=false),
+  // l'auteur celles non vues par l'auteur et rattachées à son identité.
+  disengageAlerts?: TaskDisengageAlert[];
+  onDismissDisengageAlert?: (a: TaskDisengageAlert) => void | Promise<void>;
 }
 
 // Un item "Marquer comme lu" (activeAlerts ou history) est capturé ici au
@@ -138,7 +146,7 @@ function pinResetHistoryLines(
   return [requested, `PIN Réinitialisé : le ${resolved}${adminName ? ` - par ${adminName}` : ""}`];
 }
 
-export default function MyAlertsModal({ visible, onClose, C, activeAlerts, history, onModify, onMarkSeen, rgpdAlert, relaisAlerts = [], onClaimRelais, onDismissRelais, relaisCoverageHistory = [], relaisProposalsByTask = {}, onMarkHistorySeen, pinResetRequests = [], onResetPinRequest, onDismissPinResetRequest, pinResetHistory = [], adminFirstname, adminLastname, pinResetHistoryIsAdmin = false }: Props) {
+export default function MyAlertsModal({ visible, onClose, C, activeAlerts, history, onModify, onMarkSeen, rgpdAlert, relaisAlerts = [], onClaimRelais, onDismissRelais, relaisCoverageHistory = [], relaisProposalsByTask = {}, onMarkHistorySeen, pinResetRequests = [], onResetPinRequest, onDismissPinResetRequest, pinResetHistory = [], adminFirstname, adminLastname, pinResetHistoryIsAdmin = false, disengageAlerts = [], onDismissDisengageAlert }: Props) {
   const [archived, setArchived] = useState<ArchivedEntry[]>([]);
   const [archivesOpen, setArchivesOpen] = useState(false);
 
@@ -175,7 +183,7 @@ export default function MyAlertsModal({ visible, onClose, C, activeAlerts, histo
           <Text style={[styles.title, { color: C.text }]}>🔔 Mes alertes</Text>
 
           <ScrollView style={styles.scroll} contentContainerStyle={{ paddingBottom: 4 }}>
-            {!rgpdAlert && pinResetRequests.length === 0 && relaisAlerts.length === 0 && activeAlerts.length === 0 && history.length === 0 && relaisCoverageHistory.length === 0 && pinResetHistory.length === 0 && archived.length === 0 ? (
+            {!rgpdAlert && pinResetRequests.length === 0 && disengageAlerts.length === 0 && relaisAlerts.length === 0 && activeAlerts.length === 0 && history.length === 0 && relaisCoverageHistory.length === 0 && pinResetHistory.length === 0 && archived.length === 0 ? (
               <Text style={[styles.emptyText, { color: C.muted }]}>Aucune alerte pour l'instant.</Text>
             ) : (
               <>
@@ -221,9 +229,28 @@ export default function MyAlertsModal({ visible, onClose, C, activeAlerts, histo
                   </>
                 )}
 
+                {disengageAlerts.length > 0 && (
+                  <>
+                    <Text style={[styles.sectionLabel, { color: C.gold, marginTop: (rgpdAlert || pinResetRequests.length > 0) ? 16 : 0 }]}>🔓 Désengagements</Text>
+                    {disengageAlerts.map((a) => (
+                      <View
+                        key={a.id}
+                        style={[styles.activeCard, { borderColor: "rgba(233,69,96,0.4)", backgroundColor: "rgba(233,69,96,0.08)" }]}
+                      >
+                        <Text style={[styles.activeMessage, { color: C.text }]}>
+                          {a.disengaged_prenom} {a.disengaged_nom} s'est désengagé(e) du besoin « {a.task_title} », dont l'échéance approche{a.date_limite ? ` (${toFrShort(new Date(a.date_limite + "T12:00:00"))})` : ""}.
+                        </Text>
+                        <TouchableOpacity style={[styles.smallBtn, { borderColor: C.border }]} onPress={() => onDismissDisengageAlert?.(a)}>
+                          <Text style={[styles.smallBtnText, { color: C.muted }]}>Marquer comme lu</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </>
+                )}
+
                 {relaisAlerts.length > 0 && (
                   <>
-                    <Text style={[styles.sectionLabel, { color: C.gold, marginTop: (rgpdAlert || pinResetRequests.length > 0) ? 16 : 0 }]}>🆘 Besoins de relais</Text>
+                    <Text style={[styles.sectionLabel, { color: C.gold, marginTop: (rgpdAlert || pinResetRequests.length > 0 || disengageAlerts.length > 0) ? 16 : 0 }]}>🆘 Besoins de relais</Text>
                     {relaisAlerts.map((t) => (
                       <View
                         key={t.id}
@@ -277,7 +304,7 @@ export default function MyAlertsModal({ visible, onClose, C, activeAlerts, histo
 
                 {activeAlerts.length > 0 && (
                   <>
-                    <Text style={[styles.sectionLabel, { color: C.gold, marginTop: (rgpdAlert || pinResetRequests.length > 0 || relaisAlerts.length > 0) ? 16 : 0 }]}>À traiter</Text>
+                    <Text style={[styles.sectionLabel, { color: C.gold, marginTop: (rgpdAlert || pinResetRequests.length > 0 || disengageAlerts.length > 0 || relaisAlerts.length > 0) ? 16 : 0 }]}>À traiter</Text>
                     {activeAlerts.map((r) => (
                       <View
                         key={r.id}
@@ -299,7 +326,7 @@ export default function MyAlertsModal({ visible, onClose, C, activeAlerts, histo
 
                 {(history.length > 0 || relaisCoverageHistory.length > 0 || pinResetHistory.length > 0) && (
                   <>
-                    <Text style={[styles.sectionLabel, { color: C.gold, marginTop: (activeAlerts.length > 0 || relaisAlerts.length > 0 || pinResetRequests.length > 0 || rgpdAlert) ? 16 : 0 }]}>Historique</Text>
+                    <Text style={[styles.sectionLabel, { color: C.gold, marginTop: (activeAlerts.length > 0 || relaisAlerts.length > 0 || pinResetRequests.length > 0 || disengageAlerts.length > 0 || rgpdAlert) ? 16 : 0 }]}>Historique</Text>
                     {pinResetHistory.map((r) => (
                       <View key={r.id} style={[styles.historyRow, { borderLeftColor: C.gold }]}>
                         <Text style={[styles.historyType, { color: C.text }]}>🔑 Réinitialisation du code</Text>
