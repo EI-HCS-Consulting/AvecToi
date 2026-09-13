@@ -3657,10 +3657,20 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         {t.description ? (
           <Text style={[styles.taskDesc, { color: C.muted }]}>{t.description}</Text>
         ) : null}
-        <Text style={[styles.taskDesc, { color: C.muted }]}>
-          🗓️ Publié le {toFrShort(new Date(t.created_at))}
-          {(t.author_prenom || t.author_nom) ? ` par ${[t.author_prenom, t.author_nom].filter(Boolean).join(" ")}` : ""}
-        </Text>
+        <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap" }}>
+          <Text style={[styles.taskDesc, { color: C.muted }]}>
+            🗓️ Publié le {toFrShort(new Date(t.created_at))}
+            {(t.author_prenom || t.author_nom) ? " par " : ""}
+          </Text>
+          {(t.author_prenom || t.author_nom) ? (
+            <>
+              <View style={{ marginRight: 4 }}>{claimerAvatar(t.author_prenom ?? "", t.author_nom ?? "")}</View>
+              <Text style={[styles.taskDesc, { color: C.muted }]}>
+                {[t.author_prenom, t.author_nom].filter(Boolean).join(" ")}
+              </Text>
+            </>
+          ) : null}
+        </View>
         {(() => {
           // Lien officiel re-dérivé du template d'origine (tasks n'a pas de
           // colonne dédiée) — reste affiché après publication, pas seulement
@@ -5188,9 +5198,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
                     {!pendingChecklistActive && (
                       <>
-                        <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 8 }]}>Photo (optionnelle)</Text>
                         {(fPhotoUri || fExistingPhoto) ? (
-                          <View style={styles.photoPreviewRow}>
+                          <View style={[styles.photoPreviewRow, { marginTop: 8 }]}>
                             <Image
                               source={{ uri: fPhotoUri ?? taskPhotoUrl(spaceId, fExistingPhoto!) }}
                               style={styles.photoPreviewImg}
@@ -5205,7 +5214,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                           </View>
                         ) : (
                           <TouchableOpacity
-                            style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border }]}
+                            style={[styles.photoPickAdd, { backgroundColor: C.bg, borderColor: C.border, marginTop: 8 }]}
                             onPress={openTaskPhotoPicker}
                             disabled={pickingPhoto}
                           >

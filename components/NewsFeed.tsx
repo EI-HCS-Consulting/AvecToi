@@ -16,6 +16,7 @@ import { NewIndicator } from "@/components/NewIndicator";
 import PinPad from "@/components/PinPad";
 import VisitorProfileModal from "@/components/VisitorProfileModal";
 import ConfirmModal from "@/components/ConfirmModal";
+import { loadPhotoRoster, visitorIdentityKey, initials } from "@/lib/visitorRoster";
 import type { NewsEntry, NewsEntryReply } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 import { LOGO_PURPLE } from "@/lib/themes";
@@ -68,10 +69,6 @@ function frDateShort(iso: string) {
   return new Date(iso).toLocaleDateString("fr-FR", {
     weekday: "long", day: "numeric", month: "long",
   });
-}
-
-function avatarInitial(prenom: string) {
-  return prenom.trim().charAt(0).toUpperCase() || "?";
 }
 
 // ─── Composant principal ──────────────────────────────────────────────────────
@@ -135,6 +132,13 @@ export default function NewsFeed({ spaceId, C, isAdmin, coAdminIdentity, capped,
 
   const [entries, setEntries] = useState<NewsEntryWithUrls[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Photo par identité (visiteurs + admin) pour l'avatar affiché dans
+  // l'en-tête de chaque nouvelle — même roster que components/Entraide.tsx
+  // (claimerAvatar), fallback initiales prénom+nom dans le rond bleu existant
+  // (styles.avatar) quand la personne n'a pas de photo de profil.
+  const [photoByKey, setPhotoByKey] = useState<Record<string, string | null>>({});
+  useEffect(() => { loadPhotoRoster(spaceId).then(setPhotoByKey); }, [spaceId]);
 
   // Publish / edit modal
   const [showForm, setShowForm] = useState(false);
@@ -857,20 +861,31 @@ export default function NewsFeed({ spaceId, C, isAdmin, coAdminIdentity, capped,
     // propres publications, seuls le liseret bleu et le badge New comptent
     // (pas besoin de cadre rouge pour attirer mon attention sur mon propre
     // contenu).
+    // Bulle façon WhatsApp : mes publications à droite, celles des autres à
+    // gauche, largeur plafonnée (même proportion ~78% que WhatsApp) pour
+    // qu'aucun des deux côtés ne s'étire jusqu'au bord opposé de l'écran. Le
+    // liseret bleu (NewIndicator, `mine`) reste toujours sur le bord GAUCHE de
+    // la bulle elle-même, y compris quand la bulle est alignée à droite.
+    const authorPhotoUrl = photoByKey[visitorIdentityKey(entry.author_prenom, entry.author_nom)];
     return (
+      <View style={{ width: "100%", alignItems: mine ? "flex-end" : "flex-start" }}>
       <View
         style={[
           styles.card,
-          { backgroundColor: C.card, borderColor: highlighted ? C.gold : (isNew && !mine) ? C.danger : entryAccentColor },
+          { maxWidth: "78%", backgroundColor: C.card, borderColor: highlighted ? C.gold : (isNew && !mine) ? C.danger : entryAccentColor },
           (highlighted || (isNew && !mine)) && { borderWidth: 2 },
         ]}
       >
         {(isNew || mine) && <NewIndicator isNew={isNew} mine={mine} />}
         {/* Author + date */}
         <View style={styles.cardHeader}>
-          <View style={[styles.avatar, { backgroundColor: C.accent }]}>
-            <Text style={styles.avatarText}>{avatarInitial(entry.author_prenom)}</Text>
-          </View>
+          {authorPhotoUrl ? (
+            <Image source={{ uri: authorPhotoUrl }} style={styles.avatar} />
+          ) : (
+            <View style={[styles.avatar, { backgroundColor: C.accent }]}>
+              <Text style={styles.avatarText}>{initials(entry.author_prenom, entry.author_nom)}</Text>
+            </View>
+          )}
           <View style={{ flex: 1 }}>
             {entry.author_pin !== "ADMIN" ? (
               <TouchableOpacity onPress={() => setProfileTarget({ prenom: entry.author_prenom, nom: entry.author_nom })} activeOpacity={0.7}>
@@ -982,6 +997,7 @@ export default function NewsFeed({ spaceId, C, isAdmin, coAdminIdentity, capped,
         >
           <Text style={[styles.replyBtnText, { color: C.gold }]}>🙏 Répondre</Text>
         </TouchableOpacity>
+      </View>
       </View>
     );
   }

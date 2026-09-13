@@ -17,6 +17,7 @@ import { useWallReadTracking } from "@/lib/wallUnread";
 import { NewIndicator } from "@/components/NewIndicator";
 import PinPad from "@/components/PinPad";
 import VisitorProfileModal from "@/components/VisitorProfileModal";
+import { loadPhotoRoster, visitorIdentityKey, initials } from "@/lib/visitorRoster";
 import type { SupportMessage, SupportMessageReply } from "@/lib/types";
 import type { Theme } from "@/lib/themes";
 
@@ -72,6 +73,12 @@ export default function Soutien({ spaceId, C, isAdmin, coAdminIdentity, capped }
 
   const [messages, setMessages] = useState<SupportMessage[]>([]);
   const [msgsLoading, setMsgsLoading] = useState(true);
+
+  // Photo par identité (visiteurs + admin) pour l'avatar du mur de soutien —
+  // même roster que NewsFeed.tsx/Entraide.tsx ; fallback initiales
+  // prénom+nom dans le rond marron existant (styles.msgAvatar) sans photo.
+  const [photoByKey, setPhotoByKey] = useState<Record<string, string | null>>({});
+  useEffect(() => { loadPhotoRoster(spaceId).then(setPhotoByKey); }, [spaceId]);
 
   // Réponses aux messages, groupées par message_id.
   const [replies, setReplies] = useState<Record<string, SupportMessageReply[]>>({});
@@ -859,25 +866,39 @@ export default function Soutien({ spaceId, C, isAdmin, coAdminIdentity, capped }
               ? isCoAdminOwn(m.author_pin, m.author_prenom, m.author_nom) && (m.deleted_by_admin || !replies[m.id]?.length)
               : isAdmin || (own && (m.deleted_by_admin || !replies[m.id]?.length));
             const isNew = newIds.has(m.id);
+            // Bulle façon WhatsApp : mes messages à droite, ceux des autres à
+            // gauche, largeur plafonnée (~78%, même proportion que
+            // WhatsApp). onLayout passe sur le wrapper externe (pas la bulle
+            // elle-même) pour que msgOffsets reste la position réelle dans le
+            // flux du ScrollView — sinon, imbriquée dans un wrapper à enfant
+            // unique, layout.y retomberait toujours à 0.
+            const authorPhotoUrl = photoByKey[visitorIdentityKey(m.author_prenom, m.author_nom)];
             return (
             <View
               key={m.id}
               onLayout={(e) => {
                 msgOffsets.current[m.id] = e.nativeEvent.layout.y;
               }}
+              style={{ width: "100%", alignItems: own ? "flex-end" : "flex-start" }}
+            >
+            <View
               style={[
                 styles.msgCard,
-                { backgroundColor: C.card, borderColor: highlighted ? C.gold : (isNew && !own) ? C.danger : C.border },
+                { maxWidth: "78%", backgroundColor: C.card, borderColor: highlighted ? C.gold : (isNew && !own) ? C.danger : C.border },
                 (highlighted || (isNew && !own)) && { borderWidth: 2 },
               ]}
             >
               {(isNew || own) && <NewIndicator isNew={isNew} mine={own} />}
               <View style={styles.msgCardHeader}>
-                <View style={[styles.msgAvatar, { backgroundColor: `${C.gold}33` }]}>
-                  <Text style={[styles.msgAvatarText, { color: C.gold }]}>
-                    {m.author_prenom.charAt(0).toUpperCase()}
-                  </Text>
-                </View>
+                {authorPhotoUrl ? (
+                  <Image source={{ uri: authorPhotoUrl }} style={styles.msgAvatar} />
+                ) : (
+                  <View style={[styles.msgAvatar, { backgroundColor: `${C.gold}33` }]}>
+                    <Text style={[styles.msgAvatarText, { color: C.gold }]}>
+                      {initials(m.author_prenom, m.author_nom)}
+                    </Text>
+                  </View>
+                )}
                 <View style={{ flex: 1 }}>
                   {m.author_pin !== "ADMIN" ? (
                     <TouchableOpacity onPress={() => setProfileTarget({ prenom: m.author_prenom, nom: m.author_nom })} activeOpacity={0.7}>
@@ -982,6 +1003,7 @@ export default function Soutien({ spaceId, C, isAdmin, coAdminIdentity, capped }
               >
                 <Text style={[styles.replyBtnText, { color: C.gold }]}>🙏 Répondre</Text>
               </TouchableOpacity>
+            </View>
             </View>
             );
           })
