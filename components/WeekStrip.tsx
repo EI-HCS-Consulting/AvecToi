@@ -163,6 +163,10 @@ export default function WeekStrip({
           // reste affiché normalement (juste non réservable, géré par le
           // parent via la prop `bookable` des listes de créneaux).
           const beforeAdmission = !!admissionIso && iso < admissionIso;
+          // Grisage des jours déjà passés — même modèle que la grille
+          // Mensuel (home/calendar.tsx, opacity 0.5), qui manquait ici.
+          const isPast = iso < todayIso;
+          const dimmed = isPast || beforeAdmission;
 
           // Mode Visites : le fond pastel de case remplace la pastille de
           // statut (vérité globale, non filtrée par selectedVisiteurKey —
@@ -214,7 +218,7 @@ export default function WeekStrip({
                     backgroundColor: bg,
                     borderColor: border,
                     borderWidth,
-                    opacity: specialIcon ? 1 : beforeAdmission ? 0.4 : 1,
+                    opacity: specialIcon ? 1 : dimmed ? 0.5 : 1,
                   },
                 ]}
               >
