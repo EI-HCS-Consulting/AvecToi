@@ -596,7 +596,7 @@ export default function HomeCalendarScreen({
                       backgroundColor: isSelected ? C.accent : specialIcon ? C.card : dimmed ? "transparent" : (visitesFill ?? C.card),
                       borderColor: isSelected ? C.accent : isToday ? C.gold : C.border,
                       borderWidth: isToday ? 2 : 1,
-                      opacity: specialIcon ? 1 : dimmed ? 0.3 : 1,
+                      opacity: specialIcon ? 1 : dimmed ? 0.5 : 1,
                     },
                   ]}
                   onPress={() => {
