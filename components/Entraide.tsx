@@ -407,8 +407,16 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // "Fait") sont deux actions séparées. Sert au badge "Pris en charge
   // partiellement" (voir courseListIncomplete).
   const [courseListPurchased, setCourseListPurchased] = useState<Record<string, boolean>>({});
+  // Détail brut (par article) des attributions/achats — sert à savoir si
+  // *moi* (myFullName) ai déjà confirmé "C'est fait" pour tous les articles
+  // qui me sont attribués (courseMyFaitDone), indépendamment des agrégats
+  // ci-dessus qui portent sur la liste entière. Gardé à part de
+  // loadCourseContributors (useCallback à deps figées) pour ne jamais fermer
+  // sur une valeur de myFullName périmée : courseMyFaitDone recombine ces
+  // données brutes avec myFullName à chaque rendu, comme courseFaitEligible.
+  const [courseItems, setCourseItems] = useState<Record<string, { bought: boolean; bought_by_prenom: string | null; bought_by_nom: string | null }[]>>({});
   const loadCourseContributors = useCallback(async (taskIds: string[]) => {
-    if (!taskIds.length) { setCourseContributors({}); setCourseListComplete({}); setCourseListPurchased({}); return; }
+    if (!taskIds.length) { setCourseContributors({}); setCourseListComplete({}); setCourseListPurchased({}); setCourseItems({}); return; }
     const { data } = await supabase
       .from("shopping_list_items")
       .select("task_id, bought, bought_by_prenom, bought_by_nom")
@@ -416,10 +424,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     const byTask: Record<string, { prenom: string; nom: string }[]> = {};
     const completeByTask: Record<string, boolean> = {};
     const purchasedByTask: Record<string, boolean> = {};
+    const itemsByTask: Record<string, { bought: boolean; bought_by_prenom: string | null; bought_by_nom: string | null }[]> = {};
     (data ?? []).forEach((row) => {
       const claimed = !!row.bought_by_prenom && !!row.bought_by_nom;
       completeByTask[row.task_id] = row.task_id in completeByTask ? completeByTask[row.task_id] && claimed : claimed;
       purchasedByTask[row.task_id] = row.task_id in purchasedByTask ? purchasedByTask[row.task_id] && row.bought : row.bought;
+      (itemsByTask[row.task_id] ?? (itemsByTask[row.task_id] = [])).push({
+        bought: row.bought, bought_by_prenom: row.bought_by_prenom, bought_by_nom: row.bought_by_nom,
+      });
       if (!claimed) return;
       const list = byTask[row.task_id] ?? (byTask[row.task_id] = []);
       const key = relaisIdentityKey(row.bought_by_prenom, row.bought_by_nom);
@@ -430,6 +442,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setCourseContributors(byTask);
     setCourseListComplete(completeByTask);
     setCourseListPurchased(purchasedByTask);
+    setCourseItems(itemsByTask);
   }, []);
   useEffect(() => {
     loadCourseContributors(tasks.filter((t) => t.category === "courses").map((t) => t.id));
@@ -504,6 +517,20 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     return courseContributorsList(t).some((p) => relaisIdentityKey(p.prenom, p.nom) === myKey);
   }
 
+  // Vrai si j'ai déjà confirmé "C'est fait" pour tous les articles qui me
+  // sont attribués (au moins un article à mon nom, et plus aucun en attente
+  // d'achat) — sert à masquer le bouton "✓ C'est fait" une fois ma part
+  // faite, et à afficher "Se désinscrire" à la place quand je suis aussi la
+  // preneuse formelle (voir isMine plus bas dans le JSX).
+  function courseMyFaitDone(t: Task): boolean {
+    if (t.category !== "courses" || !myFullName) return false;
+    const myKey = relaisIdentityKey(myFullName.prenom, myFullName.nom);
+    const mine = (courseItems[t.id] ?? []).filter(
+      (it) => it.bought_by_prenom && it.bought_by_nom && relaisIdentityKey(it.bought_by_prenom, it.bought_by_nom) === myKey,
+    );
+    return mine.length > 0 && mine.every((it) => it.bought);
+  }
+
   // Marque achetés les articles que j'ai pris en charge (bought_by_* = moi),
   // jamais ceux attribués à quelqu'un d'autre — le cochage reste une prise en
   // charge, "Fait" ne fait que confirmer l'achat de ce qui m'appartient déjà.
@@ -543,17 +570,25 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       await supabase.from("tasks").update({ status: "fait" }).eq("id", t.id);
       await supabase.from("personal_checklist_items").update({ status: "fait" }).eq("task_id", t.id);
     }
+    // Recharge tasks + courseContributors/courseItems : contrairement à la
+    // fermeture du besoin (update sur "tasks", capté par la souscription
+    // realtime), un achat partiel ne touche que shopping_list_items, qui
+    // n'est interrogé que via loadCourseContributors — sans ce reload, le
+    // masquage de "✓ C'est fait" (courseMyFaitDone) resterait figé sur les
+    // anciennes données jusqu'au prochain rechargement fortuit de tasks.
+    loadTasks();
   }
 
   function confirmCoursesFait(t: Task) {
-    Alert.alert(
-      "Marquer mes articles comme achetés",
-      "Tes articles de la liste seront marqués comme achetés. Confirmer ?",
-      [
-        { text: "Annuler", style: "cancel" },
-        { text: "Confirmer", onPress: () => { markCoursesFait(t); } },
-      ],
-    );
+    setCoursesFaitTarget(t);
+  }
+
+  async function doMarkCoursesFait() {
+    if (!coursesFaitTarget) return;
+    setCoursesFaitSaving(true);
+    await markCoursesFait(coursesFaitTarget);
+    setCoursesFaitSaving(false);
+    setCoursesFaitTarget(null);
   }
 
   // ── Checklists administratives suggérées (MVP) — voir CHECKLIST_TEMPLATES.
@@ -1068,6 +1103,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // soit couvert ou non.
   const [closeRelaisTarget, setCloseRelaisTarget] = useState<Task | null>(null);
   const [closeRelaisSaving, setCloseRelaisSaving] = useState(false);
+
+  // Popup "Marquer mes articles comme achetés" (bouton "✓ C'est fait" d'un
+  // besoin courses) — remplace l'Alert.alert natif par la même ConfirmModal
+  // que le reste de l'app, voir confirmCoursesFait/doMarkCoursesFait.
+  const [coursesFaitTarget, setCoursesFaitTarget] = useState<Task | null>(null);
+  const [coursesFaitSaving, setCoursesFaitSaving] = useState(false);
 
   // Sélection multiple (admin) : rester appuyé sur un bloc besoin l'entre en
   // mode sélection, un tap simple sur un autre bloc l'ajoute/l'enlève —
@@ -3490,11 +3531,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           {(() => {
             // Badge "Pris en charge partiellement" (2 lignes, "partiellement"
             // seul sur la 2e ligne) quand la liste de courses n'est pas
-            // intégralement cochée malgré une prise en charge formelle — voir
-            // courseListIncomplete. Ne concerne que "pris_en_charge" : une
-            // fois fermée ("ferme"), le badge redevient normal (l'indication
-            // "partiellement" reste portée par courseContributorsLabel).
-            const coursesPartial = t.status === "pris_en_charge" && courseListIncomplete(t);
+            // intégralement COCHÉE (courseListComplete) malgré une prise en
+            // charge formelle — ne porte pas sur l'achat (courseListIncomplete
+            // sert uniquement à l'alerte rouge ci-dessous). Ne concerne que
+            // "pris_en_charge" : une fois fermée ("ferme"), le badge redevient
+            // normal (l'indication "partiellement" reste portée par
+            // courseContributorsLabel).
+            const coursesPartial = t.status === "pris_en_charge" && t.category === "courses" && courseListComplete[t.id] === false;
             const color = transportOverdue(t) ? statusColors.fait : statusColors[t.status];
             return (
               <View style={[styles.statusBadge, { borderColor: color }]}>
@@ -3607,18 +3650,37 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             >
               <Text style={styles.claimBtnText}>👁️ Aperçu de la liste</Text>
             </TouchableOpacity>
-            {/* Bouton "Fait" : visible pour toute personne ayant coché ≥1
-                article ou étant la preneuse formelle — voir
-                courseFaitEligible. Reste accessible même en Historique pour
-                débloquer une liste restée bloquée par une donnée ancienne
-                (cochage jamais automatisé à l'époque du claim). */}
-            {courseFaitEligible(t) && (
+            {/* Bouton "C'est fait" : visible pour toute personne ayant coché
+                ≥1 article ou étant la preneuse formelle — voir
+                courseFaitEligible — et tant que je n'ai pas déjà confirmé
+                l'achat de tout ce qui m'est attribué (courseMyFaitDone).
+                Reste accessible même en Historique pour débloquer une liste
+                restée bloquée par une donnée ancienne (cochage jamais
+                automatisé à l'époque du claim). */}
+            {courseFaitEligible(t) && !courseMyFaitDone(t) && (
               <TouchableOpacity
                 style={[styles.claimBtn, { backgroundColor: C.success, flex: 1, marginTop: 0 }]}
                 onPress={() => confirmCoursesFait(t)}
                 activeOpacity={0.85}
               >
-                <Text style={styles.claimBtnText}>✓ Fait</Text>
+                <Text style={styles.claimBtnText}>✓ C'est fait</Text>
+              </TouchableOpacity>
+            )}
+            {/* Une fois ma part achetée (courseMyFaitDone), "C'est fait" laisse
+                sa place à "Se désinscrire" — uniquement si je suis la
+                preneuse formelle du besoin (isMine) : les autres
+                contributeurs n'ont rien à désinscrire au niveau du besoin,
+                seulement leurs articles (gérable depuis l'aperçu). Réutilise
+                le même mécanisme que transport/relais (performUnclaim via
+                openPinModal), qui ne touche que claimed_by_* et remet le
+                besoin "ouvert" — les articles déjà achetés restent intacts. */}
+            {!isAdmin && courseMyFaitDone(t) && isMine(t) && !isTaskClosedPast(t) && (
+              <TouchableOpacity
+                style={[styles.claimBtn, { borderWidth: 1, borderColor: C.border, flex: 1, marginTop: 0 }]}
+                onPress={() => openPinModal(t, "unclaim", "out")}
+                activeOpacity={0.85}
+              >
+                <Text style={[styles.claimBtnText, { color: C.muted }]}>Se désinscrire</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -3716,9 +3778,9 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
         {/* Alerte rouge directement sur le bloc besoin quand une liste de
             courses formellement prise en charge n'est pas encore
-            intégralement achetée — voir courseListIncomplete (mesure
-            désormais l'achat, pas l'attribution) et le badge "Pris en charge
-            partiellement" ci-dessus. */}
+            intégralement achetée — voir courseListIncomplete (mesure l'achat,
+            distinct du badge "Pris en charge partiellement" ci-dessus qui
+            mesure l'attribution/cochage via courseListComplete). */}
         {t.category === "courses" && t.status === "pris_en_charge" && courseListIncomplete(t) && (
           <Text style={[styles.taskDesc, { color: C.danger, marginTop: 4 }]}>
             ⚠️ Certains articles ne sont pas encore achetés
@@ -3791,10 +3853,15 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             reprendre la fin de la liste. N'importe qui peut aussi cocher ces
             nouveaux articles directement dans l'aperçu, sans passer par ce
             bouton (voir ShoppingListModal.tsx — le cochage n'est plus
-            restreint au preneur formel). */}
+            restreint au preneur formel). Visible pour tout le monde, y
+            compris pour qui a déjà coché des articles ailleurs sur cette
+            même liste : avoir participé ne doit jamais masquer le fait qu'il
+            reste encore des articles non pris en charge (l'ancienne
+            exclusion courseContributedByMe cachait le bouton à la mauvaise
+            personne dès qu'elle avait coché ne serait-ce qu'un article, même
+            avec d'autres articles encore non cochés). */}
         {(t.status === "ouvert" || (t.status === "pris_en_charge" && t.category === "courses" && courseListComplete[t.id] === false))
-          && !t.deleted_by_admin && t.category !== "transport"
-          && !(t.category === "courses" && courseContributedByMe(t)) && (
+          && !t.deleted_by_admin && t.category !== "transport" && (
           <TouchableOpacity
             style={[styles.claimBtn, { backgroundColor: C.accent }]}
             onPress={() => openClaim(t)}
@@ -3842,8 +3909,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         {/* Un transport validé via propositions passe directement à "ferme"
             (voir validateTransportLeg) — "C'est fait"/"Se désinscrire" n'ont
             plus de sens sur un besoin déjà clos, mais "Ajouter au calendrier"
-            doit rester accessible pour la personne qui conduit. */}
-        {(t.status === "pris_en_charge" || (t.status === "ferme" && t.category === "transport")) && !isAdmin && myTransportLegs(t).length > 0 && (
+            doit rester accessible pour la personne qui conduit.
+            t.category === "transport" est nécessaire ici : myTransportLegs
+            ne teste que isMine(t) (claimed_by_*), sans filtrer la catégorie —
+            sans ce garde-fou ce bloc réapparaissait en doublon du "✓ C'est
+            fait"/"Se désinscrire" spécifiques aux courses dès que le preneur
+            formel d'un besoin courses correspondait à isMine(t). */}
+        {t.category === "transport" && (t.status === "pris_en_charge" || t.status === "ferme") && !isAdmin && myTransportLegs(t).length > 0 && (
           <View style={{ flexDirection: "row", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
             {/* "C'est fait" n'a plus lieu d'être une fois que la carte affiche
                 déjà "Fait" (voir transportOverdue) — évite le doublon visuel
@@ -3890,7 +3962,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           </View>
         )}
 
-        {t.status === "pris_en_charge" && isAdmin && (
+        {/* t.category !== "courses" : les articles courses ont leur propre
+            bookkeeping par article (bought/bought_by_*, voir
+            markCoursesFait) — passer par openDone/confirmDone ici court-
+            circuiterait cette logique en forçant status="fait" sans marquer
+            aucun article acheté, en plus de faire doublon visuel avec le
+            bouton "✓ C'est fait" de la carte courses. */}
+        {t.status === "pris_en_charge" && isAdmin && t.category !== "courses" && (
           <TouchableOpacity
             style={[styles.actionSmall, { borderColor: C.success, backgroundColor: `${C.success}18`, marginTop: 10, alignSelf: "flex-start" }]}
             onPress={() => openDone(t)}
@@ -6814,6 +6892,19 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         saving={closeRelaisSaving}
         onCancel={() => setCloseRelaisTarget(null)}
         onConfirm={confirmCloseRelais}
+        C={C}
+      />
+
+      <ConfirmModal
+        visible={!!coursesFaitTarget}
+        icon="🛒"
+        title="Marquer mes articles comme achetés"
+        message={coursesFaitTarget ? `${coursesFaitTarget.title}\n\nTes articles de la liste seront marqués comme achetés.` : undefined}
+        confirmLabel="Confirmer"
+        destructive={false}
+        saving={coursesFaitSaving}
+        onCancel={() => !coursesFaitSaving && setCoursesFaitTarget(null)}
+        onConfirm={doMarkCoursesFait}
         C={C}
       />
 

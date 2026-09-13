@@ -202,7 +202,7 @@ export default function TaskDueTodayAlertModal({ spaceId, isAdmin }: { spaceId: 
               onPress={handleFait}
               activeOpacity={0.85}
             >
-              <Text style={[styles.btnSecondaryText, { color: C.success }]}>✓ Fait</Text>
+              <Text style={[styles.btnSecondaryText, { color: C.success }]}>✓ C'est fait</Text>
             </TouchableOpacity>
           )}
           <TouchableOpacity
