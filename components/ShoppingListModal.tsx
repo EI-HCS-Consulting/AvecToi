@@ -61,6 +61,19 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin, 
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const canManageList = isAdmin || isAuthor;
+  // Une fois l'échéance du besoin passée, la liste devient consultation
+  // seule pour tout le monde sauf l'admin — qui doit pouvoir continuer à
+  // ajouter un article après coup (achat réel non saisi dans l'app avant
+  // l'échéance, pour en garder la trace). Même calcul que taskPastDeadline
+  // dans Entraide.tsx (date_limite à 23:59:59), dupliqué ici faute d'accès
+  // direct à ce helper depuis ce composant.
+  const pastDeadline = !!task?.date_limite && new Date(`${task.date_limite}T23:59:59`) < new Date();
+  const canAddItems = isAdmin || !pastDeadline;
+  // "Juste la consulter" (demande explicite) : au-delà de l'échéance, plus
+  // aucune action de modification pour un non-admin (cochage, suppression,
+  // sélection multiple), pas seulement l'ajout — seul l'admin garde la main
+  // pour corriger la liste après coup.
+  const readOnly = pastDeadline && !isAdmin;
   // Photo/avatar par personne pour l'en-tête de chaque groupe d'articles
   // (voir groupedSections ci-dessous) — même roster qu'Entraide.tsx.
   const [photoByKey, setPhotoByKey] = useState<Record<string, string | null>>({});
@@ -119,6 +132,7 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin, 
   async function toggleClaim(item: ShoppingListItem) {
     if (item.bought) return;
     if (itemLockedForMe(item)) return;
+    if (readOnly) return;
     const isMine = !!item.bought_by_prenom;
     const patch = isMine
       ? { bought_by_prenom: null, bought_by_nom: null, bought_at: null }
@@ -143,6 +157,7 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin, 
   }
 
   async function removeItem(item: ShoppingListItem) {
+    if (readOnly) return;
     setItems((prev) => prev.filter((it) => it.id !== item.id));
     await supabase.from("shopping_list_items").delete().eq("id", item.id);
   }
@@ -159,12 +174,13 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin, 
   // plusieurs article de sa liste en faisant un clic prolongé" — même geste
   // pour l'admin, réservé aux deux via canManageList.
   function startSelect(id: string) {
-    if (!canManageList) return;
+    if (!canManageList || readOnly) return;
     setSelectMode(true);
     setSelectedIds(new Set([id]));
   }
 
   async function deleteSelected() {
+    if (readOnly) return;
     const ids = Array.from(selectedIds);
     if (!ids.length) return;
     setItems((prev) => prev.filter((it) => !ids.includes(it.id)));
@@ -175,7 +191,7 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin, 
 
   async function addItem() {
     const label = draft.trim();
-    if (!label || !task) return;
+    if (!label || !task || !canAddItems) return;
     if (items.some((it) => normalizeShoppingLabel(it.label) === normalizeShoppingLabel(label))) {
       Alert.alert("Article déjà présent", "Cet article figure déjà dans la liste.");
       return;
@@ -263,11 +279,11 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin, 
       <View key={item.id} style={[styles.itemRow, selected && { backgroundColor: "rgba(233,69,96,0.12)", borderRadius: 8 }]}>
         <TouchableOpacity
           onPress={() => toggleClaim(item)}
-          disabled={selectMode || item.bought || itemLockedForMe(item)}
+          disabled={selectMode || item.bought || itemLockedForMe(item) || readOnly}
           style={[
             styles.checkbox,
             { borderColor: item.bought_by_prenom ? C.accent : C.border, backgroundColor: item.bought_by_prenom ? C.accent : "transparent" },
-            (selectMode || item.bought || itemLockedForMe(item)) && { opacity: 0.4 },
+            (selectMode || item.bought || itemLockedForMe(item) || readOnly) && { opacity: 0.4 },
           ]}
         >
           {!!item.bought_by_prenom && <Text style={styles.checkboxMark}>✓</Text>}
@@ -277,7 +293,7 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin, 
           activeOpacity={selectMode ? 0.6 : 1}
           onPress={() => selectMode && toggleSelected(item.id)}
           onLongPress={() => startSelect(item.id)}
-          disabled={!selectMode && !canManageList}
+          disabled={!selectMode && (!canManageList || readOnly)}
         >
           <Text
             style={[
@@ -297,7 +313,7 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin, 
           <View style={[styles.checkbox, { marginRight: 0, borderColor: selected ? C.danger : C.border, backgroundColor: selected ? C.danger : "transparent" }]}>
             {selected && <Text style={styles.checkboxMark}>✓</Text>}
           </View>
-        ) : canManageList ? (
+        ) : canManageList && !readOnly ? (
           <TouchableOpacity onPress={() => removeItem(item)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
             <Text style={{ color: C.muted, fontSize: 16, marginLeft: 8 }}>✕</Text>
           </TouchableOpacity>
@@ -371,24 +387,30 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin, 
             )}
           </ScrollView>
 
-          <View style={styles.addRow}>
-            <TextInput
-              style={[styles.addInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
-              placeholder="Ajouter un article"
-              placeholderTextColor={C.muted}
-              value={draft}
-              onChangeText={setDraft}
-              onSubmitEditing={addItem}
-              editable={!adding}
-            />
-            <TouchableOpacity
-              style={[styles.addBtn, { backgroundColor: C.accent, opacity: draft.trim() && !adding ? 1 : 0.5 }]}
-              onPress={addItem}
-              disabled={!draft.trim() || adding}
-            >
-              {adding ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.addBtnText}>+</Text>}
-            </TouchableOpacity>
-          </View>
+          {canAddItems ? (
+            <View style={styles.addRow}>
+              <TextInput
+                style={[styles.addInput, { backgroundColor: C.bg, borderColor: C.border, color: C.text }]}
+                placeholder="Ajouter un article"
+                placeholderTextColor={C.muted}
+                value={draft}
+                onChangeText={setDraft}
+                onSubmitEditing={addItem}
+                editable={!adding}
+              />
+              <TouchableOpacity
+                style={[styles.addBtn, { backgroundColor: C.accent, opacity: draft.trim() && !adding ? 1 : 0.5 }]}
+                onPress={addItem}
+                disabled={!draft.trim() || adding}
+              >
+                {adding ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.addBtnText}>+</Text>}
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <Text style={[styles.emptyText, { color: C.muted, marginTop: 8, marginBottom: 0 }]}>
+              📅 Échéance passée : liste en lecture seule.
+            </Text>
+          )}
 
           <TouchableOpacity onPress={onClose} style={styles.closeFooterBtn}>
             <Text style={[styles.closeFooterBtnText, { color: C.muted }]}>Fermer</Text>
