@@ -3782,13 +3782,17 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           </TouchableOpacity>
         )}
 
-        {/* "Je m'en occupe" ne concerne que les listes de courses encore
-            "ouvert" (dispatch libre, articles pas tous attribués) — une fois
-            "pris_en_charge", tous les articles ont déjà un preneur (invariant
-            de la transition ouvert -> pris_en_charge, voir toggleClaim dans
-            ShoppingListModal.tsx) donc il n'y a plus rien à "prendre en
-            charge" via ce bouton ; il ne reste qu'à acheter, via "Fait". */}
-        {t.status === "ouvert"
+        {/* "Je m'en occupe" reste affiché (ou réapparaît) sur une liste de
+            courses "pris_en_charge" tant qu'il reste des articles non
+            attribués (courseListComplete === false) — un article ajouté
+            après coup casse l'invariant "tout est déjà pris en charge" posé
+            à la transition ouvert -> pris_en_charge (voir toggleClaim/
+            addItem dans ShoppingListModal.tsx), donc quelqu'un doit pouvoir
+            reprendre la fin de la liste. N'importe qui peut aussi cocher ces
+            nouveaux articles directement dans l'aperçu, sans passer par ce
+            bouton (voir ShoppingListModal.tsx — le cochage n'est plus
+            restreint au preneur formel). */}
+        {(t.status === "ouvert" || (t.status === "pris_en_charge" && t.category === "courses" && courseListComplete[t.id] === false))
           && !t.deleted_by_admin && t.category !== "transport"
           && !(t.category === "courses" && courseContributedByMe(t)) && (
           <TouchableOpacity

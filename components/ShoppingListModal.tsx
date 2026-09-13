@@ -20,11 +20,11 @@ function normalizeShoppingLabel(s: string) {
 // c'est la même table shopping_list_items qui est lue/écrite.
 // Ouvert à tout visiteur ou admin de l'espace, comme la modification de la
 // description d'un besoin (saveModifyDesc dans Entraide.tsx) — pas de
-// restriction à l'auteur du besoin. Seul le cochage des articles est
-// restreint : une fois que quelqu'un a cliqué "Je m'en occupe" sur le besoin
-// (claimed_by_prenom/nom renseignés), seule cette personne peut cocher/
-// décocher — tant que personne ne l'a pris en charge, la liste reste ouverte
-// à tous pour dispatcher les articles.
+// restriction à l'auteur du besoin, ni au preneur formel du besoin ("Je m'en
+// occupe", claimed_by_prenom) : la liste reste ouverte au cochage par tous,
+// même une fois prise en charge — ça permet à un nouvel article ajouté après
+// coup d'être dispatché par n'importe qui (voir "Je m'en occupe" qui
+// réapparaît dans Entraide.tsx tant que courseListComplete est faux).
 //
 // Cocher un article ≠ l'avoir acheté : la case à cocher n'exprime qu'une
 // prise en charge ("je m'en occupe"), via bought_by_prenom/nom/bought_at.
@@ -85,11 +85,6 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin, 
       && prenom.trim().toLowerCase() === myPrenom.trim().toLowerCase()
       && nom.trim().toLowerCase() === myNom.trim().toLowerCase();
 
-  // Prise en charge = quelqu'un a cliqué "Je m'en occupe" sur le besoin
-  // (claimed_by_prenom renseigné, quel que soit le statut courant — y
-  // compris "fait", pour ne pas rouvrir le cochage à tous après coup).
-  const claimedByOther = !!task?.claimed_by_prenom && !isSamePerson(task.claimed_by_prenom, task.claimed_by_nom);
-
   // Un article déjà attribué à quelqu'un d'autre ne peut pas être décoché,
   // même sans prise en charge du besoin — évite qu'une personne annule le
   // travail d'une autre pendant le dispatch libre de la liste. S'applique
@@ -122,7 +117,6 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin, 
   // dans renderItemRow) : toggleClaim ne s'occupe donc que d'attribuer/
   // désattribuer un article encore à acheter.
   async function toggleClaim(item: ShoppingListItem) {
-    if (claimedByOther) return;
     if (item.bought) return;
     if (itemLockedForMe(item)) return;
     const isMine = !!item.bought_by_prenom;
@@ -269,11 +263,11 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin, 
       <View key={item.id} style={[styles.itemRow, selected && { backgroundColor: "rgba(233,69,96,0.12)", borderRadius: 8 }]}>
         <TouchableOpacity
           onPress={() => toggleClaim(item)}
-          disabled={selectMode || claimedByOther || item.bought || itemLockedForMe(item)}
+          disabled={selectMode || item.bought || itemLockedForMe(item)}
           style={[
             styles.checkbox,
             { borderColor: item.bought_by_prenom ? C.accent : C.border, backgroundColor: item.bought_by_prenom ? C.accent : "transparent" },
-            (selectMode || claimedByOther || item.bought || itemLockedForMe(item)) && { opacity: 0.4 },
+            (selectMode || item.bought || itemLockedForMe(item)) && { opacity: 0.4 },
           ]}
         >
           {!!item.bought_by_prenom && <Text style={styles.checkboxMark}>✓</Text>}
@@ -342,12 +336,6 @@ export default function ShoppingListModal({ visible, onClose, C, task, isAdmin, 
           {items.length > 0 && (
             <Text style={[styles.progress, { color: C.muted }]}>{boughtCount}/{items.length} achetés</Text>
           )}
-          {claimedByOther && (
-            <Text style={[styles.lockedNotice, { color: C.gold }]}>
-              🔒 Prise en charge par {task?.claimed_by_prenom} {task?.claimed_by_nom} — seule cette personne peut cocher les articles.
-            </Text>
-          )}
-
           {selectMode && (
             <View style={styles.selectBar}>
               <Text style={[styles.selectBarCount, { color: C.text }]}>{selectedIds.size} sélectionné(s)</Text>
@@ -416,7 +404,6 @@ const styles = StyleSheet.create({
   card: { width: "100%", maxWidth: 440, maxHeight: "88%", borderRadius: 20, borderWidth: 1, padding: 24 },
   title: { fontFamily: "PlayfairDisplay_700Bold", fontSize: 18, marginBottom: 4 },
   progress: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12.5, marginBottom: 14 },
-  lockedNotice: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12.5, marginBottom: 14, lineHeight: 17 },
   selectBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 },
   selectBarCount: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
   selectBarAction: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
