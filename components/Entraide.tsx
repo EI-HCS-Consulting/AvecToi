@@ -474,6 +474,57 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     return (courseContributors[t.id] ?? []).some((p) => relaisIdentityKey(p.prenom, p.nom) === myKey);
   }
 
+  // Vrai tant que la liste n'est pas intégralement cochée — sert au texte
+  // d'alerte rouge et au badge "Pris en charge partiellement" sur un besoin
+  // courses formellement pris en charge (contrairement à "partiellement" dans
+  // courseContributorsLabel, ce cas couvre spécifiquement "pris_en_charge").
+  function courseListIncomplete(t: Task): boolean {
+    return t.category === "courses" && courseListComplete[t.id] === false;
+  }
+
+  // Éligible au bouton "Fait" (courses) : moi-même ayant coché ≥1 article de
+  // la liste, OU moi étant la personne ayant formellement cliqué "Je m'en
+  // occupe" (claimed_by_*) même si aucun article ne m'est encore attribué —
+  // ce second cas couvre une liste restée bloquée par un bug/donnée ancienne
+  // (le cochage automatique au claim n'existait pas encore, voir handleClaim)
+  // et permet à la preneuse de la débloquer elle-même, y compris une fois le
+  // besoin fermé/en Historique.
+  function courseFaitEligible(t: Task): boolean {
+    if (t.category !== "courses" || t.status === "fait" || !myFullName) return false;
+    const myKey = relaisIdentityKey(myFullName.prenom, myFullName.nom);
+    return courseContributorsList(t).some((p) => relaisIdentityKey(p.prenom, p.nom) === myKey);
+  }
+
+  // Coche tout ce qui reste (attribué à moi) et referme la liste — même
+  // logique que le cochage en masse de handleClaim, déclenchable ici sans
+  // passer par "Je m'en occupe" (bouton "Fait", voir courseFaitEligible).
+  async function markCoursesFait(t: Task) {
+    if (!myFullName) return;
+    await supabase
+      .from("shopping_list_items")
+      .update({
+        bought: true,
+        bought_by_prenom: myFullName.prenom,
+        bought_by_nom: myFullName.nom,
+        bought_at: new Date().toISOString(),
+      })
+      .eq("task_id", t.id)
+      .eq("bought", false);
+    await supabase.from("tasks").update({ status: "fait" }).eq("id", t.id);
+    await supabase.from("personal_checklist_items").update({ status: "fait" }).eq("task_id", t.id);
+  }
+
+  function confirmCoursesFait(t: Task) {
+    Alert.alert(
+      "Marquer la liste comme faite",
+      "Les articles restants seront cochés à ton nom. Confirmer ?",
+      [
+        { text: "Annuler", style: "cancel" },
+        { text: "Confirmer", onPress: () => { markCoursesFait(t); } },
+      ],
+    );
+  }
+
   // ── Checklists administratives suggérées (MVP) — voir CHECKLIST_TEMPLATES.
   // Popup accessible à l'admin comme aux visiteurs, depuis le bouton
   // "Créer une checklist" du formulaire Publier (catégorie Administratif) —
@@ -3415,14 +3466,23 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
               <Text style={[styles.catLabel, { color: C.danger }]}>🔴 Urgent</Text>
             </View>
           )}
-          <View style={[
-            styles.statusBadge,
-            { borderColor: transportOverdue(t) ? statusColors.fait : statusColors[t.status] },
-          ]}>
-            <Text style={[styles.statusLabel, { color: transportOverdue(t) ? statusColors.fait : statusColors[t.status] }]}>
-              {transportOverdue(t) ? STATUS_LABELS.fait : STATUS_LABELS[t.status]}
-            </Text>
-          </View>
+          {(() => {
+            // Badge "Pris en charge partiellement" (2 lignes, "partiellement"
+            // seul sur la 2e ligne) quand la liste de courses n'est pas
+            // intégralement cochée malgré une prise en charge formelle — voir
+            // courseListIncomplete. Ne concerne que "pris_en_charge" : une
+            // fois fermée ("ferme"), le badge redevient normal (l'indication
+            // "partiellement" reste portée par courseContributorsLabel).
+            const coursesPartial = t.status === "pris_en_charge" && courseListIncomplete(t);
+            const color = transportOverdue(t) ? statusColors.fait : statusColors[t.status];
+            return (
+              <View style={[styles.statusBadge, { borderColor: color }]}>
+                <Text style={[styles.statusLabel, { color, textAlign: "center" }]}>
+                  {coursesPartial ? "Pris en charge\npartiellement" : (transportOverdue(t) ? STATUS_LABELS.fait : STATUS_LABELS[t.status])}
+                </Text>
+              </View>
+            );
+          })()}
           {mine && (
             <TouchableOpacity onPress={() => openEditTask(t)} style={[styles.iconBtn, { borderColor: C.border }]}>
               <Text style={{ fontSize: 13 }}>✏️</Text>
@@ -3518,13 +3578,29 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         )}
 
         {t.category === "courses" && (
-          <TouchableOpacity
-            style={[styles.claimBtn, { backgroundColor: C.accent, marginTop: 8 }]}
-            onPress={() => setShoppingListTask(t)}
-            activeOpacity={0.85}
-          >
-            <Text style={styles.claimBtnText}>👁️ Aperçu de la liste</Text>
-          </TouchableOpacity>
+          <View style={{ flexDirection: "row", gap: 8, marginTop: 8 }}>
+            <TouchableOpacity
+              style={[styles.claimBtn, { backgroundColor: C.accent, flex: 1, marginTop: 0 }]}
+              onPress={() => setShoppingListTask(t)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.claimBtnText}>👁️ Aperçu de la liste</Text>
+            </TouchableOpacity>
+            {/* Bouton "Fait" : visible pour toute personne ayant coché ≥1
+                article ou étant la preneuse formelle — voir
+                courseFaitEligible. Reste accessible même en Historique pour
+                débloquer une liste restée bloquée par une donnée ancienne
+                (cochage jamais automatisé à l'époque du claim). */}
+            {courseFaitEligible(t) && (
+              <TouchableOpacity
+                style={[styles.claimBtn, { backgroundColor: C.success, flex: 1, marginTop: 0 }]}
+                onPress={() => confirmCoursesFait(t)}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.claimBtnText}>✓ Fait</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         )}
 
         {t.category === "transport" && (
@@ -3617,6 +3693,16 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           </View>
         )}
 
+        {/* Alerte rouge directement sur le bloc besoin quand une liste de
+            courses formellement prise en charge n'est pas encore
+            intégralement cochée — voir courseListIncomplete et le badge "Pris
+            en charge partiellement" ci-dessus. */}
+        {t.category === "courses" && t.status === "pris_en_charge" && courseListIncomplete(t) && (
+          <Text style={[styles.taskDesc, { color: C.danger, marginTop: 4 }]}>
+            ⚠️ Certains articles ne sont pas encore pris en charge
+          </Text>
+        )}
+
         {/* Un besoin relais peut avoir plusieurs preneurs, chacun sur sa
             propre sous-période — une ligne par contributeur plutôt que le
             "X s'en occupe" générique ci-dessus, plus les trous restants tant
@@ -3674,7 +3760,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           </TouchableOpacity>
         )}
 
-        {t.status === "ouvert" && !t.deleted_by_admin && t.category !== "transport"
+        {/* "Je m'en occupe" reste affiché sur une liste de courses déjà
+            "pris_en_charge" tant qu'il reste des articles non cochés — permet
+            à quelqu'un d'autre de reprendre/finir une liste incomplète (voir
+            courseListIncomplete). Exclu si j'ai déjà coché un article moi-même
+            (j'ai alors accès au bouton "Fait", voir courseFaitEligible). */}
+        {(t.status === "ouvert" || (t.status === "pris_en_charge" && t.category === "courses" && courseListIncomplete(t)))
+          && !t.deleted_by_admin && t.category !== "transport"
           && !(t.category === "courses" && courseContributedByMe(t)) && (
           <TouchableOpacity
             style={[styles.claimBtn, { backgroundColor: C.accent }]}
