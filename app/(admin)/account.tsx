@@ -523,12 +523,13 @@ export default function AdminAccountScreen() {
 
     // Contributions "courses" partielles (articles cochés sans "Je m'en
     // occupe") — task_id connu seulement après une première requête sur
-    // shopping_list_items, voir myCourseContribTasks.
+    // shopping_list_items, voir myCourseContribTasks. bought_at est posé au
+    // cochage (attribution), pas à l'achat ("Fait") — pas de filtre sur
+    // bought ici.
     if (hasIdentity) {
       const { data: courseItemsData } = await supabase
         .from("shopping_list_items")
         .select("task_id, bought_at")
-        .eq("bought", true)
         .ilike("bought_by_prenom", p.trim())
         .ilike("bought_by_nom", n.trim());
       const contribDates: Record<string, string> = {};

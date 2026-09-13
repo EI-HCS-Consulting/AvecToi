@@ -25,10 +25,12 @@ const CATEGORY_LABELS: Partial<Record<Task["category"], string>> = {
 // ?openClaim=1) plutôt que de dupliquer cette logique ici. Pour courses (pas
 // de PIN par article), le bouton principal ouvre directement l'aperçu de la
 // liste (?openShoppingList=1) et un second bouton "✓ Fait" (voir handleFait)
-// coche ici même tout ce qui reste à mon nom et referme le besoin — utilisable
-// par toute personne ayant coché ≥1 article, pas seulement la preneuse
-// formelle (même logique que courseFaitEligible dans Entraide.tsx). "Fermer"
-// passe à l'alerte suivante ou, une fois la dernière traitée, revient sur "Ma
+// marque achetés les articles que j'ai pris en charge (cochage = attribution,
+// "Fait" = achat réel une fois les courses faites) et ne referme le besoin
+// que quand plus personne n'a d'article en attente d'achat — utilisable par
+// toute personne ayant coché ≥1 article, pas seulement la preneuse formelle
+// (même logique que courseFaitEligible dans Entraide.tsx). "Fermer" passe à
+// l'alerte suivante ou, une fois la dernière traitée, revient sur "Ma
 // semaine".
 //
 // Alertes "regardées" le temps de rester sur l'écran courant uniquement
@@ -100,10 +102,10 @@ export default function TaskDueTodayAlertModal({ spaceId, isAdmin }: { spaceId: 
     if (!current) return;
     const wasLast = alerts.length <= 1;
     setSessionHiddenIds((prev) => new Set(prev).add(current.task.id));
-    // Courses n'a pas de bouton "Fait" manuel — elle se termine par cochage
-    // des articles (voir toggleBought dans ShoppingListModal.tsx) : le
-    // deep-link ouvre donc directement l'aperçu de la liste plutôt que la
-    // sheet "Marquer fait" utilisée par les autres catégories.
+    // Courses n'a pas de sheet "Marquer fait" dédiée — le bouton principal
+    // ouvre directement l'aperçu de la liste (cochage = attribution, voir
+    // toggleClaim dans ShoppingListModal.tsx) ; l'achat se marque séparément
+    // via le bouton "Fait" ci-dessous (handleFait) ou celui du mur.
     const param = isCourses ? "openShoppingList" : "openDone";
     router.push(`${basePath}/entraide?focusTaskId=${current.task.id}&${param}=1` as any);
     void wasLast;
@@ -116,15 +118,27 @@ export default function TaskDueTodayAlertModal({ spaceId, isAdmin }: { spaceId: 
     if (wasLast) goHome();
   }
 
-  // "Fait" (courses uniquement) : coche à mon nom tout ce qui reste de la
-  // liste et referme le besoin directement depuis le popup, sans passer par
-  // "Voir ma liste" — même logique que markCoursesFait/confirmCoursesFait
-  // dans Entraide.tsx (voir aussi le bouton "Fait" du mur), dupliquée ici
-  // pour éviter un aller-retour d'écran.
+  // "Fait" (courses uniquement) : marque achetés les articles que j'ai pris
+  // en charge (bought_by_* = moi) — jamais ceux attribués à quelqu'un
+  // d'autre, le cochage restant une prise en charge distincte de l'achat.
+  // Filet de sécurité pour une liste restée bloquée par un cas ancien
+  // (articles jamais attribués) : ceux-là sont alors pris à mon nom et
+  // marqués achetés en même temps — même logique que markCoursesFait dans
+  // Entraide.tsx (voir aussi le bouton "Fait" du mur), dupliquée ici pour
+  // éviter un aller-retour d'écran. Ne referme le besoin ("fait") que quand
+  // plus aucun article de la liste n'est en attente d'achat, c'est-à-dire
+  // quand toutes les personnes engagées ont fait de même.
   async function handleFait() {
     if (!current || !identity) return;
     const wasLast = alerts.length <= 1;
     setSessionHiddenIds((prev) => new Set(prev).add(current.task.id));
+    await supabase
+      .from("shopping_list_items")
+      .update({ bought: true })
+      .eq("task_id", current.task.id)
+      .eq("bought", false)
+      .ilike("bought_by_prenom", identity.prenom)
+      .ilike("bought_by_nom", identity.nom);
     await supabase
       .from("shopping_list_items")
       .update({
@@ -134,9 +148,17 @@ export default function TaskDueTodayAlertModal({ spaceId, isAdmin }: { spaceId: 
         bought_at: new Date().toISOString(),
       })
       .eq("task_id", current.task.id)
+      .eq("bought", false)
+      .is("bought_by_prenom", null);
+    const { count } = await supabase
+      .from("shopping_list_items")
+      .select("id", { count: "exact", head: true })
+      .eq("task_id", current.task.id)
       .eq("bought", false);
-    await supabase.from("tasks").update({ status: "fait" }).eq("id", current.task.id);
-    await supabase.from("personal_checklist_items").update({ status: "fait" }).eq("task_id", current.task.id);
+    if ((count ?? 0) === 0) {
+      await supabase.from("tasks").update({ status: "fait" }).eq("id", current.task.id);
+      await supabase.from("personal_checklist_items").update({ status: "fait" }).eq("task_id", current.task.id);
+    }
     if (wasLast) goHome();
   }
 
@@ -164,7 +186,7 @@ export default function TaskDueTodayAlertModal({ spaceId, isAdmin }: { spaceId: 
           </View>
           <Text style={[styles.body, { color: C.muted }]}>
             {isCourses
-              ? `Tu t'es occupé(e) de ${items?.length ?? 0} article${(items?.length ?? 0) > 1 ? "s" : ""} de la liste ${task.title} et c'est pour aujourd'hui.`
+              ? `Tu t'es engagé(e) à acheter ${items?.length ?? 0} article${(items?.length ?? 0) > 1 ? "s" : ""} de la liste ${task.title} et c'est pour aujourd'hui.`
               : `Tu as pris en charge ce besoin ${task.title} et c'est pour aujourd'hui. Marque-le comme fait si tu t'en es déjà occupé.`}
           </Text>
           <TouchableOpacity
