@@ -3738,32 +3738,6 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                 <Text style={styles.claimBtnText}>✓ C'est fait</Text>
               </TouchableOpacity>
             )}
-            {/* "Se désinscrire" reste disponible tant que ma part n'est pas
-                achetée (contrairement à l'ancien !courseMyFaitDone qui ne le
-                montrait qu'une fois terminé, l'inverse de ce qui est utile :
-                on veut pouvoir se désengager d'un besoin pris en charge pour
-                le réouvrir) — uniquement si je suis la preneuse formelle du
-                besoin (isMine) : les autres contributeurs n'ont rien à
-                désinscrire au niveau du besoin, seulement leurs articles
-                (gérable depuis l'aperçu). Peut donc s'afficher en même temps
-                que "C'est fait" si une partie de mes articles est déjà
-                achetée et une autre non. Réutilise le même mécanisme que
-                transport/relais (performUnclaim via openPinModal), qui ne
-                touche que claimed_by_* et les articles encore "À faire"
-                (bought=false) — les articles déjà achetés restent intacts
-                (voir le filtre .eq("bought", false) dans performUnclaim).
-                Gardé disponible tant que l'échéance n'est pas passée
-                (taskPastDeadline), pas isTaskClosedPast : le statut n'entre
-                pas en compte, seule la date compte. */}
-            {!isAdmin && isMine(t) && !taskPastDeadline(t) && (
-              <TouchableOpacity
-                style={[styles.claimBtn, { borderWidth: 1, borderColor: C.border, flex: 1, marginTop: 0 }]}
-                onPress={() => openPinModal(t, "unclaim", "out")}
-                activeOpacity={0.85}
-              >
-                <Text style={[styles.claimBtnText, { color: C.muted }]}>Se désinscrire</Text>
-              </TouchableOpacity>
-            )}
           </View>
         )}
 
@@ -3866,6 +3840,36 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           <Text style={[styles.taskDesc, { color: C.danger, marginTop: 4 }]}>
             ⚠️ Certains articles ne sont pas encore achetés
           </Text>
+        )}
+
+        {/* "Se désinscrire" isolé sous le bloc contributeurs (et la phrase
+            rouge le cas échéant) plutôt que dans la rangée des 3 boutons :
+            à 3 sur une rangée le texte des boutons voisins se retrouvait
+            tronqué sur deux lignes et mal centré. Reste disponible tant que
+            ma part n'est pas achetée (contrairement à l'ancien
+            !courseMyFaitDone qui ne le montrait qu'une fois terminé,
+            l'inverse de ce qui est utile : on veut pouvoir se désengager
+            d'un besoin pris en charge pour le réouvrir) — uniquement si je
+            suis la preneuse formelle du besoin (isMine) : les autres
+            contributeurs n'ont rien à désinscrire au niveau du besoin,
+            seulement leurs articles (gérable depuis l'aperçu). Peut donc
+            s'afficher en même temps que "C'est fait" si une partie de mes
+            articles est déjà achetée et une autre non. Réutilise le même
+            mécanisme que transport/relais (performUnclaim via openPinModal),
+            qui ne touche que claimed_by_* et les articles encore "À faire"
+            (bought=false) — les articles déjà achetés restent intacts (voir
+            le filtre .eq("bought", false) dans performUnclaim). Gardé
+            disponible tant que l'échéance n'est pas passée
+            (taskPastDeadline), pas isTaskClosedPast : le statut n'entre pas
+            en compte, seule la date compte. */}
+        {t.category === "courses" && !isAdmin && isMine(t) && !taskPastDeadline(t) && (
+          <TouchableOpacity
+            style={[styles.claimBtn, { borderWidth: 1, borderColor: C.border, marginTop: 8 }]}
+            onPress={() => openPinModal(t, "unclaim", "out")}
+            activeOpacity={0.85}
+          >
+            <Text style={[styles.claimBtnText, { color: C.muted }]}>Se désinscrire</Text>
+          </TouchableOpacity>
         )}
 
         {/* Un besoin relais peut avoir plusieurs preneurs, chacun sur sa
@@ -7264,7 +7268,7 @@ const styles = StyleSheet.create({
   claimerText: { fontFamily: "DM_Sans_400Regular", fontSize: 13, flexShrink: 1 },
   claimedPhoto: { width: "100%", height: 120, borderRadius: 8, marginTop: 8 },
   claimBtn: { borderRadius: 10, paddingVertical: 10, alignItems: "center", marginTop: 8 },
-  claimBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 13, color: "#fff" },
+  claimBtnText: { fontFamily: "DM_Sans_700Bold", fontSize: 13, color: "#fff", textAlign: "center" },
   actionSmall: { borderWidth: 1, borderRadius: 8, paddingVertical: 7, paddingHorizontal: 14 },
   actionSmallText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 12 },
   legToggle: { borderWidth: 1, borderRadius: 8, paddingVertical: 8, paddingHorizontal: 14 },
