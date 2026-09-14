@@ -24,7 +24,7 @@ import TimeClockPicker from "@/components/TimeClockPicker";
 import ConfirmModal from "@/components/ConfirmModal";
 import ShoppingListModal from "@/components/ShoppingListModal";
 import RelaisDayProgress from "@/components/RelaisDayProgress";
-import { toFrShort, toISO } from "@/lib/slotUtils";
+import { toFrShort, toISO, addDays } from "@/lib/slotUtils";
 import { googleMapsSearchUrl, joinAddress, resolvePlaceFromMapsUrl } from "@/lib/address";
 import { addGenericEventToNativeCalendar } from "@/lib/calendarSync";
 import type { Task, TransportProposal, TaskRelaisCoverage } from "@/lib/types";
@@ -150,6 +150,30 @@ function slotLabel(dateIso: string, time: string): string {
 function relaisRequestedPeriodLabel(t: Task | null): string | null {
   if (!t?.relais_start_date || !t.date_limite) return null;
   return `📅 Période demandée : du ${toFrShort(new Date(t.relais_start_date + "T12:00:00"))} au ${toFrShort(new Date(t.date_limite + "T12:00:00"))}`;
+}
+
+type RecurrenceType = "weekly" | "biweekly" | "custom";
+const RECURRENCE_STEP_DAYS: Record<RecurrenceType, number> = { weekly: 7, biweekly: 14, custom: 0 };
+// "biweekly" = tous les 14 jours — libellé "Quinzaine" (pas "Bimensuel", qui
+// signifie "deux fois par mois" en français et serait ambigu ici).
+const RECURRENCE_LABELS: Record<RecurrenceType, string> = { weekly: "Hebdomadaire", biweekly: "Quinzaine", custom: "Tous les X jours" };
+const RECURRENCE_MAX_OCCURRENCES = 52;
+
+// Génère les dates ISO d'une série récurrente, en partant de l'échéance déjà
+// choisie (incluse) et en avançant par pas de `type`/`customDays` tant que la
+// date reste ≤ endIso — plafonné à RECURRENCE_MAX_OCCURRENCES par sécurité
+// (ex. "tous les 1 jour" sur 6 mois saisi par erreur).
+function computeRecurrenceDates(anchorIso: string, type: RecurrenceType, customDays: number, endIso: string): string[] {
+  const step = type === "custom" ? customDays : RECURRENCE_STEP_DAYS[type];
+  if (!anchorIso || !endIso || !step || step < 1) return [];
+  const dates: string[] = [];
+  let d = new Date(anchorIso + "T12:00:00");
+  const end = new Date(endIso + "T12:00:00");
+  while (d <= end && dates.length < RECURRENCE_MAX_OCCURRENCES) {
+    dates.push(toISO(d));
+    d = addDays(d, step);
+  }
+  return dates;
 }
 
 export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, allergies, patientFirstname }: Props) {
@@ -311,7 +335,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   type PublishStep =
     | "category" | "generic" | "courses" | "courses_recurring"
     | "transport_addr" | "transport_trip" | "transport_calendar" | "transport_time"
-    | "autres_options";
+    | "autres_options" | "recurrence";
   const [publishWizardOpen, setPublishWizardOpen] = useState(false);
   const [publishStep, setPublishStep] = useState<PublishStep>("category");
   // Sélection multiple pour l'étape "Produits récurrents" du nouvel assistant
@@ -331,6 +355,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [fDLPickerOpen, setFDLPickerOpen] = useState(false);
   const [fDLCalMonth, setFDLCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
   const [fUrgent, setFUrgent] = useState(false);
+  // Besoin récurrent (étape "recurrence" de l'assistant Publier) — se cale
+  // sur fDateLimite (1re occurrence), génère toute la série d'un coup à la
+  // publication (voir publishRecurringTasks). frRecurrenceType null = pas de
+  // récurrence réglée.
+  const [frRecurrenceType, setFrRecurrenceType] = useState<RecurrenceType | null>(null);
+  const [frRecurrenceCustomDays, setFrRecurrenceCustomDays] = useState("");
+  const [frRecurrenceEndDate, setFrRecurrenceEndDate] = useState("");
+  const [frRecurrenceEndCalMonth, setFrRecurrenceEndCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
   // Dernière date pour laquelle le tag Urgent a été activé automatiquement
   // (voir l'effet plus bas, "besoin créé pour J+2") — empêche de re-forcer
   // le tag après que la personne l'ait décoché à la main tant que la date
@@ -1374,6 +1406,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setFTCalMonth(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
     setFDateLimite(""); setFDLPickerOpen(false); setFUrgent(false); autoUrgentDateRef.current = null;
     setFDLCalMonth(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
+    setFrRecurrenceType(null); setFrRecurrenceCustomDays(""); setFrRecurrenceEndDate("");
+    setFrRecurrenceEndCalMonth(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
     setFCourseItems([]); setFCourseItemDraft("");
     setFRelaisStartDate(""); setFRelaisVisibleTo("all"); setFRelaisSelectedKeys(new Set());
     autoRelaisMsgRef.current = "";
@@ -2046,6 +2080,98 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     loadTasks();
   }
 
+  // Crée toute la série de besoins récurrents d'un coup à la validation (voir
+  // computeRecurrenceDates plus haut) — reprend la construction de champs de
+  // saveTask (identité auteur, upload photo une seule fois, claim-on-create,
+  // articles de courses) puisqu'il s'agit de vrais besoins indépendants, pas
+  // d'une checklist administrative comme publishPendingChecklistBatch.
+  // Transport/Relais ne passent jamais par ici : le bouton "Besoin récurrent"
+  // est masqué pour Transport et Relais n'utilise pas l'assistant Publier.
+  async function publishRecurringTasks() {
+    const dates = frRecurrenceType && fDateLimite && frRecurrenceEndDate
+      ? computeRecurrenceDates(fDateLimite, frRecurrenceType, Number(frRecurrenceCustomDays), frRecurrenceEndDate)
+      : [];
+    if (dates.length < 2 || dates.length >= RECURRENCE_MAX_OCCURRENCES) {
+      Alert.alert("Récurrence invalide", "Vérifie le réglage de la récurrence avant de publier.");
+      return;
+    }
+    setTaskSaving(true);
+
+    let photoFilename = fExistingPhoto;
+    if (fPhotoUri) {
+      try {
+        const compressed = await ImageManipulator.manipulateAsync(
+          fPhotoUri,
+          [{ resize: { width: 1080 } }],
+          { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
+        );
+        const fileData = await new File(compressed.uri).arrayBuffer();
+        const fname = `${Date.now()}_${Math.random().toString(36).slice(2, 6)}.jpg`;
+        const { error } = await supabase.storage
+          .from(PHOTO_BUCKET)
+          .upload(`${spaceId}/${fname}`, fileData, { contentType: "image/jpeg", cacheControl: "3600" });
+        if (!error) photoFilename = fname;
+        else Alert.alert("Photo non envoyée", "Les besoins seront enregistrés sans la photo.");
+      } catch {
+        Alert.alert("Photo non envoyée", "Les besoins seront enregistrés sans la photo.");
+      }
+    }
+
+    let authorPrenom = "", authorNom = "", authorPin = "";
+    if (isAdmin) {
+      const { data } = await supabase.auth.getUser();
+      authorPrenom = (data.user?.user_metadata?.firstname ?? "").trim();
+      authorNom = (data.user?.user_metadata?.lastname ?? "").trim();
+      authorPin = "ADMIN";
+    } else if (mySession) {
+      authorPrenom = mySession.prenom;
+      authorNom = mySession.nom;
+      authorPin = mySession.pin;
+    }
+
+    const groupId = Crypto.randomUUID();
+    const rows = dates.map((iso) => ({
+      space_id: spaceId,
+      title: fTitle.trim(),
+      description: fDesc.trim(),
+      category: fCat,
+      status: claimOnCreate ? "pris_en_charge" as const : "ouvert" as const,
+      created_by: isAdmin ? "admin" : "visiteur",
+      photo: photoFilename,
+      author_prenom: authorPrenom || null,
+      author_nom: authorNom || null,
+      author_pin: authorPin || null,
+      date_limite: iso,
+      urgent: fUrgent,
+      recurrence_group_id: groupId,
+      ...(claimOnCreate ? {
+        claimed_by_prenom: claimPrenom.trim(),
+        claimed_by_nom: claimNom.trim(),
+        claimed_by_pin: claimPin,
+        claimed_at: new Date().toISOString(),
+      } : {}),
+    }));
+
+    const { data: inserted, error } = await supabase.from("tasks").insert(rows).select("id");
+    if (error) {
+      Alert.alert("Erreur", "Impossible de créer les besoins récurrents : " + error.message);
+      setTaskSaving(false);
+      return;
+    }
+    if (fCat === "courses" && fCourseItems.length && inserted?.length) {
+      await supabase.from("shopping_list_items").insert(
+        inserted.flatMap((row) => fCourseItems.map((label, position) => ({ task_id: row.id, label, position }))),
+      );
+    }
+    if (claimOnCreate && !isAdmin) await rememberAuthorPin(claimPrenom.trim(), claimNom.trim(), claimPin);
+    setTaskSaving(false);
+    showToast(`${dates.length} besoins créés ✓`);
+    setPublishWizardOpen(false);
+    resetPublishDraft();
+    triggerBatchUndo(inserted?.map((r) => r.id) ?? [], dates.length);
+    loadTasks();
+  }
+
   // Bascule "je m'en occupe déjà" à la création — reprend l'identité déjà
   // connue (profil admin ou session visiteur), même logique que NewsFeed et
   // Soutien : on ne redemande prénom/nom que si elle est vraiment inconnue.
@@ -2146,6 +2272,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
   function handleWizardPublish() {
     if (pendingChecklistBatch) { publishPendingChecklistBatch(); return; }
+    if (frRecurrenceType) { publishRecurringTasks(); return; }
     saveTask();
   }
 
@@ -5263,7 +5390,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                             { backgroundColor: fDLPickerOpen ? `${C.accent}22` : C.bg, borderColor: fDLPickerOpen ? C.accent : C.border },
                           ]}
                           onPress={() => {
-                            if (fDLPickerOpen) setFDateLimite("");
+                            if (fDLPickerOpen) {
+                              setFDateLimite("");
+                              setFrRecurrenceType(null); setFrRecurrenceCustomDays(""); setFrRecurrenceEndDate("");
+                            }
                             setFDLPickerOpen((v) => !v);
                           }}
                           activeOpacity={0.8}
@@ -5288,6 +5418,36 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                               size="lg"
                             />
                           </>
+                        )}
+                      </>
+                    )}
+
+                    {!editTask && !pendingChecklistActive && fCat !== "transport" && (
+                      <>
+                        <TouchableOpacity
+                          style={[
+                            styles.claimOnCreateBtn,
+                            {
+                              backgroundColor: frRecurrenceType ? `${C.accent}22` : C.bg,
+                              borderColor: frRecurrenceType ? C.accent : C.border,
+                              marginTop: 10,
+                              opacity: fDateLimite ? 1 : 0.5,
+                            },
+                          ]}
+                          onPress={() => { if (fDateLimite) setPublishStep("recurrence"); }}
+                          activeOpacity={0.8}
+                          disabled={!fDateLimite}
+                        >
+                          <Text style={[styles.claimOnCreateText, { color: frRecurrenceType ? C.accent : C.text }]}>
+                            {frRecurrenceType
+                              ? `🔁 ${RECURRENCE_LABELS[frRecurrenceType]} jusqu'au ${toFrShort(new Date(frRecurrenceEndDate + "T12:00:00"))} (${computeRecurrenceDates(fDateLimite, frRecurrenceType, Number(frRecurrenceCustomDays), frRecurrenceEndDate).length} besoins)`
+                              : "🔁 Besoin récurrent"}
+                          </Text>
+                        </TouchableOpacity>
+                        {!fDateLimite && (
+                          <Text style={[styles.claimOnCreateHint, { color: C.muted }]}>
+                            Choisis d'abord une échéance pour régler la récurrence.
+                          </Text>
                         )}
                       </>
                     )}
@@ -5372,6 +5532,112 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                     </TouchableOpacity>
                   </View>
                 )}
+
+                {publishStep === "recurrence" && (() => {
+                  const dates = frRecurrenceType && frRecurrenceEndDate
+                    ? computeRecurrenceDates(fDateLimite, frRecurrenceType, Number(frRecurrenceCustomDays), frRecurrenceEndDate)
+                    : [];
+                  const capped = dates.length >= RECURRENCE_MAX_OCCURRENCES;
+                  return (
+                    <View>
+                      <Text style={[styles.sheetTitle, { color: C.text }]}>🔁 Besoin récurrent</Text>
+                      <Text style={[styles.sheetSub, { color: C.muted, marginBottom: 12 }]}>
+                        À partir du {toFrShort(new Date(fDateLimite + "T12:00:00"))}
+                      </Text>
+
+                      {(["weekly", "biweekly", "custom"] as RecurrenceType[]).map((type) => (
+                        <TouchableOpacity
+                          key={type}
+                          style={[
+                            styles.claimOnCreateBtn,
+                            {
+                              backgroundColor: frRecurrenceType === type ? `${C.accent}22` : C.bg,
+                              borderColor: frRecurrenceType === type ? C.accent : C.border,
+                              marginTop: 8,
+                            },
+                          ]}
+                          onPress={() => { setFrRecurrenceType(type); setFrRecurrenceEndDate(""); }}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={[styles.claimOnCreateText, { color: frRecurrenceType === type ? C.accent : C.text }]}>
+                            {frRecurrenceType === type ? "✓ " : ""}{RECURRENCE_LABELS[type]}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+
+                      {frRecurrenceType === "custom" && (
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 10 }}>
+                          <Text style={[styles.fieldLabel, { color: C.text, marginBottom: 0 }]}>Tous les</Text>
+                          <TextInput
+                            style={[styles.input, { width: 70, backgroundColor: C.bg, borderColor: C.border, color: C.text, textAlign: "center" }]}
+                            keyboardType="number-pad"
+                            value={frRecurrenceCustomDays}
+                            onChangeText={(v) => setFrRecurrenceCustomDays(v.replace(/[^0-9]/g, ""))}
+                            placeholder="10"
+                            placeholderTextColor={C.muted}
+                          />
+                          <Text style={[styles.fieldLabel, { color: C.text, marginBottom: 0 }]}>jours</Text>
+                        </View>
+                      )}
+
+                      {frRecurrenceType && (frRecurrenceType !== "custom" || Number(frRecurrenceCustomDays) >= 1) && (
+                        <>
+                          <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 16 }]}>Se termine le</Text>
+                          <MiniCalendar
+                            selDate={frRecurrenceEndDate}
+                            onSelect={setFrRecurrenceEndDate}
+                            calMonth={frRecurrenceEndCalMonth}
+                            onMonthChange={setFrRecurrenceEndCalMonth}
+                            startDate={addDays(
+                              new Date(fDateLimite + "T12:00:00"),
+                              frRecurrenceType === "custom" ? Number(frRecurrenceCustomDays) : RECURRENCE_STEP_DAYS[frRecurrenceType]
+                            )}
+                            C={C}
+                            size="lg"
+                          />
+                        </>
+                      )}
+
+                      {frRecurrenceType && frRecurrenceEndDate && (
+                        <>
+                          <Text style={[styles.claimOnCreateHint, { color: capped ? C.danger : C.muted, marginTop: 12 }]}>
+                            {dates.length === 0
+                              ? "Choisis une date de fin après la 1ʳᵉ occurrence."
+                              : `${dates.length} besoin${dates.length > 1 ? "s" : ""} seront créés, du ${toFrShort(new Date(dates[0] + "T12:00:00"))} au ${toFrShort(new Date(dates[dates.length - 1] + "T12:00:00"))}`}
+                          </Text>
+                          {capped && (
+                            <Text style={[styles.claimOnCreateHint, { color: C.danger }]}>
+                              Limité à {RECURRENCE_MAX_OCCURRENCES} besoins — choisis une date de fin plus proche.
+                            </Text>
+                          )}
+                        </>
+                      )}
+
+                      <View style={styles.sheetBtns}>
+                        <TouchableOpacity
+                          onPress={() => {
+                            setFrRecurrenceType(null); setFrRecurrenceCustomDays(""); setFrRecurrenceEndDate("");
+                            setPublishStep("autres_options");
+                          }}
+                          style={[styles.btnSecondary, { borderColor: C.border }]}
+                        >
+                          <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          onPress={() => setPublishStep("autres_options")}
+                          disabled={!frRecurrenceType || !frRecurrenceEndDate || dates.length === 0 || capped}
+                          style={[
+                            styles.btnPrimary,
+                            { flex: 1, backgroundColor: C.accent },
+                            (!frRecurrenceType || !frRecurrenceEndDate || dates.length === 0 || capped) && { opacity: 0.5 },
+                          ]}
+                        >
+                          <Text style={styles.btnPrimaryText}>✓ Valider</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  );
+                })()}
 
               </ScrollView>
             </View>
