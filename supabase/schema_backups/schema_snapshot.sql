@@ -39,6 +39,66 @@ CREATE TYPE "storage"."buckettype" AS ENUM (
 ALTER TYPE "storage"."buckettype" OWNER TO "supabase_storage_admin";
 
 
+CREATE OR REPLACE FUNCTION "public"."accept_coadmin_invite"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_email" "text", "p_code" "text") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+declare
+  v_invite record;
+  v_code record;
+begin
+  select * into v_invite
+    from patient_space_coadmins c
+    where c.space_id = p_space_id
+      and lower(trim(c.prenom)) = lower(trim(p_prenom))
+      and lower(trim(c.nom)) = lower(trim(p_nom))
+      and c.active
+      and c.accepted_at is null
+    order by c.granted_at desc
+    limit 1;
+
+  if v_invite.id is null then
+    raise exception 'NO_PENDING_INVITE';
+  end if;
+
+  if not exists (
+    select 1 from visitor_profiles vp
+    where vp.id = v_invite.visitor_id and vp.pin = p_pin
+  ) then
+    raise exception 'INVALID_PIN';
+  end if;
+
+  select * into v_code
+    from coadmin_verification_codes vc
+    where vc.space_id = p_space_id
+      and lower(trim(vc.prenom)) = lower(trim(p_prenom))
+      and lower(trim(vc.nom)) = lower(trim(p_nom))
+      and vc.purpose = 'accept'
+      and lower(trim(vc.email)) = lower(trim(p_email))
+      and vc.code = p_code
+      and vc.used_at is null
+      and vc.expires_at > now()
+    order by vc.created_at desc
+    limit 1;
+
+  if v_code.id is null then
+    raise exception 'INVALID_OR_EXPIRED_CODE';
+  end if;
+
+  update coadmin_verification_codes set used_at = now() where id = v_code.id;
+
+  update patient_space_coadmins
+    set email = p_email, accepted_at = now()
+    where id = v_invite.id;
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+
+ALTER FUNCTION "public"."accept_coadmin_invite"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_email" "text", "p_code" "text") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."apply_slot_rule_change"("p_space_id" "uuid", "p_new_config" "jsonb", "p_new_slots" "text"[]) RETURNS "jsonb"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -414,6 +474,340 @@ $$;
 ALTER FUNCTION "public"."apply_slot_rule_change"("p_space_id" "uuid", "p_new_config" "jsonb", "p_new_slots" "text"[]) OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."apply_slot_rule_change"("p_space_id" "uuid", "p_new_config" "jsonb", "p_new_slots" "text"[], "p_caller_prenom" "text" DEFAULT NULL::"text", "p_caller_nom" "text" DEFAULT NULL::"text", "p_caller_pin" "text" DEFAULT NULL::"text") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+declare
+  v_old slot_config%rowtype;
+
+  v_visit_start_hour integer;
+  v_visit_end_hour integer;
+  v_slot_duration_minutes integer;
+  v_min_gap_minutes integer;
+  v_gap_includes_duration boolean;
+  v_max_visitors_per_slot integer;
+  v_allowed_weekdays integer[];
+  v_blocked_dates text[];
+  v_blocked_date_reasons jsonb;
+  v_night_enabled boolean;
+  v_night_start_hour integer;
+  v_night_end_hour integer;
+  v_max_night_visitors integer;
+
+  v_structural_change boolean;
+  v_weekday_blocked_changed boolean;
+  v_night_scan_needed boolean;
+  v_night_became_disabled boolean;
+
+  v_rebooked uuid[] := array[]::uuid[];
+  v_night_cancelled uuid[] := array[]::uuid[];
+  v_failed uuid[] := array[]::uuid[];
+
+  v_cohort record;
+  v_night record;
+  v_same_day_slots text[];
+  v_day_slots text[];
+  v_candidate_date date;
+  v_candidate_slot text;
+  v_target_date date;
+  v_target_creneau text;
+  v_found boolean;
+  v_occ_count integer;
+  v_night_invalid boolean;
+  v_i integer;
+
+  v_coadmin record;
+begin
+  perform pg_advisory_xact_lock(hashtext(p_space_id::text));
+
+  -- Garde d'autorisation (nouveau).
+  if auth.uid() is not null then
+    if not exists (
+      select 1 from patient_spaces where id = p_space_id and admin_id = auth.uid()
+    ) then
+      raise exception 'NOT_AUTHORIZED';
+    end if;
+  else
+    if p_caller_prenom is null or p_caller_nom is null or p_caller_pin is null then
+      raise exception 'NOT_AUTHORIZED';
+    end if;
+
+    select * into v_coadmin
+      from patient_space_coadmins c
+      where c.space_id = p_space_id
+        and lower(trim(c.prenom)) = lower(trim(p_caller_prenom))
+        and lower(trim(c.nom)) = lower(trim(p_caller_nom))
+        and c.active
+        and c.accepted_at is not null
+      order by c.granted_at desc
+      limit 1;
+
+    if v_coadmin.id is null then
+      raise exception 'NOT_AUTHORIZED';
+    end if;
+
+    if not exists (
+      select 1 from visitor_profiles vp
+      where vp.id = v_coadmin.visitor_id and vp.pin = p_caller_pin
+    ) then
+      raise exception 'NOT_AUTHORIZED';
+    end if;
+  end if;
+
+  p_new_slots := coalesce(p_new_slots, array[]::text[]);
+
+  select * into v_old from slot_config where space_id = p_space_id;
+  if not found then
+    raise exception 'NO_SLOT_CONFIG_FOR_SPACE';
+  end if;
+
+  v_visit_start_hour := case when p_new_config ? 'visit_start_hour'
+    then (p_new_config->>'visit_start_hour')::integer else v_old.visit_start_hour end;
+  v_visit_end_hour := case when p_new_config ? 'visit_end_hour'
+    then (p_new_config->>'visit_end_hour')::integer else v_old.visit_end_hour end;
+  v_slot_duration_minutes := case when p_new_config ? 'slot_duration_minutes'
+    then (p_new_config->>'slot_duration_minutes')::integer else v_old.slot_duration_minutes end;
+  v_min_gap_minutes := case when p_new_config ? 'min_gap_minutes'
+    then (p_new_config->>'min_gap_minutes')::integer else v_old.min_gap_minutes end;
+  v_gap_includes_duration := case when p_new_config ? 'gap_includes_duration'
+    then (p_new_config->>'gap_includes_duration')::boolean else v_old.gap_includes_duration end;
+  v_max_visitors_per_slot := case when p_new_config ? 'max_visitors_per_slot'
+    then (p_new_config->>'max_visitors_per_slot')::integer else v_old.max_visitors_per_slot end;
+  v_allowed_weekdays := case when p_new_config ? 'allowed_weekdays'
+    then (select coalesce(array_agg(x::integer), array[]::integer[]) from jsonb_array_elements_text(p_new_config->'allowed_weekdays') x)
+    else v_old.allowed_weekdays end;
+  v_blocked_dates := case when p_new_config ? 'blocked_dates'
+    then (select coalesce(array_agg(x), array[]::text[]) from jsonb_array_elements_text(p_new_config->'blocked_dates') x)
+    else v_old.blocked_dates end;
+  v_blocked_date_reasons := case when p_new_config ? 'blocked_date_reasons'
+    then (p_new_config->'blocked_date_reasons') else v_old.blocked_date_reasons end;
+  v_night_enabled := case when p_new_config ? 'night_enabled'
+    then (p_new_config->>'night_enabled')::boolean else v_old.night_enabled end;
+  v_night_start_hour := case when p_new_config ? 'night_start_hour'
+    then (p_new_config->>'night_start_hour')::integer else v_old.night_start_hour end;
+  v_night_end_hour := case when p_new_config ? 'night_end_hour'
+    then (p_new_config->>'night_end_hour')::integer else v_old.night_end_hour end;
+  v_max_night_visitors := case when p_new_config ? 'max_night_visitors'
+    then (p_new_config->>'max_night_visitors')::integer else v_old.max_night_visitors end;
+
+  -- 1. Historique + config live
+  insert into slot_config_history (
+    space_id, valid_from, visit_start_hour, visit_end_hour, slot_duration_minutes,
+    min_gap_minutes, gap_includes_duration, max_visitors_per_slot, allowed_weekdays,
+    blocked_dates, blocked_date_reasons, night_enabled, night_start_hour,
+    night_end_hour, max_night_visitors
+  ) values (
+    p_space_id, current_date, v_visit_start_hour, v_visit_end_hour, v_slot_duration_minutes,
+    v_min_gap_minutes, v_gap_includes_duration, v_max_visitors_per_slot, v_allowed_weekdays,
+    v_blocked_dates, v_blocked_date_reasons, v_night_enabled, v_night_start_hour,
+    v_night_end_hour, v_max_night_visitors
+  )
+  on conflict (space_id, valid_from) do update set
+    visit_start_hour = excluded.visit_start_hour,
+    visit_end_hour = excluded.visit_end_hour,
+    slot_duration_minutes = excluded.slot_duration_minutes,
+    min_gap_minutes = excluded.min_gap_minutes,
+    gap_includes_duration = excluded.gap_includes_duration,
+    max_visitors_per_slot = excluded.max_visitors_per_slot,
+    allowed_weekdays = excluded.allowed_weekdays,
+    blocked_dates = excluded.blocked_dates,
+    blocked_date_reasons = excluded.blocked_date_reasons,
+    night_enabled = excluded.night_enabled,
+    night_start_hour = excluded.night_start_hour,
+    night_end_hour = excluded.night_end_hour,
+    max_night_visitors = excluded.max_night_visitors;
+
+  update slot_config set
+    visit_start_hour = v_visit_start_hour,
+    visit_end_hour = v_visit_end_hour,
+    slot_duration_minutes = v_slot_duration_minutes,
+    min_gap_minutes = v_min_gap_minutes,
+    gap_includes_duration = v_gap_includes_duration,
+    max_visitors_per_slot = v_max_visitors_per_slot,
+    allowed_weekdays = v_allowed_weekdays,
+    blocked_dates = v_blocked_dates,
+    blocked_date_reasons = v_blocked_date_reasons,
+    night_enabled = v_night_enabled,
+    night_start_hour = v_night_start_hour,
+    night_end_hour = v_night_end_hour,
+    max_night_visitors = v_max_night_visitors
+  where space_id = p_space_id;
+
+  v_weekday_blocked_changed := (v_allowed_weekdays is distinct from v_old.allowed_weekdays)
+    or (v_blocked_dates is distinct from v_old.blocked_dates);
+
+  v_structural_change := v_weekday_blocked_changed
+    or (v_visit_start_hour is distinct from v_old.visit_start_hour)
+    or (v_visit_end_hour is distinct from v_old.visit_end_hour)
+    or (v_slot_duration_minutes is distinct from v_old.slot_duration_minutes)
+    or (v_min_gap_minutes is distinct from v_old.min_gap_minutes)
+    or (v_gap_includes_duration is distinct from v_old.gap_includes_duration)
+    or (v_max_visitors_per_slot is distinct from v_old.max_visitors_per_slot);
+
+  v_night_became_disabled := v_old.night_enabled and not v_night_enabled;
+  v_night_scan_needed := v_night_became_disabled or v_weekday_blocked_changed;
+
+  -- 2. Recasage des réservations "Visite" futures invalidées
+  if v_structural_change then
+    for v_cohort in
+      select
+        coalesce(group_id, id) as cohort_key,
+        (array_agg(date order by created_at))[1] as cohort_date,
+        (array_agg(creneau order by created_at))[1] as cohort_creneau,
+        array_agg(id order by created_at) as member_ids,
+        count(*) as cohort_size
+      from reservations
+      where space_id = p_space_id and type = 'Visite' and date >= current_date
+      group by coalesce(group_id, id)
+      order by min(created_at) asc
+    loop
+      v_found := (v_cohort.cohort_creneau = any(p_new_slots))
+        and (extract(dow from v_cohort.cohort_date)::integer = any(v_allowed_weekdays))
+        and not (to_char(v_cohort.cohort_date, 'YYYY-MM-DD') = any(v_blocked_dates));
+
+      if v_found then
+        select count(*) into v_occ_count from reservations
+          where space_id = p_space_id and date = v_cohort.cohort_date and creneau = v_cohort.cohort_creneau
+            and type = 'Visite' and not (id = any(v_cohort.member_ids));
+        if v_occ_count + v_cohort.cohort_size > v_max_visitors_per_slot then
+          v_found := false;
+        end if;
+      end if;
+
+      if v_found then
+        continue; -- créneau toujours valide et non-saturé, rien à faire
+      end if;
+
+      -- Recherche du créneau valide le plus proche : même jour trié par
+      -- distance, sinon jour par jour (ordre chronologique de p_new_slots).
+      select coalesce(array_agg(s order by abs(to_minutes(s) - to_minutes(v_cohort.cohort_creneau))), array[]::text[])
+        into v_same_day_slots
+        from unnest(p_new_slots) s;
+
+      v_target_date := null;
+      v_target_creneau := null;
+
+      <<day_loop>>
+      for v_i in 0..60 loop
+        v_candidate_date := v_cohort.cohort_date + v_i;
+
+        if not (extract(dow from v_candidate_date)::integer = any(v_allowed_weekdays)) then
+          continue;
+        end if;
+        if to_char(v_candidate_date, 'YYYY-MM-DD') = any(v_blocked_dates) then
+          continue;
+        end if;
+
+        v_day_slots := case when v_i = 0 then v_same_day_slots else p_new_slots end;
+
+        foreach v_candidate_slot in array v_day_slots loop
+          select count(*) into v_occ_count from reservations
+            where space_id = p_space_id and date = v_candidate_date and creneau = v_candidate_slot
+              and type = 'Visite' and not (id = any(v_cohort.member_ids));
+          if v_occ_count + v_cohort.cohort_size <= v_max_visitors_per_slot then
+            v_target_date := v_candidate_date;
+            v_target_creneau := v_candidate_slot;
+            exit day_loop;
+          end if;
+        end loop;
+      end loop day_loop;
+
+      if v_target_date is not null then
+        update reservations set
+          date = v_target_date,
+          creneau = v_target_creneau,
+          previous_date = date,
+          previous_creneau = creneau,
+          alert_type = 'rebooked',
+          alert_message = 'Suite à une modification des règles de visite, votre réservation du '
+            || to_char(v_cohort.cohort_date, 'DD/MM/YYYY') || ' à ' || v_cohort.cohort_creneau
+            || ' a été automatiquement déplacée au ' || to_char(v_target_date, 'DD/MM/YYYY')
+            || ' à ' || v_target_creneau || '.',
+          alert_seen = false
+        where id = any(v_cohort.member_ids);
+
+        insert into reservation_change_history (
+          space_id, reservation_id, prenom, nom, type, change_type,
+          previous_date, previous_creneau, new_date, new_creneau, message
+        )
+        select p_space_id, id, prenom, nom, type, 'rebooked',
+          v_cohort.cohort_date, v_cohort.cohort_creneau, v_target_date, v_target_creneau,
+          'Suite à une modification des règles de visite, réservation du '
+            || to_char(v_cohort.cohort_date, 'DD/MM/YYYY') || ' à ' || v_cohort.cohort_creneau
+            || ' automatiquement déplacée au ' || to_char(v_target_date, 'DD/MM/YYYY')
+            || ' à ' || v_target_creneau || '.'
+        from reservations where id = any(v_cohort.member_ids);
+
+        v_rebooked := v_rebooked || v_cohort.member_ids;
+      else
+        update reservations set
+          alert_type = 'rebooking_failed',
+          alert_message = 'Suite à une modification des règles de visite, votre réservation du '
+            || to_char(v_cohort.cohort_date, 'DD/MM/YYYY') || ' à ' || v_cohort.cohort_creneau
+            || ' n''a pas pu être automatiquement replacée. Merci de contacter l''organisateur '
+            || 'pour choisir un nouveau créneau.',
+          alert_seen = false
+        where id = any(v_cohort.member_ids);
+
+        insert into reservation_change_history (
+          space_id, reservation_id, prenom, nom, type, change_type,
+          previous_date, previous_creneau, new_date, new_creneau, message
+        )
+        select p_space_id, id, prenom, nom, type, 'rebooking_failed',
+          v_cohort.cohort_date, v_cohort.cohort_creneau, null, null,
+          'Suite à une modification des règles de visite, réservation du '
+            || to_char(v_cohort.cohort_date, 'DD/MM/YYYY') || ' à ' || v_cohort.cohort_creneau
+            || ' n''a pas pu être automatiquement replacée.'
+        from reservations where id = any(v_cohort.member_ids);
+
+        v_failed := v_failed || v_cohort.member_ids;
+      end if;
+    end loop;
+  end if;
+
+  -- 3. Nuitées invalidées : message seul, jamais de déplacement/suppression
+  if v_night_scan_needed then
+    for v_night in
+      select id, date from reservations
+      where space_id = p_space_id and type = 'Nuit' and date >= current_date
+    loop
+      v_night_invalid := v_night_became_disabled
+        or not (extract(dow from v_night.date)::integer = any(v_allowed_weekdays))
+        or (to_char(v_night.date, 'YYYY-MM-DD') = any(v_blocked_dates));
+
+      if v_night_invalid then
+        update reservations set
+          alert_type = 'night_cancelled',
+          alert_message = 'Nuitée annulée suite au changement de consignes.',
+          alert_seen = false
+        where id = v_night.id;
+
+        insert into reservation_change_history (
+          space_id, reservation_id, prenom, nom, type, change_type,
+          previous_date, previous_creneau, new_date, new_creneau, message
+        )
+        select p_space_id, id, prenom, nom, type, 'night_cancelled',
+          date, creneau, date, creneau, 'Nuitée annulée suite au changement de consignes.'
+        from reservations where id = v_night.id;
+
+        v_night_cancelled := v_night_cancelled || v_night.id;
+      end if;
+    end loop;
+  end if;
+
+  return jsonb_build_object(
+    'rebooked', to_jsonb(v_rebooked),
+    'night_cancelled', to_jsonb(v_night_cancelled),
+    'failed', to_jsonb(v_failed)
+  );
+end;
+$$;
+
+
+ALTER FUNCTION "public"."apply_slot_rule_change"("p_space_id" "uuid", "p_new_config" "jsonb", "p_new_slots" "text"[], "p_caller_prenom" "text", "p_caller_nom" "text", "p_caller_pin" "text") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."book_intervention"("p_space_id" "uuid", "p_intervenant_profile_id" "uuid", "p_intervention_type_id" "uuid", "p_date" "date", "p_start_slot" "text", "p_pin" "text", "p_slots" "text"[]) RETURNS "jsonb"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -730,6 +1124,121 @@ $$;
 ALTER FUNCTION "public"."extend_purge_on_premium_upgrade"() OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."reset_coadmin_pin_via_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_email" "text", "p_new_pin" "text", "p_code" "text") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+declare
+  v_coadmin record;
+  v_code record;
+begin
+  select * into v_coadmin
+    from patient_space_coadmins c
+    where c.space_id = p_space_id
+      and lower(trim(c.prenom)) = lower(trim(p_prenom))
+      and lower(trim(c.nom)) = lower(trim(p_nom))
+      and c.active
+      and c.accepted_at is not null
+      and lower(trim(c.email)) = lower(trim(p_email))
+    order by c.granted_at desc
+    limit 1;
+
+  if v_coadmin.id is null then
+    raise exception 'NOT_AN_ACTIVE_COADMIN';
+  end if;
+
+  select * into v_code
+    from coadmin_verification_codes vc
+    where vc.space_id = p_space_id
+      and lower(trim(vc.prenom)) = lower(trim(p_prenom))
+      and lower(trim(vc.nom)) = lower(trim(p_nom))
+      and vc.purpose = 'reset'
+      and lower(trim(vc.email)) = lower(trim(p_email))
+      and vc.code = p_code
+      and vc.used_at is null
+      and vc.expires_at > now()
+    order by vc.created_at desc
+    limit 1;
+
+  if v_code.id is null then
+    raise exception 'INVALID_OR_EXPIRED_CODE';
+  end if;
+
+  update coadmin_verification_codes set used_at = now() where id = v_code.id;
+
+  update visitor_profiles
+    set pin = p_new_pin, updated_at = now()
+    where id = v_coadmin.visitor_id;
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+
+ALTER FUNCTION "public"."reset_coadmin_pin_via_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_email" "text", "p_new_pin" "text", "p_code" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."reset_visitor_pin_via_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_new_pin" "text", "p_code" "text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+declare
+  v_profile record;
+  v_code record;
+begin
+  select * into v_profile
+    from visitor_profiles vp
+    where vp.space_id = p_space_id
+      and lower(trim(vp.prenom)) = lower(trim(p_prenom))
+      and lower(trim(vp.nom)) = lower(trim(p_nom))
+      and vp.email is not null;
+
+  if v_profile.id is null then
+    raise exception 'NO_MATCHING_PROFILE';
+  end if;
+
+  select * into v_code
+    from coadmin_verification_codes vc
+    where vc.space_id = p_space_id
+      and lower(trim(vc.prenom)) = lower(trim(p_prenom))
+      and lower(trim(vc.nom)) = lower(trim(p_nom))
+      and vc.purpose = 'reset'
+      and lower(trim(vc.email)) = lower(trim(v_profile.email))
+      and vc.code = p_code
+      and vc.used_at is null
+      and vc.expires_at > now()
+    order by vc.created_at desc
+    limit 1;
+
+  if v_code.id is null then
+    raise exception 'INVALID_OR_EXPIRED_CODE';
+  end if;
+
+  update coadmin_verification_codes set used_at = now() where id = v_code.id;
+
+  update visitor_profiles
+    set pin = p_new_pin, updated_at = now()
+    where id = v_profile.id;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."reset_visitor_pin_via_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_new_pin" "text", "p_code" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."revoke_coadmin_for_coverage"("p_coverage_id" "uuid") RETURNS "void"
+    LANGUAGE "sql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+  update patient_space_coadmins
+    set active = false, revoked_at = now()
+    where coverage_id = p_coverage_id and active;
+$$;
+
+
+ALTER FUNCTION "public"."revoke_coadmin_for_coverage"("p_coverage_id" "uuid") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."rpc_admin_reset_visitor_pin"("p_space_id" "uuid", "p_visitor_id" "uuid") RETURNS "void"
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -834,6 +1343,47 @@ $$;
 ALTER FUNCTION "public"."rpc_visitor_claim_reset"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text") OWNER TO "postgres";
 
 
+CREATE OR REPLACE FUNCTION "public"."rpc_visitor_get_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text") RETURNS "text"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+declare
+  v_email text;
+begin
+  select email into v_email
+    from visitor_profiles
+    where space_id = p_space_id
+      and lower(trim(prenom)) = lower(trim(p_prenom))
+      and lower(trim(nom)) = lower(trim(p_nom))
+      and pin = p_pin;
+  return v_email;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."rpc_visitor_get_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."rpc_visitor_has_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text") RETURNS boolean
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+begin
+  return exists (
+    select 1 from visitor_profiles
+    where space_id = p_space_id
+      and lower(trim(prenom)) = lower(trim(p_prenom))
+      and lower(trim(nom)) = lower(trim(p_nom))
+      and email is not null
+      and length(trim(email)) > 0
+  );
+end;
+$$;
+
+
+ALTER FUNCTION "public"."rpc_visitor_has_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text") OWNER TO "postgres";
+
+
 CREATE OR REPLACE FUNCTION "public"."rpc_visitor_login"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text") RETURNS TABLE("id" "uuid", "prenom" "text", "nom" "text", "photo" "text", "motto" "text", "relation" "text")
     LANGUAGE "plpgsql" SECURITY DEFINER
     SET "search_path" TO 'public'
@@ -852,6 +1402,24 @@ $$;
 
 
 ALTER FUNCTION "public"."rpc_visitor_login"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."rpc_visitor_update_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_email" "text") RETURNS "void"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+begin
+  update visitor_profiles
+    set email = nullif(trim(p_email), ''), updated_at = now()
+    where space_id = p_space_id
+      and lower(trim(prenom)) = lower(trim(p_prenom))
+      and lower(trim(nom)) = lower(trim(p_nom))
+      and pin = p_pin;
+end;
+$$;
+
+
+ALTER FUNCTION "public"."rpc_visitor_update_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_email" "text") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "public"."rpc_visitor_update_motto_relation"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_motto" "text", "p_relation" "text") RETURNS "void"
@@ -934,6 +1502,57 @@ $$;
 
 
 ALTER FUNCTION "public"."to_minutes"("p_hhmm" "text") OWNER TO "postgres";
+
+
+CREATE OR REPLACE FUNCTION "public"."verify_coadmin_proposal_code"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_email" "text", "p_code" "text") RETURNS "jsonb"
+    LANGUAGE "plpgsql" SECURITY DEFINER
+    SET "search_path" TO 'public'
+    AS $$
+declare
+  v_code record;
+begin
+  if not exists (
+    select 1 from visitor_profiles vp
+    where vp.space_id = p_space_id
+      and lower(trim(vp.prenom)) = lower(trim(p_prenom))
+      and lower(trim(vp.nom)) = lower(trim(p_nom))
+      and vp.pin = p_pin
+  ) then
+    raise exception 'INVALID_PIN';
+  end if;
+
+  select * into v_code
+    from coadmin_verification_codes vc
+    where vc.space_id = p_space_id
+      and lower(trim(vc.prenom)) = lower(trim(p_prenom))
+      and lower(trim(vc.nom)) = lower(trim(p_nom))
+      and vc.purpose = 'propose'
+      and lower(trim(vc.email)) = lower(trim(p_email))
+      and vc.code = p_code
+      and vc.used_at is null
+      and vc.expires_at > now()
+    order by vc.created_at desc
+    limit 1;
+
+  if v_code.id is null then
+    raise exception 'INVALID_OR_EXPIRED_CODE';
+  end if;
+
+  update coadmin_verification_codes set used_at = now() where id = v_code.id;
+
+  update visitor_profiles
+    set email = trim(p_email), updated_at = now()
+    where space_id = p_space_id
+      and lower(trim(prenom)) = lower(trim(p_prenom))
+      and lower(trim(nom)) = lower(trim(p_nom))
+      and pin = p_pin;
+
+  return jsonb_build_object('ok', true);
+end;
+$$;
+
+
+ALTER FUNCTION "public"."verify_coadmin_proposal_code"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_email" "text", "p_code" "text") OWNER TO "postgres";
 
 
 CREATE OR REPLACE FUNCTION "storage"."allow_any_operation"("expected_operations" "text"[]) RETURNS boolean
@@ -1853,6 +2472,24 @@ SET default_tablespace = '';
 SET default_table_access_method = "heap";
 
 
+CREATE TABLE IF NOT EXISTS "public"."coadmin_verification_codes" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "space_id" "uuid" NOT NULL,
+    "prenom" "text" NOT NULL,
+    "nom" "text" NOT NULL,
+    "email" "text" NOT NULL,
+    "purpose" "text" NOT NULL,
+    "code" "text" NOT NULL,
+    "expires_at" timestamp with time zone NOT NULL,
+    "used_at" timestamp with time zone,
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    CONSTRAINT "coadmin_verification_codes_purpose_check" CHECK (("purpose" = ANY (ARRAY['accept'::"text", 'reset'::"text", 'propose'::"text"])))
+);
+
+
+ALTER TABLE "public"."coadmin_verification_codes" OWNER TO "postgres";
+
+
 CREATE TABLE IF NOT EXISTS "public"."intervenant_checklist_templates" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "telephone" "text" NOT NULL,
@@ -1973,6 +2610,25 @@ CREATE TABLE IF NOT EXISTS "public"."night_authorized_visitors" (
 ALTER TABLE "public"."night_authorized_visitors" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."patient_space_coadmins" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "space_id" "uuid" NOT NULL,
+    "visitor_id" "uuid" NOT NULL,
+    "prenom" "text" NOT NULL,
+    "nom" "text" NOT NULL,
+    "email" "text",
+    "active" boolean DEFAULT true NOT NULL,
+    "accepted_at" timestamp with time zone,
+    "granted_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "revoked_at" timestamp with time zone,
+    "granted_by_admin_id" "uuid",
+    "coverage_id" "uuid"
+);
+
+
+ALTER TABLE "public"."patient_space_coadmins" OWNER TO "postgres";
+
+
 CREATE TABLE IF NOT EXISTS "public"."patient_spaces" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "admin_id" "uuid" NOT NULL,
@@ -2023,6 +2679,7 @@ CREATE TABLE IF NOT EXISTS "public"."patient_spaces" (
     "admin_email" "text",
     "admin_pin" "text",
     "name_change_requested_at" timestamp with time zone,
+    "admin_photo_url" "text",
     CONSTRAINT "patient_spaces_patient_sex_check" CHECK (("patient_sex" = ANY (ARRAY['M'::"text", 'F'::"text"])))
 );
 
@@ -2044,7 +2701,7 @@ CREATE TABLE IF NOT EXISTS "public"."personal_checklist_items" (
     "custom_checklist_name" "text",
     "date_limite" "date",
     "urgent" boolean DEFAULT false NOT NULL,
-    CONSTRAINT "personal_checklist_items_checklist_context_check" CHECK (("checklist_context" = ANY (ARRAY['adulte'::"text", 'enfant'::"text", 'domicile'::"text", 'situations_besoins'::"text", 'retour_domicile'::"text", 'relais_familial'::"text", 'repit_aidant'::"text", 'conge_proche_aidant'::"text", 'maintien_domicile'::"text", 'handicap'::"text", 'fin_de_vie'::"text"]))),
+    CONSTRAINT "personal_checklist_items_checklist_context_check" CHECK (("checklist_context" = ANY (ARRAY['adulte'::"text", 'enfant'::"text", 'domicile'::"text", 'situations_besoins'::"text", 'retour_domicile'::"text", 'relais_familial'::"text", 'repit_aidant'::"text", 'conge_proche_aidant'::"text", 'maintien_domicile'::"text", 'handicap'::"text", 'fin_de_vie'::"text", 'telesurveillance'::"text", 'materiel_medical'::"text", 'aide_domicile_menage'::"text", 'portage_repas'::"text"]))),
     CONSTRAINT "personal_checklist_items_status_check" CHECK (("status" = ANY (ARRAY['a_faire'::"text", 'fait'::"text"])))
 );
 
@@ -2322,6 +2979,25 @@ CREATE TABLE IF NOT EXISTS "public"."support_messages" (
 ALTER TABLE "public"."support_messages" OWNER TO "postgres";
 
 
+CREATE TABLE IF NOT EXISTS "public"."task_disengage_alerts" (
+    "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
+    "space_id" "uuid" NOT NULL,
+    "task_id" "uuid",
+    "task_title" "text" NOT NULL,
+    "disengaged_prenom" "text" NOT NULL,
+    "disengaged_nom" "text" NOT NULL,
+    "author_prenom" "text",
+    "author_nom" "text",
+    "date_limite" "date",
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "seen_by_admin" boolean DEFAULT false NOT NULL,
+    "seen_by_author" boolean DEFAULT false NOT NULL
+);
+
+
+ALTER TABLE "public"."task_disengage_alerts" OWNER TO "postgres";
+
+
 CREATE TABLE IF NOT EXISTS "public"."task_relais_coverage" (
     "id" "uuid" DEFAULT "gen_random_uuid"() NOT NULL,
     "task_id" "uuid" NOT NULL,
@@ -2333,7 +3009,8 @@ CREATE TABLE IF NOT EXISTS "public"."task_relais_coverage" (
     "full_period" boolean DEFAULT false NOT NULL,
     "claimed_text" "text",
     "claimed_photo" "text",
-    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL
+    "created_at" timestamp with time zone DEFAULT "now"() NOT NULL,
+    "email" "text"
 );
 
 
@@ -2410,7 +3087,8 @@ CREATE TABLE IF NOT EXISTS "public"."visitor_profiles" (
     "updated_at" timestamp with time zone DEFAULT "now"() NOT NULL,
     "motto" "text",
     "relation" "text",
-    "pin" "text"
+    "pin" "text",
+    "email" "text"
 );
 
 
@@ -2418,6 +3096,10 @@ ALTER TABLE "public"."visitor_profiles" OWNER TO "postgres";
 
 
 COMMENT ON COLUMN "public"."visitor_profiles"."pin" IS 'PIN 4 chiffres — identifiant de reconnexion cross-device. NULL = profil pas encore migré/sécurisé.';
+
+
+
+COMMENT ON COLUMN "public"."visitor_profiles"."email" IS 'Email vérifié par code (voir coadmin_verification_codes) — sert à sauter la vérification sur une prochaine proposition de relais et à l''auto-réinitialisation du PIN sans admin. NULL = aucun email vérifié pour ce profil.';
 
 
 
@@ -2577,6 +3259,11 @@ CREATE TABLE IF NOT EXISTS "storage"."vector_indexes" (
 ALTER TABLE "storage"."vector_indexes" OWNER TO "supabase_storage_admin";
 
 
+ALTER TABLE ONLY "public"."coadmin_verification_codes"
+    ADD CONSTRAINT "coadmin_verification_codes_pkey" PRIMARY KEY ("id");
+
+
+
 ALTER TABLE ONLY "public"."intervenant_checklist_templates"
     ADD CONSTRAINT "intervenant_checklist_templates_pkey" PRIMARY KEY ("id");
 
@@ -2634,6 +3321,11 @@ ALTER TABLE ONLY "public"."night_authorized_visitors"
 
 ALTER TABLE ONLY "public"."night_authorized_visitors"
     ADD CONSTRAINT "night_authorized_visitors_pkey" PRIMARY KEY ("id");
+
+
+
+ALTER TABLE ONLY "public"."patient_space_coadmins"
+    ADD CONSTRAINT "patient_space_coadmins_pkey" PRIMARY KEY ("id");
 
 
 
@@ -2727,6 +3419,11 @@ ALTER TABLE ONLY "public"."support_messages"
 
 
 
+ALTER TABLE ONLY "public"."task_disengage_alerts"
+    ADD CONSTRAINT "task_disengage_alerts_pkey" PRIMARY KEY ("id");
+
+
+
 ALTER TABLE ONLY "public"."task_relais_coverage"
     ADD CONSTRAINT "task_relais_coverage_pkey" PRIMARY KEY ("id");
 
@@ -2792,6 +3489,10 @@ ALTER TABLE ONLY "storage"."vector_indexes"
 
 
 
+CREATE INDEX "coadmin_verification_codes_lookup_idx" ON "public"."coadmin_verification_codes" USING "btree" ("space_id", "prenom", "nom", "purpose");
+
+
+
 CREATE INDEX "idx_intervenant_profiles_space" ON "public"."intervenant_profiles" USING "btree" ("space_id");
 
 
@@ -2825,6 +3526,14 @@ CREATE INDEX "idx_slot_config_history_space_date" ON "public"."slot_config_histo
 
 
 CREATE INDEX "intervenant_checklist_templates_telephone_idx" ON "public"."intervenant_checklist_templates" USING "btree" ("telephone");
+
+
+
+CREATE INDEX "patient_space_coadmins_coverage_id_idx" ON "public"."patient_space_coadmins" USING "btree" ("coverage_id");
+
+
+
+CREATE INDEX "patient_space_coadmins_space_id_idx" ON "public"."patient_space_coadmins" USING "btree" ("space_id");
 
 
 
@@ -2876,7 +3585,19 @@ CREATE INDEX "idx_objects_bucket_id_name_lower" ON "storage"."objects" USING "bt
 
 
 
+CREATE UNIQUE INDEX "idx_objects_current_version" ON "storage"."objects" USING "btree" ("bucket_id", "name" COLLATE "C") WHERE ("archived_at" IS NULL);
+
+
+
+CREATE UNIQUE INDEX "idx_objects_null_version" ON "storage"."objects" USING "btree" ("bucket_id", "name" COLLATE "C") WHERE (NOT "is_versioned");
+
+
+
 CREATE INDEX "name_prefix_search" ON "storage"."objects" USING "btree" ("name" "text_pattern_ops");
+
+
+
+CREATE UNIQUE INDEX "objects_bucket_id_name_version_key" ON "storage"."objects" USING "btree" ("bucket_id", "name" COLLATE "C", "version") NULLS NOT DISTINCT;
 
 
 
@@ -2917,6 +3638,11 @@ CREATE OR REPLACE TRIGGER "protect_objects_delete" BEFORE DELETE ON "storage"."o
 
 
 CREATE OR REPLACE TRIGGER "update_objects_updated_at" BEFORE UPDATE ON "storage"."objects" FOR EACH ROW EXECUTE FUNCTION "storage"."update_updated_at_column"();
+
+
+
+ALTER TABLE ONLY "public"."coadmin_verification_codes"
+    ADD CONSTRAINT "coadmin_verification_codes_space_id_fkey" FOREIGN KEY ("space_id") REFERENCES "public"."patient_spaces"("id") ON DELETE CASCADE;
 
 
 
@@ -2972,6 +3698,26 @@ ALTER TABLE ONLY "public"."night_authorized_intervenants"
 
 ALTER TABLE ONLY "public"."night_authorized_visitors"
     ADD CONSTRAINT "night_authorized_visitors_space_id_fkey" FOREIGN KEY ("space_id") REFERENCES "public"."patient_spaces"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."patient_space_coadmins"
+    ADD CONSTRAINT "patient_space_coadmins_coverage_id_fkey" FOREIGN KEY ("coverage_id") REFERENCES "public"."task_relais_coverage"("id") ON DELETE SET NULL;
+
+
+
+ALTER TABLE ONLY "public"."patient_space_coadmins"
+    ADD CONSTRAINT "patient_space_coadmins_granted_by_admin_id_fkey" FOREIGN KEY ("granted_by_admin_id") REFERENCES "auth"."users"("id");
+
+
+
+ALTER TABLE ONLY "public"."patient_space_coadmins"
+    ADD CONSTRAINT "patient_space_coadmins_space_id_fkey" FOREIGN KEY ("space_id") REFERENCES "public"."patient_spaces"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."patient_space_coadmins"
+    ADD CONSTRAINT "patient_space_coadmins_visitor_id_fkey" FOREIGN KEY ("visitor_id") REFERENCES "public"."visitor_profiles"("id") ON DELETE CASCADE;
 
 
 
@@ -3055,6 +3801,16 @@ ALTER TABLE ONLY "public"."support_messages"
 
 
 
+ALTER TABLE ONLY "public"."task_disengage_alerts"
+    ADD CONSTRAINT "task_disengage_alerts_space_id_fkey" FOREIGN KEY ("space_id") REFERENCES "public"."patient_spaces"("id") ON DELETE CASCADE;
+
+
+
+ALTER TABLE ONLY "public"."task_disengage_alerts"
+    ADD CONSTRAINT "task_disengage_alerts_task_id_fkey" FOREIGN KEY ("task_id") REFERENCES "public"."tasks"("id") ON DELETE SET NULL;
+
+
+
 ALTER TABLE ONLY "public"."task_relais_coverage"
     ADD CONSTRAINT "task_relais_coverage_task_id_fkey" FOREIGN KEY ("task_id") REFERENCES "public"."tasks"("id") ON DELETE CASCADE;
 
@@ -3107,7 +3863,21 @@ CREATE POLICY "Update" ON "public"."reservations" FOR UPDATE TO "anon" USING (tr
 
 
 
+CREATE POLICY "admin manages own coadmins" ON "public"."patient_space_coadmins" FOR INSERT TO "authenticated" WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."patient_spaces" "s"
+  WHERE (("s"."id" = "patient_space_coadmins"."space_id") AND ("s"."admin_id" = "auth"."uid"())))));
+
+
+
 CREATE POLICY "admin owns space" ON "public"."patient_spaces" USING (("admin_id" = "auth"."uid"()));
+
+
+
+CREATE POLICY "admin updates own coadmins" ON "public"."patient_space_coadmins" FOR UPDATE TO "authenticated" USING ((EXISTS ( SELECT 1
+   FROM "public"."patient_spaces" "s"
+  WHERE (("s"."id" = "patient_space_coadmins"."space_id") AND ("s"."admin_id" = "auth"."uid"()))))) WITH CHECK ((EXISTS ( SELECT 1
+   FROM "public"."patient_spaces" "s"
+  WHERE (("s"."id" = "patient_space_coadmins"."space_id") AND ("s"."admin_id" = "auth"."uid"())))));
 
 
 
@@ -3133,6 +3903,9 @@ CREATE POLICY "admins can update own slot_config" ON "public"."slot_config" FOR 
    FROM "public"."patient_spaces" "s"
   WHERE (("s"."id" = "slot_config"."space_id") AND ("s"."admin_id" = "auth"."uid"())))));
 
+
+
+ALTER TABLE "public"."coadmin_verification_codes" ENABLE ROW LEVEL SECURITY;
 
 
 CREATE POLICY "ecriture publique" ON "public"."reservations" FOR INSERT WITH CHECK (true);
@@ -3165,6 +3938,9 @@ ALTER TABLE "public"."night_authorized_intervenants" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."night_authorized_visitors" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."patient_space_coadmins" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."patient_spaces" ENABLE ROW LEVEL SECURITY;
@@ -3235,6 +4011,10 @@ CREATE POLICY "public can insert support message replies" ON "public"."support_m
 
 
 
+CREATE POLICY "public can insert task_disengage_alerts" ON "public"."task_disengage_alerts" FOR INSERT WITH CHECK (true);
+
+
+
 CREATE POLICY "public can manage news_authorized_intervenants" ON "public"."news_authorized_intervenants" USING (true) WITH CHECK (true);
 
 
@@ -3275,6 +4055,10 @@ CREATE POLICY "public can select pin_reset_requests" ON "public"."pin_reset_requ
 
 
 
+CREATE POLICY "public can select task_disengage_alerts" ON "public"."task_disengage_alerts" FOR SELECT USING (true);
+
+
+
 CREATE POLICY "public can update intervenant_profiles" ON "public"."intervenant_profiles" FOR UPDATE USING (true) WITH CHECK (true);
 
 
@@ -3308,6 +4092,10 @@ CREATE POLICY "public can update support message replies" ON "public"."support_m
 
 
 CREATE POLICY "public can update support messages" ON "public"."support_messages" FOR UPDATE USING (true) WITH CHECK (true);
+
+
+
+CREATE POLICY "public can update task_disengage_alerts" ON "public"."task_disengage_alerts" FOR UPDATE USING (true) WITH CHECK (true);
 
 
 
@@ -3467,6 +4255,10 @@ CREATE POLICY "public write task relais coverage" ON "public"."task_relais_cover
 
 
 
+CREATE POLICY "read patient_space_coadmins scoped to space" ON "public"."patient_space_coadmins" FOR SELECT USING (true);
+
+
+
 CREATE POLICY "read visitor_profiles scoped to space" ON "public"."visitor_profiles" FOR SELECT USING (true);
 
 
@@ -3502,6 +4294,9 @@ ALTER TABLE "public"."support_message_replies" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."support_messages" ENABLE ROW LEVEL SECURITY;
+
+
+ALTER TABLE "public"."task_disengage_alerts" ENABLE ROW LEVEL SECURITY;
 
 
 ALTER TABLE "public"."task_relais_coverage" ENABLE ROW LEVEL SECURITY;
@@ -3661,9 +4456,22 @@ GRANT ALL ON SCHEMA "storage" TO "dashboard_user";
 
 
 
+REVOKE ALL ON FUNCTION "public"."accept_coadmin_invite"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_email" "text", "p_code" "text") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."accept_coadmin_invite"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_email" "text", "p_code" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."accept_coadmin_invite"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_email" "text", "p_code" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."accept_coadmin_invite"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_email" "text", "p_code" "text") TO "service_role";
+
+
+
 GRANT ALL ON FUNCTION "public"."apply_slot_rule_change"("p_space_id" "uuid", "p_new_config" "jsonb", "p_new_slots" "text"[]) TO "anon";
 GRANT ALL ON FUNCTION "public"."apply_slot_rule_change"("p_space_id" "uuid", "p_new_config" "jsonb", "p_new_slots" "text"[]) TO "authenticated";
 GRANT ALL ON FUNCTION "public"."apply_slot_rule_change"("p_space_id" "uuid", "p_new_config" "jsonb", "p_new_slots" "text"[]) TO "service_role";
+
+
+
+GRANT ALL ON FUNCTION "public"."apply_slot_rule_change"("p_space_id" "uuid", "p_new_config" "jsonb", "p_new_slots" "text"[], "p_caller_prenom" "text", "p_caller_nom" "text", "p_caller_pin" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."apply_slot_rule_change"("p_space_id" "uuid", "p_new_config" "jsonb", "p_new_slots" "text"[], "p_caller_prenom" "text", "p_caller_nom" "text", "p_caller_pin" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."apply_slot_rule_change"("p_space_id" "uuid", "p_new_config" "jsonb", "p_new_slots" "text"[], "p_caller_prenom" "text", "p_caller_nom" "text", "p_caller_pin" "text") TO "service_role";
 
 
 
@@ -3691,6 +4499,27 @@ GRANT ALL ON FUNCTION "public"."extend_purge_on_premium_upgrade"() TO "service_r
 
 
 
+REVOKE ALL ON FUNCTION "public"."reset_coadmin_pin_via_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_email" "text", "p_new_pin" "text", "p_code" "text") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."reset_coadmin_pin_via_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_email" "text", "p_new_pin" "text", "p_code" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."reset_coadmin_pin_via_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_email" "text", "p_new_pin" "text", "p_code" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."reset_coadmin_pin_via_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_email" "text", "p_new_pin" "text", "p_code" "text") TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."reset_visitor_pin_via_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_new_pin" "text", "p_code" "text") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."reset_visitor_pin_via_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_new_pin" "text", "p_code" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."reset_visitor_pin_via_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_new_pin" "text", "p_code" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."reset_visitor_pin_via_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_new_pin" "text", "p_code" "text") TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."revoke_coadmin_for_coverage"("p_coverage_id" "uuid") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."revoke_coadmin_for_coverage"("p_coverage_id" "uuid") TO "anon";
+GRANT ALL ON FUNCTION "public"."revoke_coadmin_for_coverage"("p_coverage_id" "uuid") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."revoke_coadmin_for_coverage"("p_coverage_id" "uuid") TO "service_role";
+
+
+
 REVOKE ALL ON FUNCTION "public"."rpc_admin_reset_visitor_pin"("p_space_id" "uuid", "p_visitor_id" "uuid") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."rpc_admin_reset_visitor_pin"("p_space_id" "uuid", "p_visitor_id" "uuid") TO "anon";
 GRANT ALL ON FUNCTION "public"."rpc_admin_reset_visitor_pin"("p_space_id" "uuid", "p_visitor_id" "uuid") TO "authenticated";
@@ -3712,10 +4541,31 @@ GRANT ALL ON FUNCTION "public"."rpc_visitor_claim_reset"("p_space_id" "uuid", "p
 
 
 
+REVOKE ALL ON FUNCTION "public"."rpc_visitor_get_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."rpc_visitor_get_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."rpc_visitor_get_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."rpc_visitor_get_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text") TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."rpc_visitor_has_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."rpc_visitor_has_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."rpc_visitor_has_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."rpc_visitor_has_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text") TO "service_role";
+
+
+
 REVOKE ALL ON FUNCTION "public"."rpc_visitor_login"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text") FROM PUBLIC;
 GRANT ALL ON FUNCTION "public"."rpc_visitor_login"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."rpc_visitor_login"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."rpc_visitor_login"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text") TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."rpc_visitor_update_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_email" "text") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."rpc_visitor_update_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_email" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."rpc_visitor_update_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_email" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."rpc_visitor_update_email"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_email" "text") TO "service_role";
 
 
 
@@ -3748,6 +4598,19 @@ GRANT ALL ON FUNCTION "public"."sync_intervention_types_from_profile"() TO "serv
 GRANT ALL ON FUNCTION "public"."to_minutes"("p_hhmm" "text") TO "anon";
 GRANT ALL ON FUNCTION "public"."to_minutes"("p_hhmm" "text") TO "authenticated";
 GRANT ALL ON FUNCTION "public"."to_minutes"("p_hhmm" "text") TO "service_role";
+
+
+
+REVOKE ALL ON FUNCTION "public"."verify_coadmin_proposal_code"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_email" "text", "p_code" "text") FROM PUBLIC;
+GRANT ALL ON FUNCTION "public"."verify_coadmin_proposal_code"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_email" "text", "p_code" "text") TO "anon";
+GRANT ALL ON FUNCTION "public"."verify_coadmin_proposal_code"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_email" "text", "p_code" "text") TO "authenticated";
+GRANT ALL ON FUNCTION "public"."verify_coadmin_proposal_code"("p_space_id" "uuid", "p_prenom" "text", "p_nom" "text", "p_pin" "text", "p_email" "text", "p_code" "text") TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."coadmin_verification_codes" TO "anon";
+GRANT ALL ON TABLE "public"."coadmin_verification_codes" TO "authenticated";
+GRANT ALL ON TABLE "public"."coadmin_verification_codes" TO "service_role";
 
 
 
@@ -3796,6 +4659,67 @@ GRANT ALL ON TABLE "public"."night_authorized_intervenants" TO "service_role";
 GRANT ALL ON TABLE "public"."night_authorized_visitors" TO "anon";
 GRANT ALL ON TABLE "public"."night_authorized_visitors" TO "authenticated";
 GRANT ALL ON TABLE "public"."night_authorized_visitors" TO "service_role";
+
+
+
+GRANT INSERT,REFERENCES,DELETE,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE "public"."patient_space_coadmins" TO "anon";
+GRANT INSERT,REFERENCES,DELETE,TRIGGER,TRUNCATE,MAINTAIN,UPDATE ON TABLE "public"."patient_space_coadmins" TO "authenticated";
+GRANT ALL ON TABLE "public"."patient_space_coadmins" TO "service_role";
+
+
+
+GRANT SELECT("id") ON TABLE "public"."patient_space_coadmins" TO "anon";
+GRANT SELECT("id") ON TABLE "public"."patient_space_coadmins" TO "authenticated";
+
+
+
+GRANT SELECT("space_id") ON TABLE "public"."patient_space_coadmins" TO "anon";
+GRANT SELECT("space_id") ON TABLE "public"."patient_space_coadmins" TO "authenticated";
+
+
+
+GRANT SELECT("visitor_id") ON TABLE "public"."patient_space_coadmins" TO "anon";
+GRANT SELECT("visitor_id") ON TABLE "public"."patient_space_coadmins" TO "authenticated";
+
+
+
+GRANT SELECT("prenom") ON TABLE "public"."patient_space_coadmins" TO "anon";
+GRANT SELECT("prenom") ON TABLE "public"."patient_space_coadmins" TO "authenticated";
+
+
+
+GRANT SELECT("nom") ON TABLE "public"."patient_space_coadmins" TO "anon";
+GRANT SELECT("nom") ON TABLE "public"."patient_space_coadmins" TO "authenticated";
+
+
+
+GRANT SELECT("active") ON TABLE "public"."patient_space_coadmins" TO "anon";
+GRANT SELECT("active") ON TABLE "public"."patient_space_coadmins" TO "authenticated";
+
+
+
+GRANT SELECT("accepted_at") ON TABLE "public"."patient_space_coadmins" TO "anon";
+GRANT SELECT("accepted_at") ON TABLE "public"."patient_space_coadmins" TO "authenticated";
+
+
+
+GRANT SELECT("granted_at") ON TABLE "public"."patient_space_coadmins" TO "anon";
+GRANT SELECT("granted_at") ON TABLE "public"."patient_space_coadmins" TO "authenticated";
+
+
+
+GRANT SELECT("revoked_at") ON TABLE "public"."patient_space_coadmins" TO "anon";
+GRANT SELECT("revoked_at") ON TABLE "public"."patient_space_coadmins" TO "authenticated";
+
+
+
+GRANT SELECT("granted_by_admin_id") ON TABLE "public"."patient_space_coadmins" TO "anon";
+GRANT SELECT("granted_by_admin_id") ON TABLE "public"."patient_space_coadmins" TO "authenticated";
+
+
+
+GRANT SELECT("coverage_id") ON TABLE "public"."patient_space_coadmins" TO "anon";
+GRANT SELECT("coverage_id") ON TABLE "public"."patient_space_coadmins" TO "authenticated";
 
 
 
@@ -3886,6 +4810,12 @@ GRANT ALL ON TABLE "public"."support_message_replies" TO "service_role";
 GRANT ALL ON TABLE "public"."support_messages" TO "anon";
 GRANT ALL ON TABLE "public"."support_messages" TO "authenticated";
 GRANT ALL ON TABLE "public"."support_messages" TO "service_role";
+
+
+
+GRANT ALL ON TABLE "public"."task_disengage_alerts" TO "anon";
+GRANT ALL ON TABLE "public"."task_disengage_alerts" TO "authenticated";
+GRANT ALL ON TABLE "public"."task_disengage_alerts" TO "service_role";
 
 
 
