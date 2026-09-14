@@ -37,6 +37,15 @@ interface Props {
   // et sans effet sur les autres appelants (BookingFlow, MyChecklist, etc.)
   // qui ne le passent pas.
   allowedRange?: { start: Date; end: Date };
+  // Fond plein orange (pas juste un point) pour signaler des jours précis —
+  // utilisé par l'étape "Besoin récurrent" d'Entraide.tsx pour visualiser la
+  // date d'ancrage (1er besoin) et les occurrences qui seront créées selon
+  // la sélection en cours. Peut inclure des jours antérieurs à `startDate`
+  // (l'ancrage l'est presque toujours, vu que ce calendrier ne permet de
+  // choisir une fin qu'après la 2e occurrence) : ces jours restent non
+  // cliquables (isPast) mais gardent leur couleur pleine au lieu d'être
+  // grisés à 0.3, pour rester visibles comme simple repère.
+  highlightDates?: Set<string>;
 }
 
 // Toujours 6 lignes (42 cases) quel que soit le mois affiché, pour que ce
@@ -55,7 +64,7 @@ const GRID_GAP_LG = 3;
 const WEEKDAY_LABELS = ["L", "M", "M", "J", "V", "S", "D"];
 
 export default function MiniCalendar({
-  selDate, onSelect, calMonth, onMonthChange, startDate, C, size = "sm", slotConfig, slots, reservations, markedDates, allowedRange,
+  selDate, onSelect, calMonth, onMonthChange, startDate, C, size = "sm", slotConfig, slots, reservations, markedDates, allowedRange, highlightDates,
 }: Props) {
   const large = size === "lg";
   const showDots = !!(slotConfig && slots && reservations);
@@ -120,6 +129,7 @@ export default function MiniCalendar({
           const isPast = d < start || d < today || outOfAllowedRange;
           const inAllowedRange = !!allowedRange && !outOfAllowedRange;
           const isSelected = iso === selDate;
+          const isHighlighted = !!highlightDates?.has(iso);
           const status = showDots ? getDayStatus(reservations!, iso, day, slotConfig!, slots!, startDate) : null;
           // Un jour "empty" garde l'apparence neutre de la cellule — seul un
           // jour partiellement (orange) ou complètement (rouge) réservé se
@@ -134,7 +144,7 @@ export default function MiniCalendar({
                 styles.miniCell,
                 large && styles.miniCellLg,
                 cellSize ? { width: cellSize, height: cellSize } : null,
-                { opacity: isPast ? 0.3 : 1 },
+                { opacity: isPast && !isHighlighted ? 0.3 : 1 },
               ]}
               onPress={() => !isPast && onSelect(iso)}
               disabled={isPast}
@@ -148,15 +158,15 @@ export default function MiniCalendar({
                   StyleSheet.absoluteFillObject,
                   large ? styles.miniCellBgLg : styles.miniCellBg,
                   {
-                    backgroundColor: isSelected ? C.accent : isPast ? "transparent" : useStatusBg ? statusBg : inAllowedRange ? `${C.orange}33` : C.bg,
-                    borderColor: isSelected ? C.accent : inAllowedRange ? C.orange : C.border,
+                    backgroundColor: isSelected ? C.accent : isHighlighted ? C.orange : isPast ? "transparent" : useStatusBg ? statusBg : inAllowedRange ? `${C.orange}33` : C.bg,
+                    borderColor: isSelected ? C.accent : isHighlighted ? C.orange : inAllowedRange ? C.orange : C.border,
                   },
                 ]}
               />
               <View style={styles.miniCellInner}>
-                <Text style={[styles.miniCellText, large && styles.miniCellTextLg, { color: isSelected || useStatusBg ? "#fff" : C.text }]}>{day.getDate()}</Text>
+                <Text style={[styles.miniCellText, large && styles.miniCellTextLg, { color: isSelected || useStatusBg || isHighlighted ? "#fff" : C.text }]}>{day.getDate()}</Text>
                 {markedDates?.has(iso) && !isPast && (
-                  <View style={[styles.miniDot, large && styles.miniDotLg, { backgroundColor: isSelected || useStatusBg ? "#fff" : C.orange }]} />
+                  <View style={[styles.miniDot, large && styles.miniDotLg, { backgroundColor: isSelected || useStatusBg || isHighlighted ? "#fff" : C.orange }]} />
                 )}
               </View>
             </TouchableOpacity>
