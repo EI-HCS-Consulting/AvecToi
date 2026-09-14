@@ -4057,6 +4057,34 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           </View>
         )}
 
+        {/* Catégories "génériques" (administratif, repas, affaires, autre) :
+            avant ce bloc, une fois prises en charge via "Je m'en occupe",
+            seul l'admin pouvait les clore ("Marquer fait" ci-dessous) — le
+            preneur lui-même n'avait ni "C'est fait" ni "Se désinscrire",
+            contrairement à courses/transport/relais qui ont chacun leur
+            propre bloc dédié (exclus ici pour éviter tout doublon visuel).
+            openDone(t) gère déjà la vérification PIN pour un non-admin (voir
+            openDone), donc réutilisable tel quel pour "C'est fait" ici. */}
+        {t.status === "pris_en_charge" && !isAdmin && isMine(t)
+          && t.category !== "transport" && t.category !== "courses" && t.category !== "relais" && (
+          <View style={{ flexDirection: "row", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+            <TouchableOpacity
+              style={[styles.actionSmall, { borderColor: C.success, backgroundColor: `${C.success}18` }]}
+              onPress={() => openDone(t)}
+            >
+              <Text style={[styles.actionSmallText, { color: C.success }]}>✓ C'est fait</Text>
+            </TouchableOpacity>
+            {!taskPastDeadline(t) && (
+              <TouchableOpacity
+                style={[styles.actionSmall, { borderColor: C.border }]}
+                onPress={() => openPinModal(t, "unclaim", "out")}
+              >
+                <Text style={[styles.actionSmallText, { color: C.muted }]}>Se désinscrire</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+
         {/* t.category !== "courses" : les articles courses ont leur propre
             bookkeeping par article (bought/bought_by_*, voir
             markCoursesFait) — passer par openDone/confirmDone ici court-
