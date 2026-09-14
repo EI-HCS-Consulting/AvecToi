@@ -2260,8 +2260,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // Assistant "Publier" : le titre n'est jamais vide (auto-rempli par
   // choosePublishCategory), donc pas besoin du garde !fTitle.trim() ici.
   // transportFormReady (adresses/date/heures, défini plus haut avec le reste
-  // du state transport) ne s'applique qu'à la catégorie Transport.
-  const publishWizardReady = claimOnCreateReady && (fCat !== "transport" || transportFormReady);
+  // du state transport) ne s'applique qu'à la catégorie Transport. La date
+  // (fDateLimite) est obligatoire pour un besoin normal — seuls Transport
+  // (pas de champ échéance) et le lot checklist (échéance commune optionnelle,
+  // voir pendingChecklistBatch juste en dessous) y échappent.
+  const publishWizardReady = claimOnCreateReady
+    && (fCat !== "transport" || transportFormReady)
+    && (fCat === "transport" || !!pendingChecklistBatch || !!fDateLimite);
 
   // Checklist perso "Créer une checklist" en attente de publication —
   // l'étape "generic"/"Autres options" masque alors ce qui ne s'applique
@@ -4912,6 +4917,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         animationType="fade"
         onRequestClose={() => {
           if (taskSaving) return;
+          if (publishStep === "recurrence") { setPublishStep("autres_options"); return; }
           if (publishStep === "autres_options") {
             setPublishStep(fCat === "courses" ? "courses" : fCat === "transport" ? "transport_time" : "generic");
             return;
@@ -4999,9 +5005,43 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                       </TouchableOpacity>
                     )}
 
+                    {!pendingChecklistActive && (
+                      <>
+                        <TouchableOpacity
+                          style={[
+                            styles.claimOnCreateBtn,
+                            { backgroundColor: (fDLPickerOpen || fDateLimite) ? `${C.accent}22` : C.bg, borderColor: (fDLPickerOpen || fDateLimite) ? C.accent : C.border, marginTop: 10 },
+                          ]}
+                          onPress={() => setFDLPickerOpen((v) => !v)}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={[styles.claimOnCreateText, { color: (fDLPickerOpen || fDateLimite) ? C.accent : C.text }]}>
+                            {fDateLimite ? `📅 ${toFrShort(new Date(fDateLimite + "T12:00:00"))}` : "📅 Ajouter une date"}
+                          </Text>
+                        </TouchableOpacity>
+
+                        {fDLPickerOpen && (
+                          <>
+                            <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 12 }]}>
+                              Le besoin se fermera automatiquement passé cette date s'il n'est pas pris en charge
+                            </Text>
+                            <MiniCalendar
+                              selDate={fDateLimite}
+                              onSelect={(iso) => { setFDateLimite(iso); setFDLPickerOpen(false); }}
+                              calMonth={fDLCalMonth}
+                              onMonthChange={setFDLCalMonth}
+                              startDate={new Date()}
+                              C={C}
+                              size="lg"
+                            />
+                          </>
+                        )}
+                      </>
+                    )}
+
                     <TouchableOpacity
                       onPress={() => setPublishStep("autres_options")}
-                      style={[styles.claimOnCreateBtn, { backgroundColor: C.bg, borderColor: C.border }]}
+                      style={[styles.claimOnCreateBtn, { backgroundColor: C.bg, borderColor: C.border, marginTop: 10 }]}
                       activeOpacity={0.8}
                     >
                       <Text style={[styles.claimOnCreateText, { color: C.text }]}>⚙️ Autres options</Text>
@@ -5087,8 +5127,38 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                     </TouchableOpacity>
 
                     <TouchableOpacity
+                      style={[
+                        styles.claimOnCreateBtn,
+                        { backgroundColor: (fDLPickerOpen || fDateLimite) ? `${C.accent}22` : C.bg, borderColor: (fDLPickerOpen || fDateLimite) ? C.accent : C.border, marginTop: 10 },
+                      ]}
+                      onPress={() => setFDLPickerOpen((v) => !v)}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={[styles.claimOnCreateText, { color: (fDLPickerOpen || fDateLimite) ? C.accent : C.text }]}>
+                        {fDateLimite ? `📅 ${toFrShort(new Date(fDateLimite + "T12:00:00"))}` : "📅 Ajouter une date"}
+                      </Text>
+                    </TouchableOpacity>
+
+                    {fDLPickerOpen && (
+                      <>
+                        <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 12 }]}>
+                          Le besoin se fermera automatiquement passé cette date s'il n'est pas pris en charge
+                        </Text>
+                        <MiniCalendar
+                          selDate={fDateLimite}
+                          onSelect={(iso) => { setFDateLimite(iso); setFDLPickerOpen(false); }}
+                          calMonth={fDLCalMonth}
+                          onMonthChange={setFDLCalMonth}
+                          startDate={new Date()}
+                          C={C}
+                          size="lg"
+                        />
+                      </>
+                    )}
+
+                    <TouchableOpacity
                       onPress={() => setPublishStep("autres_options")}
-                      style={[styles.claimOnCreateBtn, { backgroundColor: C.bg, borderColor: C.border, marginTop: 12 }]}
+                      style={[styles.claimOnCreateBtn, { backgroundColor: C.bg, borderColor: C.border, marginTop: 10 }]}
                       activeOpacity={0.8}
                     >
                       <Text style={[styles.claimOnCreateText, { color: C.text }]}>⚙️ Autres options</Text>
@@ -5382,7 +5452,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                       </>
                     )}
 
-                    {fCat !== "transport" && (
+                    {fCat !== "transport" && pendingChecklistBatch && (
                       <>
                         <TouchableOpacity
                           style={[
@@ -5390,16 +5460,13 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                             { backgroundColor: fDLPickerOpen ? `${C.accent}22` : C.bg, borderColor: fDLPickerOpen ? C.accent : C.border },
                           ]}
                           onPress={() => {
-                            if (fDLPickerOpen) {
-                              setFDateLimite("");
-                              setFrRecurrenceType(null); setFrRecurrenceCustomDays(""); setFrRecurrenceEndDate("");
-                            }
+                            if (fDLPickerOpen) setFDateLimite("");
                             setFDLPickerOpen((v) => !v);
                           }}
                           activeOpacity={0.8}
                         >
                           <Text style={[styles.claimOnCreateText, { color: fDLPickerOpen ? C.accent : C.text }]}>
-                            {fDLPickerOpen ? "📅 Retirer la date" : pendingChecklistBatch ? "📅 Ajouter une échéance commune (optionnel)" : "📅 Ajouter une échéance (optionnel)"}
+                            {fDLPickerOpen ? "📅 Retirer la date" : "📅 Ajouter une échéance commune (optionnel)"}
                           </Text>
                         </TouchableOpacity>
 
@@ -5446,7 +5513,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                         </TouchableOpacity>
                         {!fDateLimite && (
                           <Text style={[styles.claimOnCreateHint, { color: C.muted }]}>
-                            Choisis d'abord une échéance pour régler la récurrence.
+                            Choisis d'abord une date pour régler la récurrence.
                           </Text>
                         )}
                       </>
@@ -5538,12 +5605,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                     ? computeRecurrenceDates(fDateLimite, frRecurrenceType, Number(frRecurrenceCustomDays), frRecurrenceEndDate)
                     : [];
                   const capped = dates.length >= RECURRENCE_MAX_OCCURRENCES;
+                  const highlightDates = new Set<string>(dates.length ? dates : (fDateLimite ? [fDateLimite] : []));
                   return (
                     <View>
-                      <Text style={[styles.sheetTitle, { color: C.text }]}>🔁 Besoin récurrent</Text>
-                      <Text style={[styles.sheetSub, { color: C.muted, marginBottom: 12 }]}>
-                        À partir du {toFrShort(new Date(fDateLimite + "T12:00:00"))}
-                      </Text>
+                      <Text style={[styles.sheetTitle, { color: C.text, marginBottom: 12 }]}>🔁 Besoin récurrent</Text>
 
                       {(["weekly", "biweekly", "custom"] as RecurrenceType[]).map((type) => (
                         <TouchableOpacity
@@ -5582,7 +5647,12 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
                       {frRecurrenceType && (frRecurrenceType !== "custom" || Number(frRecurrenceCustomDays) >= 1) && (
                         <>
-                          <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 16 }]}>Se termine le</Text>
+                          <Text style={[styles.fieldLabel, { color: C.text, marginTop: 16, marginBottom: 0 }]}>
+                            Débute le {toFrShort(new Date(fDateLimite + "T12:00:00"))}.
+                          </Text>
+                          <Text style={[styles.fieldLabel, { color: C.gold, marginTop: 4 }]}>
+                            Détermine la fin de la récurrence.
+                          </Text>
                           <MiniCalendar
                             selDate={frRecurrenceEndDate}
                             onSelect={setFrRecurrenceEndDate}
@@ -5594,6 +5664,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                             )}
                             C={C}
                             size="lg"
+                            highlightDates={highlightDates}
                           />
                         </>
                       )}
