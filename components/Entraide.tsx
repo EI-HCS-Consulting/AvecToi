@@ -973,6 +973,17 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [claimPickingPhoto, setClaimPickingPhoto] = useState(false);
   const [claimText, setClaimText] = useState("");
   const [claimSaving, setClaimSaving] = useState(false);
+  // "Je m'en occupe" sur un besoin issu d'une série récurrente (voir
+  // recurrence_group_id) : propose d'étendre la prise en charge aux autres
+  // occurrences encore ouvertes de la même série en un seul geste, plutôt
+  // que de devoir répéter "Je m'en occupe" à chaque date. false par défaut
+  // (opt-in explicite) — remis à false à chaque ouverture, voir openClaim.
+  const [claimAllRecurrence, setClaimAllRecurrence] = useState(false);
+  // Nombre d'autres occurrences effectivement prises en charge en même
+  // temps, capturé juste avant que claimTarget soit remis à null (même
+  // pattern que thanksModalCategory/thanksModalTaskId) — pour l'afficher
+  // dans le popup "Merci".
+  const [thanksModalRecurrenceCount, setThanksModalRecurrenceCount] = useState(0);
 
   // Étape intermédiaire propre à un besoin "relais" (plusieurs preneurs
   // possibles sur des sous-périodes distinctes, voir task_relais_coverage) —
@@ -1005,11 +1016,6 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [relaisClaimCode, setRelaisClaimCode] = useState("");
   const [relaisClaimCodeSaving, setRelaisClaimCodeSaving] = useState(false);
   const [relaisClaimCodeError, setRelaisClaimCodeError] = useState("");
-  // "Du"/"Au"/"email"/"code" s'affichent en popups centrés (comme
-  // thanksModal) plutôt qu'en feuille coulissante depuis le bas — voir la
-  // <Modal> commune plus bas.
-  const relaisClaimStepCentered = relaisClaimStep === "choice" || relaisClaimStep === "period_start" || relaisClaimStep === "period_end"
-    || relaisClaimStep === "email" || relaisClaimStep === "code";
 
   // Toutes les lignes task_relais_coverage des besoins relais actuellement
   // affichés — même pattern que courseContributors/loadCourseContributors
@@ -1061,6 +1067,17 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   function closeClaim() {
     setClaimTarget(null);
     setRelaisClaimStep(null);
+  }
+
+  // Autres occurrences de la même série récurrente, encore ouvertes (donc
+  // encore proposables à "Je m'en occupe") — même filtre `status !== "fait"`
+  // exclu que pour la suppression en cascade, mais restreint en plus aux
+  // besoins réellement "ouvert" (déjà pris en charge par quelqu'un d'autre =
+  // pas concerné). Utilisé à la fois pour l'affichage du switch et pour
+  // l'update groupé dans handleClaim.
+  function recurrenceSiblings(t: Task): Task[] {
+    if (!t.recurrence_group_id) return [];
+    return tasks.filter((x) => x.recurrence_group_id === t.recurrence_group_id && x.id !== t.id && x.status === "ouvert");
   }
 
   // Doublon détecté à la publication d'un besoin administratif (voir
@@ -2835,6 +2852,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   async function openClaim(t: Task) {
     setClaimTarget(t);
     setClaimPrenom(""); setClaimNom(""); setClaimPin(""); setClaimPhotoUri(null); setClaimText("");
+    setClaimAllRecurrence(false);
     // Prénom/nom/PIN ne sont plus jamais ressaisis ici : repris de la session
     // visiteur (PIN choisi dès la connexion) ou du profil admin — le champ
     // PIN n'est donc plus affiché dans ce formulaire.
@@ -2965,6 +2983,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   async function handleClaim() {
     if (!claimTarget || !claimPrenom.trim() || !claimNom.trim() || claimPin.length < 4) return;
     setClaimSaving(true);
+    setThanksModalRecurrenceCount(0);
 
     let claimedPhotoFilename: string | null = null;
     if (claimPhotoUri) {
@@ -3017,6 +3036,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         await supabase.from("tasks").update({ status: "pris_en_charge" }).eq("id", claimTarget.id);
       }
     } else {
+      // Si le switch "Toute la série" est activé, la même prise en charge
+      // s'applique en un seul update à toutes les occurrences encore
+      // ouvertes de la série (recurrence_group_id) — voir recurrenceSiblings.
+      const recIds = claimAllRecurrence ? recurrenceSiblings(claimTarget).map((s) => s.id) : [];
+      const claimIds = [claimTarget.id, ...recIds];
       await supabase.from("tasks").update({
         status: "pris_en_charge",
         claimed_by_prenom: claimPrenom.trim(),
@@ -3030,7 +3054,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           transport_confirmed_out_time: claimTarget.transport_out_time,
           transport_confirmed_return_time: claimTarget.transport_return_time,
         } : {}),
-      }).eq("id", claimTarget.id);
+      }).in("id", claimIds);
       // "Je m'en occupe" sur une liste de courses partiellement dispatchée
       // (voir courseContributorsLabel) attribue au preneur les articles
       // encore non pris en charge — une prise en charge, pas un achat : le
@@ -3044,9 +3068,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             bought_by_nom: claimNom.trim(),
             bought_at: new Date().toISOString(),
           })
-          .eq("task_id", claimTarget.id)
+          .in("task_id", claimIds)
           .is("bought_by_prenom", null);
       }
+      setThanksModalRecurrenceCount(recIds.length);
     }
     // "Je m'en occupe" ne colle plus automatiquement le besoin dans "Ma
     // Checklist" du preneur : seul le choix explicite fait au moment de la
@@ -6465,21 +6490,21 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       <Modal
         visible={!!claimTarget || thanksModal}
         transparent
-        animationType={thanksModal || relaisClaimStepCentered ? "fade" : "slide"}
+        animationType="fade"
         onRequestClose={() => (thanksModal ? setThanksModal(false) : closeClaim())}
       >
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={{ flex: 1 }}>
           <TouchableOpacity
-            style={thanksModal || relaisClaimStepCentered ? styles.centeredOverlay : styles.overlay}
+            style={styles.centeredOverlay}
             activeOpacity={1}
             onPress={() => { if (thanksModal) setThanksModal(false); else if (!claimSaving) closeClaim(); }}
           >
             <ScrollView
-              contentContainerStyle={thanksModal || relaisClaimStepCentered ? styles.centeredOverlayScroll : styles.overlayScroll}
+              contentContainerStyle={styles.centeredOverlayScroll}
               keyboardShouldPersistTaps="handled"
             >
               <TouchableOpacity activeOpacity={1}>
-                <View style={[thanksModal || relaisClaimStepCentered ? styles.centeredSheet : styles.sheet, { backgroundColor: C.card, borderColor: thanksModal ? C.gold : C.accent }]}>
+                <View style={[styles.centeredSheet, { backgroundColor: C.card, borderColor: thanksModal ? C.gold : C.accent }]}>
                   {thanksModal ? (
                     <>
                       <View style={{ alignItems: "center", marginBottom: 16 }}>
@@ -6490,6 +6515,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                             ? "Les autres personnes sollicitées pour ce besoin de relais seront informées que tu as pris le relais sur cette période."
                             : "Pense bien à revenir sur cette page et à cliquer sur \"Fait\" une fois que ce sera fait, pour que les autres le sachent."}
                         </Text>
+                        {thanksModalRecurrenceCount > 0 && (
+                          <Text style={[styles.sheetSub, { color: C.gold, marginTop: 6 }]}>
+                            🔁 {thanksModalRecurrenceCount} autre{thanksModalRecurrenceCount > 1 ? "s" : ""} date{thanksModalRecurrenceCount > 1 ? "s" : ""} de cette série {thanksModalRecurrenceCount > 1 ? "ont" : "a"} aussi été prise{thanksModalRecurrenceCount > 1 ? "s" : ""} en charge.
+                          </Text>
+                        )}
                       </View>
                       <TouchableOpacity
                         onPress={() => {
@@ -6826,6 +6856,25 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                         onChangeText={setClaimText}
                         multiline
                       />
+
+                      {claimTarget && (() => {
+                        const sibs = recurrenceSiblings(claimTarget);
+                        if (!sibs.length) return null;
+                        return (
+                          <View style={{ marginTop: 14 }}>
+                            <Text style={[styles.fieldLabel, { color: C.gold }]}>
+                              🔁 {sibs.length} autre{sibs.length > 1 ? "s" : ""} date{sibs.length > 1 ? "s" : ""} de cette série récurrente encore ouverte{sibs.length > 1 ? "s" : ""}
+                            </Text>
+                            <SegmentedSwitch
+                              value={claimAllRecurrence}
+                              onChange={setClaimAllRecurrence}
+                              leftLabel="Cette date"
+                              rightLabel="Toute la série"
+                              C={C}
+                            />
+                          </View>
+                        );
+                      })()}
 
                       <View style={styles.sheetBtns}>
                         <TouchableOpacity
