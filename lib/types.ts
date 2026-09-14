@@ -404,6 +404,10 @@ export interface Task {
   // suggérée (voir CHECKLIST_TEMPLATES dans Entraide.tsx) — permet de
   // retrouver et proposer la suppression des autres items de la même liste.
   checklist_batch_id: string | null;
+  // Rempli uniquement pour les besoins créés en série via "Besoin récurrent"
+  // (assistant Publier, popup "Autres options") — permet de retrouver et
+  // proposer la suppression des autres occurrences de la même série.
+  recurrence_group_id: string | null;
   // Trace de modification visible par tous (ex : quelqu'un choisit
   // "Modifier" plutôt que republier un doublon détecté par
   // findDuplicateAdminTask).
