@@ -867,24 +867,31 @@ export default function Soutien({ spaceId, C, isAdmin, coAdminIdentity, capped }
               : isAdmin || (own && (m.deleted_by_admin || !replies[m.id]?.length));
             const isNew = newIds.has(m.id);
             // Bulle façon WhatsApp : mes messages à droite, ceux des autres à
-            // gauche, largeur plafonnée (~78%, même proportion que
-            // WhatsApp). onLayout passe sur le wrapper externe (pas la bulle
-            // elle-même) pour que msgOffsets reste la position réelle dans le
-            // flux du ScrollView — sinon, imbriquée dans un wrapper à enfant
-            // unique, layout.y retomberait toujours à 0.
+            // gauche. Retrait fixe d'1/5 de la largeur d'écran depuis le bord
+            // opposé (gauche pour mes messages, droite pour ceux des autres),
+            // sur TOUS les messages du côté concerné — la bulle s'étire donc
+            // sur toute la largeur disponible au lieu de se réduire à son
+            // contenu. `styles.listPad` applique déjà 14px de padding des
+            // deux côtés : on retranche cette valeur pour que le retrait
+            // total mesuré depuis le VRAI bord de l'écran fasse bien
+            // SCREEN_W / 5. onLayout passe sur le wrapper externe (pas la
+            // bulle elle-même) pour que msgOffsets reste la position réelle
+            // dans le flux du ScrollView — sinon, imbriquée dans un wrapper à
+            // enfant unique, layout.y retomberait toujours à 0.
             const authorPhotoUrl = photoByKey[visitorIdentityKey(m.author_prenom, m.author_nom)];
+            const farInset = Math.max(0, SCREEN_W / 5 - 14);
             return (
             <View
               key={m.id}
               onLayout={(e) => {
                 msgOffsets.current[m.id] = e.nativeEvent.layout.y;
               }}
-              style={{ width: "100%", alignItems: own ? "flex-end" : "flex-start" }}
+              style={{ width: "100%", paddingLeft: own ? farInset : 0, paddingRight: own ? 0 : farInset }}
             >
             <View
               style={[
                 styles.msgCard,
-                { maxWidth: "78%", backgroundColor: C.card, borderColor: highlighted ? C.gold : (isNew && !own) ? C.danger : C.border },
+                { width: "100%", backgroundColor: C.card, borderColor: highlighted ? C.gold : (isNew && !own) ? C.danger : C.border },
                 (highlighted || (isNew && !own)) && { borderWidth: 2 },
               ]}
             >

@@ -862,17 +862,21 @@ export default function NewsFeed({ spaceId, C, isAdmin, coAdminIdentity, capped,
     // (pas besoin de cadre rouge pour attirer mon attention sur mon propre
     // contenu).
     // Bulle façon WhatsApp : mes publications à droite, celles des autres à
-    // gauche, largeur plafonnée (même proportion ~78% que WhatsApp) pour
-    // qu'aucun des deux côtés ne s'étire jusqu'au bord opposé de l'écran. Le
-    // liseret bleu (NewIndicator, `mine`) reste toujours sur le bord GAUCHE de
-    // la bulle elle-même, y compris quand la bulle est alignée à droite.
+    // gauche. Retrait fixe d'1/5 de la largeur d'écran depuis le bord opposé
+    // (gauche pour mes publications, droite pour celles des autres), sur
+    // TOUTES les publications du côté concerné — la carte s'étire donc sur
+    // toute la largeur disponible au lieu de se réduire à son contenu.
+    // `styles.list`/`styles.listPad` appliquent déjà 14px de padding des deux
+    // côtés : on retranche cette valeur pour que le retrait total mesuré
+    // depuis le VRAI bord de l'écran fasse bien SCREEN_W / 5.
+    const farInset = Math.max(0, SCREEN_W / 5 - 14);
     const authorPhotoUrl = photoByKey[visitorIdentityKey(entry.author_prenom, entry.author_nom)];
     return (
-      <View style={{ width: "100%", alignItems: mine ? "flex-end" : "flex-start" }}>
+      <View style={{ width: "100%", paddingLeft: mine ? farInset : 0, paddingRight: mine ? 0 : farInset }}>
       <View
         style={[
           styles.card,
-          { maxWidth: "78%", backgroundColor: C.card, borderColor: highlighted ? C.gold : (isNew && !mine) ? C.danger : entryAccentColor },
+          { width: "100%", backgroundColor: C.card, borderColor: highlighted ? C.gold : (isNew && !mine) ? C.danger : entryAccentColor },
           (highlighted || (isNew && !mine)) && { borderWidth: 2 },
         ]}
       >
