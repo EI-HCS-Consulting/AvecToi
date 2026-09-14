@@ -363,6 +363,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   const [frRecurrenceCustomDays, setFrRecurrenceCustomDays] = useState("");
   const [frRecurrenceEndDate, setFrRecurrenceEndDate] = useState("");
   const [frRecurrenceEndCalMonth, setFrRecurrenceEndCalMonth] = useState(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
+  // Étape vers laquelle revenir depuis "recurrence" (Annuler/Valider/retour
+  // matériel Android) — "autres_options" par défaut (bouton 🔁 Besoin
+  // récurrent), mais "generic"/"courses" quand on y accède via le bouton
+  // date de fin affiché une fois la récurrence déjà réglée.
+  const [frRecurrenceReturnStep, setFrRecurrenceReturnStep] = useState<PublishStep>("autres_options");
   // Dernière date pour laquelle le tag Urgent a été activé automatiquement
   // (voir l'effet plus bas, "besoin créé pour J+2") — empêche de re-forcer
   // le tag après que la personne l'ait décoché à la main tant que la date
@@ -1107,9 +1112,11 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   >(null);
   const [desengageEditTarget, setDesengageEditTarget] = useState<Task | null>(null);
   // Popup proposée après suppression d'un besoin issu d'une checklist
-  // groupée, tant que d'autres items de la même liste sont encore ouverts —
-  // complète le bandeau "Annuler" (8s seulement) pour un ménage fait plus tard.
-  const [deleteBatchTarget, setDeleteBatchTarget] = useState<{ batchId: string; siblings: Task[] } | null>(null);
+  // groupée OU d'une série récurrente, tant que d'autres items du même lot
+  // sont encore ouverts — complète le bandeau "Annuler" (8s seulement) pour
+  // un ménage fait plus tard. "kind" pilote uniquement le texte affiché, la
+  // suppression elle-même est identique dans les deux cas.
+  const [deleteBatchTarget, setDeleteBatchTarget] = useState<{ kind: "checklist" | "recurrence"; batchId: string; siblings: Task[] } | null>(null);
   const [deleteBatchSaving, setDeleteBatchSaving] = useState(false);
 
   // Suppression définitive par l'auteur d'un besoin déjà supprimé par
@@ -1408,6 +1415,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     setFDLCalMonth(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
     setFrRecurrenceType(null); setFrRecurrenceCustomDays(""); setFrRecurrenceEndDate("");
     setFrRecurrenceEndCalMonth(() => { const d = new Date(); return { year: d.getFullYear(), month: d.getMonth() }; });
+    setFrRecurrenceReturnStep("autres_options");
     setFCourseItems([]); setFCourseItemDraft("");
     setFRelaisStartDate(""); setFRelaisVisibleTo("all"); setFRelaisSelectedKeys(new Set());
     autoRelaisMsgRef.current = "";
@@ -2598,7 +2606,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // s'ouvrir à son tour, toujours avec un délai.
   const pendingLinkedAfterBatch = useRef<string[] | null>(null);
 
-  function queueDeleteFollowups(batch: { batchId: string; siblings: Task[] } | null, linkedIds: string[]) {
+  function queueDeleteFollowups(batch: { kind: "checklist" | "recurrence"; batchId: string; siblings: Task[] } | null, linkedIds: string[]) {
     if (batch) {
       pendingLinkedAfterBatch.current = linkedIds.length ? linkedIds : null;
       setTimeout(() => setDeleteBatchTarget(batch), 300);
@@ -2626,28 +2634,34 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       return;
     }
     showToast("Besoin supprimé");
-    // S'il reste d'autres items ouverts de la même checklist groupée,
-    // proposer de les supprimer aussi (voir triggerBatchUndo : le bandeau
-    // "Annuler" ne dure que 8s, insuffisant pour un ménage fait plus tard).
-    const siblings = t.checklist_batch_id
-      ? tasks.filter((x) => x.checklist_batch_id === t.checklist_batch_id && x.id !== t.id && x.status !== "fait")
-      : [];
-    queueDeleteFollowups(siblings.length ? { batchId: t.checklist_batch_id!, siblings } : null, linkedPersonalItemIds);
+    // S'il reste d'autres items ouverts de la même checklist groupée OU
+    // d'autres occurrences de la même série récurrente, proposer de les
+    // supprimer aussi (voir triggerBatchUndo : le bandeau "Annuler" ne dure
+    // que 8s, insuffisant pour un ménage fait plus tard).
+    let batch: { kind: "checklist" | "recurrence"; batchId: string; siblings: Task[] } | null = null;
+    if (t.checklist_batch_id) {
+      const siblings = tasks.filter((x) => x.checklist_batch_id === t.checklist_batch_id && x.id !== t.id && x.status !== "fait");
+      if (siblings.length) batch = { kind: "checklist", batchId: t.checklist_batch_id, siblings };
+    } else if (t.recurrence_group_id) {
+      const siblings = tasks.filter((x) => x.recurrence_group_id === t.recurrence_group_id && x.id !== t.id && x.status !== "fait");
+      if (siblings.length) batch = { kind: "recurrence", batchId: t.recurrence_group_id, siblings };
+    }
+    queueDeleteFollowups(batch, linkedPersonalItemIds);
     loadTasks();
   }
 
   async function confirmDeleteBatch() {
     if (!deleteBatchTarget) return;
-    const siblings = deleteBatchTarget.siblings;
+    const { kind, siblings } = deleteBatchTarget;
     setDeleteBatchSaving(true);
     const { error, linkedPersonalItemIds } = await deleteOrSoftDeleteTasks(siblings);
     setDeleteBatchSaving(false);
     setDeleteBatchTarget(null);
     if (error) {
-      Alert.alert("Erreur", "Impossible de supprimer la liste : " + error);
+      Alert.alert("Erreur", kind === "recurrence" ? "Impossible de supprimer la série : " + error : "Impossible de supprimer la liste : " + error);
       return;
     }
-    showToast("Liste supprimée");
+    showToast(kind === "recurrence" ? "Série supprimée" : "Liste supprimée");
     const pending = pendingLinkedAfterBatch.current;
     pendingLinkedAfterBatch.current = null;
     const allLinked = [...(pending ?? []), ...linkedPersonalItemIds];
@@ -2724,16 +2738,26 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     showToast(`${selected.length} besoin${selected.length > 1 ? "s" : ""} supprimé${selected.length > 1 ? "s" : ""}`);
     exitSelection();
     // Même logique que confirmDeleteTask : s'il reste d'autres items ouverts
-    // des checklists groupées touchées par la sélection, proposer de les
-    // supprimer aussi (un seul popup pour toutes les checklists concernées).
-    const batchIds = new Set(selected.map((t) => t.checklist_batch_id).filter((id): id is string => !!id));
+    // des checklists groupées OU des séries récurrentes touchées par la
+    // sélection, proposer de les supprimer aussi (un seul popup, checklist
+    // prioritaire sur récurrence si la sélection touche les deux à la fois —
+    // cas limite non attendu en pratique).
     const selectedIds = new Set(selected.map((t) => t.id));
-    const siblings = batchIds.size
-      ? tasks.filter(
-          (x) => x.checklist_batch_id && batchIds.has(x.checklist_batch_id) && !selectedIds.has(x.id) && x.status !== "fait",
-        )
-      : [];
-    queueDeleteFollowups(siblings.length ? { batchId: [...batchIds][0], siblings } : null, linkedPersonalItemIds);
+    const batchIds = new Set(selected.map((t) => t.checklist_batch_id).filter((id): id is string => !!id));
+    const recurrenceIds = new Set(selected.map((t) => t.recurrence_group_id).filter((id): id is string => !!id));
+    let batch: { kind: "checklist" | "recurrence"; batchId: string; siblings: Task[] } | null = null;
+    if (batchIds.size) {
+      const siblings = tasks.filter(
+        (x) => x.checklist_batch_id && batchIds.has(x.checklist_batch_id) && !selectedIds.has(x.id) && x.status !== "fait",
+      );
+      if (siblings.length) batch = { kind: "checklist", batchId: [...batchIds][0], siblings };
+    } else if (recurrenceIds.size) {
+      const siblings = tasks.filter(
+        (x) => x.recurrence_group_id && recurrenceIds.has(x.recurrence_group_id) && !selectedIds.has(x.id) && x.status !== "fait",
+      );
+      if (siblings.length) batch = { kind: "recurrence", batchId: [...recurrenceIds][0], siblings };
+    }
+    queueDeleteFollowups(batch, linkedPersonalItemIds);
     loadTasks();
   }
 
@@ -4917,7 +4941,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         animationType="fade"
         onRequestClose={() => {
           if (taskSaving) return;
-          if (publishStep === "recurrence") { setPublishStep("autres_options"); return; }
+          if (publishStep === "recurrence") { setPublishStep(frRecurrenceReturnStep); return; }
           if (publishStep === "autres_options") {
             setPublishStep(fCat === "courses" ? "courses" : fCat === "transport" ? "transport_time" : "generic");
             return;
@@ -5035,6 +5059,18 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                               size="lg"
                             />
                           </>
+                        )}
+
+                        {frRecurrenceType && frRecurrenceEndDate && (
+                          <TouchableOpacity
+                            style={[styles.claimOnCreateBtn, { backgroundColor: `${C.accent}22`, borderColor: C.accent, marginTop: 10 }]}
+                            onPress={() => { setFrRecurrenceReturnStep("generic"); setPublishStep("recurrence"); }}
+                            activeOpacity={0.8}
+                          >
+                            <Text style={[styles.claimOnCreateText, { color: C.accent }]}>
+                              {`📅 ${toFrShort(new Date(frRecurrenceEndDate + "T12:00:00"))}`}
+                            </Text>
+                          </TouchableOpacity>
                         )}
                       </>
                     )}
@@ -5154,6 +5190,18 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                           size="lg"
                         />
                       </>
+                    )}
+
+                    {frRecurrenceType && frRecurrenceEndDate && (
+                      <TouchableOpacity
+                        style={[styles.claimOnCreateBtn, { backgroundColor: `${C.accent}22`, borderColor: C.accent, marginTop: 10 }]}
+                        onPress={() => { setFrRecurrenceReturnStep("courses"); setPublishStep("recurrence"); }}
+                        activeOpacity={0.8}
+                      >
+                        <Text style={[styles.claimOnCreateText, { color: C.accent }]}>
+                          {`📅 ${toFrShort(new Date(frRecurrenceEndDate + "T12:00:00"))}`}
+                        </Text>
+                      </TouchableOpacity>
                     )}
 
                     <TouchableOpacity
@@ -5501,15 +5549,22 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                               opacity: fDateLimite ? 1 : 0.5,
                             },
                           ]}
-                          onPress={() => { if (fDateLimite) setPublishStep("recurrence"); }}
+                          onPress={() => { if (fDateLimite) { setFrRecurrenceReturnStep("autres_options"); setPublishStep("recurrence"); } }}
                           activeOpacity={0.8}
                           disabled={!fDateLimite}
                         >
-                          <Text style={[styles.claimOnCreateText, { color: frRecurrenceType ? C.accent : C.text }]}>
-                            {frRecurrenceType
-                              ? `🔁 ${RECURRENCE_LABELS[frRecurrenceType]} jusqu'au ${toFrShort(new Date(frRecurrenceEndDate + "T12:00:00"))} (${computeRecurrenceDates(fDateLimite, frRecurrenceType, Number(frRecurrenceCustomDays), frRecurrenceEndDate).length} besoins)`
-                              : "🔁 Besoin récurrent"}
+                          <Text style={[styles.claimOnCreateText, { color: frRecurrenceType ? C.accent : C.text, textAlign: "center" }]}>
+                            {frRecurrenceType ? `🔁 ${RECURRENCE_LABELS[frRecurrenceType]}` : "🔁 Besoin récurrent"}
                           </Text>
+                          {frRecurrenceType && frRecurrenceEndDate && (() => {
+                            const anchor = new Date(fDateLimite + "T12:00:00");
+                            const count = computeRecurrenceDates(fDateLimite, frRecurrenceType, Number(frRecurrenceCustomDays), frRecurrenceEndDate).length;
+                            return (
+                              <Text style={[styles.claimOnCreateText, { color: C.accent, fontFamily: "DM_Sans_400Regular", fontSize: 12, textAlign: "center", marginTop: 2 }]}>
+                                {`Du ${anchor.toLocaleDateString("fr-FR", { weekday: "long" })} ${toFrShort(anchor)} au ${toFrShort(new Date(frRecurrenceEndDate + "T12:00:00"))} (${count} besoin${count > 1 ? "s" : ""})`}
+                              </Text>
+                            );
+                          })()}
                         </TouchableOpacity>
                         {!fDateLimite && (
                           <Text style={[styles.claimOnCreateHint, { color: C.muted }]}>
@@ -5688,14 +5743,14 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                         <TouchableOpacity
                           onPress={() => {
                             setFrRecurrenceType(null); setFrRecurrenceCustomDays(""); setFrRecurrenceEndDate("");
-                            setPublishStep("autres_options");
+                            setPublishStep(frRecurrenceReturnStep);
                           }}
                           style={[styles.btnSecondary, { borderColor: C.border }]}
                         >
                           <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
                         </TouchableOpacity>
                         <TouchableOpacity
-                          onPress={() => setPublishStep("autres_options")}
+                          onPress={() => setPublishStep(frRecurrenceReturnStep)}
                           disabled={!frRecurrenceType || !frRecurrenceEndDate || dates.length === 0 || capped}
                           style={[
                             styles.btnPrimary,
@@ -7368,9 +7423,9 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
 
       <ConfirmModal
         visible={!!deleteBatchTarget}
-        icon="🗂️"
-        title="Supprimer aussi le reste de la liste ?"
-        message={`Ce besoin faisait partie d'une checklist. ${deleteBatchTarget?.siblings.length} autre${deleteBatchTarget && deleteBatchTarget.siblings.length > 1 ? "s" : ""} item${deleteBatchTarget && deleteBatchTarget.siblings.length > 1 ? "s" : ""} de cette liste ${deleteBatchTarget && deleteBatchTarget.siblings.length > 1 ? "sont encore ouverts" : "est encore ouvert"} : les supprimer aussi ?${deleteBatchTarget?.siblings.some((s) => s.author_pin !== "ADMIN" && s.author_prenom) ? "\n\nLeurs auteurs recevront un message les informant de cette suppression." : ""}`}
+        icon={deleteBatchTarget?.kind === "recurrence" ? "🔁" : "🗂️"}
+        title={deleteBatchTarget?.kind === "recurrence" ? "Supprimer aussi les autres occurrences ?" : "Supprimer aussi le reste de la liste ?"}
+        message={`Ce besoin faisait partie ${deleteBatchTarget?.kind === "recurrence" ? "d'une série récurrente" : "d'une checklist"}. ${deleteBatchTarget?.siblings.length} autre${deleteBatchTarget && deleteBatchTarget.siblings.length > 1 ? "s" : ""} ${deleteBatchTarget?.kind === "recurrence" ? "besoin" : "item"}${deleteBatchTarget && deleteBatchTarget.siblings.length > 1 ? "s" : ""} de cette ${deleteBatchTarget?.kind === "recurrence" ? "série" : "liste"} ${deleteBatchTarget && deleteBatchTarget.siblings.length > 1 ? "sont encore ouverts" : "est encore ouvert"} : les supprimer aussi ?${deleteBatchTarget?.siblings.some((s) => s.author_pin !== "ADMIN" && s.author_prenom) ? "\n\nLeurs auteurs recevront un message les informant de cette suppression." : ""}`}
         cancelLabel="Non, garder"
         confirmLabel={deleteBatchTarget ? `Supprimer les ${deleteBatchTarget.siblings.length}` : "Supprimer"}
         saving={deleteBatchSaving}
