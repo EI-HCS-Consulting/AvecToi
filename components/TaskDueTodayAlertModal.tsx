@@ -126,28 +126,32 @@ export default function TaskDueTodayAlertModal({ spaceId, isAdmin }: { spaceId: 
   // éviter un aller-retour d'écran. Ne referme le besoin ("fait") que quand
   // plus aucun article de la liste n'est en attente d'achat, c'est-à-dire
   // quand toutes les personnes engagées ont fait de même ET que tous les
-  // articles ont été pris en charge par quelqu'un.
+  // articles ont été pris en charge par quelqu'un. Contrairement à handleDone,
+  // l'action se termine ici (pas de sheet à ouvrir sur le mur) — on y revient
+  // quand même, focus sur ce besoin, au lieu de rester sur le popup d'alerte
+  // ou de retomber sur "Ma semaine" : demande explicite, revenir sur le mur
+  // d'entraide au niveau du besoin une fois marqué fait.
   async function handleFait() {
     if (!current || !identity) return;
-    const wasLast = alerts.length <= 1;
-    setSessionHiddenIds((prev) => new Set(prev).add(current.task.id));
+    const taskId = current.task.id;
+    setSessionHiddenIds((prev) => new Set(prev).add(taskId));
     await supabase
       .from("shopping_list_items")
       .update({ bought: true })
-      .eq("task_id", current.task.id)
+      .eq("task_id", taskId)
       .eq("bought", false)
       .ilike("bought_by_prenom", identity.prenom)
       .ilike("bought_by_nom", identity.nom);
     const { count } = await supabase
       .from("shopping_list_items")
       .select("id", { count: "exact", head: true })
-      .eq("task_id", current.task.id)
+      .eq("task_id", taskId)
       .eq("bought", false);
     if ((count ?? 0) === 0) {
-      await supabase.from("tasks").update({ status: "fait" }).eq("id", current.task.id);
-      await supabase.from("personal_checklist_items").update({ status: "fait" }).eq("task_id", current.task.id);
+      await supabase.from("tasks").update({ status: "fait" }).eq("id", taskId);
+      await supabase.from("personal_checklist_items").update({ status: "fait" }).eq("task_id", taskId);
     }
-    if (wasLast) goHome();
+    router.push(`${basePath}/entraide?focusTaskId=${taskId}` as any);
   }
 
   if (!current) return null;

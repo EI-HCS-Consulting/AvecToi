@@ -106,6 +106,55 @@ function normalizeShoppingLabel(s: string) {
   return s.trim().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
 }
 
+// Version "cœur" de normalizeShoppingLabel, plus agressive : retire aussi
+// les emojis/pictos et la ponctuation en tête/fin, et le pluriel français
+// simple (s/x final) — sert uniquement à repérer un doublon probable dans le
+// catalogue "Produits récurrents" (typo, majuscule, singulier/pluriel,
+// avec/sans icône), jamais pour l'affichage.
+function coreShoppingLabel(s: string) {
+  const base = normalizeShoppingLabel(s).replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+  return base.replace(/^(.{3,}?)(s|x)$/u, "$1");
+}
+
+function levenshteinDistance(a: string, b: string) {
+  const m = a.length, n = b.length;
+  if (!m) return n;
+  if (!n) return m;
+  const dp: number[][] = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
+  for (let i = 0; i <= m; i++) dp[i][0] = i;
+  for (let j = 0; j <= n; j++) dp[0][j] = j;
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[i][j] = a[i - 1] === b[j - 1]
+        ? dp[i - 1][j - 1]
+        : 1 + Math.min(dp[i - 1][j - 1], dp[i - 1][j], dp[i][j - 1]);
+    }
+  }
+  return dp[m][n];
+}
+
+// Repère, dans le catalogue "Produits récurrents", un article dont
+// l'orthographe est proche du libellé saisi (typo, majuscule/minuscule,
+// singulier/pluriel, avec/sans icône) sans être un produit réellement
+// différent — seuil de distance resserré pour les mots courts pour ne pas
+// fusionner "pomme" et "poire". Un cœur identique après nettoyage (ex.
+// "pomme" vs "🍎 pommes") est retourné directement, sans calcul de distance.
+function findSimilarRecurringItem(label: string, items: { id: string; label: string }[]) {
+  const typedCore = coreShoppingLabel(label);
+  if (!typedCore) return null;
+  let best: { id: string; label: string; dist: number } | null = null;
+  for (const it of items) {
+    const core = coreShoppingLabel(it.label);
+    if (!core) continue;
+    if (core === typedCore) return it;
+    const dist = levenshteinDistance(typedCore, core);
+    const longest = Math.max(typedCore.length, core.length);
+    const threshold = longest <= 4 ? 1 : longest <= 8 ? 2 : 3;
+    if (dist <= threshold && (!best || dist < best.dist)) best = { ...it, dist };
+  }
+  return best;
+}
+
 const STATUS_LABELS: Record<TaskStatus, string> = {
   ouvert: "Ouvert",
   pris_en_charge: "Pris en charge",
@@ -413,10 +462,32 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // entrées du catalogue sans toucher aux besoins déjà publiés.
   const [recurringSelectMode, setRecurringSelectMode] = useState(false);
   const [recurringSelected, setRecurringSelected] = useState<Set<string>>(new Set());
+  // Popup "produit similaire déjà existant" (voir addFCourseItem /
+  // findSimilarRecurringItem) — proposé quand le libellé saisi ressemble à
+  // un article déjà dans le catalogue sans y être identique.
+  const [similarItemPrompt, setSimilarItemPrompt] = useState<{ typed: string; match: { id: string; label: string } } | null>(null);
   // Besoin "courses" dont on affiche la liste (bouton "👁️ Aperçu" sur la
   // carte) — même ShoppingListModal que "📄 Mes documents" (MyChecklist.tsx),
   // donc toute modification se répercute des deux côtés sans synchronisation.
   const [shoppingListTask, setShoppingListTask] = useState<Task | null>(null);
+  // Charge le catalogue "Produits récurrents" dès qu'on entre dans la
+  // composition d'une liste de courses (popup dédié ou étape "courses" de
+  // l'assistant Publier), pas seulement à l'ouverture du sous-picker —
+  // nécessaire pour l'autocomplétion et la détection de doublon proche dans
+  // addFCourseItem (voir findSimilarRecurringItem).
+  useEffect(() => {
+    if (!coursesListModal && publishStep !== "courses" && publishStep !== "courses_recurring") return;
+    setRecurringLoading(true);
+    supabase
+      .from("recurring_shopping_items")
+      .select("id,label")
+      .eq("space_id", spaceId)
+      .order("label", { ascending: true })
+      .then(({ data }) => {
+        setRecurringItems((data ?? []) as { id: string; label: string }[]);
+        setRecurringLoading(false);
+      });
+  }, [coursesListModal, publishStep, spaceId]);
   // Resynchronise la tâche affichée dans le modal avec la version à jour de
   // `tasks` (rechargée après chaque écriture, y compris celles déclenchées
   // par le modal lui-même comme le revert de statut sur ajout d'article) —
@@ -1914,13 +1985,87 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
       setFCourseItemDraft("");
       return;
     }
+    // Déjà dans le catalogue à l'identique (une fois normalisé) : on reprend
+    // l'orthographe existante au lieu d'en réinsérer une variante — pas de
+    // popup, le cas est sans ambiguïté.
+    const exact = recurringItems.find((it) => normalizeShoppingLabel(it.label) === normalizeShoppingLabel(label));
+    if (exact) {
+      setFCourseItems((prev) => [...prev, exact.label]);
+      setFCourseItemDraft("");
+      return;
+    }
+    // Orthographe proche d'un article déjà catalogué (typo, singulier/pluriel,
+    // avec/sans icône…) : on laisse la personne choisir plutôt que de
+    // dupliquer silencieusement le catalogue.
+    const similar = findSimilarRecurringItem(label, recurringItems);
+    if (similar) {
+      setSimilarItemPrompt({ typed: label, match: similar });
+      return;
+    }
     setFCourseItems((prev) => [...prev, label]);
     setFCourseItemDraft("");
     addToRecurringCatalog(label);
   }
 
+  // Réponses au popup "produit similaire déjà existant" (voir addFCourseItem).
+  function confirmUseSimilarItem() {
+    if (!similarItemPrompt) return;
+    setFCourseItems((prev) => [...prev, similarItemPrompt.match.label]);
+    setFCourseItemDraft("");
+    setSimilarItemPrompt(null);
+  }
+
+  function confirmAddAsNewItem() {
+    if (!similarItemPrompt) return;
+    const label = similarItemPrompt.typed;
+    setFCourseItems((prev) => [...prev, label]);
+    setFCourseItemDraft("");
+    setSimilarItemPrompt(null);
+    addToRecurringCatalog(label);
+  }
+
+  // Sélection d'une suggestion d'autocomplétion (voir renderCourseAutocomplete)
+  // pendant la saisie d'un nouvel article — ajoute directement, sans repasser
+  // par la détection de doublon proche puisque c'est déjà l'article exact.
+  function pickAutocompleteItem(label: string) {
+    if (fCourseItems.some((it) => normalizeShoppingLabel(it) === normalizeShoppingLabel(label))) {
+      showToast("Déjà dans la liste");
+      setFCourseItemDraft("");
+      return;
+    }
+    setFCourseItems((prev) => [...prev, label]);
+    setFCourseItemDraft("");
+  }
+
   function removeFCourseItem(i: number) {
     setFCourseItems((prev) => prev.filter((_, idx) => idx !== i));
+  }
+
+  // Suggestions d'autocomplétion affichées sous le champ de saisie d'un
+  // nouvel article — produits récurrents dont le libellé contient le texte
+  // tapé, hors ceux déjà dans la liste en cours de composition.
+  const courseAutocompleteSuggestions = useMemo(() => {
+    const q = normalizeShoppingLabel(fCourseItemDraft.trim());
+    if (!q) return [];
+    return recurringItems
+      .filter((it) => normalizeShoppingLabel(it.label).includes(q))
+      .filter((it) => !fCourseItems.some((f) => normalizeShoppingLabel(f) === normalizeShoppingLabel(it.label)))
+      .slice(0, 5);
+  }, [fCourseItemDraft, recurringItems, fCourseItems]);
+
+  function renderCourseAutocomplete() {
+    if (!courseAutocompleteSuggestions.length) return null;
+    return (
+      <View style={[styles.autocompleteBox, { backgroundColor: C.bg, borderColor: C.border }]}>
+        {courseAutocompleteSuggestions.map((it) => (
+          <TouchableOpacity key={it.id} onPress={() => pickAutocompleteItem(it.label)} style={styles.autocompleteRow} activeOpacity={0.7}>
+            <Text style={{ color: C.text, fontFamily: "DM_Sans_400Regular", fontSize: 13.5 }} numberOfLines={1}>
+              🔁 {it.label}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    );
   }
 
   // Ouvre le popup dédié "Créer une liste de courses" depuis le formulaire
@@ -1979,6 +2124,8 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // de pickRecurringItem (conservé pour l'ancien popup, voir plus bas).
   function openWizardRecurringPicker() {
     setWizardRecurringPicked(new Set());
+    setRecurringSelectMode(false);
+    setRecurringSelected(new Set());
     setPublishStep("courses_recurring");
     setRecurringLoading(true);
     supabase
@@ -4971,7 +5118,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
             setPublishStep(fCat === "courses" ? "courses" : fCat === "transport" ? "transport_time" : "generic");
             return;
           }
-          if (publishStep === "courses_recurring") { setWizardRecurringPicked(new Set()); setPublishStep("courses"); return; }
+          if (publishStep === "courses_recurring") { setWizardRecurringPicked(new Set()); setRecurringSelectMode(false); setRecurringSelected(new Set()); setPublishStep("courses"); return; }
           if (publishStep === "transport_time") { setPublishStep("transport_calendar"); return; }
           if (publishStep === "transport_calendar") { setPublishStep("transport_trip"); return; }
           if (publishStep === "transport_trip") { setPublishStep("transport_addr"); return; }
@@ -5178,6 +5325,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                         <Text style={[styles.groupAddBtnText, { color: C.gold }]}>+ Ajouter</Text>
                       </TouchableOpacity>
                     </View>
+                    {renderCourseAutocomplete()}
 
                     <TouchableOpacity
                       onPress={openWizardRecurringPicker}
@@ -5259,8 +5407,22 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                   <View>
                     <Text style={[styles.sheetTitle, { color: C.text }]}>🔁 Produits récurrents</Text>
                     <Text style={[styles.checklistIntro, { color: C.muted }]}>
-                      Coche les articles à ajouter à la liste, puis valide.
+                      {isAdmin ? "Coche les articles à ajouter à la liste, puis valide. Appui long pour sélectionner et supprimer du catalogue." : "Coche les articles à ajouter à la liste, puis valide."}
                     </Text>
+
+                    {recurringSelectMode && (
+                      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                        <Text style={{ fontFamily: "DM_Sans_600SemiBold", fontSize: 13, color: C.text }}>{recurringSelected.size} sélectionné(s)</Text>
+                        <View style={{ flexDirection: "row", gap: 16 }}>
+                          <TouchableOpacity onPress={() => { setRecurringSelectMode(false); setRecurringSelected(new Set()); }}>
+                            <Text style={{ color: C.muted, fontFamily: "DM_Sans_600SemiBold", fontSize: 13 }}>Annuler</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={deleteSelectedRecurringItems} disabled={!recurringSelected.size}>
+                            <Text style={{ color: C.danger, fontFamily: "DM_Sans_600SemiBold", fontSize: 13, opacity: recurringSelected.size ? 1 : 0.4 }}>🗑️ Supprimer</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    )}
 
                     <ScrollView style={styles.checklistScroll} showsVerticalScrollIndicator nestedScrollEnabled>
                       {recurringLoading ? (
@@ -5272,18 +5434,32 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                       ) : recurringItems.map((it) => {
                         const alreadyInList = fCourseItems.some((f) => normalizeShoppingLabel(f) === normalizeShoppingLabel(it.label));
                         const checked = wizardRecurringPicked.has(it.id);
+                        const selected = recurringSelected.has(it.id);
                         return (
                           <Pressable
                             key={it.id}
-                            onPress={() => !alreadyInList && toggleWizardRecurringPick(it.id)}
-                            disabled={alreadyInList}
-                            style={[styles.checklistItemRow, checked && { backgroundColor: `${C.accent}1A`, borderRadius: 8 }]}
+                            onPress={() => {
+                              if (recurringSelectMode) { toggleRecurringSelected(it.id); return; }
+                              if (!alreadyInList) toggleWizardRecurringPick(it.id);
+                            }}
+                            onLongPress={() => startRecurringSelect(it.id)}
+                            style={[
+                              styles.checklistItemRow,
+                              !recurringSelectMode && checked && { backgroundColor: `${C.accent}1A`, borderRadius: 8 },
+                              selected && { backgroundColor: "rgba(233,69,96,0.12)", borderRadius: 8 },
+                            ]}
                           >
-                            <View style={[styles.checklistBox, { borderColor: checked || alreadyInList ? C.accent : C.border, backgroundColor: checked || alreadyInList ? C.accent : "transparent" }]}>
-                              {(checked || alreadyInList) && <Text style={styles.checklistBoxMark}>✓</Text>}
-                            </View>
-                            <Text style={[styles.checklistItemTitle, { color: alreadyInList ? C.muted : C.text, flex: 1 }]}>
-                              {it.label}{alreadyInList ? " (déjà dans la liste)" : ""}
+                            {recurringSelectMode ? (
+                              <View style={[styles.checklistBox, { borderColor: selected ? C.danger : C.border, backgroundColor: selected ? C.danger : "transparent" }]}>
+                                {selected && <Text style={styles.checklistBoxMark}>✓</Text>}
+                              </View>
+                            ) : (
+                              <View style={[styles.checklistBox, { borderColor: checked || alreadyInList ? C.accent : C.border, backgroundColor: checked || alreadyInList ? C.accent : "transparent" }]}>
+                                {(checked || alreadyInList) && <Text style={styles.checklistBoxMark}>✓</Text>}
+                              </View>
+                            )}
+                            <Text style={[styles.checklistItemTitle, { color: alreadyInList && !recurringSelectMode ? C.muted : C.text, flex: 1 }]}>
+                              {it.label}{alreadyInList && !recurringSelectMode ? " (déjà dans la liste)" : ""}
                             </Text>
                           </Pressable>
                         );
@@ -5291,7 +5467,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                     </ScrollView>
 
                     <View style={styles.sheetBtns}>
-                      <TouchableOpacity onPress={() => { setWizardRecurringPicked(new Set()); setPublishStep("courses"); }} style={[styles.btnSecondary, { borderColor: C.border }]}>
+                      <TouchableOpacity onPress={() => { setWizardRecurringPicked(new Set()); setRecurringSelectMode(false); setRecurringSelected(new Set()); setPublishStep("courses"); }} style={[styles.btnSecondary, { borderColor: C.border }]}>
                         <Text style={[styles.btnSecondaryText, { color: C.muted }]}>Annuler</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
@@ -6382,6 +6558,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                 <Text style={[styles.groupAddBtnText, { color: C.gold }]}>+ Ajouter</Text>
               </TouchableOpacity>
             </View>
+            {renderCourseAutocomplete()}
 
             <TouchableOpacity
               onPress={openRecurringItemsModal}
@@ -6477,6 +6654,24 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           </View>
         </View>
       </Modal>
+
+      {/* ── POPUP "PRODUIT SIMILAIRE DÉJÀ EXISTANT" ───────────────────────────
+          Proposé par addFCourseItem quand le libellé saisi ressemble à un
+          article déjà dans le catalogue "Produits récurrents" (typo,
+          majuscule/minuscule, singulier/pluriel, avec/sans icône) sans y
+          être identique. */}
+      <ConfirmModal
+        visible={!!similarItemPrompt}
+        icon="🔎"
+        title="Produit similaire déjà existant"
+        message={similarItemPrompt ? `« ${similarItemPrompt.typed} » ressemble à « ${similarItemPrompt.match.label} », déjà dans les produits récurrents.` : undefined}
+        cancelLabel={similarItemPrompt ? `Non, « ${similarItemPrompt.typed} »` : "Non"}
+        confirmLabel={similarItemPrompt ? `Utiliser « ${similarItemPrompt.match.label} »` : "Utiliser"}
+        destructive={false}
+        onCancel={confirmAddAsNewItem}
+        onConfirm={confirmUseSimilarItem}
+        C={C}
+      />
 
       {/* ── MODAL CLAIM ───────────────────────────────────────────────────── */}
       {/* Le "Merci, tu t'en occupes" est fusionné dans cette même <Modal>
@@ -7862,6 +8057,8 @@ const styles = StyleSheet.create({
   groupAddInput: { borderWidth: 1, borderRadius: 10, padding: 10, fontFamily: "DM_Sans_400Regular", fontSize: 13, marginTop: 6 },
   groupAddBtn: { borderWidth: 1, borderRadius: 10, paddingVertical: 10, alignItems: "center", marginTop: 6 },
   groupAddBtnText: { fontFamily: "DM_Sans_600SemiBold", fontSize: 13 },
+  autocompleteBox: { borderWidth: 1, borderRadius: 10, marginTop: -2, marginBottom: 8, overflow: "hidden" },
+  autocompleteRow: { paddingVertical: 10, paddingHorizontal: 12 },
   publicNoticeText: { fontFamily: "DM_Sans_400Regular", fontSize: 12, lineHeight: 16, marginTop: 12, marginBottom: 4 },
 
   // Bandeau "Annuler" temporaire après un ajout groupé — remplace le toast
