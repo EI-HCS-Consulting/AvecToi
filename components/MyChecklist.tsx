@@ -716,6 +716,24 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
     }));
   }
 
+  // Reporte l'échéance de l'item courant sur tous les items suivants du
+  // wizard — voir Entraide.tsx propagateChecklistWizardDate (même pattern,
+  // wizard indépendant).
+  function propagateImportWizardDate() {
+    const key = importWizardList[importWizardStep]?.key;
+    const dateLimite = key ? importWizardData[key]?.dateLimite : "";
+    if (!key || !dateLimite) return;
+    setImportWizardData((prev) => {
+      const next = { ...prev };
+      for (let i = importWizardStep + 1; i < importWizardList.length; i++) {
+        const laterKey = importWizardList[i].key;
+        const existing = next[laterKey] ?? { dateLimite: "", urgent: false, detail: "" };
+        next[laterKey] = { ...existing, dateLimite };
+      }
+      return next;
+    });
+  }
+
   function importWizardNext() {
     if (importWizardStep < importWizardList.length - 1) {
       setImportWizardStep((s) => s + 1);
@@ -1800,6 +1818,24 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                           <Text style={[styles.itemLink, { color, marginTop: 0 }]}>✎ Modifier la date</Text>
                         </TouchableOpacity>
                       </View>
+
+                      {!isLast && (
+                        <TouchableOpacity
+                          onPress={() => {
+                            propagateImportWizardDate();
+                            Alert.alert(
+                              "Échéance reportée",
+                              "Cette date d'échéance a été appliquée aux items suivants.",
+                            );
+                          }}
+                          activeOpacity={0.8}
+                          style={[styles.dateBtn, { backgroundColor: color + "18", borderColor: color, marginTop: 8 }]}
+                        >
+                          <Text style={[styles.dateBtnText, { color }]}>
+                            📌 Reporter cette échéance sur les items suivants
+                          </Text>
+                        </TouchableOpacity>
+                      )}
 
                       <Text style={[styles.fieldLabel, { color: C.gold }]}>Marquer Urgent</Text>
                       <TouchableOpacity

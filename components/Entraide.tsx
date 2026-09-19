@@ -1781,6 +1781,29 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
     }));
   }
 
+  // Reporte l'échéance de l'item courant sur tous les items suivants du
+  // wizard — évite de devoir fixer la même date à la main sur chaque item
+  // d'une longue checklist (bouton "Reporter sur les items suivants").
+  function propagateChecklistWizardDate() {
+    const key = checklistWizardList[checklistWizardStep]?.key;
+    const dateLimite = key ? checklistWizardData[key]?.dateLimite : "";
+    if (!key || !dateLimite) return;
+    setChecklistWizardData((prev) => {
+      const next = { ...prev };
+      for (let i = checklistWizardStep + 1; i < checklistWizardList.length; i++) {
+        const laterKey = checklistWizardList[i].key;
+        const existing = next[laterKey] ?? { dateLimite: "", urgent: false, detail: "" };
+        checklistWizardAutoUrgentRef.current[laterKey] = dateLimite;
+        next[laterKey] = {
+          ...existing,
+          dateLimite,
+          urgent: existing.urgent || isUrgentWindow(dateLimite),
+        };
+      }
+      return next;
+    });
+  }
+
   function checklistWizardNext() {
     if (checklistWizardStep < checklistWizardList.length - 1) {
       setChecklistWizardStep((s) => s + 1);
@@ -6296,6 +6319,24 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                           <Text style={[styles.claimOnCreateText, { color, marginTop: 0 }]}>✎ Modifier la date</Text>
                         </TouchableOpacity>
                       </View>
+
+                      {!isLast && (
+                        <TouchableOpacity
+                          onPress={() => {
+                            propagateChecklistWizardDate();
+                            Alert.alert(
+                              "Échéance reportée",
+                              "Cette date d'échéance a été appliquée aux items suivants.",
+                            );
+                          }}
+                          activeOpacity={0.8}
+                          style={[styles.claimOnCreateBtn, { backgroundColor: color + "18", borderColor: color, marginTop: 8 }]}
+                        >
+                          <Text style={[styles.claimOnCreateText, { color }]}>
+                            📌 Reporter cette échéance sur les items suivants
+                          </Text>
+                        </TouchableOpacity>
+                      )}
 
                       <Text style={[styles.fieldLabel, { color: C.gold }]}>Marquer Urgent</Text>
                       <TouchableOpacity
