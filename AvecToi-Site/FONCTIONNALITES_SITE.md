@@ -1,6 +1,8 @@
 # Fonctionnalités du site avectoi.care
 
-**Dernière mise à jour : 3 septembre 2026** — reflète l'état réel du code dans `avectoi-site` (commit `7d18519`), pas les intentions futures (celles-ci sont dans le PRD).
+**Dernière mise à jour : 19 septembre 2026** — reflète l'état réel du code dans `avectoi-site` (commit `adb1ae4`, PR #1 mergée), pas les intentions futures (celles-ci sont dans le PRD).
+
+⚠️ Ce document n'a pas suivi en détail toutes les évolutions du dashboard `/espace` (Nouvelles, réservation, Entraide) livrées entre le 5 et le 19 septembre — seules les lignes ci-dessous ont été corrigées à cette date. Pour le détail complet et à jour de `/espace`, voir `HANDOFF_SITE.md` §6.18 à §6.32.
 
 ---
 
@@ -14,11 +16,14 @@
 | `/soin-a-domicile` | `app/soin-a-domicile/page.tsx` | Page SEO persona "Soin à domicile" | ✅ Fonctionnel |
 | `/confidentialite` | `app/confidentialite/page.tsx` | Politique de confidentialité | 🟡 Existe, contenu à relire |
 | `/mentions-legales` | `app/mentions-legales/page.tsx` | Mentions légales | 🟡 Existe, contenu à relire |
-| `/invite` | `app/invite/route.ts` | Résolution de lien d'invitation profond (deep link vers l'app) | 🟡 Squelette de route, logique de résolution pas implémentée |
-| `/signup`, `/login` | — | Auth Supabase | ❌ Pas encore créées |
+| `/invite` | `app/invite/page.tsx` | Résolution de lien d'invitation profond : garde la redirection app-store par défaut, ajoute un lien "Continuer sur le web" vers `/entraide/[token]` | ✅ Fonctionnel |
+| `/connexion` | `app/connexion/page.tsx` | Connexion admin (Supabase Auth) | ✅ Fonctionnel |
+| `/espace` | `app/espace/page.tsx` | Dashboard admin connecté : header/photo patient, calendrier (lecture + réservation + modification/annulation + `.ics`), Nouvelles | ✅ Fonctionnel — voir HANDOFF_SITE.md §6.18-6.26/§6.30-6.31 |
+| `/espace/[token]` | `app/espace/[token]/page.tsx` (via `SpaceEntryGate.tsx`) | Même dashboard que `/espace`, accessible sans compte via token (visiteur ou admin) ; identification directe, sans étape de choix redondante | ✅ Fonctionnel — voir HANDOFF_SITE.md §6.31 |
+| `/entraide/[token]` | `app/entraide/[token]/page.tsx` | Mur d'entraide (besoins, courses, checklists, transport, relais) accessible sans compte via token, admin + visiteurs PIN | ✅ Fonctionnel — voir HANDOFF_SITE.md §6.29 |
+| `/signup`, `/login` | — | Auth Supabase visiteur/inscription | ❌ Pas encore créées |
 | `/onboarding` | — | Création d'espace après inscription | ❌ Pas encore créée |
 | `/upgrade` | — | Paiement Stripe Freemium → Premium | ❌ Pas encore créée |
-| `/dashboard` | — | Dashboard web (parité complète avec l'app) | ❌ Pas encore créée |
 
 Les 3 pages persona partagent la même composition de sections (voir §2), seul le contenu (`lib/personas.ts`) change.
 

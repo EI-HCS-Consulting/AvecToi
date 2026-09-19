@@ -4,6 +4,28 @@ Liste chronologique et sommaire des changements apportés au site. Pas de détai
 
 ---
 
+## 19 septembre 2026
+
+- Planning : occupation d'un créneau affichée sur plusieurs lignes au lieu d'un texte tronqué quand plusieurs visiteurs sont inscrits
+- Popup Modifier/Annuler au clic sur sa propre réservation, disponible partout dans le dashboard (planning du jour, période, mon agenda)
+- Suppression de l'étape de choix "Je rends visite / Je suis l'administrateur" redondante sur le lien d'invitation — accès direct au formulaire d'identification
+- Bouton "Se connecter" du header masqué une fois connecté (visiteur ou admin)
+- Couleur de mes propres réservations fixée à l'orange du logo sur le calendrier (au lieu d'une couleur qui pouvait varier), même principe déployé côté app mobile le même jour
+- Onglet Entraide déplacé juste après Calendrier
+- Mur d'Entraide réorganisé en Ouverts / Fermés à venir / Fermés Historique (repliable par défaut), trié par urgence puis proximité d'échéance
+- Ajout d'un filtre "Mes besoins" sur le mur d'Entraide, en parité avec l'app
+
+---
+
+## 18 septembre 2026
+
+- Ajout d'un bouton "Ajouter à mon calendrier" sur la confirmation de réservation (télécharge un fichier `.ics` compatible Google/Apple/Outlook)
+- Pavé de saisie du code PIN mutualisé entre l'entrée dans l'espace et la réclamation d'un relais (mêmes rendu et comportement, code partagé)
+- Simplification de l'orthographe inclusive sur plusieurs textes de l'interface (ex. "administrateur·rice" → "administrateur")
+- Palette de couleurs des visiteurs élargie à 8 teintes, alignée sur celle de l'app
+
+---
+
 ## 3 septembre 2026
 
 - Mise en ligne initiale sur Infomaniak (hébergement Node.js, déploiement via Git)
