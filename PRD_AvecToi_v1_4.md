@@ -1,6 +1,11 @@
 # PRD — AvecToi
-## Product Requirements Document v1.38
+## Product Requirements Document v1.39
 *Préparé pour Claude Code — Juin 2026, synchronisé avec l'application livrée en Juillet/Août/Septembre 2026*
+
+> **Changelog v1.38 → v1.39**
+> - **Couleur fixe pour soi (orange du logo) sur le calendrier visiteurs** *(19/09/2026, PR #460)* : la personne qui consulte le calendrier voit désormais toujours ses propres réservations dans l'orange du logo, au lieu d'une couleur pouvant varier selon l'ordre des visiteurs de l'espace ; `PATIENT_PALETTE` étendue à 8 teintes (identique à `lib/dashboard/colors.ts` côté site web, les deux doivent rester synchronisés) — voir §3.4
+> - **Historique d'Entraide repliable** *(19/09/2026, PR #460)* : le sous-bloc « Historique » (besoins clos) du mur d'Entraide se replie par défaut derrière un bandeau affichant le nombre d'éléments, au lieu de s'afficher systématiquement déroulé — évite un défilement interminable sur un espace actif de longue date, même principe que côté site web (`EntraideBoard.tsx`) — voir §3.8
+> - Détail exhaustif écran par écran : `Documentation/Documentation Fonctionnalités.docx` (généré depuis le code, mis à jour à chaque handoff)
 
 > **Changelog v1.37 → v1.38**
 > - **Retour au mur d'Entraide après « C'est fait » (Courses)** *(16/09/2026, PR #458)* : dans le popup de rappel d'échéance du jour, le bouton secondaire « ✓ C'est fait » (catégorie Courses) ramène désormais systématiquement sur le mur d'Entraide, focus sur le besoin concerné, au lieu de parfois enchaîner sur l'alerte suivante ou de retomber sur « Ma semaine » — voir §3.8
