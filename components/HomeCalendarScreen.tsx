@@ -11,7 +11,7 @@ import {
 } from "@/lib/slotUtils";
 import { isSpaceCapped, canUseHebdoPlanningView } from "@/lib/freemiumCap";
 import { addToNativeCalendar, linkCalendarEvent, getLinkedCalendarEvent } from "@/lib/calendarSync";
-import { LOGO_NAVY, VISITES_ORANGE_FILL, VISITES_DANGER_FILL, getPatientColor } from "@/lib/themes";
+import { LOGO_NAVY, VISITES_ORANGE_FILL, VISITES_DANGER_FILL, getOtherVisitorColor, SELF_COLOR } from "@/lib/themes";
 import { careLocationDetail, mapsUrlForSpace } from "@/lib/address";
 import SpaceHeader from "@/components/SpaceHeader";
 import SegmentedSwitch from "@/components/SegmentedSwitch";
@@ -211,7 +211,9 @@ export default function HomeCalendarScreen({
   // Légende visiteurs — regroupe les réservations Visite par identité
   // approximée (visiteurIdentityKey), la personne qui regarde toujours en
   // premier, le reste trié alphabétiquement (nom puis prénom, comme
-  // VisitorsBlock.tsx). Couleur = getPatientColor(index) sur cet ordre.
+  // VisitorsBlock.tsx). La personne qui regarde garde toujours SELF_COLOR
+  // (orange du logo, plus lisible), les autres piochent dans une palette qui
+  // exclut cet orange (getOtherVisitorColor) pour ne jamais le réattribuer.
   const visiteurGroups: Record<string, { prenom: string; nom: string }> = {};
   for (const r of reservations) {
     if (r.type !== "Visite") continue;
@@ -230,7 +232,11 @@ export default function HomeCalendarScreen({
     ...otherVisiteurKeys,
   ];
   const visiteurColorByKey: Record<string, string> = {};
-  orderedVisiteurKeys.forEach((key, i) => { visiteurColorByKey[key] = getPatientColor(i); });
+  orderedVisiteurKeys.forEach((key, i) => {
+    if (key === myVisiteurKey) { visiteurColorByKey[key] = SELF_COLOR; return; }
+    const otherIndex = myVisiteurKey && visiteurGroups[myVisiteurKey] ? i - 1 : i;
+    visiteurColorByKey[key] = getOtherVisitorColor(otherIndex);
+  });
   const visiteurLegendItems = orderedVisiteurKeys.map((key) => ({
     id: key,
     name: `${visiteurGroups[key].prenom} ${visiteurGroups[key].nom}`,

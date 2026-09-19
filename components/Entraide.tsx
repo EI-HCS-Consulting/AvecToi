@@ -364,6 +364,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // closedOnlyFilter) : n'affiche que les besoins publiés par moi ou sur
   // lesquels je me suis engagé.
   const [myOnlyFilter, setMyOnlyFilter] = useState(false);
+  // Sous-bloc "Historique" (besoins fermés passés) replié par défaut, pour
+  // éviter un scroll interminable — se déplie au tap sur son en-tête. Même
+  // principe que côté site (EntraideBoard.tsx, historyOpen).
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const [taskForm, setTaskForm] = useState(false);
   const [editTask, setEditTask] = useState<Task | null>(null);
@@ -4649,8 +4653,17 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
           )}
           {visibleClosedHistory.length > 0 && (
             <>
-              <Text style={[styles.listSubsectionHeader, { color: C.muted }]}>Historique</Text>
-              {visibleClosedHistory.map(renderTask)}
+              <TouchableOpacity
+                onPress={() => setHistoryOpen((prev) => !prev)}
+                activeOpacity={0.7}
+                style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}
+              >
+                <Text style={[styles.listSubsectionHeader, { color: C.muted }]}>
+                  Historique ({visibleClosedHistory.length})
+                </Text>
+                <Text style={[styles.listSubsectionHeader, { color: C.muted }]}>{historyOpen ? "▾" : "▸"}</Text>
+              </TouchableOpacity>
+              {historyOpen && visibleClosedHistory.map(renderTask)}
             </>
           )}
         </ScrollView>

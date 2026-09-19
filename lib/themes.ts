@@ -88,24 +88,36 @@ export const LOGO_PURPLE_SOFT = "#9A76C2";
 export const VISITES_ORANGE_FILL = "#FFDFBA";
 export const VISITES_DANGER_FILL = "#FFB3BA";
 
-// Rose utilisé à la place de LOGO_PURPLE dans PATIENT_PALETTE ci-dessous : un
-// trait violet serait quasi invisible sur le fond violet des jours de soin.
-const PATIENT_ROSE = "#EF87B0";
+// Couleurs additionnelles pour PATIENT_PALETTE ci-dessous — LOGO_PURPLE reste
+// exclu (trait violet quasi invisible sur le fond violet des jours de soin,
+// voir LOGO_PURPLE_SOFT ci-dessus) et le rouge pur est évité (déjà porteur de
+// sens : C.danger). Ni le vert ni le bleu ciel du logo ne suffisaient à
+// distinguer nettement patients/visiteurs entre eux (retour utilisateur :
+// couleurs trop proches) — palette élargie à 8 teintes bien séparées en
+// teinte, seules deux (turquoise et bleu ciel) restant dans la famille bleue.
+const PATIENT_GREEN = "#1E9E68";
+const PATIENT_MAGENTA = "#C2478D";
+const PATIENT_GOLD = "#F5B90D";
+const PATIENT_BROWN = "#8B5E3C";
 
 // Palette utilisée pour attribuer une couleur à chaque patient sur le
 // planning global d'un intervenant (voir components/IntervenantGlobalCalendar.tsx,
-// components/PatientColorLegend.tsx) — un patient par couleur, réutilisées
-// dans le même ordre pour rester cohérentes entre le calendrier et sa
-// légende. Reprend 4 des 5 couleurs du logo (LOGO_PURPLE est remplacé par
-// PATIENT_ROSE, voir ci-dessus) pour que chaque trait reste visible sur le
-// fond violet des jours de soin.
-export const PATIENT_PALETTE = [LOGO_NAVY, LOGO_GREEN, LOGO_ORANGE, PATIENT_ROSE, LOGO_SKYBLUE];
+// components/PatientColorLegend.tsx) et à chaque visiteur sur le calendrier
+// (voir HomeCalendarScreen.tsx) — une identité par couleur, réutilisées dans
+// le même ordre pour rester cohérentes entre le calendrier et sa légende.
+// Identique à lib/dashboard/colors.ts côté site avectoi-site — ne pas
+// diverger sans répercuter le changement des deux côtés.
+export const PATIENT_PALETTE = [
+  LOGO_NAVY, LOGO_ORANGE, PATIENT_GREEN, PATIENT_MAGENTA,
+  PATIENT_GOLD, LOGO_GREEN, LOGO_SKYBLUE, PATIENT_BROWN,
+];
 
-// Au-delà du 5ème patient (au-delà de PATIENT_PALETTE), palette pastel de
-// secours — bouclée si un intervenant est rattaché à plus de 15 patients.
+// Au-delà du 8ème patient/visiteur (au-delà de PATIENT_PALETTE), palette de
+// secours — bouclée au-delà de 16. Tons plus soutenus que l'ancienne palette
+// pastel (trop proches les uns des autres pour rester lisibles en légende).
 export const PASTEL_COLORS = [
-  "#FFB3BA", "#FFDFBA", "#FFFFBA", "#BAFFC9", "#BAE1FF",
-  "#D7BAFF", "#FFBAF0", "#C9FFE5", "#FFD1DC", "#C4C4FF",
+  "#FFB3BA", "#FFDFBA", "#4C6E91", "#B08D57",
+  "#5C8A3A", "#A85C7A", "#3F8F91", "#6E7F99",
 ];
 
 // Mêmes teintes que VISITES_ORANGE_FILL/VISITES_DANGER_FILL (fond des cases
@@ -124,6 +136,21 @@ export function getPatientColor(index: number): string {
   return STRIPE_FALLBACK_COLORS[(index - PATIENT_PALETTE.length) % STRIPE_FALLBACK_COLORS.length];
 }
 
+// Couleur fixe de la personne qui consulte sur son propre calendrier (voir
+// HomeCalendarScreen.tsx) — plus lisible qu'une couleur qui varie selon
+// l'ordre des visiteurs. LOGO_ORANGE est retiré des couleurs attribuables aux
+// *autres* visiteurs (getOtherVisitorColor) pour ne jamais être réattribué.
+// Identique à lib/dashboard/colors.ts côté site avectoi-site — ne pas
+// diverger sans répercuter le changement des deux côtés.
+export const SELF_COLOR = LOGO_ORANGE;
+
+const OTHER_VISITOR_PALETTE = PATIENT_PALETTE.filter((c) => c !== LOGO_ORANGE);
+
+export function getOtherVisitorColor(index: number): string {
+  if (index < OTHER_VISITOR_PALETTE.length) return OTHER_VISITOR_PALETTE[index];
+  return STRIPE_FALLBACK_COLORS[(index - OTHER_VISITOR_PALETTE.length) % STRIPE_FALLBACK_COLORS.length];
+}
+
 // Couleur de contour par catégorie de besoin (Entraide) — fixe, indépendante
 // du thème, utilisée pour regrouper visuellement "Mes besoins" (Mon compte)
 // par catégorie sans dupliquer les blocs "pris en charge"/"publiés".
@@ -136,6 +163,6 @@ export const TASK_CATEGORY_COLORS: Record<
   courses: LOGO_GREEN,
   transport: LOGO_NAVY,
   administratif: LOGO_SKYBLUE,
-  relais: PATIENT_ROSE,
+  relais: PATIENT_MAGENTA,
   autre: "#8C8C8C",
 };
