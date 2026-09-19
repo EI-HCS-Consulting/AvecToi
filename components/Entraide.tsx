@@ -725,6 +725,10 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
   // autoUrgentDateRef pour le formulaire Publier : ne réimpose pas le tag
   // si la personne le décoche à la main tant qu'elle ne rechange pas la date.
   const checklistWizardAutoUrgentRef = useRef<Record<string, string>>({});
+  // Confirmation informative après un report d'échéance (bouton "Reporter
+  // cette échéance sur les items suivants") — ConfirmModal singleButton,
+  // cohérent avec le reste de l'app plutôt qu'un Alert.alert natif.
+  const [dateReportedConfirm, setDateReportedConfirm] = useState(false);
   // Destination(s) du lot à publier — au moins une des deux doit rester
   // cochée (voir toggleChecklistPublishWall/Mine) : Mur d'Entraide (tasks),
   // Mes Checklists (personal_checklist_items), ou les deux en même temps —
@@ -6324,10 +6328,7 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
                         <TouchableOpacity
                           onPress={() => {
                             propagateChecklistWizardDate();
-                            Alert.alert(
-                              "Échéance reportée",
-                              "Cette date d'échéance a été appliquée aux items suivants.",
-                            );
+                            setDateReportedConfirm(true);
                           }}
                           activeOpacity={0.8}
                           style={[styles.claimOnCreateBtn, { backgroundColor: color + "18", borderColor: color, marginTop: 8 }]}
@@ -7742,6 +7743,19 @@ export default function Entraide({ spaceId, C, isAdmin, capped, hospitalName, al
         saving={deleteLinkedPersonalSaving}
         onCancel={() => setDeleteLinkedPersonalTarget(null)}
         onConfirm={confirmDeleteLinkedPersonal}
+        C={C}
+      />
+
+      <ConfirmModal
+        visible={dateReportedConfirm}
+        icon="📌"
+        title="Échéance reportée"
+        message="Cette date d'échéance a été appliquée aux items suivants."
+        confirmLabel="J'ai compris"
+        destructive={false}
+        singleButton
+        onCancel={() => setDateReportedConfirm(false)}
+        onConfirm={() => setDateReportedConfirm(false)}
         C={C}
       />
 

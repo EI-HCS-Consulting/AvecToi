@@ -102,6 +102,10 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
   // patient — popup purement informatif (ConfirmModal singleButton) plutôt
   // que la sélection, qui n'aurait plus rien d'importable.
   const [fullyImportedTplName, setFullyImportedTplName] = useState<string | null>(null);
+  // Confirmation informative après un report d'échéance (bouton "Reporter
+  // cette échéance sur les items suivants") — ConfirmModal singleButton,
+  // cohérent avec le reste de l'app plutôt qu'un Alert.alert natif.
+  const [dateReportedConfirm, setDateReportedConfirm] = useState(false);
 
   // Sélection multiple (restant appuyé sur un item, comme dans le Mur
   // d'Entraide) — pour supprimer plusieurs items de sa checklist en une fois.
@@ -1461,6 +1465,19 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
       </Modal>
 
       <ConfirmModal
+        visible={dateReportedConfirm}
+        icon="📌"
+        title="Échéance reportée"
+        message="Cette date d'échéance a été appliquée aux items suivants."
+        confirmLabel="J'ai compris"
+        destructive={false}
+        singleButton
+        onCancel={() => setDateReportedConfirm(false)}
+        onConfirm={() => setDateReportedConfirm(false)}
+        C={C}
+      />
+
+      <ConfirmModal
         visible={!!fullyImportedTplName}
         icon="✅"
         title={`📋 ${fullyImportedTplName ?? ""}`}
@@ -1823,10 +1840,7 @@ export default function MyChecklist({ spaceId, isAdmin, ownerPrenom, ownerNom, o
                         <TouchableOpacity
                           onPress={() => {
                             propagateImportWizardDate();
-                            Alert.alert(
-                              "Échéance reportée",
-                              "Cette date d'échéance a été appliquée aux items suivants.",
-                            );
+                            setDateReportedConfirm(true);
                           }}
                           activeOpacity={0.8}
                           style={[styles.dateBtn, { backgroundColor: color + "18", borderColor: color, marginTop: 8 }]}
