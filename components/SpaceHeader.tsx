@@ -56,13 +56,13 @@ export default function SpaceHeader({
   }, [isVisitor]);
   const visibleTabs = hideMaSemaine ? TABS.filter((t) => t.id !== "ma-semaine") : TABS;
 
-  // 2 lignes visées : nom de l'hôpital, puis "Service X · Chambre Y" — le
-  // secteur (déjà visible dans "Infos hospitalières" et redondant avec le
-  // complément d'adresse, cf. l'exclusion plus bas) n'est volontairement pas
-  // répété ici. Une 3e ligne apparaît naturellement (wrap RN) si le nom de
-  // l'hôpital est trop long pour tenir sur une seule ligne.
+  // 2 lignes visées : nom de l'hôpital (Paramètres/Lieux), puis
+  // "Service X · Secteur Y · Chambre Z" (Paramètres/Infos). Une 3e ligne
+  // apparaît naturellement (wrap RN) si le nom de l'hôpital est trop long
+  // pour tenir sur une seule ligne.
   const serviceRoom = [
     space.hospital_service ? `Service ${space.hospital_service}` : null,
+    space.hospital_sector ? `Secteur ${space.hospital_sector}` : null,
     space.hospital_room ? `Chambre ${space.hospital_room}` : null,
   ]
     .filter((p): p is string => !!p)
