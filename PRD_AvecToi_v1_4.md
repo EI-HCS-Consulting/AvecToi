@@ -1,6 +1,12 @@
 # PRD — AvecToi
-## Product Requirements Document v1.39
+## Product Requirements Document v1.40
 *Préparé pour Claude Code — Juin 2026, synchronisé avec l'application livrée en Juillet/Août/Septembre 2026*
+
+> **Changelog v1.39 → v1.40**
+> - **Accès visiteur par code dossier** *(19/09/2026, PR #462)* : l'écran « Accès visiteur » (« 📅 Je rends visite ») passe d'un mode unique (collage du lien d'invitation / deep-link) à deux modes basculables, à l'image du parcours déjà en place côté Intervenant — code dossier à 7 caractères saisi directement, ou lien d'invitation (QR code ou copié), préempli automatiquement si l'écran est ouvert via un deep-link — voir §3.3
+> - **Secteur hospitalier affiché dans le bandeau d'en-tête** *(19/09/2026, PR #463)* : le bandeau (`SpaceHeader`) affichait déjà « Service X · Chambre Y » mais omettait volontairement le Secteur (jugé redondant avec le complément d'adresse, alors synchronisé automatiquement avec lui) ; désynchronisation des deux champs (Secteur ≠ Complément d'adresse, deux champs désormais distincts) puis ajout de « Secteur Y » dans la ligne, entre Service et Chambre — voir §3.1
+> - **Report d'échéance sur les items suivants d'une checklist** *(19/09/2026, PR #464-465)* : dans l'assistant séquentiel de publication/import d'une checklist (Entraide et Mon Compte → Checklist personnelle), chaque popup d'échéance gagne un bouton « 📌 Reporter cette échéance sur les items suivants » qui applique la même date à tous les items restants du wizard en une seule action, au lieu de la ressaisir item par item (jusqu'à 14 items sur certains modèles) ; popup de confirmation via `ConfirmModal` (mode `singleButton`), jamais d'alerte système native — la 1ère version (PR #464) utilisait `Alert.alert()` par erreur, corrigée en PR #465 — voir §3.8
+> - Détail exhaustif écran par écran : `Documentation/Documentation Fonctionnalités.docx` (généré depuis le code, mis à jour à chaque handoff)
 
 > **Changelog v1.38 → v1.39**
 > - **Couleur fixe pour soi (orange du logo) sur le calendrier visiteurs** *(19/09/2026, PR #460)* : la personne qui consulte le calendrier voit désormais toujours ses propres réservations dans l'orange du logo, au lieu d'une couleur pouvant varier selon l'ordre des visiteurs de l'espace ; `PATIENT_PALETTE` étendue à 8 teintes (identique à `lib/dashboard/colors.ts` côté site web, les deux doivent rester synchronisés) — voir §3.4
