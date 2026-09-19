@@ -56,13 +56,13 @@ export default function SpaceHeader({
   }, [isVisitor]);
   const visibleTabs = hideMaSemaine ? TABS.filter((t) => t.id !== "ma-semaine") : TABS;
 
-  // 2 lignes visées : nom de l'hôpital, puis "Service X · Chambre Y" — le
-  // secteur (déjà visible dans "Infos hospitalières" et redondant avec le
-  // complément d'adresse, cf. l'exclusion plus bas) n'est volontairement pas
-  // répété ici. Une 3e ligne apparaît naturellement (wrap RN) si le nom de
-  // l'hôpital est trop long pour tenir sur une seule ligne.
+  // 2 lignes visées : nom de l'hôpital (Paramètres/Lieux), puis
+  // "Service X · Secteur Y · Chambre Z" (Paramètres/Infos). Une 3e ligne
+  // apparaît naturellement (wrap RN) si le nom de l'hôpital est trop long
+  // pour tenir sur une seule ligne.
   const serviceRoom = [
     space.hospital_service ? `Service ${space.hospital_service}` : null,
+    space.hospital_sector ? `Secteur ${space.hospital_sector}` : null,
     space.hospital_room ? `Chambre ${space.hospital_room}` : null,
   ]
     .filter((p): p is string => !!p)
@@ -73,20 +73,14 @@ export default function SpaceHeader({
   const infoLine = infoLines.join("\n");
 
   const parts = activeAddressParts(space);
-  // En mode hôpital, le complément d'adresse fait doublon avec "Secteur"
-  // (Infos hospitalières, déjà affiché sur infoLine juste au-dessus) — on
-  // l'exclut ici de l'affichage ET du lien Maps généré automatiquement pour
-  // éviter le conflit visuel entre les deux. Sans effet en mode domicile
-  // (pas de notion de secteur).
-  const displayParts = space.home_care_mode ? parts : { ...parts, line2: null };
-  const lines = addressLines(displayParts);
+  const lines = addressLines(parts);
   const addressLine = lines.join("\n");
 
   // Domicile : lien Maps généré automatiquement depuis l'adresse saisie.
   // Hôpital : lien collé manuellement par l'admin (trouvé sur internet) —
   // avec repli sur la génération auto tant qu'il n'a rien collé.
   function openAddress() {
-    const full = joinAddress(displayParts);
+    const full = joinAddress(parts);
     const url = space.home_care_mode
       ? (full ? googleMapsSearchUrl(full) : null)
       : (space.hospital_maps_url || (full ? googleMapsSearchUrl(full) : null));
