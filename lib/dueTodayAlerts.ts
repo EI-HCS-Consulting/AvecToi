@@ -27,6 +27,51 @@ export interface DueTodayIdentity {
 export interface DueTodayAlert {
   task: Task;
   items?: string[];
+  transport?: DueTodayTransportDetail;
+}
+
+// Détail transport précalculé pour l'affichage (voir fetchDueTodayTransport) :
+// "driver" = c'est moi qui conduis (aller et/ou retour) ; "author" = j'ai
+// publié ce besoin (ou j'en suis le bénéficiaire nommé via transport_for_*)
+// et je veux savoir qui s'en occupe. doingOut/doingReturn ne sont
+// significatifs que pour le rôle "driver" (quelle(s) jambe(s) je fais moi-même) ;
+// outDriver/returnDriver sont utiles surtout pour "author" mais toujours
+// renseignés.
+export interface DueTodayTransportDetail {
+  role: "driver" | "author";
+  beneficiary: string | null;
+  outTime: string | null;
+  returnTime: string | null;
+  roundTrip: boolean;
+  doingOut: boolean;
+  doingReturn: boolean;
+  outDriver: string | null;
+  returnDriver: string | null;
+}
+
+function fullName(prenom: string | null, nom: string | null): string | null {
+  const n = [prenom, nom].filter((s) => !!s && s.trim()).join(" ").trim();
+  return n || null;
+}
+
+// Lignes de détail transport prêtes à afficher (partagées app/web dans leur
+// esprit, dupliquées ici comme le reste du fichier — voir port côté
+// avectoi-site/lib/dashboard/dueTodayAlerts.ts).
+export function transportDetailLines(t: DueTodayTransportDetail): string[] {
+  const lines: string[] = [];
+  if (t.role === "driver") {
+    if (t.beneficiary) lines.push(`Pour : ${t.beneficiary}`);
+    if (t.doingOut && t.outTime) lines.push(`Aller aujourd'hui à ${t.outTime}`);
+    if (t.doingReturn && t.returnTime) lines.push(`Retour aujourd'hui à ${t.returnTime}`);
+    if (t.roundTrip && !t.doingReturn && t.returnTime) lines.push(`Un retour est aussi prévu à ${t.returnTime}.`);
+    if (t.roundTrip && !t.doingOut && t.outTime) lines.push(`Un aller est aussi prévu à ${t.outTime}.`);
+  } else {
+    lines.push(t.outDriver ? `Aller : ${t.outDriver}${t.outTime ? ` à ${t.outTime}` : ""}` : "Aller : pas encore pris en charge");
+    if (t.roundTrip) {
+      lines.push(t.returnDriver ? `Retour : ${t.returnDriver}${t.returnTime ? ` à ${t.returnTime}` : ""}` : "Retour : pas encore pris en charge");
+    }
+  }
+  return lines;
 }
 
 // Besoins pris en charge par cette identité (claimed_by_*) dont l'échéance
@@ -120,7 +165,13 @@ async function fetchDueTodayCourses(spaceId: string, today: string, identity: Du
 // différentes pour un même besoin. On alerte dès que l'une des 2 jambes
 // confirmées pour aujourd'hui est prise en charge par cette identité — un
 // seul besoin ne produit jamais 2 alertes même si les 2 jambes tombent le
-// même jour pour la même personne.
+// même jour pour la même personne. Rôle "driver". Par ailleurs, l'auteur du
+// besoin (ou son bénéficiaire nommé via transport_for_*, sans PIN dédié —
+// voir isForPerson dans Entraide.tsx) reçoit lui aussi un rappel le jour J,
+// rôle "author" — pour savoir qui vient le/la chercher et à quelle heure. Un
+// même besoin ne produit jamais les 2 rôles pour la même identité (dédupliqué
+// via driverIds) : peu probable en pratique, mais évite un doublon si la
+// personne s'est arrangée elle-même son propre transport.
 async function fetchDueTodayTransport(spaceId: string, today: string, identity: DueTodayIdentity): Promise<DueTodayAlert[]> {
   const { data, error } = await supabase
     .from("tasks")
@@ -145,11 +196,45 @@ async function fetchDueTodayTransport(spaceId: string, today: string, identity: 
     );
   }
 
-  return tasks
+  function authorIsMine(t: Task): boolean {
+    if (identity.isAdmin) return t.author_pin === "ADMIN";
+    if (!identity.prenom.trim() || !identity.nom.trim()) return false;
+    const matches = (p: string | null, n: string | null) =>
+      (p ?? "").trim().toLowerCase() === identity.prenom.trim().toLowerCase()
+      && (n ?? "").trim().toLowerCase() === identity.nom.trim().toLowerCase();
+    return matches(t.author_prenom, t.author_nom) || matches(t.transport_for_prenom, t.transport_for_nom);
+  }
+
+  function buildDetail(t: Task, role: "driver" | "author"): DueTodayTransportDetail {
+    const outDriver = fullName(t.claimed_by_prenom, t.claimed_by_nom);
+    const returnDriver = t.transport_round_trip
+      ? fullName(t.transport_return_claimed_by_prenom, t.transport_return_claimed_by_nom) ?? outDriver
+      : null;
+    return {
+      role,
+      beneficiary: fullName(t.transport_for_prenom, t.transport_for_nom) ?? fullName(t.author_prenom, t.author_nom),
+      outTime: t.transport_confirmed_out_time,
+      returnTime: t.transport_confirmed_return_time,
+      roundTrip: t.transport_round_trip,
+      doingOut: legIsMine(t.claimed_by_pin, t.claimed_by_prenom, t.claimed_by_nom),
+      doingReturn: legIsMine(t.transport_return_claimed_by_pin, t.transport_return_claimed_by_prenom, t.transport_return_claimed_by_nom),
+      outDriver,
+      returnDriver,
+    };
+  }
+
+  const driverAlerts = tasks
     .filter(
       (t) =>
         legIsMine(t.claimed_by_pin, t.claimed_by_prenom, t.claimed_by_nom)
         || legIsMine(t.transport_return_claimed_by_pin, t.transport_return_claimed_by_prenom, t.transport_return_claimed_by_nom)
     )
-    .map((task) => ({ task }));
+    .map((task) => ({ task, transport: buildDetail(task, "driver") }));
+
+  const driverIds = new Set(driverAlerts.map((a) => a.task.id));
+  const authorAlerts = tasks
+    .filter((t) => !driverIds.has(t.id) && authorIsMine(t))
+    .map((task) => ({ task, transport: buildDetail(task, "author") }));
+
+  return [...driverAlerts, ...authorAlerts];
 }
