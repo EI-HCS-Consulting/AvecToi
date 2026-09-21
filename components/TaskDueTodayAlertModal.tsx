@@ -4,7 +4,7 @@ import { useRouter } from "expo-router";
 import { useDisplayMode } from "@/lib/DisplayModeContext";
 import { getVisitorSession } from "@/lib/visitorSession";
 import { supabase } from "@/lib/supabase";
-import { fetchDueTodayCommitments, type DueTodayAlert } from "@/lib/dueTodayAlerts";
+import { fetchDueTodayCommitments, transportDetailLines, type DueTodayAlert } from "@/lib/dueTodayAlerts";
 import type { Task } from "@/lib/types";
 
 const CATEGORY_ICONS: Partial<Record<Task["category"], string>> = {
@@ -35,6 +35,14 @@ const CATEGORY_LABELS: Partial<Record<Task["category"], string>> = {
 // pas seulement la preneuse formelle (même logique que courseFaitEligible
 // dans Entraide.tsx). "Fermer" passe à l'alerte suivante ou, une fois la
 // dernière traitée, revient sur "Ma semaine".
+//
+// Transport : le détail (pour qui, à quelle heure, aller/retour) vient de
+// current.transport (voir DueTodayTransportDetail/transportDetailLines dans
+// dueTodayAlerts.ts). Rôle "driver" (je conduis) garde le comportement
+// ci-dessus (?openDone=1). Rôle "author" (j'ai publié ce besoin ou j'en suis
+// le bénéficiaire nommé) n'ouvre jamais la sheet "Marquer fait" — mon PIN ne
+// matche pas claimed_by_pin, confirmDone échouerait — le bouton principal se
+// contente de naviguer vers le besoin (voir handleDone).
 //
 // Alertes "regardées" le temps de rester sur l'écran courant uniquement
 // (jamais persisté) : le popup ne doit pas réapparaître en boucle pendant
@@ -108,9 +116,14 @@ export default function TaskDueTodayAlertModal({ spaceId, isAdmin }: { spaceId: 
     // Courses n'a pas de sheet "Marquer fait" dédiée — le bouton principal
     // ouvre directement l'aperçu de la liste (cochage = attribution, voir
     // toggleClaim dans ShoppingListModal.tsx) ; l'achat se marque séparément
-    // via le bouton "Fait" ci-dessous (handleFait) ou celui du mur.
-    const param = isCourses ? "openShoppingList" : "openDone";
-    router.push(`${basePath}/entraide?focusTaskId=${current.task.id}&${param}=1` as any);
+    // via le bouton "Fait" ci-dessous (handleFait) ou celui du mur. Pour un
+    // rappel transport "author" (je suis l'auteur/bénéficiaire, pas le
+    // conducteur), ?openDone=1 échouerait la vérification PIN (confirmDone
+    // compare contre claimed_by_pin/transport_return_claimed_by_pin, pas le
+    // mien) — on se contente de naviguer vers le besoin, sans ouvrir la sheet.
+    const isAuthorTransport = current.transport?.role === "author";
+    const param = isCourses ? "openShoppingList" : isAuthorTransport ? null : "openDone";
+    router.push(`${basePath}/entraide?focusTaskId=${current.task.id}${param ? `&${param}=1` : ""}` as any);
     void wasLast;
   }
 
@@ -178,18 +191,25 @@ export default function TaskDueTodayAlertModal({ spaceId, isAdmin }: { spaceId: 
                 Tu t'es chargé(e) de : {items.join(", ")}
               </Text>
             )}
+            {!!current.transport && transportDetailLines(current.transport).map((line) => (
+              <Text key={line} style={[styles.detailBody, { color: C.muted }]}>{line}</Text>
+            ))}
           </View>
           <Text style={[styles.body, { color: C.muted }]}>
             {isCourses
               ? `Tu t'es engagé(e) à acheter ${items?.length ?? 0} article${(items?.length ?? 0) > 1 ? "s" : ""} de la liste ${task.title} et c'est pour aujourd'hui.`
-              : `Tu as pris en charge ce besoin ${task.title} et c'est pour aujourd'hui. Marque-le comme fait si tu t'en es déjà occupé.`}
+              : current.transport?.role === "author"
+                ? `Le transport que tu as demandé (${task.title}) est prévu aujourd'hui.`
+                : `Tu as pris en charge ce besoin ${task.title} et c'est pour aujourd'hui. Marque-le comme fait si tu t'en es déjà occupé.`}
           </Text>
           <TouchableOpacity
             style={[styles.btnFull, { backgroundColor: C.accent }]}
             onPress={handleDone}
             activeOpacity={0.85}
           >
-            <Text style={styles.btnPrimaryText}>{isCourses ? "🛒 Voir ma liste" : "✓ C'est fait"}</Text>
+            <Text style={styles.btnPrimaryText}>
+              {isCourses ? "🛒 Voir ma liste" : current.transport?.role === "author" ? "Voir ce besoin" : "✓ C'est fait"}
+            </Text>
           </TouchableOpacity>
           {isCourses && (
             <TouchableOpacity
