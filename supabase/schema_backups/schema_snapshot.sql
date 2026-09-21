@@ -3069,6 +3069,7 @@ CREATE TABLE IF NOT EXISTS "public"."tasks" (
     "relais_dismissed_by" "jsonb" DEFAULT '[]'::"jsonb" NOT NULL,
     "transport_home_maps_url" "text",
     "claimed_at" timestamp with time zone,
+    "recurrence_group_id" "text",
     CONSTRAINT "tasks_category_check" CHECK (("category" = ANY (ARRAY['repas'::"text", 'affaires'::"text", 'courses'::"text", 'transport'::"text", 'administratif'::"text", 'autre'::"text", 'relais'::"text"]))),
     CONSTRAINT "tasks_relais_visible_to_check" CHECK ((("relais_visible_to" IS NULL) OR ("relais_visible_to" = ANY (ARRAY['all'::"text", 'some'::"text"])))),
     CONSTRAINT "tasks_status_check" CHECK (("status" = ANY (ARRAY['ouvert'::"text", 'pris_en_charge'::"text", 'fait'::"text", 'ferme'::"text"])))
