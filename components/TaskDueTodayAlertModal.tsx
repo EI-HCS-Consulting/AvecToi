@@ -8,30 +8,33 @@ import { fetchDueTodayCommitments, type DueTodayAlert } from "@/lib/dueTodayAler
 import type { Task } from "@/lib/types";
 
 const CATEGORY_ICONS: Partial<Record<Task["category"], string>> = {
-  repas: "🍽️", affaires: "👕", administratif: "🗂️", autre: "💡", courses: "🛒",
+  repas: "🍽️", affaires: "👕", administratif: "🗂️", autre: "💡", courses: "🛒", transport: "🚗",
 };
 const CATEGORY_LABELS: Partial<Record<Task["category"], string>> = {
-  repas: "Repas", affaires: "Affaires", administratif: "Administratif", autre: "Autre", courses: "Courses",
+  repas: "Repas", affaires: "Affaires", administratif: "Administratif", autre: "Autre", courses: "Courses", transport: "Transport",
 };
 
 // Popup affiché à la connexion (admin et visiteur, voir montage dans
 // (admin)/_layout.tsx et (visitor)/_layout.tsx) pour chaque besoin pris en
-// charge par cette identité dont l'échéance (date_limite) tombe aujourd'hui
-// — demande explicite : un rappel le jour même, avec un bouton "Fait" qui
-// valide directement le besoin. Pour repas/affaires/administratif/autre,
-// "Fait" ouvre la sheet de confirmation "Marquer fait" d'Entraide.tsx (PIN
-// pré-vérifié pour son propre engagement + photo optionnelle) via
-// ?openDone=1, même mécanisme que RelaisAlertModal ("Je m'en occupe" ->
-// ?openClaim=1) plutôt que de dupliquer cette logique ici. Pour courses (pas
-// de PIN par article), le bouton principal ouvre directement l'aperçu de la
-// liste (?openShoppingList=1) et un second bouton "✓ Fait" (voir handleFait)
-// marque achetés les articles que j'ai pris en charge (cochage = attribution,
-// "Fait" = achat réel une fois les courses faites) et ne referme le besoin
-// que quand plus personne n'a d'article en attente d'achat — utilisable par
-// toute personne ayant coché ≥1 article, pas seulement la preneuse formelle
-// (même logique que courseFaitEligible dans Entraide.tsx). "Fermer" passe à
-// l'alerte suivante ou, une fois la dernière traitée, revient sur "Ma
-// semaine".
+// charge par cette identité dont l'échéance tombe aujourd'hui (date_limite,
+// ou transport_confirmed_date pour transport — voir fetchDueTodayTransport
+// dans dueTodayAlerts.ts) — demande explicite : un rappel le jour même, avec
+// un bouton "Fait" qui valide directement le besoin. Pour repas/affaires/
+// administratif/autre/transport, "Fait" ouvre la sheet de confirmation
+// "Marquer fait" d'Entraide.tsx (PIN pré-vérifié pour son propre engagement +
+// photo optionnelle) via ?openDone=1, même mécanisme que RelaisAlertModal
+// ("Je m'en occupe" -> ?openClaim=1) plutôt que de dupliquer cette logique
+// ici — confirmDone y vérifie déjà le PIN contre claimed_by_pin OU
+// transport_return_claimed_by_pin, donc transport fonctionne sans code
+// spécifique. Pour courses (pas de PIN par article), le bouton principal
+// ouvre directement l'aperçu de la liste (?openShoppingList=1) et un second
+// bouton "✓ Fait" (voir handleFait) marque achetés les articles que j'ai pris
+// en charge (cochage = attribution, "Fait" = achat réel une fois les courses
+// faites) et ne referme le besoin que quand plus personne n'a d'article en
+// attente d'achat — utilisable par toute personne ayant coché ≥1 article,
+// pas seulement la preneuse formelle (même logique que courseFaitEligible
+// dans Entraide.tsx). "Fermer" passe à l'alerte suivante ou, une fois la
+// dernière traitée, revient sur "Ma semaine".
 //
 // Alertes "regardées" le temps de rester sur l'écran courant uniquement
 // (jamais persisté) : le popup ne doit pas réapparaître en boucle pendant

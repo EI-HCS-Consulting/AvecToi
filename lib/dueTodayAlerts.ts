@@ -3,15 +3,15 @@ import { toISO } from "@/lib/slotUtils";
 import type { Task } from "@/lib/types";
 
 // Catégories couvertes par le rappel d'échéance "classique" (popup à
-// l'ouverture de l'app, voir TaskDueTodayAlertModal.tsx) : transport a son
-// propre statut de complétion dédié ("C'est fait" + transportOverdue, voir
-// Entraide.tsx) et relais se ferme par l'admin (closeRelais, pas de preneur
-// unique) — ni l'un ni l'autre n'a besoin d'un rappel personnel "C'est fait"
-// pour le preneur. Courses est traité séparément ci-dessous : contrairement
-// aux autres catégories, une liste peut être "ouverte" (dispatch libre, pas
-// de claimed_by_*) tout en ayant des articles cochés par plusieurs
-// personnes — le rappel doit alors partir vers CHAQUE personne ayant coché
-// au moins un article, avec la liste de ses articles.
+// l'ouverture de l'app, voir TaskDueTodayAlertModal.tsx) : relais se ferme
+// par l'admin (closeRelais, pas de preneur unique), il n'a donc pas besoin
+// d'un rappel personnel "C'est fait" pour un preneur. Courses et transport
+// sont traités séparément ci-dessous, chacun avec sa propre notion
+// d'échéance/de preneur — transport n'a pas de date_limite (l'échéance est
+// transport_confirmed_date, fixée par validateTransportLeg dans Entraide.tsx)
+// et son preneur est soit claimed_by_* (aller) soit
+// transport_return_claimed_by_* (retour), potentiellement 2 personnes
+// différentes.
 const REMINDED_CATEGORIES: Task["category"][] = ["repas", "affaires", "administratif", "autre"];
 
 export interface DueTodayIdentity {
@@ -61,7 +61,8 @@ export async function fetchDueTodayCommitments(spaceId: string, identity: DueTod
   const alerts: DueTodayAlert[] = ((data as Task[] | null) ?? []).map((task) => ({ task }));
 
   const coursesAlerts = await fetchDueTodayCourses(spaceId, today, identity);
-  return [...alerts, ...coursesAlerts];
+  const transportAlerts = await fetchDueTodayTransport(spaceId, today, identity);
+  return [...alerts, ...coursesAlerts, ...transportAlerts];
 }
 
 // Courses : pas de claimed_by_* unique — une liste peut rester "ouverte"
@@ -111,4 +112,44 @@ async function fetchDueTodayCourses(spaceId: string, today: string, identity: Du
     if (mine.length) alerts.push({ task, items: mine.map((i) => i.label) });
   }
   return alerts;
+}
+
+// Transport : pas de date_limite ni de claimed_by_* unique — l'échéance est
+// transport_confirmed_date et le preneur peut être l'aller (claimed_by_*) et/
+// ou le retour (transport_return_claimed_by_*), potentiellement 2 personnes
+// différentes pour un même besoin. On alerte dès que l'une des 2 jambes
+// confirmées pour aujourd'hui est prise en charge par cette identité — un
+// seul besoin ne produit jamais 2 alertes même si les 2 jambes tombent le
+// même jour pour la même personne.
+async function fetchDueTodayTransport(spaceId: string, today: string, identity: DueTodayIdentity): Promise<DueTodayAlert[]> {
+  const { data, error } = await supabase
+    .from("tasks")
+    .select("*")
+    .eq("space_id", spaceId)
+    .eq("category", "transport")
+    .eq("status", "pris_en_charge")
+    .eq("transport_confirmed_date", today);
+  if (error) {
+    console.error("[fetchDueTodayTransport] query failed:", error);
+    return [];
+  }
+  const tasks = (data as Task[] | null) ?? [];
+
+  function legIsMine(pin: string | null, prenom: string | null, nom: string | null): boolean {
+    if (identity.isAdmin) return pin === "ADMIN";
+    if (!identity.prenom.trim() || !identity.nom.trim() || !identity.pin) return false;
+    return (
+      pin === identity.pin
+      && (prenom ?? "").trim().toLowerCase() === identity.prenom.trim().toLowerCase()
+      && (nom ?? "").trim().toLowerCase() === identity.nom.trim().toLowerCase()
+    );
+  }
+
+  return tasks
+    .filter(
+      (t) =>
+        legIsMine(t.claimed_by_pin, t.claimed_by_prenom, t.claimed_by_nom)
+        || legIsMine(t.transport_return_claimed_by_pin, t.transport_return_claimed_by_prenom, t.transport_return_claimed_by_nom)
+    )
+    .map((task) => ({ task }));
 }
